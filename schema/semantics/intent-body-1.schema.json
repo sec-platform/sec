@@ -254,8 +254,7 @@
             "modality",
             "actorRole",
             "trigger",
-            "fulfilment",
-            "deadlineRef"
+            "fulfilment"
           ],
           "properties": {
             "id": {
@@ -278,8 +277,43 @@
             "deadlineRef": {
               "type": "string",
               "minLength": 1
+            },
+            "temporalMode": {
+              "enum": [
+                "open-ended",
+                "ongoing"
+              ],
+              "description": "Open-ended: a triggered duty to fulfil without a finite specified deadline; remains outstanding until qualified discharge/release. Ongoing: maintain fulfilment for every applicable observation point in the Norm's active scope; not a one-shot discharge. Neither is a policy prohibition, HostGrant nor implicit infinite proof."
+            },
+            "scopeRef": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional exact obligation validity/scope reference; issuer, conflict, revocation, exception and role binding are owned by the qualified normative interpretation."
             }
-          }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "deadlineRef"
+              ],
+              "not": {
+                "required": [
+                  "temporalMode"
+                ]
+              }
+            },
+            {
+              "required": [
+                "temporalMode"
+              ],
+              "not": {
+                "required": [
+                  "deadlineRef"
+                ]
+              }
+            }
+          ],
+          "description": "Every obligation must specify exactly one time regime: the original qualified deadlineRef, open-ended until discharge/release, or ongoing fulfilment throughout an activated validity scope. A missing deadline is not an unknown deadline, and an invalid deadline reference cannot be silently replaced by open-ended."
         },
         {
           "type": "object",
@@ -398,7 +432,8 @@
         },
         "count": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Exact nonnegative mathematical count k, not an array index. Decode and validate raw JSON numeric decimal lexeme before IEEE754 conversion; retain unbounded value via exact integer type. Finite observation/domain bounds and computation budget restrict evidence, not what author can express."
         },
         "scopeRef": {
           "type": "string",

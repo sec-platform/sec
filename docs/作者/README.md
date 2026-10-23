@@ -4,7 +4,9 @@
 
 本主题说明产品作者怎样保存可解释的工程含义、公开组合和必要选择。当前选定的结构化表示可以直接进入同一编译体系；可选计算文本、原生实现与可视客户端不因此成为产品作者前置。
 
-普通开发的统一入口不是再学习一套底层语言：持久作者结构见[最终作者面的同源投影](结构化源码.md#author-surface-projection)，**用户到底能决定哪些工程事实**见[完整开发设定面](需求关系与能力边界.md#developer-decision-surface)，所有可能影响结果的细节如何不丢失见[作者信息完整性](需求关系与能力边界.md#author-information-completeness)，Auto/Require/Prefer/Pin/Forbid/Reset怎样归一见[控制UX](组合/稀疏控制与目标限定.md#developer-control-ux)，自动选择与显式控制怎样形成有效值见[有效控制投影](组合/稀疏控制与目标限定.md#effective-control-projection)，原生配置和非源码怎样保留自己的格式与所有权见[配置所有权与生态适配](工程源/资产与非源码.md#configuration-ownership-and-adapters)。这些入口解释同一份工程事实，不建立第二套 Property IR、万能配置文件或并行作者真源。
+普通作者先确定[所求含义、独立约束及允许变化](需求含义与实现责任.md#open-intent-expression-closure)，再[引用公开定义、绑定角色和参数并组合](组合/定义与接口.md#block-composition-contract)，只维护本次真实差异。需要限制实现自由时使用[控制UX](组合/稀疏控制与目标限定.md#developer-control-ux)；随后按本次目的、输出根和目标进入[同一开发主链](../开发/需求到交付主链.md#intent-to-product)。缺含义回其作者，含义已完整而缺实现时交对应供给作者；已固定输入由[原编译算法](../编译/内核/输入与阶段总览.md#compiler-framework-driver)生成目标，下一次修改回真正拥有该决定的源。角色分工沿[既有作者与实现责任](可替换表示与适用范围.md)，不要求每次工作新增Goal包装、填写内部IR或执行一套固定步骤。
+
+需要查看准确字段时，持久结构见[最终作者面的同源投影](结构化源码.md#author-surface-projection)，用户可以决定的工程事实见[完整开发设定面](需求关系与能力边界.md#developer-decision-surface)，省略内容的来源及保全见[作者信息完整性](需求关系与能力边界.md#author-information-completeness)，自动选择与显式控制的合成见[有效控制投影](组合/稀疏控制与目标限定.md#effective-control-projection)，原生配置和非源码的格式与所有权见[配置所有权与生态适配](工程源/资产与非源码.md#configuration-ownership-and-adapters)。这些入口解释同一份工程事实，不建立第二套 Property IR、万能配置文件或并行作者真源。
 
 开发任务从[开放意图及其组合](需求含义与实现责任.md#open-intent-expression-closure)出发；[四条决定坐标](需求关系与能力边界.md#developer-mental-model)只解释实际Decision，不构成任务种类或准入。普通作者没有必需文本语言关键词；结构源码、控制UX和可选`.gift`各有准确责任与词汇。主体、所求关系及本次出口按[开放开发面](需求关系与能力边界.md#open-developer-intent-surface)进入，不先归固定任务桶。
 

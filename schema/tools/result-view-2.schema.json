@@ -46,7 +46,8 @@
             "minLength": 1,
             "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
           },
-          "minItems": 0
+          "minItems": 0,
+          "uniqueItems": true
         },
         "complete": {
           "type": "array",
@@ -55,7 +56,8 @@
             "minLength": 1,
             "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
           },
-          "minItems": 0
+          "minItems": 0,
+          "uniqueItems": true
         },
         "incomplete": {
           "type": "array",
@@ -147,7 +149,8 @@
                     }
                   }
                 },
-                "minItems": 0
+                "minItems": 1,
+                "description": "Code result must have at least one actual member. Paths must be canonical, distinct per exact output identity and free of traversal or alias collision; JSON Schema cannot prove per-path uniqueness or complete ArtifactSet. Empty or unqualified target root is not a code success."
               }
             }
           },
@@ -231,7 +234,32 @@
                 },
                 "minItems": 0
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "verdict"
+                  ],
+                  "properties": {
+                    "verdict": {
+                      "enum": [
+                        "pass",
+                        "fail"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "evidenceRefs": {
+                      "minItems": 1
+                    }
+                  }
+                }
+              }
+            ],
+            "description": "A pass/fail verdict must cite at least one real qualified Evidence/CheckRecord ref for the exact claim, subject and basis; static diagnostics may be evidence when recorded by Assurance, not fabricated references. Unknown/incomplete may legitimately have no evidence. The actual Assurance consumer verifies the cited evidence's scope, integrity, method, coverage and freshness."
           }
         ]
       },
@@ -274,13 +302,26 @@
                 },
                 "startByte": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Exact bounded byte offset in the declared source content revision, not a grapheme/UTF-16 position. Decode before floating rounding; consumer checks start<=end, actual content length, version and relevant encoding."
                 },
                 "endByte": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Exact bounded byte offset in the declared source content revision, not a grapheme/UTF-16 position. Decode before floating rounding; consumer checks start<=end, actual content length, version and relevant encoding."
                 }
-              }
+              },
+              "dependentRequired": {
+                "startByte": [
+                  "endByte"
+                ],
+                "endByte": [
+                  "startByte"
+                ]
+              },
+              "description": "Source location has sourceRef and optionally jsonPointer or a paired half-open [startByte,endByte) byte range. A single orphan byte endpoint is invalid; the consumer verifies byte bounds, source version, encoding and pointer relevance."
             },
             "minItems": 0
           }

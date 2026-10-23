@@ -1,0 +1,102 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:workflow-values",
+  "definitions": {
+    "Identity": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"n","type":{"tag":"scalar","name":"int"}}],
+        "returns": {"tag":"scalar","name":"int"},
+        "effects": [],
+        "body": {"op":"var","name":"n"}
+      }
+    },
+    "Fail": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"n","type":{"tag":"scalar","name":"int"}}],
+        "returns": {"tag":"scalar","name":"int"},
+        "effects": [{"class":"raise","errorType":{"tag":"scalar","name":"text"}}],
+        "body": {"op":"throw","error":{"op":"literal","type":{"tag":"scalar","name":"text"},"value":"requested-failure"}}
+      }
+    },
+    "Child": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {"tag":"record","fields":{"a-b":{"type":{"tag":"scalar","name":"int"}},"value":{"type":{"tag":"scalar","name":"int"}}}},
+        "output": {"tag":"record","fields":{"a-b":{"type":{"tag":"scalar","name":"int"}},"value":{"type":{"tag":"scalar","name":"int"}}}},
+        "errors": {"tag":"scalar","name":"text"},
+        "entry": "Done",
+        "completion": ["Done"],
+        "recovery": "fail",
+        "steps": [
+          {"id":"Done","kind":"terminal","outcome":"succeeded","resultBindings":{"a-b":{"source":"input","path":"/a-b"},"value":{"source":"input","path":"/value"}}}
+        ]
+      }
+    },
+    "Parent": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {"tag":"record","fields":{"a-b":{"type":{"tag":"scalar","name":"int"}},"value":{"type":{"tag":"scalar","name":"int"}}}},
+        "output": {"tag":"record","fields":{"a-b":{"type":{"tag":"scalar","name":"int"}},"value":{"type":{"tag":"scalar","name":"int"}}}},
+        "errors": {"tag":"scalar","name":"text"},
+        "entry": "Invoke",
+        "completion": ["Done"],
+        "recovery": "fail",
+        "steps": [
+          {"id":"Invoke","kind":"subflow","subflowRef":"local:Child","inputs":{"a-b":{"source":"input","path":"/a-b"},"value":{"source":"input","path":"/value"}},"onSuccessStep":"Done"},
+          {"id":"Done","kind":"terminal","outcome":"succeeded"}
+        ]
+      }
+    },
+    "Projected": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {"tag":"record","fields":{"a-b":{"type":{"tag":"scalar","name":"int"}},"value":{"type":{"tag":"scalar","name":"int"}}}},
+        "output": {"tag":"record","fields":{"a-b":{"type":{"tag":"scalar","name":"int"}},"value":{"type":{"tag":"scalar","name":"int"}}}},
+        "errors": {"tag":"scalar","name":"text"},
+        "entry": "Read",
+        "completion": ["Done"],
+        "recovery": "fail",
+        "steps": [
+          {"id":"Read","kind":"compute","functionRef":"local:Identity","inputs":{"n":{"source":"input","path":"/a-b"}},"resultBindings":{"a-b":{"source":"outcome","stepId":"Read","path":"/value"},"value":{"source":"input","path":"/value"}},"onSuccessStep":"Done"},
+          {"id":"Done","kind":"terminal","outcome":"succeeded"}
+        ]
+      }
+    },
+    "ErrorRelay": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {"tag":"scalar","name":"int"},
+        "output": {"tag":"scalar","name":"int"},
+        "errors": {"tag":"scalar","name":"text"},
+        "entry": "Attempt",
+        "completion": ["Done","Failed"],
+        "recovery": "fail",
+        "steps": [
+          {"id":"Attempt","kind":"compute","functionRef":"local:Fail","inputs":{"n":{"source":"input","path":""}},"onSuccessStep":"Done","onErrorStep":"Failed"},
+          {"id":"Done","kind":"terminal","outcome":"succeeded"},
+          {"id":"Failed","kind":"terminal","outcome":"failed","resultBindings":{"value":{"source":"outcome","stepId":"Attempt","path":"/error"}}}
+        ]
+      }
+    },
+    "UnitOnly": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {"tag":"scalar","name":"unit"},
+        "output": {"tag":"scalar","name":"unit"},
+        "errors": {"tag":"scalar","name":"never"},
+        "entry": "Done",
+        "completion": ["Done"],
+        "recovery": "fail",
+        "steps": [{"id":"Done","kind":"terminal","outcome":"succeeded"}]
+      }
+    }
+  },
+  "exports": {
+    "Parent": {"definitionId":"Parent"},
+    "Projected": {"definitionId":"Projected"},
+    "ErrorRelay": {"definitionId":"ErrorRelay"},
+    "UnitOnly": {"definitionId":"UnitOnly"}
+  }
+}

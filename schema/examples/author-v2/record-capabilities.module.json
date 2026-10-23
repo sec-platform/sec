@@ -1,0 +1,228 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:record-capabilities",
+  "imports": {
+    "record": {
+      "mode": "locked",
+      "moduleId": "gift:record",
+      "constraint": "1"
+    }
+  },
+  "definitions": {
+    "MakeMixed": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "record",
+          "fields": {
+            "slot": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "mutable": true
+            },
+            "label": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              },
+              "optional": true
+            },
+            "maybe": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "optional": true,
+              "mutable": true
+            }
+          },
+          "open": true
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "slot",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                },
+                "value": "1"
+              }
+            },
+            {
+              "name": "spare",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ReadSlot": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "r",
+            "type": {
+              "tag": "record",
+              "fields": {
+                "slot": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  },
+                  "mutable": true
+                },
+                "label": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  },
+                  "optional": true
+                },
+                "maybe": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  },
+                  "optional": true,
+                  "mutable": true
+                }
+              },
+              "open": true
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "int"
+        },
+        "effects": [
+          {
+            "class": "state-read"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "record:probe"
+          },
+          "semanticArguments": [
+            {
+              "tag": "record",
+              "fields": {
+                "slot": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  },
+                  "mutable": true
+                },
+                "label": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  },
+                  "optional": true
+                },
+                "maybe": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  },
+                  "optional": true,
+                  "mutable": true
+                }
+              },
+              "open": true
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "slot"
+              }
+            }
+          ],
+          "arguments": [
+            {
+              "op": "var",
+              "name": "r"
+            }
+          ]
+        }
+      }
+    },
+    "KeepTail": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "Tail",
+            "kind": "Type"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "r",
+            "mode": "move",
+            "type": {
+              "tag": "record",
+              "fields": {
+                "marker": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  }
+                }
+              },
+              "open": true,
+              "rowType": {
+                "tag": "param",
+                "name": "Tail"
+              }
+            }
+          }
+        ],
+        "returns": {
+          "tag": "record",
+          "fields": {
+            "marker": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            }
+          },
+          "open": true,
+          "rowType": {
+            "tag": "param",
+            "name": "Tail"
+          }
+        },
+        "effects": [],
+        "body": {
+          "op": "var",
+          "name": "r"
+        }
+      }
+    }
+  }
+}

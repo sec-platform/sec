@@ -86,6 +86,24 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "required": [
+          "return"
+        ],
+        "properties": {
+          "return": {
+            "const": "diff"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "base"
+        ]
+      },
+      "description": "The structured-files extension must preserve the base prerequisite of the original propose(files) branch: a requested diff needs an exact author preimage. A context or file profile cannot silently stand in for base."
     }
   ],
   "$defs": {

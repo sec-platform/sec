@@ -95,13 +95,14 @@
     },
     "definitions": {
       "type": "object",
-      "minProperties": 1,
+      "minProperties": 0,
       "propertyNames": {
         "$ref": "#/$defs/Identifier"
       },
       "additionalProperties": {
         "$ref": "#/$defs/Definition"
-      }
+      },
+      "description": "Local definitions may be empty only for an export-only facade. Semantic linking verifies that each export resolves to an exact, public imported symbol; source modules do not gain new identities or authorities."
     },
     "exports": {
       "type": "object",
@@ -110,16 +111,15 @@
         "$ref": "#/$defs/Identifier"
       },
       "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "definitionId"
-        ],
-        "properties": {
-          "definitionId": {
-            "$ref": "#/$defs/Identifier"
+        "oneOf": [
+          {
+            "$ref": "#/$defs/LocalExport"
+          },
+          {
+            "$ref": "#/$defs/ImportedExport"
           }
-        }
+        ],
+        "description": "A stable public name routes either to a local Definition or to a public symbol of an explicit import; no implicit wrapper function or extra authority."
       }
     },
     "annotations": {
@@ -188,10 +188,12 @@
           "$ref": "#/$defs/Type"
         },
         "mutable": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Omitted or false means an immutable field. true selects the common managed Place semantics: aliases and shallow reconstruction preserve the Place; a real new construction creates a new Place. This shape does not grant write or ownership permission."
         },
         "optional": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Omitted or false means required. true records independent Absent/Present(T) state; it does not replace payload T by Option<T>. Record meaning and qualification are owned by the common computation contract."
         }
       }
     },
@@ -238,7 +240,8 @@
             "await",
             "io",
             "alloc",
-            "unsafe"
+            "unsafe",
+            "raise"
           ]
         },
         "portRef": {
@@ -250,8 +253,38 @@
         "scopeRef": {
           "type": "string",
           "minLength": 1
+        },
+        "errorType": {
+          "$ref": "#/$defs/Type"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "raise"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "required": [
+              "errorType"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "errorType"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Recoverable raise carries its exact error upper-bound Type only in a selected managed abortive-error profile. All function, lambda and higher-order signatures use this same effect. The semantic checker validates error identity, admissible payload ownership/lifetime, closed error-family mappings and method/Target support; shape alone grants no execution or catch-all capability. Non-raise effects cannot carry errorType. Old readers must reject unsupported revisions rather than erase raise."
     },
     "Metric": {
       "type": "object",
@@ -382,11 +415,15 @@
             },
             "bits": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
             },
             "scale": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
             },
             "overflow": {
               "enum": [
@@ -508,9 +545,33 @@
               }
             },
             "open": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Omitted or false is closed. true preserves a complete typed remainder; it never discards extra fields or gives Any payloads. Record domain, row witnesses, ownership and visibility remain semantic checks."
+            },
+            "rowType": {
+              "$ref": "#/$defs/Type",
+              "description": "The explicit remainder type must resolve to a qualified record Type and preserve the same row parameter/witness; it is legal only with explicit open:true. Shape validation does not prove Record/Lacks or nominal qualification."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "rowType"
+                ]
+              },
+              "then": {
+                "required": [
+                  "open"
+                ],
+                "properties": {
+                  "open": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          ]
         },
         {
           "type": "object",
@@ -687,7 +748,7 @@
             "params": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/Type"
+                "$ref": "#/$defs/TypeSequenceItem"
               },
               "minItems": 0
             },
@@ -695,11 +756,41 @@
               "$ref": "#/$defs/Type"
             },
             "effects": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Effect"
+                  },
+                  "minItems": 0
+                },
+                {
+                  "$ref": "#/$defs/EffectRow"
+                }
+              ],
+              "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
+            },
+            "typeParams": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/Effect"
+                "$ref": "#/$defs/TypeParam"
               },
-              "minItems": 0
+              "minItems": 0,
+              "description": "Existing restricted callback-local binders only: Region/Scope and argument binding. Omission in a function type is no local binders; a lambda may inherit the unique expected signature. Reading the type does not create a fresh runtime witness."
+            },
+            "callMode": {
+              "enum": [
+                "shared",
+                "exclusive",
+                "consume"
+              ],
+              "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+            },
+            "parameterContracts": {
+              "$ref": "#/$defs/ParameterContracts"
+            },
+            "captures": {
+              "$ref": "#/$defs/Captures"
             }
           }
         },
@@ -808,6 +899,43 @@
               "$ref": "#/$defs/Ref"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "constructor",
+            "arguments"
+          ],
+          "properties": {
+            "tag": {
+              "const": "apply"
+            },
+            "constructor": {
+              "$ref": "#/$defs/ConstructorTerm"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SemanticSequenceItem"
+              },
+              "minItems": 0
+            }
+          },
+          "description": "Existing common type application in successor encoding. Only a constructor whose remaining result is Type is legal; finite expand and actual kind/phase/constraint checks use the original common parameter owner."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "packElement"
+          ],
+          "properties": {
+            "packElement": {
+              "$ref": "#/$defs/PackElement"
+            }
+          }
         }
       ]
     },
@@ -914,9 +1042,219 @@
                   }
                 }
               }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "decimal"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/DecimalLiteral"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "bool"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "text"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "unit"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "enum": [
+                          "never",
+                          "float"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": false
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "bytes"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "type": {
+                    "required": [
+                      "encoding"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "type": {
+                          "properties": {
+                            "encoding": {
+                              "const": "hex"
+                            }
+                          },
+                          "required": [
+                            "encoding"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "value": {
+                          "pattern": "^(?:[0-9a-f]{2})*$"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
             }
           ],
-          "description": "Integer literals use canonical decimal strings even within the host safe-integer range. The Type/Value owner separately checks bit-width, bounds and qualified codecs; JSON numbers are not a second integer Writer."
+          "description": "Int/UInt literals use canonical exact decimal strings. Decimal uses exact signed integer coefficient and bounded nonnegative base-10 scale. Bool/Text/Unit use their matching JSON boolean/string/null representations. Never has no inhabitant and cannot be a literal; this selected profile does not offer an implicit Float JSON-number literal—use the bound F64Bits/decodeF64 or a qualified numeric constructor. Other nominal/specialized values still require their actual Type/Value codec; mere JSON shape is not semantic qualification. Bytes literals additionally require an explicit codec in scalar Type.encoding (hex/base64/utf8) and a string representation. Canonical lowercase even-length hex is checked by schema; base64 canonicality and UTF-8 scalar decoding are checked by the qualified codec. No silent implicit encoding, locale normalization or JSON numeric array conversion."
         },
         {
           "type": "object",
@@ -1037,19 +1375,50 @@
             "params": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/Param"
+                "$ref": "#/$defs/LambdaParam"
               },
               "minItems": 0
             },
             "body": {
-              "$ref": "#/$defs/Expr"
+              "$ref": "#/$defs/ExecBody",
+              "description": "In the selected common text profile, pure expression lambdas keep '(args) => Expr'. A structured lexical ExecBlock body has the distinct, unambiguous source form '(args) => scope { statements [result] }'. 'scope' is contextual; it does not make a new global keyword or rewrite legacy lambdas. Body return/break/capture/effect is checked using the same lexical function boundary."
             },
             "effects": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Effect"
+                  },
+                  "minItems": 0
+                },
+                {
+                  "$ref": "#/$defs/EffectRow"
+                }
+              ],
+              "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
+            },
+            "typeParams": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/Effect"
+                "$ref": "#/$defs/TypeParam"
               },
-              "minItems": 0
+              "minItems": 0,
+              "description": "Existing restricted callback-local binders only: Region/Scope and argument binding. Omission in a function type is no local binders; a lambda may inherit the unique expected signature. Reading the type does not create a fresh runtime witness."
+            },
+            "callMode": {
+              "enum": [
+                "shared",
+                "exclusive",
+                "consume"
+              ],
+              "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+            },
+            "parameterContracts": {
+              "$ref": "#/$defs/ParameterContracts"
+            },
+            "captures": {
+              "$ref": "#/$defs/Captures"
             }
           }
         },
@@ -1074,6 +1443,14 @@
                 "$ref": "#/$defs/Expr"
               },
               "minItems": 0
+            },
+            "semanticArguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SemanticArgument"
+              },
+              "minItems": 0,
+              "description": "The existing common call static-argument slot: a present array completely covers argument binders in declaration order; fresh slots are not supplied. Whole omission requests only unique inference. Values are normalized in the fixed static phase, never from not-yet-evaluated runtime arguments."
             }
           }
         },
@@ -1089,14 +1466,25 @@
               "const": "record"
             },
             "fields": {
-              "type": "object",
-              "minProperties": 0,
-              "propertyNames": {
-                "$ref": "#/$defs/MemberName"
+              "type": "array",
+              "minItems": 0,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/MemberName"
+                  },
+                  "value": {
+                    "$ref": "#/$defs/Expr"
+                  }
+                }
               },
-              "additionalProperties": {
-                "$ref": "#/$defs/Expr"
-              }
+              "description": "Ordered field initializers: evaluate each value exactly once in array order, stopping on a non-normal exit. Names must be unique under the semantic record check; whole-item uniqueItems would not enforce that rule. Type.record.fields remains an unordered declaration map. Never infer execution order from JSON object member order."
             }
           }
         },
@@ -1182,7 +1570,8 @@
             "result": {
               "$ref": "#/$defs/Expr"
             }
-          }
+          },
+          "description": "Ordered eval of each step, then result, in the existing lexical/control context. Derived ExecBlock analysis only; no new function boundary, implicit Result bind, or hidden error conversion. Existing flow, ownership and cleanup rules apply."
         },
         {
           "type": "object",
@@ -1208,10 +1597,12 @@
               "items": {
                 "$ref": "#/$defs/Expr"
               },
-              "minItems": 0
+              "minItems": 0,
+              "maxItems": 1,
+              "description": "One expression is the entire exact PortOperation.input value. Empty is permitted semantically only when the resolved input is Unit; no implicit record/tuple packing. The type consumer checks this condition."
             }
           },
-          "description": "A declared effect operation, never a live Grant; runtime authorization is separate."
+          "description": "Invoke one exactly bound operation after evaluating its complete input once and obtaining actual call admission. Normal expression type is Result<output,errors>, including nested Result and Never errors; Fault, Cancel and unsettled or unknown outcomes keep their existing call channels. A declaration is never a live Grant."
         },
         {
           "type": "object",
@@ -1296,11 +1687,19 @@
           "$ref": "#/$defs/Type"
         },
         "effects": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Effect"
-          },
-          "minItems": 0
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Effect"
+              },
+              "minItems": 0
+            },
+            {
+              "$ref": "#/$defs/EffectRow"
+            }
+          ],
+          "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
         },
         "idempotency": {
           "enum": [
@@ -1314,6 +1713,17 @@
         },
         "timeoutPolicyRef": {
           "$ref": "#/$defs/Ref"
+        },
+        "callMode": {
+          "enum": [
+            "shared",
+            "exclusive",
+            "consume"
+          ],
+          "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+        },
+        "parameterContracts": {
+          "$ref": "#/$defs/PortParameterContracts"
         }
       }
     },
@@ -1460,7 +1870,8 @@
               "$ref": "#/$defs/ValueBindings"
             },
             "resultBindings": {
-              "$ref": "#/$defs/ValueBindings"
+              "$ref": "#/$defs/RecordValueBindings",
+              "description": "Public successful step-result projection, not a local binder table. Omitted preserves the raw successful value and Type; explicit map constructs a MemberName record with inferred field Types, including an explicit empty record. Evaluated only after this exact occurrence returns, with no Effect replay on projection failure."
             },
             "onSuccessStep": {
               "$ref": "#/$defs/Identifier"
@@ -1509,7 +1920,8 @@
               "$ref": "#/$defs/Ref"
             },
             "resultBindings": {
-              "$ref": "#/$defs/ValueBindings"
+              "$ref": "#/$defs/RecordValueBindings",
+              "description": "Public successful step-result projection, not a local binder table. Omitted preserves the raw successful value and Type; explicit map constructs a MemberName record with inferred field Types, including an explicit empty record. Evaluated only after this exact occurrence returns, with no Effect replay on projection failure."
             },
             "onSuccessStep": {
               "$ref": "#/$defs/Identifier"
@@ -1561,7 +1973,8 @@
               "$ref": "#/$defs/Ref"
             },
             "resultBindings": {
-              "$ref": "#/$defs/ValueBindings"
+              "$ref": "#/$defs/RecordValueBindings",
+              "description": "Public successful step-result projection, not a local binder table. Omitted preserves the raw successful value and Type; explicit map constructs a MemberName record with inferred field Types, including an explicit empty record. Evaluated only after this exact occurrence returns, with no Effect replay on projection failure."
             },
             "onSuccessStep": {
               "$ref": "#/$defs/Identifier"
@@ -1719,7 +2132,8 @@
               "$ref": "#/$defs/ValueBindings"
             },
             "resultBindings": {
-              "$ref": "#/$defs/ValueBindings"
+              "$ref": "#/$defs/RecordValueBindings",
+              "description": "Public successful step-result projection, not a local binder table. Omitted preserves the raw successful value and Type; explicit map constructs a MemberName record with inferred field Types, including an explicit empty record. Evaluated only after this exact occurrence returns, with no Effect replay on projection failure."
             },
             "timeoutRef": {
               "$ref": "#/$defs/Ref"
@@ -1765,10 +2179,12 @@
               "$ref": "#/$defs/Ref"
             },
             "inputs": {
-              "$ref": "#/$defs/ValueBindings"
+              "$ref": "#/$defs/RecordValueBindings",
+              "description": "Construct the single declared workflow input Type. Record targets bind actual MemberName fields; non-record targets use exactly value, except explicit {} may construct qualified Unit. Omitted inherits the incoming typed control payload and still checks its Type; it is not explicit {}."
             },
             "resultBindings": {
-              "$ref": "#/$defs/ValueBindings"
+              "$ref": "#/$defs/RecordValueBindings",
+              "description": "Public successful step-result projection, not a local binder table. Omitted preserves the raw successful value and Type; explicit map constructs a MemberName record with inferred field Types, including an explicit empty record. Evaluated only after this exact occurrence returns, with no Effect replay on projection failure."
             },
             "onSuccessStep": {
               "$ref": "#/$defs/Identifier"
@@ -1817,9 +2233,34 @@
               "description": "This workflow request termination status, NEVER proof that the entire business Goal or external effect is fulfilled."
             },
             "resultBindings": {
-              "$ref": "#/$defs/ValueBindings"
+              "$ref": "#/$defs/RecordValueBindings",
+              "description": "Terminal payload construction against workflow.output for succeeded or workflow.errors for failed; omitted inherits the actual incoming typed payload, explicit map constructs the declared target. Cancelled/unresolved cannot carry this business payload."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "outcome": {
+                    "enum": [
+                      "cancelled",
+                      "unresolved"
+                    ]
+                  }
+                },
+                "required": [
+                  "outcome"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "resultBindings"
+                  ]
+                }
+              }
+            }
+          ]
         }
       ],
       "description": "One discriminated workflow step with exactly one kind-specific vocabulary. needs expresses data readiness, not control transfer; all explicit branches and result uses resolve within this workflow invocation. No implicit array-order execution, missing mandatory effects, or mixed-kind optional fields. The professional Workflow owner defines control, failures, cancellation, timeout and unknown outcomes."
@@ -2108,7 +2549,9 @@
             },
             "count": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
             },
             "orderingRef": {
               "$ref": "#/$defs/Ref"
@@ -2157,8 +2600,18 @@
             "$ref": "#/$defs/Ref"
           },
           "minItems": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "binding": {
+          "enum": [
+            "argument",
+            "fresh"
+          ]
         }
-      }
+      },
+      "description": "Existing name and constraintRefs are retained. Omitted kind is Type and omitted binding is argument. fresh is limited to Region/Scope at a method-qualified real introduction; callback-local binders follow the original restricted rule. Shape does not establish kind, freshness or constraint qualification."
     },
     "Entity": {
       "type": "object",
@@ -2166,7 +2619,6 @@
       "required": [
         "name",
         "typeRef",
-        "keyFields",
         "constraints"
       ],
       "properties": {
@@ -2179,9 +2631,11 @@
         "keyFields": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/Identifier"
+            "$ref": "#/$defs/MemberName"
           },
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Ordered composite key columns, each declared exactly once. Semantic consumer verifies column existence, compatible non-null/equality constraints, source uniqueness, target index/order and migration; Schema cannot certify the actual key constraint."
         },
         "constraints": {
           "type": "array",
@@ -2189,17 +2643,59 @@
             "$ref": "#/$defs/Ref"
           },
           "minItems": 0
+        },
+        "rowIdentity": {
+          "const": "keyless",
+          "description": "Explicit relation with no stable per-row key. Physical row location, value hash, and position do not create durable identity."
+        },
+        "rowMultiplicity": {
+          "enum": [
+            "set",
+            "bag"
+          ],
+          "description": "Keyless set deduplicates under qualified value equality; bag preserves repeated row occurrences. Neither permits implicit writes or order."
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "keyFields"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "rowIdentity"
+                ]
+              },
+              {
+                "required": [
+                  "rowMultiplicity"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "rowIdentity",
+            "rowMultiplicity"
+          ],
+          "not": {
+            "required": [
+              "keyFields"
+            ]
+          }
+        }
+      ],
+      "description": "Stable keyed entity and explicitly keyless set/bag relation are distinct author meanings. A keyless row cannot be individually edited without independent stable locator, qualified preimage, transaction and authority."
     },
     "QualityTerm": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "metricRef",
-        "relation",
-        "strength",
-        "thresholdLiteral"
+        "strength"
       ],
       "properties": {
         "metricRef": {
@@ -2228,8 +2724,113 @@
         },
         "thresholdLiteral": {
           "$ref": "#/$defs/BusinessQuantity"
+        },
+        "termId": {
+          "$ref": "#/$defs/Identifier",
+          "description": "Stable term identity within one quality contract for explicitly ranked/weighted comparisons; not a global metric or real-world measurement ID."
+        },
+        "objective": {
+          "enum": [
+            "minimize",
+            "maximize"
+          ],
+          "description": "Unbounded soft objective in this metric; does not require a fabricated threshold."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Explicit lexicographic priority of a soft term; smaller number first. Semantic linker rejects duplicate priorities and does not infer them from array position. Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number.",
+          "maximum": 9007199254740991
+        },
+        "weightDecimal": {
+          "type": "string",
+          "pattern": "^(?:0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\\.[0-9]+)?)$",
+          "description": "Positive finite exact decimal weight for an explicit normalized soft cost; never a weight for hard feasibility or a proxy for another stakeholder's authority."
+        },
+        "scoreRef": {
+          "$ref": "#/$defs/Ref",
+          "description": "Qualified pure/domain Method or Meaning mapping this term's metric, scope, horizon and threshold/objective to a comparable finite dimensionless loss (lower is better); a reference alone does not certify scale, monotonicity, uncertainty or target."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "strength": {
+                "const": "hard"
+              }
+            },
+            "required": [
+              "strength"
+            ]
+          },
+          "then": {
+            "required": [
+              "relation",
+              "thresholdLiteral"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "objective"
+                  ]
+                },
+                {
+                  "required": [
+                    "priority"
+                  ]
+                },
+                {
+                  "required": [
+                    "weightDecimal"
+                  ]
+                },
+                {
+                  "required": [
+                    "scoreRef"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "oneOf": [
+              {
+                "required": [
+                  "relation",
+                  "thresholdLiteral"
+                ],
+                "not": {
+                  "required": [
+                    "objective"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "objective"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "relation"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "thresholdLiteral"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "description": "Hard quality clauses require an exact threshold and relation. Soft clauses are either a threshold preference with relation or a directional objective with no invented threshold. Score/priority/weight are qualified under the enclosing comparisonPolicy; syntax never certifies measurement quality."
     },
     "PolicyRule": {
       "type": "object",
@@ -2278,7 +2879,9 @@
         },
         "priority": {
           "type": "integer",
-          "description": "Valid only with explicit-priority combining and qualified rule-overlap interpretation."
+          "description": "Valid only with explicit-priority combining and qualified rule-overlap interpretation. Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number.",
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991
         },
         "conditionUse": {
           "$ref": "#/$defs/BusinessPredicateUse"
@@ -2384,7 +2987,9 @@
         },
         "replicas": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
         },
         "instance": {
           "$ref": "#/$defs/Identifier"
@@ -2502,15 +3107,23 @@
                   "$ref": "#/$defs/Type"
                 },
                 "effects": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/Effect"
-                  },
-                  "minItems": 0,
-                  "description": "Optional closed-function effect upper bound. When omitted, Type/Effect owner derives least qualified effect set from a complete fixed body and all fixed callees; unknown calls, foreign functions and effect-polymorphic values remain NeedsEffectBound. Omission never grants IO or authorizes effects."
+                  "oneOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/Effect"
+                      },
+                      "minItems": 0,
+                      "description": "Optional closed-function effect upper bound. When omitted, Type/Effect owner derives least qualified effect set from a complete fixed body and all fixed callees; unknown calls, foreign functions and effect-polymorphic values remain NeedsEffectBound. Omission never grants IO or authorizes effects."
+                    },
+                    {
+                      "$ref": "#/$defs/EffectRow"
+                    }
+                  ],
+                  "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
                 },
                 "body": {
-                  "$ref": "#/$defs/Expr"
+                  "$ref": "#/$defs/ExecBody"
                 },
                 "contract": {
                   "$ref": "#/$defs/Contract"
@@ -2522,6 +3135,20 @@
                     "assumed-total"
                   ],
                   "description": "Meaning and evidence qualification are owned by docs/领域/计算基础/文法类型与求值.md. partial permits nontermination; assumed-total is an explicit assumption, not proof; total requires qualified termination evidence before a consumer may rely on proven termination. This declaration alone supplies no proof or execution guarantee."
+                },
+                "callMode": {
+                  "enum": [
+                    "shared",
+                    "exclusive",
+                    "consume"
+                  ],
+                  "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+                },
+                "parameterContracts": {
+                  "$ref": "#/$defs/ParameterContracts"
+                },
+                "captures": {
+                  "$ref": "#/$defs/Captures"
                 }
               }
             }
@@ -3095,8 +3722,7 @@
               "additionalProperties": false,
               "required": [
                 "unitRef",
-                "allocation",
-                "capacityLiteral"
+                "allocation"
               ],
               "properties": {
                 "unitRef": {
@@ -3136,8 +3762,25 @@
                     "$ref": "#/$defs/ContextRole"
                   },
                   "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                },
+                "capacityMeaningRef": {
+                  "$ref": "#/$defs/Ref",
+                  "description": "Optional capacity source: an exactly bound domain:meaning(category=measurement) with a qualified nonnegative quantity result in the resource's unit/scope. Runtime dynamic capacity is observed under its actual evidence, freshness and authority; neither a schema-valid ref nor a past observation grants physical capacity."
                 }
-              }
+              },
+              "anyOf": [
+                {
+                  "required": [
+                    "capacityLiteral"
+                  ]
+                },
+                {
+                  "required": [
+                    "capacityMeaningRef"
+                  ]
+                }
+              ],
+              "description": "At least one capacity basis is required: a static author limit, a qualified capacity measurement, or both. If both, they independently constrain admission over the same resource identity/scope/unit; unavailable observation cannot be replaced by zero, infinity or a fabricated static literal. Allocation still needs current physical admission and reserve/lease settlement."
             },
             "qualifiers": {
               "$ref": "#/$defs/AuthorQualifiers"
@@ -3474,7 +4117,152 @@
                   },
                   "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "const": "weighted-explicit"
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "contains": {
+                          "properties": {
+                            "strength": {
+                              "const": "soft"
+                            }
+                          },
+                          "required": [
+                            "strength"
+                          ]
+                        },
+                        "minContains": 1,
+                        "items": {
+                          "if": {
+                            "properties": {
+                              "strength": {
+                                "const": "soft"
+                              }
+                            },
+                            "required": [
+                              "strength"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "termId",
+                              "weightDecimal",
+                              "scoreRef"
+                            ],
+                            "not": {
+                              "required": [
+                                "priority"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "const": "lexicographic"
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "contains": {
+                          "properties": {
+                            "strength": {
+                              "const": "soft"
+                            }
+                          },
+                          "required": [
+                            "strength"
+                          ]
+                        },
+                        "minContains": 1,
+                        "items": {
+                          "if": {
+                            "properties": {
+                              "strength": {
+                                "const": "soft"
+                              }
+                            },
+                            "required": [
+                              "strength"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "termId",
+                              "priority"
+                            ],
+                            "not": {
+                              "required": [
+                                "weightDecimal"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "enum": [
+                          "pareto",
+                          "feasibility-only"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "items": {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "required": [
+                                  "weightDecimal"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "priority"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "description": "Hard threshold clauses are conjunctive feasibility gates for every policy. Weighted-explicit requires exact positive weights and qualified per-term dimensionless loss; lexicographic requires explicit stable priorities. Pareto uses qualified per-metric directions/relations, and feasibility-only issues no soft ordering claim. Missing score, ordering or coverage never becomes an implicit weight or success."
             },
             "qualifiers": {
               "$ref": "#/$defs/AuthorQualifiers"
@@ -4022,7 +4810,7 @@
           "minLength": 1
         }
       },
-      "description": "Static nonnegative capacity magnitude; actual capacity and admission require a qualified resource meaning."
+      "description": "Design-shape static nonnegative resource limit with exact decimal magnitude/unit. It is not a physical free-capacity observation, reservation or HostGrant."
     },
     "ComponentParameter": {
       "type": "object",
@@ -4081,7 +4869,9 @@
         },
         "priority": {
           "type": "integer",
-          "description": "Unique per decision if and only if explicit-priority selection is used. Larger integer wins among qualified true branches. Does not replace condition evidence."
+          "description": "Unique per decision if and only if explicit-priority selection is used. Larger integer wins among qualified true branches. Does not replace condition evidence. Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number.",
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991
         }
       },
       "description": "A qualified business predicate and destination step; no expression and no implicit first-match semantics."
@@ -4825,7 +5615,27 @@
           "$ref": "#/$defs/Identifier"
         },
         "inputBindings": {
-          "$ref": "#/$defs/ValueBindings"
+          "$ref": "#/$defs/RecordValueBindings",
+          "additionalProperties": {
+            "not": {
+              "properties": {
+                "source": {
+                  "enum": [
+                    "result",
+                    "outcome"
+                  ]
+                }
+              },
+              "required": [
+                "source"
+              ]
+            }
+          },
+          "description": "Construct the single workflow input from the frozen cause payload; omitted preserves that exact payload subject to target typing. No workflow step exists yet, so result/outcome are structurally unavailable. Real cause scope, Type, permission and nominal record qualification remain semantic checks."
+        },
+        "completionUse": {
+          "$ref": "#/$defs/DefinitionUse",
+          "description": "Select the existing operation Meaning and qualified Method that connect this source's completion capability to the same workflow Run/Execution. Omission is valid only when the locked source contract uniquely determines the full disposition. Runtime source/Run arguments are not authored object bindings; actual sending, progress, cancellation and settlement retain their original owners."
         }
       },
       "description": "One typed causal edge from one occurrence-local event source to a declared workflow occurrence; typed inputBindings maps trigger payload / context / state into workflow inputs. Cross-use role and authority qualification remains required."
@@ -4870,7 +5680,7 @@
               "description": "JSON Pointer within the declared, typed payload; not a string-evaluation expression."
             }
           },
-          "description": "Activation cause payload in current workflow invocation."
+          "description": "Frozen cause payload only while constructing ActivationRoute input. Once an execution exists, the validated input of this exact WorkflowExecution, including each subflow's own input; never replaced by a step return, error or latest outcome."
         },
         {
           "type": "object",
@@ -4947,6 +5757,29 @@
           "additionalProperties": false,
           "required": [
             "source",
+            "stepId",
+            "path"
+          ],
+          "properties": {
+            "source": {
+              "const": "outcome"
+            },
+            "stepId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "description": "JSON Pointer in the original typed completion frame, such as /value or /error; never executable code or a projection-result self-reference."
+            }
+          },
+          "description": "Read-only raw outcome of an exact step occurrence. Current-step access is allowed only in its successful resultBindings phase; other workflow mappings require a qualified observed causal predecessor bound by the actual control token. Loops/reentry cannot choose the latest same-name frame. kind distinguishes succeeded/failed/cancelled/timed-out/unresolved; value/error exist only under the actual producer Type and outcome. Fault/Cancel/timeout/unknown never invent a business E, permission or final settlement."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
             "slot"
           ],
           "properties": {
@@ -4996,7 +5829,17 @@
       "additionalProperties": {
         "$ref": "#/$defs/ValueSource"
       },
-      "description": "Formal parameter name to a typed value-origin at one qualified use site; all names must resolve to its callee signature."
+      "description": "Formal parameter or declared approval-role Identifier to a typed value-origin at one qualified call site. Keys resolve to its real signature; omitted/empty map does not inherit a workflow single-value payload. Not used for workflow input/output records or public result projection."
+    },
+    "RecordValueBindings": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/MemberName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/ValueSource"
+      },
+      "description": "MemberName-keyed map reused for operation record inputs, workflow single-value construction and public result projection only at their declared use sites. The owning consumer decides the target Type and omission rule: workflow input/terminal maps resolve actual record fields or the non-record value slot; ordinary step result maps construct a typed record. No callable-parameter grammar, arbitrary value store, implicit field alias or execution authority is created."
     },
     "OperationUse": {
       "type": "object",
@@ -5013,7 +5856,7 @@
           "$ref": "#/$defs/Identifier"
         },
         "inputs": {
-          "$ref": "#/$defs/ValueBindings",
+          "$ref": "#/$defs/RecordValueBindings",
           "description": "Omission is the empty input binding map; admissible only when the declared operation has no required inputs and defaults (if any) are professionally qualified. Explicit {} is semantically identical."
         },
         "idempotencyKey": {
@@ -5297,9 +6140,768 @@
         }
       ],
       "description": "A structured state graph in the existing state:machine Body, not another StateDefinition kind. String shorthand is an atomic state. All nodes share one local identity namespace; kind controls legal parent/initial/region/fallback/entry/exit use. Valid configuration, transitions, event generation, restoration and external effects are owned by the state/runtime contracts. Compound/region require initial direct child; parallel has region children rather than a single initial. Atomic/final and history pseudo states cannot carry initial; only history carries fallback. Parent ancestry, parallel region uniqueness and transition choice require semantic resolution of the complete chart."
+    },
+    "LocalExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definitionId"
+      ],
+      "properties": {
+        "definitionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ImportedExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import",
+        "export"
+      ],
+      "properties": {
+        "import": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Identifier"
+            },
+            {
+              "not": {
+                "enum": [
+                  "local",
+                  "std"
+                ]
+              }
+            }
+          ]
+        },
+        "export": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "description": "Alias of an explicitly imported public export. Binding and visibility must be checked against the exact imported ModuleUse and lock; no wildcard exports."
+    },
+    "ExecBody": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Expr"
+        },
+        {
+          "$ref": "#/$defs/ExecBlock"
+        }
+      ],
+      "description": "An expression or finite common lexical control block. Object-specific field writes, parent initialization, object construction/read/dispatch and class declarations are NOT implied by this plain branch; they use an exactly bound object dialect body/consumer, with explicit qualified conversion for the shared subset. Do not reinterpret Expr.field as a mutable object member or Expr.var as privileged this/super."
+    },
+    "ExecBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "statements"
+      ],
+      "properties": {
+        "op": {
+          "const": "exec:block"
+        },
+        "statements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExecStatement"
+          },
+          "minItems": 0
+        },
+        "result": {
+          "$ref": "#/$defs/Expr"
+        }
+      },
+      "description": "A lexical block. Statements evaluate in order; result is evaluated iff ordinary completion reaches it. No result means Unit. Return/Break/Continue/Fault/Cancel are distinct exits, never data Result.Err. Local var positions are new per block activation and while iteration."
+    },
+    "ExecStatement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "let"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Lexical immutable binding; evaluate initializer once, then bind after success."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "var"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Lexical mutable location, distinct from Expr.var which only reads a bound name."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "set"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Evaluate RHS before writing the nearest valid mutable location. Reject immutable, unbound, inaccessible or moved targets."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "then"
+          ],
+          "properties": {
+            "op": {
+              "const": "if"
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "then": {
+              "$ref": "#/$defs/ExecBlock"
+            },
+            "else": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Only one branch runs after exactly one Bool condition evaluation; absent else is Unit."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "while"
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "body": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Evaluate Bool condition before every iteration; enter fresh lexical body scope on each true iteration. No arbitrary compile-time iteration bound."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "break"
+            }
+          },
+          "description": "Exit the nearest lexically enclosing while in the current function or lambda. A structural checker must reject outside one."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "continue"
+            }
+          },
+          "description": "Continue nearest lexically enclosing while, re-evaluating the condition. Cannot cross a lambda/function boundary."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "return"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Exit current function or lambda, not caller; omitted value means Unit. Check return type and cleanup."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "eval"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Evaluate an expression in sequence and discard an ordinary value; must diagnose unconsumed Result per actual language contract."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "scope"
+            },
+            "body": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Execute a nested lexical block; nested result is discarded as a statement, but effects and abnormal exits propagate."
+        }
+      ],
+      "description": "Exactly the ten common lexical statement shapes, not a complete object-method body. FieldWrite and SuperInit from the object language require its distinct qualified dialect/body codec; unknown object nodes are preserved in their original source rather than converted to generic set/perform."
+    },
+    "DecimalLiteral": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coefficient",
+        "scale"
+      ],
+      "properties": {
+        "coefficient": {
+          "type": "string",
+          "pattern": "^(0|-?[1-9][0-9]*)$",
+          "description": "Canonical exact integral coefficient, not a host floating JSON number. Zero has coefficient '0', preserving chosen scale separately."
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Exact base-10 fractional scale. Actual Type.scale compatibility, target precision/rounding and resource budget are checked by the qualified decimal consumer."
+        }
+      },
+      "description": "The exact decimal value coefficient * 10^(-scale), with scale explicitly preserved. No guessed rounding, no JSON float coercion and no implicit physical representation."
+    },
+    "ParameterRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parameter"
+      ],
+      "properties": {
+        "parameter": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "description": "Successor-local semantic parameter locator resolved in its actual lexical declaration scope. It is normalized to the same bound parameter identity as the common parameter contract, not a runtime object or global name."
+    },
+    "Kind": {
+      "oneOf": [
+        {
+          "enum": [
+            "Type",
+            "Region",
+            "Scope",
+            "EffectRow"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {
+              "$ref": "#/$defs/Type"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "constructor"
+          ],
+          "properties": {
+            "constructor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "parameters",
+                "result"
+              ],
+              "properties": {
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Kind"
+                  },
+                  "minItems": 0
+                },
+                "result": {
+                  "const": "Type"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pack"
+          ],
+          "properties": {
+            "pack": {
+              "$ref": "#/$defs/Kind"
+            }
+          }
+        }
+      ],
+      "description": "Encoding adapter of the existing common Kind algebra only. Value<T> uses this profile Type and static Expr phase; no FieldKey or Row Kind is introduced."
+    },
+    "EffectRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members"
+      ],
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Effect"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "tail": {
+          "$ref": "#/$defs/ParameterRef"
+        }
+      },
+      "description": "The common effect row in this profile uses the complete existing Effect atom encoding, retaining class, port/resource/scope and raise.errorType. Legacy Effect[] is the closed-row encoding. tail binds an EffectRow parameter; unknown effects are not empty and this record grants no effect authority."
+    },
+    "ConstructorTerm": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decl"
+          ],
+          "properties": {
+            "decl": {
+              "$ref": "#/$defs/Ref"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/ParameterRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "apply"
+          ],
+          "properties": {
+            "apply": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "constructor",
+                "arguments"
+              ],
+              "properties": {
+                "constructor": {
+                  "$ref": "#/$defs/ConstructorTerm"
+                },
+                "arguments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SemanticArgument"
+                  },
+                  "minItems": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PackTerm": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SemanticArgument"
+          },
+          "minItems": 0
+        },
+        {
+          "$ref": "#/$defs/ParameterRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "concat"
+          ],
+          "properties": {
+            "concat": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PackTerm"
+              },
+              "minItems": 0
+            }
+          }
+        }
+      ]
+    },
+    "PackElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack",
+        "index"
+      ],
+      "properties": {
+        "pack": {
+          "$ref": "#/$defs/PackTerm"
+        },
+        "index": {
+          "$ref": "#/$defs/Expr"
+        }
+      }
+    },
+    "Expand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expand"
+      ],
+      "properties": {
+        "expand": {
+          "$ref": "#/$defs/PackTerm"
+        }
+      }
+    },
+    "SemanticArgument": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Type"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "region"
+          ],
+          "properties": {
+            "region": {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope"
+          ],
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "effectRow"
+          ],
+          "properties": {
+            "effectRow": {
+              "$ref": "#/$defs/EffectRow"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "typeConstructor"
+          ],
+          "properties": {
+            "typeConstructor": {
+              "$ref": "#/$defs/ConstructorTerm"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pack"
+          ],
+          "properties": {
+            "pack": {
+              "$ref": "#/$defs/PackTerm"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "packElement"
+          ],
+          "properties": {
+            "packElement": {
+              "$ref": "#/$defs/PackElement"
+            }
+          }
+        }
+      ],
+      "description": "packElement is shared with TypeTerm; contextual kind checking and qualified phase evaluation are mandatory."
+    },
+    "TypeSequenceItem": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Type"
+        },
+        {
+          "$ref": "#/$defs/Expand"
+        }
+      ]
+    },
+    "SemanticSequenceItem": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SemanticArgument"
+        },
+        {
+          "$ref": "#/$defs/Expand"
+        }
+      ]
+    },
+    "LambdaParam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "$ref": "#/$defs/Type"
+        },
+        "mode": {
+          "enum": [
+            "in",
+            "borrow",
+            "move",
+            "out",
+            "inout"
+          ]
+        }
+      },
+      "description": "Only lambda-local parameters may omit type, and only when a unique qualified expected callable signature supplies it. An omitted annotation is not Any. Ordinary declaration Param.type remains required; original mode semantics is retained."
+    },
+    "ParameterContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "retention"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "retention": {
+          "enum": [
+            "noescape",
+            "may-retain"
+          ]
+        }
+      }
+    },
+    "ParameterContracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ParameterContract"
+      },
+      "minItems": 0,
+      "description": "Positions refer to the actual parameter sequence after qualified finite pack expansion. Duplicate positions, range, noescape and body/implementation evidence are checked by the original callable owner."
+    },
+    "Capture": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "region"
+          ],
+          "properties": {
+            "region": {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope"
+          ],
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          }
+        }
+      ]
+    },
+    "Captures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Capture"
+      },
+      "minItems": 0,
+      "uniqueItems": true,
+      "description": "Potential Region/Scope lifetime dependencies of a real function value. Function type omission is the original empty upper bound; declaration/lambda omission requests analysis. No extra capture or resource registry is created."
+    },
+    "PortParameterContract": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ParameterContract"
+        },
+        {
+          "properties": {
+            "position": {
+              "const": 0
+            }
+          }
+        }
+      ]
+    },
+    "PortParameterContracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PortParameterContract"
+      },
+      "minItems": 0,
+      "maxItems": 1,
+      "description": "This PortOperation has one aggregate input formal at position 0. Input record field order does not create callable parameter positions. A different port profile must supply its actual parameter mapping; this non-function-value operation has no captures field."
     }
   },
   "x-gift-current-source-writer": true,
   "x-gift-author-qualification": "All declared Kind shapes are in the single proposed author design; meaning/compute/method/target qualifications are independent and not assumed from schema recognition.",
-  "$comment": "Design contract; Schema establishes only serialized syntax. Domain types, scopes, names, totality, environment, grants, semantic effect inference, branch reachability and Target qualifications remain professional owner rules. No implemented compiler or checker is implied."
+  "$comment": "Design contract; Schema establishes only serialized syntax. Domain types, scopes, names, totality, environment, grants, semantic effect inference, branch reachability and Target qualifications remain professional owner rules. No implemented compiler or checker is implied.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "definitions": {
+            "maxProperties": 0
+          }
+        },
+        "required": [
+          "definitions"
+        ]
+      },
+      "then": {
+        "required": [
+          "exports"
+        ],
+        "properties": {
+          "exports": {
+            "minProperties": 1,
+            "additionalProperties": {
+              "$ref": "#/$defs/ImportedExport"
+            }
+          }
+        }
+      }
+    }
+  ]
 }

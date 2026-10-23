@@ -452,7 +452,8 @@
             "properties": {
               "position": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "maximum": 9007199254740991
               },
               "retention": {
                 "enum": [
@@ -646,12 +647,47 @@
                   },
                   "type": {
                     "$ref": "#/$defs/TypeTerm"
+                  },
+                  "optional": {
+                    "type": "boolean",
+                    "description": "Omitted or false means required. true records independent Absent/Present(T) state; it does not replace payload T by Option<T>. Record meaning and qualification are owned by the common computation contract."
+                  },
+                  "mutable": {
+                    "type": "boolean",
+                    "description": "Omitted or false means an immutable field. true selects the common managed Place semantics: aliases and shallow reconstruction preserve the Place; a real new construction creates a new Place. This shape does not grant write or ownership permission."
                   }
                 }
               },
               "minItems": 0
+            },
+            "open": {
+              "type": "boolean",
+              "description": "Omitted or false is closed. true preserves a complete typed remainder; it never discards extra fields or gives Any payloads. Record domain, row witnesses, ownership and visibility remain semantic checks."
+            },
+            "rowType": {
+              "$ref": "#/$defs/TypeTerm",
+              "description": "The explicit remainder type must resolve to a qualified record Type and preserve the same row parameter/witness; it is legal only with explicit open:true. Shape validation does not prove Record/Lacks or nominal qualification."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "rowType"
+                ]
+              },
+              "then": {
+                "required": [
+                  "open"
+                ],
+                "properties": {
+                  "open": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          ]
         },
         {
           "type": "object",
@@ -1582,7 +1618,8 @@
                 "properties": {
                   "position": {
                     "type": "integer",
-                    "minimum": 0
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   },
                   "retention": {
                     "enum": [

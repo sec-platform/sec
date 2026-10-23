@@ -1,0 +1,775 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:input-preparation-1",
+  "title": "Negotiated passive input preparation via gift.propose (design only)",
+  "description": "propose({draft:{kind:'prepare-input'}}) only; no author candidate, no effect, no arbitrary Expr evaluation. A prepared input is a bounded immutable context-bound reference.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "purpose",
+            "subject",
+            "values"
+          ],
+          "properties": {
+            "kind": {
+              "const": "prepare-input"
+            },
+            "purpose": {
+              "const": "arguments"
+            },
+            "subject": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "candidateRef",
+                    "entryRef"
+                  ],
+                  "properties": {
+                    "candidateRef": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "entryRef": {
+                      "$ref": "urn:gift:design-schema:compute-run-1#/$defs/SourceEntryRef"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "artifactRef",
+                    "entryRef"
+                  ],
+                  "properties": {
+                    "artifactRef": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "entryRef": {
+                      "$ref": "#/$defs/Ref"
+                    }
+                  }
+                }
+              ]
+            },
+            "values": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PassiveRecord"
+                },
+                {
+                  "$ref": "#/$defs/PassiveList"
+                }
+              ]
+            },
+            "methodRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "purpose",
+            "subject",
+            "values"
+          ],
+          "properties": {
+            "kind": {
+              "const": "prepare-input"
+            },
+            "purpose": {
+              "const": "cases"
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "candidateRef",
+                "artifactRef"
+              ],
+              "properties": {
+                "candidateRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "artifactRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "values": {
+              "$ref": "#/$defs/PassiveExpr"
+            },
+            "methodRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "purpose",
+            "subject",
+            "values"
+          ],
+          "properties": {
+            "kind": {
+              "const": "prepare-input"
+            },
+            "purpose": {
+              "const": "observation"
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "artifactRef",
+                "entryRef"
+              ],
+              "properties": {
+                "artifactRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "entryRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "values": {
+              "$ref": "#/$defs/PassiveExpr"
+            },
+            "methodRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      }
+    },
+    {
+      "$ref": "#/$defs/ProcessInputPreparation"
+    }
+  ],
+  "$defs": {
+    "Ref": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "PassiveExpr": {
+      "oneOf": [
+        {
+          "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/LiteralExpr"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "fields"
+          ],
+          "properties": {
+            "tag": {
+              "const": "record"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "value": {
+                    "$ref": "#/$defs/PassiveExpr"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "items"
+          ],
+          "properties": {
+            "tag": {
+              "const": "list"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PassiveExpr"
+              }
+            },
+            "tail": {
+              "$ref": "#/$defs/PassiveExpr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "ref"
+          ],
+          "properties": {
+            "tag": {
+              "const": "reference"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "ref": {
+              "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/ExprRef"
+            }
+          }
+        }
+      ],
+      "description": "Only literal/record/list/reference recursive passive expressions. Calls, getters, lambda, let, operators, evaluation, IO and target effects cannot be embedded; fixed immutable reference binding is separately checked."
+    },
+    "PassiveRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "fields"
+      ],
+      "properties": {
+        "tag": {
+          "const": "record"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "value": {
+                "$ref": "#/$defs/PassiveExpr"
+              }
+            }
+          }
+        }
+      }
+    },
+    "PassiveList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "items"
+      ],
+      "properties": {
+        "tag": {
+          "const": "list"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PassiveExpr"
+          }
+        },
+        "tail": {
+          "$ref": "#/$defs/PassiveExpr"
+        }
+      }
+    },
+    "PreparedResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "argumentsRef",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "prepared"
+            },
+            "purpose": {
+              "const": "arguments"
+            },
+            "subject": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "candidateRef",
+                    "entryRef"
+                  ],
+                  "properties": {
+                    "candidateRef": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "entryRef": {
+                      "$ref": "urn:gift:design-schema:compute-run-1#/$defs/SourceEntryRef"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "artifactRef",
+                    "entryRef"
+                  ],
+                  "properties": {
+                    "artifactRef": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "entryRef": {
+                      "$ref": "#/$defs/Ref"
+                    }
+                  }
+                }
+              ]
+            },
+            "argumentsRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "casesRef",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "prepared"
+            },
+            "purpose": {
+              "const": "cases"
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "candidateRef",
+                "artifactRef"
+              ],
+              "properties": {
+                "candidateRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "artifactRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "casesRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "observationRef",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "prepared"
+            },
+            "purpose": {
+              "const": "observation"
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "artifactRef",
+                "entryRef"
+              ],
+              "properties": {
+                "artifactRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "entryRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "observationRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "inputRef",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "prepared"
+            },
+            "purpose": {
+              "const": "process-input"
+            },
+            "subject": {
+              "$ref": "#/$defs/ProcessInputSubject"
+            },
+            "inputRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        }
+      ]
+    },
+    "NeedsInputResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "needs-input"
+            },
+            "purpose": {
+              "const": "arguments"
+            },
+            "subject": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "candidateRef",
+                    "entryRef"
+                  ],
+                  "properties": {
+                    "candidateRef": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "entryRef": {
+                      "$ref": "urn:gift:design-schema:compute-run-1#/$defs/SourceEntryRef"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "artifactRef",
+                    "entryRef"
+                  ],
+                  "properties": {
+                    "artifactRef": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "entryRef": {
+                      "$ref": "#/$defs/Ref"
+                    }
+                  }
+                }
+              ]
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "needs-input"
+            },
+            "purpose": {
+              "const": "cases"
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "candidateRef",
+                "artifactRef"
+              ],
+              "properties": {
+                "candidateRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "artifactRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "needs-input"
+            },
+            "purpose": {
+              "const": "observation"
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "artifactRef",
+                "entryRef"
+              ],
+              "properties": {
+                "artifactRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "entryRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "const": "needs-input"
+            },
+            "purpose": {
+              "const": "process-input"
+            },
+            "subject": {
+              "$ref": "#/$defs/ProcessInputSubject"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            }
+          }
+        }
+      ]
+    },
+    "ProcessInputSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "inputContractRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "inputContractRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "ProcessInputValues": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encoding",
+            "text"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "utf-8"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "description": "Strict Unicode scalar text encoded exactly once to UTF-8; no BOM/newline insertion or normalization. All decoded-byte and temporary-memory bounds checked before capture."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encoding",
+            "data"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "base64"
+            },
+            "data": {
+              "type": "string",
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+            }
+          },
+          "description": "Canonical RFC 4648 standard padded base64 (empty allowed). No URL alphabet, whitespace, missing required padding or nonzero pad bits. Decode/reencode equality and exact decoded length checked by original input preparation consumer."
+        }
+      ]
+    },
+    "ProcessInputPreparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "purpose",
+            "subject",
+            "values"
+          ],
+          "properties": {
+            "kind": {
+              "const": "prepare-input"
+            },
+            "purpose": {
+              "const": "process-input"
+            },
+            "subject": {
+              "$ref": "#/$defs/ProcessInputSubject"
+            },
+            "values": {
+              "$ref": "#/$defs/ProcessInputValues"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -35,7 +35,18 @@
             "source"
           ]
         }
-      }
+      },
+      "not": {
+        "required": [
+          "return"
+        ],
+        "properties": {
+          "return": {
+            "const": "diff"
+          }
+        }
+      },
+      "description": "New inline source has no author preimage. return=diff is invalid even with an interpretation context: use an explicit fixed author base via edits/files, a bound editRef, or a qualified context entry that actually names the existing source."
     },
     {
       "type": "object",
@@ -172,7 +183,27 @@
             "source"
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "return"
+            ],
+            "properties": {
+              "return": {
+                "const": "diff"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "base"
+            ]
+          }
+        }
+      ],
+      "description": "A new multi-file candidate without base cannot request author diff. With base, producer must bind exact source revision and preserve all unchanged members; omitted file keys are not deletions."
     },
     {
       "type": "object",

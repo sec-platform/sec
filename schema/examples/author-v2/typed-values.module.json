@@ -1,0 +1,142 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:typed-values",
+  "definitions": {
+    "ExactPrice": {
+      "kind": "core:constant",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "decimal",
+          "scale": 2
+        },
+        "value": {
+          "op": "literal",
+          "type": {
+            "tag": "scalar",
+            "name": "decimal",
+            "scale": 2
+          },
+          "value": {
+            "coefficient": "120",
+            "scale": 2
+          }
+        }
+      }
+    },
+    "BytePrefix": {
+      "kind": "core:constant",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "bytes",
+          "encoding": "hex"
+        },
+        "value": {
+          "op": "literal",
+          "type": {
+            "tag": "scalar",
+            "name": "bytes",
+            "encoding": "hex"
+          },
+          "value": "00ff"
+        }
+      }
+    },
+    "MakeIdentity": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "function",
+          "params": [
+            {
+              "tag": "scalar",
+              "name": "int"
+            }
+          ],
+          "returns": {
+            "tag": "scalar",
+            "name": "int"
+          },
+          "effects": []
+        },
+        "body": {
+          "op": "lambda",
+          "params": [
+            {
+              "name": "n",
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            }
+          ],
+          "body": {
+            "op": "exec:block",
+            "statements": [
+              {
+                "op": "var",
+                "name": "copy",
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                },
+                "value": {
+                  "op": "var",
+                  "name": "n"
+                }
+              },
+              {
+                "op": "set",
+                "name": "copy",
+                "value": {
+                  "op": "var",
+                  "name": "n"
+                }
+              },
+              {
+                "op": "if",
+                "condition": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  },
+                  "value": true
+                },
+                "then": {
+                  "op": "exec:block",
+                  "statements": [
+                    {
+                      "op": "return",
+                      "value": {
+                        "op": "var",
+                        "name": "copy"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "result": {
+              "op": "var",
+              "name": "copy"
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "ExactPrice": {
+      "definitionId": "ExactPrice"
+    },
+    "BytePrefix": {
+      "definitionId": "BytePrefix"
+    },
+    "MakeIdentity": {
+      "definitionId": "MakeIdentity"
+    }
+  }
+}

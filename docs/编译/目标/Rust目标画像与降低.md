@@ -97,7 +97,7 @@ flowchart TD
 | Bool / Unit | `bool` / `()` | FFI wire 表示可能不同 |
 | 固定宽整数 | `i8..i128/u8..u128` | 溢出/转换必须按原合同，不能依赖 debug/release 偶然行为 |
 | 无界/大整数 | 合格库或专门实现 | 依赖政策、no_std、性能和公开 API |
-| F32/F64 | `f32/f64` | 动态舍入、扩展精度、代数优化见数值画像 |
+| F32/F64 | 观察合同允许时`f32/f64`；逐位F64使用私有u64载体 | codec、算术、动态舍入、扩展精度和ABI分别核数值画像，不能用数值cast代替位转换 |
 | Text | `String`、`&str` 或其他已选编码边界 | 拥有/借用、UTF 合法性、FFI/bytes |
 | Bytes | `Vec<u8>`、`&[u8]`、固定数组或实际 buffer 类型 | 地址稳定、零拷贝、共享内存 |
 | 固定数组 | `[T; N]`（当目标可表达） | 复杂 const 表达式可先由 Gift 具体化；不能冒领开放原生泛型 |
@@ -112,6 +112,12 @@ flowchart TD
 | Opaque foreign | pointer/handle + owner API | 不伪造大小、Drop 或可解引用引用 |
 
 整数运算如果 Requirement 要求 checked/wrapping/saturating/exact，就生成明确操作；不依赖 Cargo profile 是否开启 overflow-checks 来改变业务语义。相同原则适用于浮点重结合、原子顺序、内存布局和 panic。
+
+后继固定std基底消费[同一逐符号算法](具体降低与领域输出.md#finite-pure-basis-lowering)与准确类型实例。数学Int须有已资格化的大整数或等义实现；`std:IntDivMod`先判零构造准确Err，再用精确向零商余及一次修正生成欧几里得结果，不直接把Rust整数`/、%`或panic当该Result合同。只有值域、`MIN/−1`与所有中间运算的保持成立时才使用定宽优化。Result/Option/Ordering及商余记录由准确构造和ABI决定，不能因同名就转为宿主类型。序列的复制/移动、Text相等、allocator/no_std及结果载荷寿命继续核原条件，缺项不以通用Runtime补猜。
+
+精确Decimal和F64Bits消费[同一数值叶算法](具体降低与领域输出.md#exact-numeric-leaf-lowering)：Decimal复用已选数学Int并保留刻度，显式转换按整数商余及准确舍入生成；逐位F64默认保存u64，只有实际运算需要才作`from_bits/to_bits`投影，不能以`as`互换数值。表示决定贯穿函数、容器、AD和外部边界；原生f64优化必须保持全部相交观察。Cargo依赖、no_std、分配预算和ABI仍核本目标，私有载体存在不代签算术或外部返回值的NaN保持。
+
+后继do/perform同样消费[原区域化表达式降低](具体降低与领域输出.md#structured-computation-lowering)：Rust块只是保持词法/控制/清理合同后的目标表示；perform按固定调用解释保留单输入、嵌套Result、取消和未结算责任，不默认将异步方法同步化或用`?`传播普通Err。
 
 ## 5. 所有权、借用、初始化与清理
 
@@ -143,6 +149,39 @@ flowchart TD
   partial --> cleanup
   cleanup --> close["可失败或异步 close 显式结算；丢弃 Future 不证明外部停止"]
 ```
+
+<a id="rust-managed-graph-lowering"></a>
+### 普通共享循环图的成熟管理器与具体生成
+
+原[受管图合同](../../领域/对象与控制/控制流与存储寿命.md#managed-graph-roots-and-edges)在普通std、合格平台、允许停顿和保守滞留的Rust目标中，采用**BDWGC v8.2.12非增量收集器、显式外根与堆内边、窄C ABI**作为确定设计路线。该选择不声明当前依赖已安装或平台已验证。固定版本内容、构建/线程模式、CRT、ABI与链接进入原RustTargetBinding/依赖锁，禁止全局替换Rust allocator、运行中切换收集器或由别的组件启用增量模式。无GC图需求不引入此依赖；原栈/Box、可证明无环的Rc/Arc或区域优化保持其资格。
+
+选择依据是原生所有权/引用计数不能单独回收任意共享环；gc-arena的单线程arena可作相应专业供给，MMTk精确追踪需VM根/停顿接合，均不作为本路线运行失败时的自动fallback。精确回收时限、只按live heap计算硬界、noGC/no_std、硬实时或无锁等真实要求另取满足它们的合格方法，不能由本路线代签，也不删掉这些要求；没有被当前根要求的条件不阻断普通图。普通预算仍计根、退休节点、管理器元数据、保守滞留及native内存，OOM沿固定Fault/abort策略处理，不伪造业务E。
+
+**表示。**Rust侧`Root<T>`是不透明外根包装，持有由`GC_malloc_uncollectable`建立、会被扫描的根单元；普通Rust堆内的引用计数只管理这个根单元的拥有者。GC堆内`Edge<T>`仅为对齐对象基址或内部空槽，不嵌入Root/Arc根包装。闭包捕获var和mutable字段指向同一受管Cell，循环内新声明仍建新Cell；对象相等用原实例身份，不比较Root包装地址。普通Rust Future、错误载荷和回调队列中的Root可保活图，不假定系统allocator或TLS会被扫描。这个可见性差异由[BDWGC官方C接口](https://www.hboehm.info/gc/gcinterface.html)明确；此处的Root/Edge生成接合是Gift自己的责任。
+
+堆载荷使用生成的无任意Rust Drop布局：标量/标签、GC指针槽和字节数据分开；容器、闭包、变体生成可追踪存储，不将原生String/Vec/Arc按字节塞入GC对象。每个固定布局生成size、align、bitmap、变体指针槽及数组stride，按固定版[typed接口](https://raw.githubusercontent.com/bdwgc/bdwgc/v8.2.12/include/gc_typed.h)建立一次descriptor和对应typed/atomic分配；标为指针的槽只存真实引用或零，不复用为任意整数。数组长度/乘法及实际分配对齐先核，typed对象不使用GC_realloc，扩容先建后备块再按原语义转移/发布。库在descriptor资源不足时可能给保守近似，不能冒称精确扫描或精确空间界。源的额外过对齐/地址要求必须由实际allocator/ABI资格满足。
+
+**封闭接合面。**Edge、裸指针和布局描述只在通用storage runtime/C桥内部构造，公开Root不实现可逃逸Deref/DerefMut；不从可能别名的对象生成长期`&mut`，内部可变访问使用符合Rust规则的raw/UnsafeCell及原同步保护。每项ABI操作固定下表的取得/失败责任，不执行用户代码，panic/unwind不越过不支持的C边界。Arc不证明T可Send/Sync；只有源类型、捕获、转移和共享同步资格成立才生成对应窄实现。
+
+| 内部操作 | 输入/输出与线程前提 | 正常步骤与失败后责任 |
+|---|---|---|
+| 准备空根并分配对象 | 已登记线程、固定layout/size、预算；输出Root或原资源故障 | 先取得普通堆退休节点、管理器占用及空根单元，再分配对象并在C桥内装根后返回；用固定版keep-alive保持桥内临时。任一步失败撤本次部分取得，原输入根不变，不返回无根裸对象 |
+| 私有初始化/发布 | 有根的零存储、逐次取得且保活的输入、原部分Own清单 | 按源顺序填值和初始化位，全部成立才发布；失败解除私有根让GC收存储，原Own按原逆序清理，零槽不成为源语言隐式null |
+| 外根clone/转移 | 已有合法Root及原转移/共享资格 | clone只共享外部RootState或取得独立根，move交接同一拥有关系；后继成立才放前者，计数/额度耗尽走已定失败，不复制图身份或Own |
+| 读边/标量 | 父Root、准确字段与原guard、已登记访问段 | 可能失败的结果空根准备先于边读取；保护内加载边并装入结果根，再释放父保护。标量按值取出，不返回逃逸引用；不在读出唯一裸边后才分配根 |
+| 写边/标量 | receiver/RHS各已求值和保活、原写权及同步、已登记段 | 真实检查后一次安装；非增量模式无需Gift新造三色屏障，库dirty-store不代线程同步。求值失败不写，访问段不跨普通用户回调/await |
+| 最后外根退休 | 预留退休节点与管理器占用；调用方可未登记 | 只将既有普通堆节点交给下述退休入口；不读取/修改GC槽、不临时分配、不执行用户代码。已登记drainer唯一清槽/free根单元，随后释放节点和占用 |
+| 线程进入/退出 | 原线程身份、真实栈基与管理器代 | 首次GC访问前按固定库API登记，仅注销自己成功取得的登记；已有登记不可重复拥有。退出前交接访问/回调，后续TLS Drop走退休通路，不依赖TLS析构顺序 |
+
+**最后一个Root的退休算法。**每个可发布RootState预先拥有一个普通Rust堆退休节点和runtime寿命占用；取得失败时整体失败。末次Drop把此节点的所有权转给原runtime退休入口，节点仍持不透明根单元。默认用成熟std同步原语保护一条由这些既有节点串成的有界待退役链，只接已有节点，不在push分配容器容量；锁内只接链/认领，不调用GC、用户代码或等待任务。已登记drainer锁外取唯一节点、清根/释放单元，再释放普通节点和占用。锁状态恢复不能丢节点；不可继续的进程故障保留终止/未结算，不能正常返回并静默漏根。
+
+停止普通准入后仍接受所有已拥有节点的退休，直到已发布RootState、在途回调/GC访问和退休链全部结算；runtime/释放代码由这些占用保活，不能先销毁队列。即使最后Drop发生在未登记executor线程或注销后的TLS析构，它也只修改普通同步元数据，GC槽保持可扫描，drainer仍有责任。该路径不在退出时碰运气申请内存，也不靠GC finalizer反过来关闭runtime。
+
+**异步、重入与共享线程。**Future/完成槽/队列保留Root；await前保存活跃值，恢复到另一工作线程时先取得合法GC访问段。native回调独立持其根与代码占用，取消Future不撤销真实回调；晚到按原任务代/结果安装合同交付或清理。字段访问段结束后才执行普通用户调用，因此重入不持旧RefCell借用/互斥guard。跨线程共享边按原mutex/atomic合同同步，不把collector线程安全当源数据无竞争；原要求显式复合guard者仍保持该guard含义。
+
+外部线程访问GC前显式登记，真正停顿交固定库已有平台机制，不自写第二停世界器。原生opaque、外部资源和任意Drop对象走原Own/FFI生命周期，不能藏进可复制Edge。运行结束先停准入、结算/移交任务与回调及Own，再排空根与GC访问；根回收不证明设备、文件或远端操作已关闭。固定版[gc.h](https://raw.githubusercontent.com/bdwgc/bdwgc/v8.2.12/include/gc.h)的线程、keep-alive和失败接口须与实际二进制一致，不以头文件版本替代运行库身份。
+
+P4固定管理绑定与全部资源/目标义务，P5生成布局/根边访问、挂起/线程接合及原清理路径；P6对实际布局独立核每个可达引用的根/边覆盖、线程和Own/区域保持，P7组合Rust模块、必要C ABI成员、库链接、固定flags与来源。不为每个record/type另建collector。验证至少覆盖有根/无根环、闭包Cell环、读边遇GC、唯一根在Future/错误载荷、重入、取消后晚回调、未登记线程/TLS末次Drop与关闭竞态、退休信用不足、部分初始化失败和错误Send/Sync；真实平台、ABI/LTO、内存与停止事实另需实施证据。
 
 ## 6. 调用、控制、错误与异步
 
@@ -228,6 +267,8 @@ flowchart TD
   closure --> result["实际构建及完整成员；缓存不作唯一事实源"]
   dependencyGraph -->|缺供给| needs["返回 Needs；获准取得后形成新固定输入，不在 printer 联网"]
 ```
+
+选择UiNode来源的应用沿[通用视图树降低](具体降低与领域输出.md#ui-tree-lowering)生成已选框架的真实组件调用与状态/回调，不因选择Rust改写原树的角色、输入代或完成合同。组件handle、订阅和异步回调消费真实线程/执行器及寿命限定；主线程资格不由Send推导。crate、feature、资源和原生库由本节绑定及原成员组合器承担；更换组件实现后重核初始化、停止和焦点/输入法迁移，不默认照搬Web宿主行为。
 
 ## 10. rustc/Cargo 诊断与 SourceMap
 

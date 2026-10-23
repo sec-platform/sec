@@ -1,6 +1,16 @@
 # `/2` 最小持久作者工程与第二次修改
 
+[record-capabilities.module.json](record-capabilities.module.json)是另一个不进入最小工程sourceScopes的通用记录结构范本：MakeMixed新建mutable slot，两个optional字段缺席，open尾保留spare；ReadSlot通过普通call.semanticArguments的Type及Value<Text>槽固定字段并传播state-read；KeepTail消费并完整返还同一泛型余行，Record/Lacks由类型形成推导。gift:record的导入描述仍需未来真实Resolver取得合格模块、声明及Method，本范本不填假锁、不声称生产库存在。它验证结构表达，不证明八组合语义、别名/Own、目标生成或运行通过。反例包括将rowType配open=false、把字段静态键换运行参数、has后别名take仍用旧事实、合并丢尾和将mutable optional瞬时Present升级成可逃逸required；结构与语义检查分别负责。
+
 这是完整可读的结构设计正例，未运行产品 Reader、编译器、发行或真实效果。仅需私有定义时可删模块 exports，并移除不再需要的发行文件及对应 SourceScope；不为每个小程序强制建包。当前示例保留公开常量和可选发行描述以说明两种导出的不同责任。
+
+另外提供一份**独立结构正例** [typed-values.module.json](typed-values.module.json)，不在上述工程的 `sourceScopes` 内，因此不会偷偷增加最小工程的模块、目标或发行成员。它在同一 `gift.author-module/2` 中展示：`ExactPrice` 的精确十进制定点 `{"coefficient":"120","scale":2}`、`BytePrefix` 的明示 hex 字节值 `"00ff"`，以及 `MakeIdentity` 返回的函数值，其 lambda 主体采用 `ExecBlock` 和局部 `var/set/if/return`，对应选定文本 `(n: Int) => scope { var copy = n; set copy = n; if true { return copy; } copy }`。外部返回类型是 `(Int)->Int` 的显式函数类型；两个局部绑定与普通运行变量不成为工程级身份/运行时Grant。例中条件为true，因此 `return` 发生在此lambda内；结构类型与真实控制分析仍须由其未来Reader/Checker验证，这里不声称已经执行函数或获得目标源码。
+
+示例对照的非法情况包括：decimal 直接填 JSON `1.20`、bytes 缺编码、float 直接填 JSON `0.5`、lambda 的 `break` 穿越其词法外层循环，以及将 `scope {}` 静默等同于空记录 `{}`。前三项由选定新Schema显式拒绝或要求合格值构造；后两项由准确文本与控制 Checker 负责，不把 Schema 的结构合法性当作完整执行语义资格。该文件是工程设计示例，不增加测试Runner、IR账本或另一个作者源格式。
+
+[workflow-values.module.json](workflow-values.module.json)是同样不加入最小工程sourceScopes的独立值边界范本，消费[唯一工作流算法](../../../docs/领域/状态关系与流/工作流执行与激活.md#workflow-value-bindings)。Parent把合法`a-b`和普通`value`记录字段绑定给Child，Done省略映射继承子流程原值；Projected以Identifier形参n调用Identity，再由当前Read原始outcome的`/value`构造公开记录，Done继承的是投影结果。ErrorRelay仅在准确受管错误画像、函数Effect与Method均合格时从Attempt的失败outcome取`/error`，按非记录errors的value槽交付；缺该画像/降低则保原源和准确Need，不能宣称已运行。UnitOnly说明纯单terminal无需Effect或持久台账。activationRoutes属于具体组件/触发实例，不为本范本虚构UI、时钟或外部对象；输入绑定结构的合法/非法载荷另由相交验证核对。
+
+此范本的语义反例包括：把compute形参改成a-b；把错误outcome替换为失败步骤result；把Read的显式投影误读成原Int；将record.value当整记录包裹；将传入Int省略绑定直接变成Unit；循环中按最近同名step选outcome；投影失败后重放已做Effect。前者中的名字/联合结构可由Schema限制，真实Type、发生点、画像/权限、Own、外部结算与迁移仍由原消费者裁决，不能拿结构正例当运行PASS。
 
 第一次输入由[工程清单](gift.project.json)、[作者模块](design/limit.module.json)和可选[发行描述](gift.package.json)组成。工程没有 targets/defaultTarget，因而是合法未生成工程，不声称有可执行入口。此时也没有依赖或目标解析结果，不填假锁；生产 Resolver 实际选择解释或供应后才保存真实绑定。
 

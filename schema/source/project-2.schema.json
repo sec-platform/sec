@@ -119,7 +119,24 @@
             "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"kind": {"const": "generated"}},
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "editSource": {
+                "properties": {"mode": {"enum": ["projection", "derived"]}},
+                "required": ["mode"]
+              }
+            }
+          }
+        }
+      ],
+      "description": "Generated scope members are projections or derived read-only content, never directly editable author files. SourceOwner checks actual producer/coverage, source adoption and any external opaque-input use."
     },
     "EditSource": {
       "type": "object",

@@ -27,7 +27,7 @@
 
 **目标路线位置：** [子对象视图的后端与代价](../../领域/对象与控制/子对象视图与兼容构造.md#native-inheritance-target)。
 
-**不能越过的边界：** 精确 C++ 类 ABI 另查 M14；不得隐藏额外分配。
+**不能越过的边界：** 精确C++类ABI沿[原生映射的M14外部接口条目](../../编译/原生映射/采用与导出边界.md#5-已选择与条件候选的边界)核对；不得隐藏额外分配。
 
 **验收责任位置：** [实现继承的条件验收](../../领域/对象与控制/子对象视图与兼容构造.md#native-inheritance-acceptance)。来源记录不证明该验收已运行。
 
@@ -956,7 +956,7 @@
 
 **研究方案的条件验收：** 字面量解析在编译时完成；传入运行期字符串编译失败而非偷偷延后执行。
 
-**依据：** [R14](#research-r14) [C02](#research-c02)
+**依据：** [R14](#research-r14) [C18](#research-c18)
 
 <a id="a39"></a>
 ### 更广泛泛型 constexpr
@@ -981,7 +981,7 @@
 
 **研究方案的条件验收：** 同一算法在 compile-capable witness 下预计算，runtime-only witness 下明确拒绝常量调用。
 
-**依据：** [R14](#research-r14) [R06](#research-r06) [C02](#research-c02)
+**依据：** [R14](#research-r14) [R06](#research-r06) [C19](#research-c19)
 
 <a id="a40"></a>
 ### 语义静态反射
@@ -1673,7 +1673,7 @@
 <a id="x05"></a>
 ### 编译期临时容器与编译宿主
 
-**研究记录：** 本次C++测试验证了合格constexpr函数可临时使用vector并在常量求值结束前释放。Rust常量求值可用的库协议/分配操作需逐项核验。
+**研究记录：** 原研究记录声称C++测试验证了合格constexpr函数可临时使用vector并在常量求值结束前释放；本源集合未定位该实验的准确工具链、输入与结果，不将它作为可复用PASS。相应语言与库条件改由[C19](#research-c19)定位：只在相交调用均可常量求值、分配在该次求值内释放等规则成立时讨论临时容器；这不证明特定编译器或标准库已经符合。Rust常量求值可用的库协议/分配操作仍需逐项核验。
 
 **替代与对照：** 数据表生成可以移到受控build步骤；小型常量计算用const fn；已知类型先生成。
 
@@ -1683,7 +1683,7 @@
 
 **归属：** [阶段化执行与语义反射](../../编译/内核/阶段求值与反射生成.md)。
 
-**依据：** [R14](#research-r14) [R06](#research-r06) [C02](#research-c02)
+**依据：** [R14](#research-r14) [R06](#research-r06) [C19](#research-c19)
 
 <a id="x06"></a>
 ### unsafe 是证明责任边界，不是无限权限
@@ -2099,6 +2099,12 @@
 
 <a id="research-c13"></a>
 **WG21 P4197R0：trivial relocation 的 C++29 重议** — [原始材料](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/p4197r0.html)。原记录日期：2026-09-22。
+
+<a id="research-c18"></a>
+**C++ working draft：constexpr/consteval与immediate function** — [声明规则](https://eel.is/c++draft/dcl.constexpr)及[immediate调用规则](https://eel.is/c++draft/expr.const.imm)。本次核读日期：2026-10-22。仅支撑A38的函数/调用阶段区别；动态working draft不整体等于C++23，也不证明特定实现已符合。
+
+<a id="research-c19"></a>
+**C++ working draft：常量求值与vector成员资格** — [core constant expression](https://eel.is/c++draft/expr.const.core)及[vector声明](https://eel.is/c++draft/vector.overview)。本次核读日期：2026-10-22。将常量求值内的分配/释放限制与各成员的constexpr资格一起使用，只支撑A39/X05相交规则；不认证原历史实验、任意容器或特定工具链。
 
 <a id="research-t01"></a>
 **GCC C++ 特性状态表** — [原始材料](https://gcc.gnu.org/projects/cxx-status.html)。原记录日期：2026-09-22。 核验到 C++26 reflection/contracts/expansion 的逐特性状态；不是本环境的已安装编译器状态。
