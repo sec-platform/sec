@@ -35,14 +35,6 @@ function membership(ownerByRoot: Readonly<Record<string, string>>): RepositoryMo
   });
 }
 
-function compile(
-  sources: Readonly<Record<string, string>>,
-  ownerByRoot: Readonly<Record<string, string>>
-) {
-  const { model, ownerIntents } = compileFacts(sources, ownerByRoot);
-  return compileSourceProgramImplementationDominance({ model, ownerIntents });
-}
-
 function compileFacts(
   sources: Readonly<Record<string, string>>,
   ownerByRoot: Readonly<Record<string, string>>
@@ -65,7 +57,7 @@ function compileFacts(
 }
 
 test('equal declaration bytes without an owner responsibility remain heuristic unknown', () => {
-  const compilation = compile({
+  const { model, ownerIntents } = compileFacts({
     'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
@@ -73,11 +65,20 @@ test('equal declaration bytes without an owner responsibility remain heuristic u
     'src/identity': 'identity-owner',
     'src/consumer': 'consumer-owner'
   });
+  const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
-  expect(compilation.findings).toHaveLength(1);
+  expect(candidates).toContainEqual(expect.objectContaining({
+    kind: 'identity',
+    evidenceClass: 'heuristic',
+    observationClass: 'unknown'
+  }));
   expect(compilation.units.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
-  expect(compilation.findings[0]!.disposition).toBe('unknown');
-  expect(compilation.findings[0]!.removableUnitIds).toEqual([]);
+  expect(compilation.findings).toEqual([expect.objectContaining({
+    kind: 'identity',
+    disposition: 'unknown',
+    removableUnitIds: []
+  })]);
 });
 
 test('equal public-operation declarations still require an exact evolution obligation', () => {
@@ -192,31 +193,6 @@ test('contract codecs crossing durable recovery boundaries require migration ins
   expect(compilation.units.every(({ frontiers }) => (
     frontiers.durable === 'present' && frontiers.recovery === 'present'
   ))).toBe(true);
-});
-
-test('the candidate compiler does not promote an exact declaration digest to semantic identity', () => {
-  const { model, ownerIntents } = compileFacts({
-    'src/one/equal.ts': 'export function same(left: string, right: string): boolean { return left === right; }\n',
-    'src/two/equal.ts': 'export function same(left: string, right: string): boolean { return left === right; }\n',
-    'src/use/value.ts': "import { same } from '../one/equal.ts';\nexport const result = same('a', 'a');\n"
-  }, {
-    'src/one': 'identity-owner',
-    'src/two': 'identity-owner',
-    'src/use': 'consumer-owner'
-  });
-  const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-
-  expect(candidates).toContainEqual(expect.objectContaining({
-    kind: 'identity',
-    evidenceClass: 'heuristic',
-    observationClass: 'unknown'
-  }));
-  expect(compilation.findings).toContainEqual(expect.objectContaining({
-    kind: 'identity',
-    disposition: 'unknown',
-    removableUnitIds: []
-  }));
 });
 
 test('capability effects belong to declaration spans rather than every export in the file', () => {
