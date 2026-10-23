@@ -152,7 +152,9 @@ test('invalid byte encoding remains a retained decoding failure rather than an e
   const f = fixture();
   try {
     f.write('fixture.yaml', Uint8Array.of(0xff));
-    assert.throws(() => loadPolicyDeclarations(f.root));
+    assert.throws(() => loadPolicyDeclarations(f.root), error =>
+      error instanceof Error && /\bUTF-8\b/u.test(error.message)
+      && error.message.includes('fixture.yaml') && error.cause instanceof TypeError);
   } finally { f.cleanup(); }
 });
 

@@ -33,17 +33,22 @@ export async function runSuite() {
   // 3. Trigger Agent flow
   const result = autoExecuteAgentFlow(db, tenant1Session, onboardingTicket.id);
 
-  // 4. Verify AI execution logic
+  // 4. Verify the deterministic classifier result and its stored ticket/comment effects
   assert.equal(result.agentName, 'BrainyAgent');
+  assert.equal(result.ticket.id, onboardingTicket.id);
   assert.ok(result.commentBody.includes('onboarding bottleneck'));
   assert.equal(result.ticket.status, 'in_progress');
 
-  const d = db as any;
-  assert.equal(d.ticketComments.length, 1);
-  assert.ok(d.ticketComments[0].body.includes('[AI Assistant - BrainyAgent]'));
-  assert.equal(d.ticketComments[0].tenantId, 'tenant-alpha');
+  assert.equal(db.tickets.find((ticket) => ticket.id === onboardingTicket.id)?.status, 'in_progress');
+  assert.equal(db.ticketComments.length, 1);
+  const storedComment = db.ticketComments[0]!;
+  assert.ok(storedComment.body.includes('[AI Assistant - BrainyAgent]'));
+  assert.equal(storedComment.body, result.commentBody);
+  assert.equal(storedComment.ticketId, onboardingTicket.id);
+  assert.equal(storedComment.authorId, `agent-${agent.id}`);
+  assert.equal(storedComment.tenantId, 'tenant-alpha');
 
-  // 5. Verify sandbox and tenant cross-access isolation
+  // 5. Tenant beta cannot borrow tenant alpha's active agent
   const tenant2Session: Session = {
     userId: 'user-2',
     username: 'Bob',
@@ -59,5 +64,7 @@ export async function runSuite() {
   assert.throws(() => {
     autoExecuteAgentFlow(db, tenant2Session, betaTicket.id);
   }, /No active AI Agent found in this tenant/);
+  assert.equal(betaTicket.status, 'open');
+  assert.equal(db.ticketComments.length, 1);
 }
 
