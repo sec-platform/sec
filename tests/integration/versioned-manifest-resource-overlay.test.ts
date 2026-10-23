@@ -29,20 +29,19 @@ test('versioned manifest resources use the changed version file and fall back to
     await fs.writeFile(path.join(blockRoot, inheritedResource), 'root inherited\n', 'utf8');
 
     const registrySources = [buildPrivatePlanRegistrySource()];
-    const rootEntry = loadManifestById('private/block-upgrade', { workspaceRoot, registrySources });
     const versionEntry = loadManifestById('private/block-upgrade', {
       workspaceRoot,
       registrySources,
       version: '0.2.0'
     });
 
-    expect(versionEntry.resourceRoots).toEqual([versionEntry.manifestRoot, rootEntry.manifestRoot]);
+    expect(versionEntry.resourceRoots).toEqual([versionRoot, blockRoot]);
     expect(readManifestResourceFileUtf8(versionEntry, changedResource)).toMatchObject({
-      root: versionEntry.manifestRoot,
+      root: versionRoot,
       raw: 'version changed\n'
     });
     expect(readManifestResourceFileUtf8(versionEntry, inheritedResource)).toMatchObject({
-      root: rootEntry.manifestRoot,
+      root: blockRoot,
       raw: 'root inherited\n'
     });
   });

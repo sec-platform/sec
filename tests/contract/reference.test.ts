@@ -70,23 +70,7 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
   });
 });
 
-test('reference check never reports clean when refresh or Git observation fails', async () => {
-  const refreshFailed = projectReferenceCheckReport({
-    root: path.join(os.tmpdir(), 'sec-reference-root-must-not-be-read'),
-    runnerCommand: 'bun run reference:check',
-    refreshCommand: 'bun run reference:refresh',
-    diffCommand: 'git diff --name-only --exit-code -z -- examples/reference-workspace',
-    untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- examples/reference-workspace',
-    refreshExitCode: 2,
-    drift: {
-      exitCode: -1,
-      trackedExitCode: -1,
-      untrackedExitCode: -1,
-      changedPaths: []
-    }
-  });
-  expect(() => assertReferenceCheckClean(refreshFailed)).toThrow(expect.objectContaining({ code: 'VERIFY-REFERENCE-DRIFT-002' }));
-
+test('reference check never reports clean when Git observation fails', async () => {
   const nonRepositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-reference-nonrepo-'));
   try {
     const drift = await scanReferenceDrift(nonRepositoryRoot, referenceDriftCommands);
@@ -171,6 +155,9 @@ test('reference use case suppresses drift observation after nonzero refresh', as
     changedPathCount: 0, changedPaths: [],
     recommendedAction: 'fix-reference-refresh-before-reference-check'
   });
+  expect(() => assertReferenceCheckClean(report)).toThrow(
+    expect.objectContaining({ code: 'VERIFY-REFERENCE-DRIFT-002' })
+  );
 });
 
 test('reference use case preserves drift and failed observation results', async () => {

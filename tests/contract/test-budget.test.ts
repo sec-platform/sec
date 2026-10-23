@@ -4,7 +4,7 @@ import type { TestBudgetContract } from '../../src/adapters/verification/platfor
 import { expectCliJson } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-test('test-budget CLI emits one internally complete executable inventory', async () => {
+test('test-budget CLI emits a nonempty, internally consistent repository inventory', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const contract = await expectCliJson<TestBudgetContract>(
       workspaceRoot,
@@ -25,6 +25,8 @@ test('test-budget CLI emits one internally complete executable inventory', async
       { file: 'tests/unit/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
     ]);
 
+    // The compiler repository has slow suites; empty output is not a complete inventory.
+    expect(contract.slowTestFiles.length).toBeGreaterThan(0);
     expect(contract.slowTestFiles).toEqual([...contract.slowTestFiles].sort());
     expect(new Set(contract.slowTestFiles).size).toBe(contract.slowTestFiles.length);
     expect(contract.slowTestFileCount).toBe(contract.slowTestFiles.length);

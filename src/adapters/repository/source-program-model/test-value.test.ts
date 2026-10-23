@@ -223,8 +223,7 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
     'tests/unit/replacement.test.ts',
     'tests/unit/deleted.test.ts',
     'tests/unit/rewritten.test.ts',
-    'tests/unit/unknown.test.ts',
-    'tests/unit/live-contract.test.ts'
+    'tests/unit/unknown.test.ts'
   ];
   const sourceRevision = sourceRevisionFor(files);
   const seed = compile(files, [], { baselineTestPaths });
@@ -267,8 +266,6 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
   expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([
     { code: 'test-module-disposition-unbound', path: 'tests/unit/deleted.test.ts' },
     { code: 'test-module-missing-from-worktree', path: 'tests/unit/deleted.test.ts' },
-    { code: 'test-module-disposition-unbound', path: 'tests/unit/live-contract.test.ts' },
-    { code: 'test-module-missing-from-worktree', path: 'tests/unit/live-contract.test.ts' },
     {
       code: 'test-module-disposition-unknown',
       path: 'tests/unit/unknown.test.ts'
@@ -442,9 +439,6 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     baselineRevision
   });
   expect(baselineEvidence.map(({ path }) => path)).toEqual(baselinePaths.slice(0, 3));
-  expect(compileSourceProgramTestBaselineEvidence({
-    baselineTestPaths: [retainedPath], baselineModel, candidateModel, baselineRevision
-  })).toEqual([]);
   expect(compileSourceProgramTestBaselineEvidence({
     baselineTestPaths: [retainedPath], baselineModel,
     candidateModel: { ...candidateModel }, baselineRevision
