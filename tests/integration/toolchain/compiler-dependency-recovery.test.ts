@@ -34,7 +34,7 @@ import {
   withLinkedCompilerTestWorkspaces,
   withTempWorkspace,
   writeCompilerDependencyRoot
-} from './compiler-dependency-installation.ts';
+} from './compiler-dependency-fixtures.ts';
 
 for (const scenario of ['retired', 'disposed', 'foreign', 'preimage', 'cancel', 'unknown-lease', 'settled-republish-fence'] as const) {
   effectfulTest(test, `recovers exact published locator predecessor: ${scenario}`, {

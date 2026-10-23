@@ -10,7 +10,7 @@ import check_docs
 import build_html
 import check_design
 import source_inventory as s
-from .test_check_documentation_identity import declaration
+from .fixtures import declaration
 
 
 class ProjectionModes(TestCase):

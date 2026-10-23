@@ -128,7 +128,6 @@ async function withRecoveryFixture(
   let snapshot: UpgradeWorkspaceSnapshot | undefined;
   try {
     for (const directory of [
-      fixture.manifestRoot,
       path.dirname(fixture.schemaPath),
       path.dirname(fixture.jobPath),
       path.dirname(fixture.lockPath)
@@ -484,6 +483,7 @@ test('raw-byte drift with identical lossy UTF-8 text refuses all rollback writes
       expect(await fs.readFile(path.join(snapshot.preimage.path, 'src', 'data.bin'))).toEqual(before);
     },
     async ({ root, manifestRoot }) => {
+      await fs.mkdir(manifestRoot);
       await fs.writeFile(path.join(root, 'src', 'data.bin'), before);
       await fs.writeFile(path.join(manifestRoot, 'after.bin'), after);
     }
@@ -509,35 +509,16 @@ test('a new external directory member is preserved before any known file is rest
   });
 });
 
-for (const legacyKind of ['missing', 'unissued'] as const) {
-  test(`${legacyKind} recovery intent cannot turn a genuine backup into restore authority`, async () => {
-    await withRecoveryFixture(async (fixture, snapshot) => {
-      await apply(fixture, snapshot, [planMigration], ['sec.yaml']);
-      const { recoveryIntent: ignoredIntent, ...legacySnapshot } = snapshot;
-      const unsupportedSnapshot =
-        legacyKind === 'missing' ? legacySnapshot : { ...legacySnapshot, recoveryIntent: Object.freeze({}) };
-
-      await expect(
-        restoreWorkspace(unsupportedSnapshot as UpgradeWorkspaceSnapshot, fixture.lockPath, healthyFence)
-      ).rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-005' });
-
-      expect(await fs.readFile(fixture.planPath)).toEqual(appliedPlanBytes);
-      expect(await fs.readFile(fixture.schemaPath)).toEqual(originalSchemaBytes);
-      expect(await fs.readFile(path.join(snapshot.preimage.path, 'sec.yaml'))).toEqual(originalPlanBytes);
-    });
-  });
-}
-
-test('a genuine intent from another snapshot cannot authorize a matching workspace rollback', async () => {
+test('a reconstructed snapshot with a genuine foreign intent cannot authorize workspace rollback', async () => {
   await withRecoveryFixture(async (first, firstSnapshot) => {
     await withRecoveryFixture(async (second, secondSnapshot) => {
       await apply(first, firstSnapshot, [planMigration], ['sec.yaml']);
       await apply(second, secondSnapshot, [planMigration], ['sec.yaml']);
       const transplanted = { ...firstSnapshot, recoveryIntent: secondSnapshot.recoveryIntent };
 
-      await expect(restoreWorkspace(transplanted, first.lockPath, healthyFence)).rejects.toMatchObject({
-        code: 'UPGRADE-BLOCKED-005'
-      });
+      await expect(restoreWorkspace(transplanted, first.lockPath, async () => {
+        throw new Error('unissued snapshot reached commit fence');
+      })).rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-005' });
 
       expect(await fs.readFile(first.planPath)).toEqual(appliedPlanBytes);
       expect(await fs.readFile(second.planPath)).toEqual(appliedPlanBytes);

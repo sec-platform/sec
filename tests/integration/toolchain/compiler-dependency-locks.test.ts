@@ -14,7 +14,7 @@ import {
   withCompilerTestWorkspace,
   withTempWorkspace,
   writeCompilerDependencyRoot
-} from './compiler-dependency-installation.ts';
+} from './compiler-dependency-fixtures.ts';
 
 describe('compiler dependency installation', () => {
   effectfulTest(test, 'preserves a replaced staging source and recovers after its original identity returns', {

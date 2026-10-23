@@ -34,7 +34,7 @@ import {
   withLinkedCompilerTestWorkspaces,
   writeCompilerDependencyRoot,
   type IsolatedGeneratedStateLifecycle
-} from './compiler-dependency-installation.ts';
+} from './compiler-dependency-fixtures.ts';
 
 describe('compiler dependency installation', () => {
   if (process.platform === 'win32') effectfulTest(test, 'reads an existing coordination locator without transient repository writes', {

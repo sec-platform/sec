@@ -4,7 +4,7 @@ import hashlib
 import json
 import tempfile
 import unittest
-from .test_check_documentation_identity import declaration
+from .fixtures import declaration
 from source_inventory import (
     load,
     refresh_source_manifest,

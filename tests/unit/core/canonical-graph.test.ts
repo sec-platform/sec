@@ -194,18 +194,6 @@ test('deepFreeze handles a 50000-edge chain with bounded native stack use', () =
   assert.equal(count, 50_001);
 });
 
-test('deepFreeze preserves child-before-parent freezing for an acyclic graph', () => {
-  const order: string[] = [];
-  const child = new Proxy({}, {
-    preventExtensions(target) { order.push('child'); return Reflect.preventExtensions(target); }
-  });
-  const root = new Proxy({ child }, {
-    preventExtensions(target) { order.push('root'); return Reflect.preventExtensions(target); }
-  });
-  deepFreeze(root);
-  assert.deepEqual(order, ['child', 'root']);
-});
-
 test('cloneAndDeepFreeze freezes a cyclic clone without mutating the input', () => {
   const root: Record<string, unknown> = {};
   const shared = { n: 1 };

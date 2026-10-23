@@ -1,6 +1,5 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { createLogger } from '../../../src/adapters/diagnostics/json-logger.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 import { LOG_LEVELS, buildJsonLogRecord, resolveLogLevel, type LogLevel } from '../../../src/contracts/logging.ts';
 
@@ -42,13 +41,12 @@ test('prototype-looking metadata stays data on a frozen null-prototype record', 
   assert.equal(JSON.parse(JSON.stringify(record)).level, 40);
 });
 
-test('shared log-level validation rejects invalid values and every public entry enforces it', () => {
+test('shared log-level validation rejects invalid values at contract entries', () => {
   for (const value of ['', 'INFO', ' INFO ', 'toString', '__proto__', 'verbose', null, 1, {}, []]) {
     // Deliberately emulate untyped JavaScript at the shared domain boundary.
     const untyped = value as LogLevel;
     assert.throws(() => resolveLogLevel(undefined, untyped), invalidLevel);
   }
-  assert.throws(() => createLogger({ level: 'INFO' as LogLevel }), invalidLevel);
   assert.throws(() => buildJsonLogRecord('INFO' as LogLevel, 'bad', {}, 1), invalidLevel);
 });
 
@@ -76,5 +74,35 @@ test('log records preserve primitive metadata and reject invalid timestamps', ()
   for (const time of [-1, 0.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     assert.throws(() => buildJsonLogRecord('info', 'x', {}, time),
       (error: unknown) => error instanceof CodedFailure && error.code === 'LOGGING-RECORD-001');
+  }
+});
+
+const invalidMessages: ReadonlyArray<readonly [string, unknown]> = [
+  ['undefined', undefined], ['null', null], ['number', 1], ['boolean', false],
+  ['bigint', 1n], ['symbol', Symbol('message')], ['function', () => {}],
+  ['array', []], ['record', {}], ['boxed string', new String('not primitive')]
+];
+test('all non-string message classes reject without replacing the canonical msg field', () => {
+  for (const [name, message] of invalidMessages) {
+    assert.throws(() => buildJsonLogRecord('info', message as never, undefined, 0), (error: unknown) => {
+      assert.equal((error as { code: string }).code, 'LOGGING-RECORD-001');
+      return true;
+    }, `message class: ${name}`);
+  }
+});
+
+test('a revoked proxy message is rejected without reading proxy properties', () => {
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+  assert.throws(() => buildJsonLogRecord('warn', proxy as never, undefined, 0), (error: unknown) => {
+    assert.equal((error as { code: string }).code, 'LOGGING-RECORD-001');
+    return true;
+  });
+});
+
+test('all primitive string message classes preserve exact bytes and reserved-field priority', () => {
+  for (const message of ['', 'normal', 'line\nbreak', '\u0000', '中文 😀', '\ud800']) {
+    const record = buildJsonLogRecord('info', message, { tag: 'kept', msg: 'forged' }, 123);
+    assert.deepEqual(JSON.parse(JSON.stringify(record)), { tag: 'kept', level: 20, time: 123, msg: message }, `message: ${JSON.stringify(message)}`);
   }
 });

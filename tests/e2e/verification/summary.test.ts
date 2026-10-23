@@ -25,6 +25,7 @@ import {
 import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess } from '../../testkit/cli.ts';
 import { createWorkspace, prepareComposedWorkspace, prepareLockedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
 
+// Review Summary production and durable-artifact contracts.
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;
   provenance: ProvenanceFile;
@@ -422,6 +423,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
   });
 }, 180000);
 
+// CLI overview presentation keeps the existing runtime-heavy suite and shared locked workspace.
 // 只有 overview acceptance 被选中时才创建一次 locked + explained Workspace。
 // 文件内其他 lightweight summary sentinel 不为未选择的完整 Pipeline 付费。
 let sharedOverviewWorkspace: Promise<string> | null = null;

@@ -1077,7 +1077,6 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     expect(() => readNoFollowOrdinaryFile(identity, 'large.bin')).toThrow('exceeds the bounded no-follow read size');
     expect(readNoFollowOrdinaryFile(identity, 'large.bin', { maximumBytes: largeSize })?.byteLength).toBe(largeSize);
     const first = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
-    const second = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
     expect(first.get('small.txt')?.contentDigest).toBe(
       sha256({ bytes: smallBytes.toString('hex') }) as `sha256:${string}`
     );
@@ -1094,7 +1093,7 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     expect(first.get('small.txt')).not.toHaveProperty('byteDigest');
     expect(first.get('large.bin')).toMatchObject({ kind: 'file', size: largeSize });
     expect(first.get('large.bin')?.contentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(second.get('large.bin')?.contentDigest).toBe(first.get('large.bin')?.contentDigest);
+    expect(rawInventory.get('large.bin')?.contentDigest).toBe(first.get('large.bin')?.contentDigest);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

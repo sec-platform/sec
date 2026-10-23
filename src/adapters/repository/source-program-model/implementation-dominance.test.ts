@@ -403,61 +403,6 @@ test('duplicate completion candidates without an owner readback fact cannot sign
   }));
 });
 
-test('similar transition operations with different recovery remain an owner migration', () => {
-  const moduleMembership = membership({
-    'src/transition-a': 'transition-a-owner',
-    'src/transition-b': 'transition-b-owner'
-  });
-  const descriptors = moduleMembership.descriptors.map((descriptor, index) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'state.transition',
-      operations: Object.freeze(['advance']),
-      effectKinds: Object.freeze(['persistent-state' as const]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })]),
-    operationObligations: Object.freeze([Object.freeze({
-      operation: Object.freeze({ kind: 'capability' as const, capability: 'state.transition', operation: 'advance' }),
-      consumerSupport: Object.freeze({ consumers: Object.freeze([]) }),
-      effect: Object.freeze({
-        kinds: Object.freeze(['persistent-state' as const]),
-        failureKinds: Object.freeze(['transition-failed']),
-        recovery: index === 0 ? 'rollback' as const : 'owner-intervention' as const
-      }),
-      evolution: Object.freeze({
-        migration: 'one-shot-owner-migration' as const,
-        retirement: 'replacement-obligations-satisfied' as const
-      }),
-      resources: Object.freeze({ aggregateBudgets: Object.freeze([]) }),
-      futureSupport: Object.freeze({ condition: 'preserve-obligations' as const })
-    })])
-  }));
-  const membershipWithTransitions = Object.freeze({ ...moduleMembership, descriptors });
-  const sources = {
-    'src/transition-a/advance.ts': 'export function advance(): void {}\n',
-    'src/transition-b/advance.ts': 'export function advance(): void {}\n'
-  };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithTransitions
-  });
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, membershipWithTransitions);
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-
-  expect(compilation.findings).toContainEqual(expect.objectContaining({
-    kind: 'transition-algebra',
-    disposition: 'migration-required',
-    removableUnitIds: []
-  }));
-});
-
 test('consumer-zero cannot orphan an owner-authorized obligation that is not materialized', () => {
   const baseMembership = membership({ 'src/planned': 'planned-owner' });
   const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({

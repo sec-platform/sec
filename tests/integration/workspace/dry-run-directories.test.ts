@@ -4,7 +4,8 @@ import path from 'node:path';
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { prepareBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
+import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
+import { prepareBlockUpgradeDryRunFixture, withBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
 import { expectUpgradeDryRunFailureWithoutDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
@@ -141,5 +142,92 @@ test('upgrade dry-run rejects copy directory migrations when target is a file', 
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     { code: 'UPGRADE-MIGRATION-027' }
+  );
+});
+
+test('upgrade rejects delete directory migrations when target is not a directory', async () => {
+  await withBlockUpgradeDryRunFixture(
+    {
+      prefix: 'engineering-compiler-upgrade-delete-directory-file-target-',
+      migration: {
+        id: 'mig-delete-obsolete-report-dir',
+        kind: 'delete-directory',
+        entry: 'migrations/delete-obsolete-report-dir.json',
+        requiresVerification: false,
+        body: {
+          id: 'mig-delete-obsolete-report-dir',
+          kind: 'delete-directory',
+          reason: 'Remove obsolete generated report directory from previous upgrades.',
+          target: 'generated/reports/obsolete'
+        }
+      },
+      setup: async ({ paths }) => {
+        await writeJson(path.join(paths.workspaceRoot, 'generated', 'reports', 'obsolete'), {
+          status: 'not-a-directory'
+        });
+      }
+    },
+    async ({ workspaceRoot }) => {
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+        code: 'UPGRADE-MIGRATION-026'
+      });
+    }
+  );
+});
+
+test('upgrade rejects copy directory migrations when manifest source is missing', async () => {
+  await withBlockUpgradeDryRunFixture(
+    {
+      prefix: 'engineering-compiler-upgrade-copy-directory-missing-source-',
+      migration: {
+        id: 'mig-copy-report-templates',
+        kind: 'copy-directory',
+        entry: 'migrations/copy-report-templates.json',
+        requiresVerification: false,
+        body: {
+          id: 'mig-copy-report-templates',
+          kind: 'copy-directory',
+          reason: 'Copy report templates into generated report assets.',
+          source: 'files/generated/reports/missing-templates',
+          target: 'generated/reports/templates'
+        }
+      }
+    },
+    async ({ workspaceRoot }) => {
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+        code: 'UPGRADE-MIGRATION-008'
+      });
+    }
+  );
+});
+
+test('upgrade rejects copy directory migrations when manifest source is not a directory', async () => {
+  await withBlockUpgradeDryRunFixture(
+    {
+      prefix: 'engineering-compiler-upgrade-copy-directory-file-source-',
+      migration: {
+        id: 'mig-copy-report-templates',
+        kind: 'copy-directory',
+        entry: 'migrations/copy-report-templates.json',
+        requiresVerification: false,
+        body: {
+          id: 'mig-copy-report-templates',
+          kind: 'copy-directory',
+          reason: 'Copy report templates into generated report assets.',
+          source: 'files/generated/reports/templates.json',
+          target: 'generated/reports/templates'
+        }
+      },
+      setup: async ({ versionRoot }) => {
+        await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'templates.json'), {
+          report: 'not-a-directory'
+        });
+      }
+    },
+    async ({ workspaceRoot }) => {
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+        code: 'UPGRADE-MIGRATION-023'
+      });
+    }
   );
 });

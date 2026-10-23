@@ -8,6 +8,7 @@ import json
 
 import source_inventory as s
 import check_docs
+from .fixtures import declaration
 
 
 class IdentityNamespaceCoverage(TestCase):
@@ -27,15 +28,6 @@ class IdentityNamespaceCoverage(TestCase):
     def test_registered_external_source_still_has_its_identity_checked(self):
         with self.assertRaisesRegex(ValueError,'source Markdown member'):
             check_docs.checked_identity_registry(self.registry('examples/missing.md'),{'docs/a.md'},['docs'])
-
-
-def declaration(roots=None):
-    return {'schema': s.BASELINE_SCHEMA, 'source_root': '..',
-            'source_roots': roots if roots is not None else ['.documentation', 'docs'],
-            'source_manifest': 'source-manifest.json', 'audited_namespaces': ['docs'],
-            'non_documentation_roots': [], 'excluded_from_source_hash': sorted(s.EXCLUDED_FROM_SOURCE_HASH),
-            'entry': '../docs/产品/产品要求与工作约束.md', 'delivery_number': 'fixture',
-            'archive_name': 'fixture.zip', 'scope': 'fixture', 'authority_limit': 'content only'}
 
 
 class DocumentationIdentity(TestCase):

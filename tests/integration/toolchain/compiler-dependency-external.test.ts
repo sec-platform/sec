@@ -50,7 +50,7 @@ import {
   withLinkedCompilerTestWorkspaces,
   withRetainedCompilerContentFixture,
   writeCompilerDependencyRoot
-} from './compiler-dependency-installation.ts';
+} from './compiler-dependency-fixtures.ts';
 
 describe('compiler dependency installation', () => {
   effectfulTest(test.serial,
