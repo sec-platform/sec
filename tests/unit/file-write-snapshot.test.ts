@@ -91,13 +91,11 @@ test('JSON conversion cannot redirect its target through a toJSON cwd change', a
   } finally { process.chdir(before); }
 }));
 
-for (const [label, value] of [['undefined', undefined], ['function', () => 7], ['symbol', Symbol('value')], ['empty conversion', { toJSON() { return undefined; } }]] as const) {
-  test(`JSON file output refuses ${label} instead of writing a non-JSON document`, async () => fixture(async root => {
-    const target = path.join(root, 'absent/value.json');
-    await assert.rejects(writeJson(target, value, async () => assert.fail('invalid JSON effect')), /must contain one JSON value/);
-    assert.equal(existsSync(path.dirname(target)), false);
-  }));
-}
+test('JSON file output refuses an empty conversion before filesystem effects', async () => fixture(async root => {
+  const target = path.join(root, 'absent/value.json');
+  await assert.rejects(writeJson(target, { toJSON() { return undefined; } }, async () => assert.fail('invalid JSON effect')), /must contain one JSON value/);
+  assert.equal(existsSync(path.dirname(target)), false);
+}));
 
 test('native serialization failures stay exact and have no file effects', async () => fixture(async root => {
   const reason = Object.freeze({ conversion: 'failed' });

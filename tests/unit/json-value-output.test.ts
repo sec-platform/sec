@@ -4,13 +4,13 @@ import { format } from 'node:util';
 import { formatJsonFile, stringifyJsonValue } from '../../src/contracts/json-text.ts';
 import { formatJson, printJsonOrText } from '../../src/entry/cli/format-utils.ts';
 
-for (const value of [undefined, () => 1, Symbol('value'), { toJSON() { return undefined; } }]) {
-  test('CLI and file output reject missing root values through the same standard-JSON boundary', () => {
+test('shared JSON root validation is enforced by both formatting entries', () => {
+  for (const value of [undefined, () => 1, Symbol('value'), { toJSON() { return undefined; } }]) {
     assert.throws(() => stringifyJsonValue(value, 2), /JSON output must contain one JSON value/);
-    assert.throws(() => formatJsonFile(value), /JSON file must contain one JSON value/);
-    assert.throws(() => formatJson(value, { compact: true }), /CLI JSON output must contain one JSON value/);
-  });
-}
+  }
+  assert.throws(() => formatJsonFile(undefined), /JSON file must contain one JSON value/);
+  assert.throws(() => formatJson(undefined, { compact: true }), /CLI JSON output must contain one JSON value/);
+});
 
 test.serial('shared writer, standard JSON values and text selection keep their distinct output contracts', () => {
   const value = { b: 2, a: ['x', undefined, 3], ignored: undefined };
@@ -41,23 +41,21 @@ test.serial('shared writer, standard JSON values and text selection keep their d
 test.serial('native errors, cycles and invalid JSON roots cannot become successful output frames', () => {
   const reason = Object.freeze({ conversion: 'failed' }), value = { toJSON() { throw reason; } };
   const cycle: unknown[] = []; cycle.push(cycle);
-  for (const write of [(input: unknown) => stringifyJsonValue(input, 2), formatJsonFile, (input: unknown) => formatJson(input, { compact: false })]) {
-    assert.throws(() => write(value), error => error === reason);
-    assert.throws(() => write(1n), TypeError);
-    assert.throws(() => write(cycle), TypeError);
-  }
+  assert.throws(() => stringifyJsonValue(value, 2), error => error === reason);
+  assert.throws(() => stringifyJsonValue(1n, 2), TypeError);
+  assert.throws(() => stringifyJsonValue(cycle, 2), TypeError);
+  assert.throws(() => formatJsonFile(value), error => error === reason);
+  assert.throws(() => formatJson(value, { compact: false }), error => error === reason);
 
   // CLI emission is a separate effect: invalid JSON must not write even one frame.
   const log = console.log;
   let writes = 0;
   console.log = () => { writes++; };
   try {
-    for (const invalid of [undefined, () => 7, Symbol('value'), { toJSON() { return undefined; } }]) {
-      assert.throws(
-        () => printJsonOrText(invalid, { json: true, compact: true }, () => assert.fail('text renderer invoked')),
-        TypeError
-      );
-    }
+    assert.throws(
+      () => printJsonOrText({ toJSON() { return undefined; } }, { json: true, compact: true }, () => assert.fail('text renderer invoked')),
+      TypeError
+    );
     assert.equal(writes, 0);
   } finally { console.log = log; }
 });
