@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -48,20 +48,6 @@ async function withFixture(run: (value: ReturnType<typeof fixture>, lease: Local
     rmSync(value.root, { recursive: true, force: true });
   }
 }
-
-test('actual local candidate acquisition retains native Git use and canonical closeout removes exact registration and marker', async () => {
-  await withFixture(async (value, lease) => {
-    expect(lease.reused).toBe(false);
-    expect(await lease.inspectRepository(lease.owner.candidateRoot)).toEqual({
-      ...value.input.candidate, trackedClean: true, gitCommonDirectory: path.join(value.root, '.git')
-    });
-    expect(git(value.root, 'worktree', 'list', '--porcelain')).toContain(lease.owner.candidateRoot);
-    expect(await lease.closeout()).toBe('removed');
-    expect(existsSync(lease.owner.candidateRoot)).toBe(false);
-    expect(existsSync(lease.markerPath)).toBe(false);
-    expect(git(value.root, 'worktree', 'list', '--porcelain')).not.toContain(lease.owner.candidateRoot);
-  });
-}, 30_000);
 
 test.skipIf(process.platform !== 'linux')('a substituted .git marker blocks retained Git use and preserves candidate ownership', async () => {
   await withFixture(async (value, lease) => {
@@ -135,7 +121,7 @@ test.skipIf(process.platform !== 'linux')('settled native checkout failure canno
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 }, 30_000);
 
-test('prepared acquisition failure remains retryable and genuine same-process closure permits reuse', async () => {
+test('prepared acquisition failure remains retryable with native reuse and exact closeout', async () => {
   const value = fixture();
   let lease: LocalCandidateWorktreeLease | undefined;
   try {
@@ -147,14 +133,19 @@ test('prepared acquisition failure remains retryable and genuine same-process cl
     lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
     expect(lease.reused).toBe(false);
     expect(JSON.parse(readFileSync(markerPath, 'utf8')).attempt.phase).toBe('settled');
+    expect(await lease.inspectRepository(lease.owner.candidateRoot)).toEqual({
+      ...value.input.candidate, trackedClean: true, gitCommonDirectory: path.join(value.root, '.git')
+    });
+    expect(git(value.root, 'worktree', 'list', '--porcelain')).toContain(lease.owner.candidateRoot);
     await lease.release();
     lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
     expect(lease.reused).toBe(true);
     expect(git(lease.owner.candidateRoot, 'rev-parse', 'HEAD')).toBe(value.input.candidate.headSha);
     expect(git(lease.owner.candidateRoot, 'status', '--porcelain=v1')).toBe('');
     expect(await lease.closeout()).toBe('removed');
-    expect(existsSync(lease.owner.candidateRoot)).toBe(false);
-    expect(existsSync(markerPath)).toBe(false);
+    expect(lstatSync(lease.owner.candidateRoot, { throwIfNoEntry: false })).toBeUndefined();
+    expect(lstatSync(markerPath, { throwIfNoEntry: false })).toBeUndefined();
+    expect(git(value.root, 'worktree', 'list', '--porcelain')).not.toContain(lease.owner.candidateRoot);
   } finally { await lease?.release(); rmSync(value.root, { recursive: true, force: true }); }
 }, 30_000);
 
@@ -310,7 +301,7 @@ for (const interruptedReplacement of [false, true]) {
             'after-preimage-quarantine'
           )
         })).toThrow('interrupted at after-preimage-quarantine');
-        expect(existsSync(lease.markerPath)).toBe(false);
+        expect(lstatSync(lease.markerPath, { throwIfNoEntry: false })).toBeUndefined();
       }
       const modulePath = path.resolve(import.meta.dirname, '../../src/adapters/verification/platform/ci/runtime/local-candidate-worktree.ts');
       const source = `import { acquireLocalCandidateWorktree } from ${JSON.stringify(modulePath)};

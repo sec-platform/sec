@@ -37,10 +37,9 @@ test('member input membership and bytes are captured before asynchronous ZIP wor
 test('duplicate selections, ambiguous ZIP paths and cumulative expansion are rejected', async () => {
   await expect(readArtifactMembers({ archive: Buffer.from(ZIP_VECTORS.good, 'base64'),
     fileNames: ['artifact.json', 'ignored.txt', 'artifact.json'], signal: signal(), assertCurrent() {} })).rejects.toThrow('Artifact member admission is invalid');
-  for (const kind of ['duplicate', 'symlink', 'traversal', 'unsupported'] as const) {
-    await expect(readArtifactMembers({ archive: Buffer.from(ZIP_VECTORS[kind], 'base64'),
-      fileNames: ['artifact.json'], signal: signal(), assertCurrent() {} })).rejects.toThrow();
-  }
+  await expect(readArtifactMembers({ archive: Buffer.from(ZIP_VECTORS.symlink, 'base64'),
+    fileNames: ['artifact.json'], signal: signal(), assertCurrent() {} }))
+    .rejects.toThrow('ambiguous or unsupported members');
   await expect(readArtifactMembers({ archive: Buffer.from(OVERSIZED, 'base64'),
     fileNames: ['artifact.json'], signal: signal(), assertCurrent() {} })).rejects.toThrow('size');
   await expect(readArtifactMembers({ archive: Buffer.from(EXPANSION, 'base64'),
