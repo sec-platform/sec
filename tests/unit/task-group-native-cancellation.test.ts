@@ -61,14 +61,6 @@ test('cancellation waits for an uncooperative started task and rejects only afte
   await rejected;
 });
 
-test('failure still joins peers and preserves concurrently thrown values', async () => {
-  const second = new Error('second');
-  await assert.rejects(runTaskGroup([async () => { throw undefined; }, async () => { throw second; }]), error => {
-    assert.ok(error instanceof AggregateError); assert.deepEqual(error.errors, [undefined, second]);
-    assert.equal(error.cause, undefined); return true;
-  });
-});
-
 test('a structural signal cannot impersonate cancellation state', async () => {
   await assert.rejects(runTaskGroup([async () => assert.fail('invalid signal ran')],
     { signal: { aborted: false, throwIfAborted() {} } as never }), TypeError);

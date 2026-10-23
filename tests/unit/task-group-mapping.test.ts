@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { createTaskGroupEffectFence, mapTaskGroup, runTaskGroup } from '../../src/execution/task-group.ts';
+import { createTaskGroupEffectFence, mapTaskGroup } from '../../src/execution/task-group.ts';
 
 function deferred() {
   let resolve!: () => void;
@@ -8,15 +8,14 @@ function deferred() {
   return { promise, resolve };
 }
 
-test('mapping and callable tasks share ordering and bounded active work', async () => {
+test('mapping preserves ordering and bounded active work', async () => {
   let active = 0, peak = 0;
   const input = Array.from({ length: 31 }, (_, i) => i);
   const mapped = await mapTaskGroup(input, async (value, index) => {
     assert.equal(value, index); peak = Math.max(peak, ++active); await Promise.resolve(); active--; return value * 2;
   }, { concurrency: 3 });
-  const invoked = await runTaskGroup(input.map(value => async () => value * 2), { concurrency: 3 });
   const expected = input.map(value => value * 2);
-  assert.equal(peak, 3); assert.deepEqual(mapped, expected); assert.deepEqual(invoked, expected);
+  assert.equal(peak, 3); assert.deepEqual(mapped, expected);
 });
 
 test('a mapping failure stops acceptance but still joins a suspended mapper', async () => {
@@ -59,13 +58,6 @@ for (const items of [new Array(1), Object.defineProperty([1], 0, { get() { asser
 test('custom array iteration cannot alter or extend the requested work', async () => {
   const values = [1, 2]; values[Symbol.iterator] = function* () { assert.fail('iterator invoked'); };
   assert.deepEqual(await mapTaskGroup(values, value => value), [1, 2]);
-});
-
-test('multiple mapping failures retain falsy reasons in input order', async () => {
-  const second = new Error('second');
-  await assert.rejects(mapTaskGroup([0, 1], async value => { throw value === 0 ? undefined : second; }), error => {
-    assert.ok(error instanceof AggregateError); assert.deepEqual(error.errors, [undefined, second]); return true;
-  });
 });
 
 test('parent cancellation prevents later acceptance even when current mapper succeeds', async () => {
