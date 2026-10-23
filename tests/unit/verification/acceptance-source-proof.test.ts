@@ -88,6 +88,8 @@ test('offline recomputation and the current Lock refuse forged source or covered
   const report = buildProductVerificationReport({ lane: 'fast', fast: input.fast, runtime: input.runtime, runtimeMode: 'service',
     policyReport: input.fast.policyReport!, acceptanceCoverage: coverage,
     observations: productVerificationObservationsFixture('fast', 'service', productVerificationSubjectRevision(input.lock)) });
+  expect(report.acceptance).toEqual({ status: 'passed', passed: [first], failed: [] });
+  expect(report.summary).toMatchObject({ status: 'passed', requestedLane: 'fast', failedLanes: [] });
   const artifacts = { verificationReport: report, runtimeReport: input.runtime, policyReport: input.fast.policyReport!, acceptanceCoverage: coverage };
   expect(() => assertVerificationPublicationArtifactSet(artifacts)).not.toThrow();
   assertProductVerificationArtifactSubject(input.lock, artifacts);

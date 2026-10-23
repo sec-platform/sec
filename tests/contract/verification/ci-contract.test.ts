@@ -484,18 +484,22 @@ test('SUT launchers bind locked dependencies and bootstrap selects existing requ
 test('TrustedBootstrap SUT policy rejects credential, input checkout, deadline and upload drift', async () => {
   const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   expect(() => assertCiVerificationPerJobHostedWorkflowShape(source, 'candidate-sut')).not.toThrow();
-  for (const mutate of [
-    (job: Record<string, any>) => { delete job.permissions['id-token']; },
-    (job: Record<string, any>) => { job['timeout-minutes'] = 91; },
-    (job: Record<string, any>) => { job.needs = ['resolve']; },
-    (job: Record<string, any>) => { job['runs-on'] = ['self-hosted']; },
-    (job: Record<string, any>) => { job.steps.find((step: WorkflowStep) => step.name === 'Checkout exact candidate SUT only').with.ref = '${{ github.sha }}'; },
-    (job: Record<string, any>) => { job.steps.find((step: WorkflowStep) => step.name === 'Upload bounded candidate SUT artifact').if = 'success()'; },
-    (job: Record<string, any>) => { job.steps.find((step: WorkflowStep) => step.name === 'Upload bounded candidate SUT artifact').with.path += '\n${{ github.workspace }}/.tmp/foreign'; }
-  ]) {
+  const allocation = 'job identity, allocation, deadline or permissions differ';
+  const steps = 'setup, launcher phases or native artifact steps differ';
+  const mutations: readonly (readonly [string, (job: Record<string, any>) => void])[] = [
+    [allocation, job => { delete job.permissions['id-token']; }],
+    [allocation, job => { job['timeout-minutes'] = 91; }],
+    ['exact job scheduling barrier differs', job => { job.needs = ['resolve']; }],
+    [allocation, job => { job['runs-on'] = ['self-hosted']; }],
+    [steps, job => { job.steps.find((step: WorkflowStep) => step.name === 'Checkout exact candidate SUT only').with.ref = '${{ github.sha }}'; }],
+    [steps, job => { job.steps.find((step: WorkflowStep) => step.name === 'Upload bounded candidate SUT artifact').if = 'success()'; }],
+    [steps, job => { job.steps.find((step: WorkflowStep) => step.name === 'Upload bounded candidate SUT artifact').with.path += '\n${{ github.workspace }}/.tmp/foreign'; }]
+  ];
+  for (const [diagnostic, mutate] of mutations) {
     const workflow = parseYaml(source) as { jobs: Record<string, Record<string, any>> };
     mutate(workflow.jobs['candidate-sut']!);
-    expect(() => assertCiVerificationPerJobHostedWorkflowShape(JSON.stringify(workflow), 'candidate-sut')).toThrow();
+    expect(() => assertCiVerificationPerJobHostedWorkflowShape(JSON.stringify(workflow), 'candidate-sut'))
+      .toThrow(diagnostic);
   }
 });
 

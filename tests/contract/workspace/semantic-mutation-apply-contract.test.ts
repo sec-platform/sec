@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -46,9 +47,9 @@ test('ordinary malformed requests return the exact redacted request-rejected out
   const outcome = await applySemanticMutation('Z:\\must-not-be-observed', {
     request: { contractVersion: '1', requestId: 'request:malformed' }
   } as never);
-  expect(Object.keys(outcome)).toEqual([
+  expect(Object.keys(outcome).sort()).toEqual([
     'status', 'requestId', 'requestRevision', 'diagnostics', 'diagnosticRevision'
-  ]);
+  ].sort());
   expect(outcome).toMatchObject({
     status: 'request-rejected',
     requestId: 'request:malformed',
@@ -87,10 +88,10 @@ test('Verification adapter emits the exact frozen report and execution binding, 
   const runner = (runnerInput: unknown) => {
     calls += 1;
     expect(Object.isFrozen(runnerInput)).toBe(true);
-    expect(Object.keys(runnerInput as object)).toEqual([
+    expect(Object.keys(runnerInput as object).sort()).toEqual([
       'runner', 'planRevision', 'attempted', 'stagedSourceDigest',
       'requiredVerificationDigest', 'requirements'
-    ]);
+    ].sort());
     return { status: 'passed' as const, evidenceDigest: sha256('verify-all') };
   };
   const report = await executeSemanticMutationVerification({
@@ -234,7 +235,7 @@ test('Verification adapter emits the exact frozen report and execution binding, 
   });
 });
 
-test('isolated Verification evidence digest is deterministic and distinguishes failure state', () => {
+test('isolated Verification evidence digest binds artifact content and failure stage deterministically', () => {
   const passed = {
     status: 'passed',
     artifacts: {
@@ -285,8 +286,20 @@ test('isolated Verification evidence digest is deterministic and distinguishes f
     status: 'blocked',
     failure: { stage: 'binding-mismatch' }
   });
-  expect(passedDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  const expectedPassedPayload = {
+    domain: 'semantic-mutation-isolated-verification-evidence-v1',
+    completedStages: ['resolve', 'semantic', 'compose', 'verify'],
+    inputRevision: `sha256:${'1'.repeat(64)}`,
+    semanticRevision: `sha256:${'2'.repeat(64)}`,
+    generatedArtifactRawDigests: passed.artifacts.rawDigests,
+    report: passed.artifacts.verificationReport
+  };
+  expect(passedDigest).toBe(`sha256:${createHash('sha256')
+    .update(JSON.stringify(expectedPassedPayload)).digest('hex')}`);
   expect(equivalentPassedDigest).toBe(passedDigest);
-  expect(blockedDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(blockedDigest).not.toBe(passedDigest);
+  expect(blockedDigest).toBe(`sha256:${createHash('sha256').update(JSON.stringify({
+    domain: 'semantic-mutation-isolated-verification-evidence-v1',
+    reason: 'isolated-verification-unavailable',
+    failure: { stage: 'binding-mismatch' }
+  })).digest('hex')}`);
 });

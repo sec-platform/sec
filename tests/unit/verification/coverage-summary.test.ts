@@ -62,5 +62,20 @@ test('review summary surfaces acceptance coverage summary', async () => {
     acceptancePassed: ['customer_crud'],
     uncoveredBlocks: ['tenant/basic-workspace']
   });
-  expect(summary.coverageSummary?.blockSummaries).toHaveLength(2);
+  expect(summary.coverageSummary?.blockSummaries).toEqual([
+    {
+      id: 'entity/customer-basic',
+      declaredAcceptanceCount: 1,
+      coveredByCount: 1,
+      declaredAcceptance: ['customer_crud'],
+      coveredBy: ['customer_crud']
+    },
+    {
+      id: 'tenant/basic-workspace',
+      declaredAcceptanceCount: 1,
+      coveredByCount: 0,
+      declaredAcceptance: ['tenant_scope'],
+      coveredBy: []
+    }
+  ]);
 });

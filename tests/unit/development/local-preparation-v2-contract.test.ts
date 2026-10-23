@@ -118,16 +118,20 @@ test('V2 fixed producer, trust, purpose, schema, and placement requirements cann
   const value = envelope();
   for (const invalid of [
     { ...value, schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA },
-    { ...value, executionPlacement: 'hosted' }, { ...value, authorityStage: 'qualified' },
-    { ...value, request: { ...value.request, purpose: 'integration' } },
-    ...[
-      { trustedRevision: SHA_B },
-      { trustedRevision: 'main' },
-      { producerIdentity: 'caller-selected-health-producer' },
-      { producerRuntimeIdentity: 'caller-selected-runtime' }
-    ].map(change => ({ ...value, request: { ...value.request,
+    { ...value, executionPlacement: 'hosted' }, { ...value, authorityStage: 'qualified' }
+  ]) expect(() => parse(invalid)).toThrow('exact local preparation-only envelope');
+  expect(() => parse({ ...value, request: { ...value.request, purpose: 'integration' } }))
+    .toThrow('purpose must be verification-only');
+  for (const [change, diagnostic] of [
+    [{ trustedRevision: SHA_B }, 'trustedRevision must equal the exact expected base'],
+    [{ trustedRevision: 'main' }, 'trustedRevision must equal the exact expected base'],
+    [{ producerIdentity: 'caller-selected-health-producer' }, 'qualification producer identity is invalid'],
+    [{ producerRuntimeIdentity: 'caller-selected-runtime' }, 'qualification producer identity is invalid']
+  ] as const) {
+    expect(() => parse({ ...value, request: { ...value.request,
       qualificationRequirements: { ...value.request.qualificationRequirements, ...change } } }))
-  ]) expect(() => parse(invalid)).toThrow();
+      .toThrow(diagnostic);
+  }
 });
 
 test('V2 digest and operation tampering fail independently, on both sides of saved/current comparison', () => {

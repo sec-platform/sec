@@ -146,8 +146,17 @@ test('State View preserves same-endpoint transition Fact identity and inferred b
     { by: 'operation:item:closeItem', from: 'open', to: 'closed' },
     { by: 'operation:item:forceCloseItem', from: 'open', to: 'closed' }
   ]));
-  expect(transitions.every((edge) =>
-    edge.references.filter((reference) => reference.kind === 'fact').length === 1
-  )).toBe(true);
+  for (const by of ['operation:item:closeItem', 'operation:item:forceCloseItem']) {
+    const fact = base.facts.find((candidate) =>
+      candidate.subject === 'state:item:item-status' &&
+      candidate.predicate === 'TRANSITIONS_TO' &&
+      candidate.object.kind === 'value' &&
+      JSON.stringify(candidate.object.value).includes(`"by":"${by}"`)
+    );
+    expect(fact).toBeDefined();
+    const edge = transitions.find((candidate) => JSON.stringify(candidate.value)?.includes(`"by":"${by}"`));
+    expect(edge?.references.filter((reference) => reference.kind === 'fact'))
+      .toEqual([{ kind: 'fact', ref: fact!.id }]);
+  }
   expect(view.nodes.find((node) => node.entityId === 'state:item:item-status')?.badges).toContain('inferred');
 });

@@ -208,8 +208,14 @@ test('TCB candidate root exclusively drives closure discovery and hashing', () =
     const lock = computeTcbClosureLock(closure, options);
     expect(lock.modules).toEqual(['entry.ts', 'leaf.ts']);
     expect(lock.trustRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(lock.moduleBlobs['entry.ts']).toMatch(/^[0-9a-f]{40}$/u);
-    expect(lock.moduleContentDigests['leaf.ts']).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    for (const [module, source] of [
+      ['entry.ts', "import './leaf.ts';\n"], ['leaf.ts', 'export const leaf = 1;\n']
+    ] as const) {
+      const bytes = Buffer.from(source, 'utf8');
+      expect(lock.moduleBlobs[module]).toBe(createHash('sha1')
+        .update(`blob ${bytes.length}\0`).update(bytes).digest('hex'));
+      expect(lock.moduleContentDigests[module]).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
+    }
     finalizeTcbClosureCandidateSnapshot(snapshot);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -709,7 +715,7 @@ test('TCB closure keeps Linux endpoint native effects in the reviewed physical o
     .not.toThrow();
 });
 
-test('TCB closure lock binds Git blobs and content digests for every module', () => {
+test('TCB closure lock has complete Git blob and content digest maps', () => {
   for (const module of TCB_CLOSURE_LOCK.modules) {
     expect(TCB_CLOSURE_LOCK.moduleBlobs[module]).toMatch(/^[0-9a-f]{40}$/);
     expect(TCB_CLOSURE_LOCK.moduleContentDigests[module]).toMatch(/^sha256:[0-9a-f]{64}$/);

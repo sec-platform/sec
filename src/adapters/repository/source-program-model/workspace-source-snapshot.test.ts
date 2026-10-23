@@ -231,11 +231,14 @@ test('Project fact identity resolves repository imports with the canonical TypeS
     'src/worker.d.mts': 'declare const workerPath: string; export default workerPath;\n',
     'src/worker.mjs': 'export default "worker";\n'
   });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
+  expect(projectInput.sourceFacts.map(({ path: sourcePath }) => sourcePath)).toEqual(expect.arrayContaining([
+    'src/dynamic.d.mts', 'src/entry.ts', 'src/hidden.ts', 'src/legacy.d.cts',
+    'src/types.ts', 'src/worker.d.mts', 'tsconfig.json'
+  ]));
   expect(compileWorkspaceTypeScriptProjectFactIdentity(snapshot, 'tsconfig.json', {
     dependencyGenerationDigest: null
-  })).toEqual(projectWorkspaceTypeScriptProjectFactIdentity(
-    compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
-  ));
+  })).toEqual(projectWorkspaceTypeScriptProjectFactIdentity(projectInput));
 });
 
 test('working generation includes dirty and untracked source while excluding deleted membership', async () => {
@@ -302,9 +305,6 @@ test('working-tree project generation evidence is owner-issued and opaque', asyn
       snapshot,
       projectInput
     );
-    const valuePath = path.join(repositoryRoot, 'src', 'example', 'value.ts');
-    await writeFile(valuePath, 'export const value = 9;\n');
-    await writeFile(valuePath, 'export const value = 1;\n');
     expect(() => assertWorkspaceTypeScriptProjectGenerationEvidence({ ...evidence }))
       .toThrow('was not issued by the Source Program owner');
     expect(evidence.projectInput.projectInputDigest).toMatch(/^sha256:/u);

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { throws } from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import type { SourceProgramEntrypointAddress } from '../source-program-model/contract.ts';
@@ -18,8 +19,8 @@ import {
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 const budget = Object.freeze({ maximumRequestBytes: 16_384, maximumResultBytes: 65_536 });
 
-function request(overrides: Partial<RepositoryAuditWorkerRequestInput> = {}) {
-  return compileRepositoryAuditWorkerRequest({
+function requestInput(overrides: Partial<RepositoryAuditWorkerRequestInput> = {}): RepositoryAuditWorkerRequestInput {
+  return {
     operationIdentityDigest: digest('operation'),
     boundAttemptDigest: digest('attempt'),
     generationDigest: digest('generation'),
@@ -31,7 +32,11 @@ function request(overrides: Partial<RepositoryAuditWorkerRequestInput> = {}) {
     subjectDigest: digest('subject'),
     payload: Buffer.from('{"mode":"worktree-source-program"}\n'),
     ...overrides
-  });
+  };
+}
+
+function request(overrides: Partial<RepositoryAuditWorkerRequestInput> = {}) {
+  return compileRepositoryAuditWorkerRequest(requestInput(overrides));
 }
 
 function candidateStream(boundRequest = request(), payload = Buffer.from('{"status":"ok"}\n')) {
@@ -45,7 +50,16 @@ function candidateStream(boundRequest = request(), payload = Buffer.from('{"stat
 }
 
 test('worker protocol accepts exactly one request and one handshake/result candidate stream', () => {
+  const { payload, ...identity } = requestInput();
+  const expectedRequestBody = {
+    kind: 'repository-audit-worker-request', ...identity,
+    payloadBase64: Buffer.from(payload).toString('base64'),
+    payloadByteLength: payload.byteLength,
+    payloadDigest: `sha256:${createHash('sha256').update(payload).digest('hex')}`
+  };
+  const expectedRequest = { ...expectedRequestBody, requestDigest: digest(expectedRequestBody) };
   const boundRequest = request();
+  expect(boundRequest).toEqual(expectedRequest);
   const requestBytes = encodeRepositoryAuditWorkerRequest(boundRequest);
   expect(parseRepositoryAuditWorkerRequestStream({ bytes: requestBytes, eofObserved: true }, budget))
     .toEqual(boundRequest);
@@ -56,11 +70,21 @@ test('worker protocol accepts exactly one request and one handshake/result candi
     boundRequest,
     budget
   );
-  expect(parsed.handshake.authority).toBe('none-candidate-only');
-  expect(parsed.result.authority).toBe('none-candidate-only');
-  expect(Buffer.from(parsed.payload).toString('utf8')).toBe('{"status":"ok"}\n');
-  expect(parsed.handshake.handshakeDigest).toBe(stream.handshake.handshakeDigest);
-  expect(parsed.result.resultDigest).toBe(stream.result.resultDigest);
+  const expectedHandshakeBody = {
+    kind: 'repository-audit-worker-handshake-candidate', authority: 'none-candidate-only',
+    ...identity, requestDigest: expectedRequest.requestDigest
+  };
+  const expectedHandshake = { ...expectedHandshakeBody, handshakeDigest: digest(expectedHandshakeBody) };
+  const resultPayload = Buffer.from('{"status":"ok"}\n');
+  const expectedResultBody = {
+    kind: 'repository-audit-worker-result-candidate', authority: 'none-candidate-only',
+    ...identity, requestDigest: expectedRequest.requestDigest, handshakeDigest: expectedHandshake.handshakeDigest,
+    payloadBase64: resultPayload.toString('base64'), payloadByteLength: resultPayload.byteLength,
+    payloadDigest: `sha256:${createHash('sha256').update(resultPayload).digest('hex')}`
+  };
+  expect(parsed.handshake).toEqual(expectedHandshake);
+  expect(parsed.result).toEqual({ ...expectedResultBody, resultDigest: digest(expectedResultBody) });
+  expect(Buffer.from(parsed.payload)).toEqual(resultPayload);
 });
 
 test('worker protocol rejects incomplete, duplicate, unknown, trailing and oversized streams', () => {

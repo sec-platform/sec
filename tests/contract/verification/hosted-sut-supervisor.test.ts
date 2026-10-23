@@ -102,9 +102,12 @@ test('control decoding rejects duplicates, UTF-8 errors, deep JSON, trailing pay
   const source = JSON.stringify(fixture());
   const duplicate = source.replace('"traceesReaped":true', '"traceesReaped":true,"traceesReaped":true');
   for (const bytes of [Buffer.from(duplicate), Buffer.from(source + source), Buffer.from([0xff]),
-    Buffer.from('['.repeat(10) + '0' + ']'.repeat(10)), Buffer.alloc(512 * 1024 + 1)]) {
+    Buffer.alloc(512 * 1024 + 1)]) {
     expect(() => parseHostedSutSupervisorReport(bytes, binding)).toThrow();
   }
+  expect(() => parseHostedSutSupervisorReport(
+    Buffer.from('['.repeat(9) + '0' + ']'.repeat(9)), binding
+  )).toThrow('maximum container depth of 8');
   for (const patch of [{ bytesObserved: -1 }, { bytesObserved: 1 }, { digest: 'marker' },
     { tailHex: 'xx' }, { eof: 'true' }, { extra: true }]) {
     expect(() => parse({ ...fixture(), stdout: { ...fixture().stdout, ...patch } })).toThrow();

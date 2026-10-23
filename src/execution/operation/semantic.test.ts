@@ -306,7 +306,7 @@ test('provider diagnostics expose typed identity and digest without raw evidence
     contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   });
-  const raw = 'C:\\secret\\workspace --token visible-only-to-provider';
+  const raw = 'C:\\secret\\workspace --token visible-only-to-provider 秘密';
   const diagnostic = projectCapabilityDiagnostic({
     bindingDigest: binding.bindingDigest,
     code: 'typescript.provider-unverified',
@@ -314,7 +314,7 @@ test('provider diagnostics expose typed identity and digest without raw evidence
     rawEvidence: raw
   });
   expect(JSON.stringify(diagnostic)).not.toContain(raw);
-  expect(diagnostic.evidenceByteLength).toBeGreaterThan(0);
+  expect(diagnostic.evidenceByteLength).toBe(Buffer.byteLength(raw, 'utf8'));
   expect(diagnostic.evidenceDigest).toBe(
     `sha256:${createHash('sha256').update(raw).digest('hex')}`
   );

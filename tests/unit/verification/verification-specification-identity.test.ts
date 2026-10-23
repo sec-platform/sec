@@ -150,14 +150,18 @@ test('selection must bind the exact obligation digest and admitted method family
 
 test('set-like method families and oracle references are unique and canonically ordered', () => {
   const c = claim();
-  expect(() => obligation(c, {
-    admissibleMethodFamilies: ['typecheck', 'static-analysis']
-  })).toThrow('unique and canonically ordered');
+  for (const admissibleMethodFamilies of [
+    ['typecheck', 'static-analysis'], ['typecheck', 'typecheck']
+  ]) {
+    expect(() => obligation(c, { admissibleMethodFamilies })).toThrow('unique and canonically ordered');
+  }
 
   const o = obligation(c);
-  expect(() => selection(o, {
-    oracleCheckerOrReferenceRefs: ['reference:z', 'checker:a']
-  })).toThrow('unique and canonically ordered');
+  for (const oracleCheckerOrReferenceRefs of [
+    ['reference:z', 'checker:a'], ['checker:a', 'checker:a']
+  ]) {
+    expect(() => selection(o, { oracleCheckerOrReferenceRefs })).toThrow('unique and canonically ordered');
+  }
 });
 
 test('placeholder digests and untrusted extra fields are rejected', () => {
@@ -168,7 +172,7 @@ test('placeholder digests and untrusted extra fields are rejected', () => {
   } as never)).toThrow('fields are invalid');
 });
 
-test('binding input rejects Proxy/accessor wrappers without invoking them', () => {
+test('binding input rejects Proxy wrappers without invoking traps', () => {
   const c = claim();
   const o = obligation(c);
   const s = selection(o);
