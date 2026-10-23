@@ -7,8 +7,11 @@ import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/ad
 import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { composeWorkspace, explainWorkspace, lockWorkspace, verifyWorkspace } from '../../../src/bootstrap/engineering/cli.ts';
+import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
+import { parseUpgradeDiagnosticsJson } from '../../../src/semantics/upgrade/upgrade-artifact.ts';
+import { writeBlockUpgradeFixture } from '../../helpers/block-upgrade-fixtures.ts';
 import { expectGraphEdge, expectGraphNode, expectReviewConflictHint, expectReviewRegressionRisk } from '../../helpers/graph-assertions.ts';
-import { prepareComposedWorkspace } from '../../testkit/workspace.ts';
+import { prepareComposedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
 
 test('override-manifest can replace a generated file and surface override provenance', async () => {
   const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-override-' });
@@ -78,6 +81,52 @@ test('override-manifest can replace a generated file and surface override proven
     kind: 'override-conflict',
     relatedId: 'entity/customer-basic@>=0.2.0',
     message: 'Override customer-service-manual conflicts with entity/customer-basic@>=0.2.0'
+  });
+}, 120000);
+
+test('upgrade enforces Override selectors and settles an unassessable constraint without stale execution artifacts', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeBlockUpgradeFixture(workspaceRoot);
+    const paths = getWorkspacePaths(workspaceRoot);
+    const manifestPath = path.join(paths.overridesRoot, 'override-manifest.yaml');
+    await fs.mkdir(paths.overridesRoot, { recursive: true });
+    const override = {
+      id: 'custom-consumer', entry: 'patches/custom.ts', target: 'src/custom-consumer.ts',
+      reason: 'consumer requires the previous Block contract'
+    };
+    const beforePlan = await fs.readFile(paths.workspaceConfigPath, 'utf8');
+    await writeYaml(manifestPath, { overrides: [{ ...override, conflictsWith: ['private/block-upgrade@>=0.2.0'] }] });
+    await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true }))
+      .rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-001' });
+
+    await writeYaml(manifestPath, { overrides: [{ ...override, conflictsWith: ['private/block-upgrade@>=0.3.0'] }] });
+    const preview = await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true });
+    expect(preview.upgradePlan.preflightChecks).toContainEqual(expect.objectContaining({
+      id: 'override-conflicts', status: 'passed', evidence: ['custom-consumer']
+    }));
+    expect(await fs.readFile(paths.workspaceConfigPath, 'utf8')).toBe(beforePlan);
+    await expect(fs.lstat(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan)))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+
+    const unassessableConflict = `private/block-upgrade@>=${'9'.repeat(80)}.0.0`;
+    await writeYaml(manifestPath, { overrides: [{ ...override, conflictsWith: [unassessableConflict] }] });
+    const staleArtifactPaths = [CI_ARTIFACT_FILES.upgradePlan, CI_ARTIFACT_FILES.upgradeExecutionTerminal]
+      .map(artifact => resolveWorkspaceArtifactPath(workspaceRoot, artifact));
+    for (const artifactPath of staleArtifactPaths) await fs.writeFile(artifactPath, 'stale execution artifact\n');
+    await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0'))
+      .rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-002' });
+    for (const artifactPath of staleArtifactPaths) {
+      await expect(fs.lstat(artifactPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+    const diagnostics = parseUpgradeDiagnosticsJson(await fs.readFile(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics), 'utf8'
+    ));
+    expect(diagnostics).toMatchObject({
+      phase: 'planning', status: 'blocked', blockId: 'private/block-upgrade', targetVersion: '0.2.0',
+      failedCheck: 'override-conflicts', errorCode: 'UPGRADE-CONFLICT-002',
+      details: { override: { id: 'custom-consumer' }, conflict: unassessableConflict }
+    });
+    expect(await fs.readFile(paths.workspaceConfigPath, 'utf8')).toBe(beforePlan);
   });
 }, 120000);
 

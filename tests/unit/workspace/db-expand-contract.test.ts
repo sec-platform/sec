@@ -22,6 +22,7 @@ test('directory migration preflight rejects an override owned below its impact r
     ].join('\n'));
     await expect(collectUpgradePreflightEvidence({
       blockId: 'features/base',
+      targetVersion: '0.2.0',
       impacts: ['src/features'],
       migrationEntries: [{
         id: 'remove-features', kind: 'delete-directory', reason: 'replace feature tree',
@@ -30,6 +31,67 @@ test('directory migration preflight rejects an override owned below its impact r
       targetManifestRoot: path.join(workspaceRoot, 'manifests'),
       workspaceRoot
     })).rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-001' });
+  });
+});
+
+test('declared Override conflicts compare the exact Block and target version without relaxing path ownership', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const overrideRoot = getWorkspacePaths(workspaceRoot).overridesRoot;
+    await fs.mkdir(overrideRoot, { recursive: true });
+    const manifestPath = path.join(overrideRoot, 'override-manifest.yaml');
+    const writeConflict = async (reference: string) => fs.writeFile(manifestPath, JSON.stringify({ overrides: [{
+      id: 'custom-feature', entry: 'patches/custom.ts', target: 'src/custom.ts',
+      reason: 'incompatible Block version', conflictsWith: [reference]
+    }] }));
+    const input = {
+      blockId: 'features/base', targetVersion: '0.2.0', impacts: [], migrationEntries: [],
+      targetManifestRoot: path.join(workspaceRoot, 'manifests'), workspaceRoot
+    };
+    for (const [reference, targetVersion, conflicts] of [
+      ['features/base@>=0.2.0', '0.2.0', true],
+      ['features/base@>=0.2.0', '0.1.9', false],
+      ['features/base@>=0.2.0', '0.3.0', true],
+      ['features/base@0.2.0', '0.2.1', false],
+      ['features/base@0.2.0', '0.2.0', true],
+      ['features/base@0.2.x', '0.2.9', true],
+      ['features/base@0.2.x', '0.3.0', false],
+      ['features/base@0.2.0+build-one', '0.2.0+build-two', true],
+      ['features/base@>=0.2.0', '0.3.0-alpha', false],
+      ['features/base@>=0.2.0-rc.1', '0.2.0-rc.2', true],
+      ['features/base-other@>=0.2.0', '0.2.0', false]
+    ] as const) {
+      await writeConflict(reference);
+      const result = collectUpgradePreflightEvidence({ ...input, targetVersion });
+      if (conflicts) {
+        await expect(result).rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-001' });
+      } else {
+        expect((await result).scannedOverrides).toEqual(['custom-feature']);
+      }
+    }
+
+    await writeConflict('features/base@>=0.3.0');
+    await expect(collectUpgradePreflightEvidence({ ...input, impacts: ['src/custom.ts'] }))
+      .rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-001' });
+    await expect(collectUpgradePreflightEvidence({ ...input, targetVersion: undefined as never }))
+      .rejects.toBeInstanceOf(TypeError);
+    await expect(collectUpgradePreflightEvidence({ ...input, targetVersion: '0.2' }))
+      .rejects.toBeInstanceOf(TypeError);
+    const unsupportedVersion = `${'9'.repeat(80)}.0.0`;
+    await expect(collectUpgradePreflightEvidence({ ...input, targetVersion: unsupportedVersion }))
+      .rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-002', details: {
+        override: { id: 'custom-feature' }, conflict: 'features/base@>=0.3.0', targetVersion: unsupportedVersion
+      } });
+    await writeConflict(`features/base@>=${unsupportedVersion}`);
+    await expect(collectUpgradePreflightEvidence(input)).rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-002', details: {
+      override: { id: 'custom-feature' }, conflict: `features/base@>=${unsupportedVersion}`, targetVersion: '0.2.0'
+    } });
+    await writeConflict('features/base@>=0.2.0 trailing');
+    await expect(collectUpgradePreflightEvidence(input)).rejects.toMatchObject({ code: 'OVERRIDE-SCHEMA-001' });
+    await fs.writeFile(manifestPath, JSON.stringify({ overrides: [
+      { id: 'first', entry: 'patches/first.ts', target: 'src/first.ts', reason: 'first', conflictsWith: ['second'] },
+      { id: 'second', entry: 'patches/second.ts', target: 'src/second.ts', reason: 'second' }
+    ] }));
+    await expect(collectUpgradePreflightEvidence(input)).rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-001' });
   });
 });
 
@@ -49,7 +111,7 @@ test('database copy job collision is rejected before the schema is changed', asy
     };
     const impacts = ['prisma/schema.prisma', 'src/jobs/db-migrations/copy-phone.ts'];
     await expect(collectUpgradePreflightEvidence({
-      blockId: 'customer/base', impacts, migrationEntries: [entry],
+      blockId: 'customer/base', targetVersion: '0.2.0', impacts, migrationEntries: [entry],
       targetManifestRoot: path.join(workspaceRoot, 'manifests'), workspaceRoot
     })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-020' });
     await expect(applyMigrationEntries(

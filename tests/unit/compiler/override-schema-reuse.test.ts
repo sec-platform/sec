@@ -28,6 +28,22 @@ test('manifest decoding preserves each supported source value', () => {
   }
 });
 
+test('Block conflict selectors retain their own namespace alongside local Override references', () => {
+  const conflictsWith = ['second', 'entity/customer@0.2.0', 'entity/customer@0.2.x', 'entity/customer@>=0.2.0'];
+  const parsed = validate({ overrides: [
+    { ...row('first', 'src/a.ts'), conflictsWith }, row('second', 'src/b.ts')
+  ] });
+  assert.deepEqual(parsed.overrides[0]!.conflictsWith, conflictsWith);
+  for (const reference of [
+    'entity/customer', 'entity/customer@', 'entity/customer@>=0.2',
+    'entity/customer@01.2.x', 'entity/customer@>=01.2.0', 'Entity/customer@0.2.0',
+    'entity/customer@0.2.0 || *', 'entity/customer@>=0.2.0 trailing'
+  ]) {
+    assert.throws(() => validate({ overrides: [{ ...row(), conflictsWith: [reference] }] }),
+      error => (error as { code?: string }).code === 'OVERRIDE-SCHEMA-001');
+  }
+});
+
 for (const field of [{ source: 'custom' }, { conflictsWith: [7] }, { reason: '   ' }, { foreign: true }, { entry: false }]) {
   test(`direct validation refuses malformed structure ${JSON.stringify(field)}`, () => {
     assert.throws(() => validate({ overrides: [{ ...row(), ...field }] }), error => (error as { code?: string }).code === 'OVERRIDE-SCHEMA-001');
@@ -40,6 +56,7 @@ test('schema acceptance does not authorize a reserved target, duplicate owner or
     { overrides: [row('first', 'src/a.ts'), row('second', 'src/a.ts')] },
     { overrides: [{ ...row(), conflictsWith: ['absent'] }] },
     { overrides: [{ ...row(), conflictsWith: ['first'] }] },
+    { overrides: [{ ...row(), conflictsWith: ['entity/customer@>=0.2.0', 'entity/customer@>=0.2.0'] }] },
     { overrides: [{ ...row(), entry: '../source.ts' }] }
   ]) assert.throws(() => validate(input));
 });

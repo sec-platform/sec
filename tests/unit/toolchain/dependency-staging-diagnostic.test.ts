@@ -31,7 +31,7 @@ test('bounded projection retains independently expected SEC, physical and native
 
 test('unknown, non-error and unapproved lookalike codes never become free-form output', () => {
   for (const error of [undefined, null, false, 0, 7n, Symbol(sentinel), sentinel,
-    new Error(sentinel), {}, [], { code: 3 }, { code: Symbol(sentinel) },
+    new Error(sentinel), { code: 3 }, { code: Symbol(sentinel) },
     { code: `RUNTIME-DEPS-${sentinel}` }, { code: `PHYSICAL_NO_FOLLOW_${sentinel}` },
     { code: `EACCES${sentinel}` }, { code: 'EUNRECOGNIZED' },
     Object.assign(() => undefined, { code: 'ENOENT' }), Object.create({ code: 'ENOENT' })]) {

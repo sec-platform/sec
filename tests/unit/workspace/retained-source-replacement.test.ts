@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { readSemanticMutationSource } from '../../../src/adapters/mutation/source-path-boundary.ts';
 import { applySemanticMutationWindowsFileAttributes, readSemanticMutationWindowsFileAttributes } from '../../../src/adapters/mutation/windows-file-attributes.ts';
-import { inspectNoFollowDirectoryChain } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   assertNoSourceReplacementResidue,
   createSourceReplacementTestActorForTests,
@@ -14,6 +14,8 @@ import {
   SourceReplacementFailure,
   type SourceReplacementTestActor
 } from '../../../src/adapters/runtime-state/physical/runtime/retained-source-replacement.ts';
+import { getErrorCode } from '../../../src/contracts/failure-inspection.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const supported = process.platform === 'linux' || process.platform === 'win32';
 const original = Buffer.from('state: original\n');
@@ -30,11 +32,11 @@ async function fixture(run: (value: {
   const sourceRoot = path.join(root, 'transaction');
   const targetRoot = path.join(root, 'author');
   const target = path.join(targetRoot, 'model.yaml');
-  mkdirSync(sourceRoot); mkdirSync(targetRoot); writeFileSync(target, original);
-  const sourceParent = inspectNoFollowDirectoryChain(sourceRoot).target;
-  const targetParent = inspectNoFollowDirectoryChain(targetRoot).target;
-  try {
-    await run({
+  await settleWorkspaceCallback(async () => {
+    mkdirSync(sourceRoot); mkdirSync(targetRoot); writeFileSync(target, original);
+    const sourceParent = inspectNoFollowDirectoryChain(sourceRoot).target;
+    const targetParent = inspectNoFollowDirectoryChain(targetRoot).target;
+    await settleWorkspaceCallback(() => run({
       root, sourceRoot, targetRoot, target,
       replace: async (testOnlyActor, options = {}) => {
         const attributes = await readSemanticMutationWindowsFileAttributes(target);
@@ -48,15 +50,27 @@ async function fixture(run: (value: {
           testOnlyActor, ...options
         });
       }
-    });
-  } finally {
-    if (process.platform === 'win32' && existsSync(target)) {
+    }), async () => {
+      if (process.platform !== 'win32') return;
+      try {
+        const current = lstatSync(target, { bigint: true });
+        if (!current.isFile() || current.nlink !== 1n) {
+          throw new Error('Source replacement cleanup target is not an unaliased ordinary file');
+        }
+      } catch (error) {
+        if (getErrorCode(error) === 'ENOENT') return;
+        throw error;
+      }
+      // Replacement legitimately changes the leaf inode, not its retained
+      // parent. Refuse an observed parent substitution before attribute cleanup.
+      assertSameNoFollowDirectoryIdentity(targetParent, 'Source replacement cleanup parent');
       await applySemanticMutationWindowsFileAttributes(target, {
         readOnly: false, hidden: false, system: false, archive: false
       });
-    }
+    });
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 }
 
 test.skipIf(!supported)('retained replacement publishes and restores exact bytes without temporary residue', async () => {

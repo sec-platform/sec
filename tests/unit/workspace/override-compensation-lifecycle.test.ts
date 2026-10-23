@@ -9,7 +9,7 @@ import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 
 // Native integration: use the actual manifest parser, retained file readers and
 // conditional publishers. These require the supported repository Bun/host profile.
-async function fixture(ids: readonly string[]) {
+async function fixture(ids: readonly string[], conflicts: Readonly<Record<string, readonly string[]>> = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-override-compensation-'));
   const overrides = getWorkspacePaths(root).overridesRoot;
   const target = (id: string) => path.join(root, 'src', `${id}.ts`);
@@ -18,7 +18,7 @@ async function fixture(ids: readonly string[]) {
   await writeFile(path.join(overrides, 'override-manifest.yaml'), [
     'overrides:', ...ids.flatMap(id => [
       `  - id: ${id}`, `    entry: patches/${id}.ts`, `    target: src/${id}.ts`,
-      '    reason: compensation regression', '    source: manual', '    conflictsWith: []'
+      '    reason: compensation regression', '    source: manual', `    conflictsWith: ${JSON.stringify(conflicts[id] ?? [])}`
     ]), ''
   ].join('\n'));
   for (const id of ids) {
@@ -27,6 +27,20 @@ async function fixture(ids: readonly string[]) {
   }
   return { root, target };
 }
+
+test('one local conflict edge in either direction refuses the entire Override batch before effects', async () => {
+  for (const [owner, target] of [['a', 'b'], ['b', 'a']] as const) {
+    const f = await fixture(['a', 'b'], { [owner]: [target] });
+    let fences = 0;
+    try {
+      await assert.rejects(applyOverrides(f.root, async () => { fences++; }),
+        error => error instanceof CodedFailure && error.code === 'OVERRIDE-CONFLICT-001');
+      assert.equal(fences, 0);
+      assert.equal(await readFile(f.target('a'), 'utf8'), 'old-a');
+      assert.equal(await readFile(f.target('b'), 'utf8'), 'old-b');
+    } finally { await rm(f.root, { recursive: true, force: true }); }
+  }
+});
 
 test('failed compensation of a substituted target does not prevent restoring an earlier output', async () => {
   const f = await fixture(['a', 'b', 'c']);
