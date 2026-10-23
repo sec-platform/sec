@@ -28,14 +28,16 @@ test('concurrent and later release calls share the same rejected outcome', async
 });
 
 test('typed contention retries despite changed wording and ignores wall-clock jumps', async () => {
-  const original = Date.now; let count = 0;
+  const original = Date.now; let count = 0, released = 0;
+  const lease = { release() { released++; } };
   try {
     Date.now = () => count % 2 ? 0 : Number.MAX_SAFE_INTEGER;
     const result = await waitForHeavyVerificationGateLease(async () => {
       count++; if (count === 1) throw new HeavyVerificationGateBusyError('active', 'different words');
-      return { release() {} };
+      return lease;
     }, 1000);
-    assert.equal(count, 2); assert.equal(typeof result.release, 'function');
+    assert.equal(count, 2);
+    await result.release(); assert.equal(released, 1);
   } finally { Date.now = original; }
 });
 
@@ -45,7 +47,7 @@ test('a matching error message is not retry authority', async () => {
   assert.equal(count, 1);
 });
 
-test('zero wait tries once and does not start a retry timer', async () => {
+test('zero wait attempts acquisition once and preserves contention', async () => {
   let count = 0; const reason = new HeavyVerificationGateBusyError('initializing', 'wait');
   await assert.rejects(waitForHeavyVerificationGateLease(async () => { count++; throw reason; }, 0), e => e === reason);
   assert.equal(count, 1);

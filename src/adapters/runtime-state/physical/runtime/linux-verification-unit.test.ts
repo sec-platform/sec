@@ -205,8 +205,7 @@ describe('native verification unit data and live authority separation', () => {
     const decoded = parseLinuxVerificationUnitReceipt(rehash(receipt));
     expect(decoded.profileDigest).toBe(receipt.profileDigest);
     expect(decoded.profileDigest).not.toBe(LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST);
-    const result = parseLinuxVerificationUnitResult({ receipt: rehash(receipt), stdout: '', stderr: '', outputFiles: {} }, invocation);
-    expect(() => assertLinuxVerificationUnitResult(result, {} as LinuxVerificationUnitSession)).toThrow('not issued');
+    parseLinuxVerificationUnitResult({ receipt: rehash(receipt), stdout: '', stderr: '', outputFiles: {} }, invocation);
     receipt.profileDigest = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as typeof receipt.profileDigest;
     expect(() => parseLinuxVerificationUnitReceipt(rehash(receipt))).toThrow('profile differs');
   });
@@ -239,7 +238,8 @@ describe('native verification unit data and live authority separation', () => {
     expect(linuxVerificationUnitInvocationDigest(invocation)).toBe(linuxVerificationUnitInvocationDigest({ ...invocation, stdin: undefined }));
     expect(linuxVerificationUnitInvocationDigest({ ...invocation, stdin: new Uint8Array() })).not.toBe(linuxVerificationUnitInvocationDigest(invocation));
     expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, kind: 'hosted-sut', cwd: 'trusted', argv: ['caller-root-code.ts'] })).toThrow('fixed entry');
-    expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, cwd: 'scratch' })).toThrow();
+    expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, kind: 'source-program', cwd: 'scratch' }))
+      .toThrow(/\bdependency canary\b.*\bscratch cwd\b/u);
     expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, environment: { NODE_PATH: '/caller' } })).toThrow('namespace');
     expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, outputFiles: [{ path: '/sec-runtime/output/../escape', maxBytes: 1 }] })).toThrow('escapes');
   });

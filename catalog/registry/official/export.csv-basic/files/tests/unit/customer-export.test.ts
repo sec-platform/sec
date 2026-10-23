@@ -4,9 +4,15 @@ import { exportCustomersToCsv, exportTicketSummaryToCsv, exportTicketsToCsv } fr
 import type { TicketRecord } from '../../src/runtime/database.ts';
 import { createTenantRuntimeFixture } from '../shared/tenant-runtime-fixture.ts';
 
+// These fixed records contain no embedded newlines; accept either CSV record
+// terminator and an optional final terminator without weakening field boundaries.
+function csvLines(csv: string): string[] {
+  return csv.replace(/\r\n/gu, '\n').replace(/\n$/u, '').split('\n');
+}
+
 export async function runSuite() {
   const { db, tenantA } = createTenantRuntimeFixture();
-  createCustomer(db, tenantA, {
+  const customer = createCustomer(db, tenantA, {
     name: ' Acme ',
     email: 'Sales@Acme.test ',
     phone: ' 400-800 9000 ',
@@ -25,12 +31,16 @@ export async function runSuite() {
   };
 
   const customerCsv = exportCustomersToCsv(listCustomers(db, tenantA));
-  assert.match(customerCsv, /id,tenantId,name,email,phone,company/);
-  assert.match(customerCsv, /tenant-a,Acme,sales@acme\.test,4008009000,Unknown/);
+  assert.deepEqual(csvLines(customerCsv), [
+    'id,tenantId,name,email,phone,company',
+    `${customer.id},tenant-a,Acme,sales@acme.test,4008009000,Unknown`
+  ]);
 
   const ticketCsv = exportTicketsToCsv([ticket]);
-  assert.match(ticketCsv, /id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt/);
-  assert.match(ticketCsv, /tenant-a,Escalate onboarding issue,"Customer cannot finish setup, needs ""support""",open,support-owner,2026-04-20/);
+  assert.deepEqual(csvLines(ticketCsv), [
+    'id,tenantId,title,description,status,assigneeId,dueDate,createdBy,updatedAt',
+    '1,tenant-a,Escalate onboarding issue,"Customer cannot finish setup, needs ""support""",open,support-owner,2026-04-20,user-tenant-a-admin,1970-01-01T00:00:00.000Z'
+  ]);
 
   const summaryCsv = exportTicketSummaryToCsv({
     total: 2,
@@ -49,10 +59,17 @@ export async function runSuite() {
       { assigneeId: 'support-owner', count: 1 }
     ]
   });
-  assert.match(summaryCsv, /section,key,value/);
-  assert.match(summaryCsv, /total,tickets,2/);
-  assert.match(summaryCsv, /status,in_progress,1/);
-  assert.match(summaryCsv, /sla,overdue,1/);
-  assert.match(summaryCsv, /sla,dueSoon,1/);
-  assert.match(summaryCsv, /assignee,support-owner,1/);
+  const [header, ...summaryRows] = csvLines(summaryCsv);
+  assert.equal(header, 'section,key,value');
+  assert.deepEqual(summaryRows.sort(), [
+    'total,tickets,2',
+    'status,open,1',
+    'status,in_progress,1',
+    'status,closed,0',
+    'sla,overdue,1',
+    'sla,dueSoon,1',
+    'sla,unscheduled,0',
+    'assignee,renewal-owner,1',
+    'assignee,support-owner,1'
+  ].sort());
 }
