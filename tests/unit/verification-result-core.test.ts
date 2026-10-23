@@ -139,28 +139,6 @@ function invalidatedGate(gateId: string, claims: string[], reasonCode: 'selectio
   });
 }
 
-function reusedPassedGate(gateId: string, claims: string[], evidenceRefs: string[]): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
-    gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: 'required',
-    status: 'passed',
-    disposition: 'reused',
-    reasonCode: 'executed-success',
-    requiredForClaims: claims,
-    supportedClaims: claims,
-    environment: null,
-    execution: null,
-    evidenceRefs,
-    invalidationRules: [],
-    diagnostic: null
-  });
-}
-
 function claim(claimId: string, gateIds: string[], owningEnvironments: string[] = ['linux-x64']): VerificationClaimDefinition {
   return { claimId, requiredGateIds: gateIds, owningEnvironments };
 }
@@ -390,28 +368,26 @@ test('validator rejects failed status with not-executed disposition', () => {
   }).toThrow(/failed status requires executed or reused disposition/);
 });
 
-test('validator rejects reused disposition without evidenceRefs', () => {
-  expect(() => {
-    CodexDevelopmentBuildVerificationGateResult({
-      gateId: 'bad-gate',
-      gateRevision: 'rev-1',
-      owner: 'test',
-      requirementKey: 'req',
-      subjectRevision: SUBJECT_REVISION,
-      inputDigest: INPUT_DIGEST,
-      applicability: 'required',
-      status: 'passed',
-      disposition: 'reused',
-      reasonCode: 'executed-success',
-      requiredForClaims: ['claim'],
-      supportedClaims: ['claim'],
-      environment: null,
-      execution: null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: null
-    });
-  }).toThrow(/reused disposition requires non-empty evidenceRefs/);
+test('reused results retain their status and require evidence plus environment identity', () => {
+  for (const status of ['passed', 'failed'] as const) {
+    const original = status === 'passed'
+      ? passedGate('reuse-gate', ['claim'])
+      : failedGate('reuse-gate', ['claim']);
+    const { schema: _schema, ...input } = original;
+    const reused = { ...input, disposition: 'reused' as const, execution: null,
+      evidenceRefs: ['evidence://original-result'] };
+    const result = CodexDevelopmentBuildVerificationGateResult(reused);
+    expect(result).toMatchObject({ status, disposition: 'reused', execution: null,
+      reasonCode: status === 'passed' ? 'executed-success' : 'executed-failure' });
+    expect(() => CodexDevelopmentBuildVerificationGateResult({ ...reused, evidenceRefs: [] }))
+      .toThrow(/reused disposition requires non-empty evidenceRefs/);
+    expect(() => CodexDevelopmentBuildVerificationGateResult({ ...reused, environment: null }))
+      .toThrow(/reused disposition requires a non-null environment identity/);
+    if (status === 'failed') {
+      expect(() => CodexDevelopmentAssertVerificationGateResult({ ...result, status: 'passed' }))
+        .toThrow(/passed status requires/);
+    }
+  }
 });
 
 test('validator rejects unresolved applicability with non-invalidated status', () => {
@@ -436,14 +412,6 @@ test('validator rejects unresolved applicability with non-invalidated status', (
       diagnostic: null
     });
   }).toThrow(/unresolved applicability requires invalidated status/);
-});
-
-test('gate builder rejects reused passed evidence without environment identity', () => {
-  expect(() => reusedPassedGate(
-    'reused-gate',
-    ['reuse-claim'],
-    ['evidence-1', 'evidence-2']
-  )).toThrow(/reused disposition requires a non-null environment identity/);
 });
 
 // ---------------------------------------------------------------------------

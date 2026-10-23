@@ -275,70 +275,52 @@ test('strict verification-data boundary accepts JSON data and rejects executable
 });
 
 test('canonical prototype toJSON guards reject without executing and restore exact descriptors', () => {
-  const objectDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
-  const arrayDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON');
   let candidateCodeExecutions = 0;
-  let objectError: unknown;
-  let arrayError: unknown;
-  const restoreDescriptor = (target: object, descriptor: PropertyDescriptor | undefined): void => {
-    if (descriptor) {
-      Object.defineProperty(target, 'toJSON', descriptor);
-    } else if (!Reflect.deleteProperty(target, 'toJSON')) {
-      throw new Error('Unable to restore canonical toJSON descriptor absence.');
-    }
-  };
-
-  try {
-    Object.defineProperty(Object.prototype, 'toJSON', {
-      configurable: true,
-      enumerable: false,
-      writable: true,
-      value: () => {
-        candidateCodeExecutions += 1;
-        return { executed: true };
+  const cases = [
+    {
+      prototype: Object.prototype,
+      candidate: { ordinary: 'object' },
+      descriptor: {
+        configurable: true, enumerable: false, writable: true,
+        value: () => { candidateCodeExecutions += 1; return { executed: true }; }
       }
-    });
-    try {
-      Object.defineProperty(Array.prototype, 'toJSON', {
-        configurable: true,
-        enumerable: false,
+    },
+    {
+      prototype: Array.prototype,
+      candidate: ['ordinary-array'],
+      descriptor: {
+        configurable: true, enumerable: false,
         get: () => {
           candidateCodeExecutions += 1;
-          return () => {
-            candidateCodeExecutions += 1;
-            return { executed: true };
-          };
+          return () => { candidateCodeExecutions += 1; return { executed: true }; };
         }
-      });
+      }
+    }
+  ];
+
+  // Isolate the two ambient hooks: Object.prototype.toJSON must not mask a
+  // missing Array.prototype guard. Restore before any matcher can observe it.
+  for (const { prototype, candidate, descriptor } of cases) {
+    const previous = Object.getOwnPropertyDescriptor(prototype, 'toJSON');
+    let failure: unknown;
+    try {
+      Object.defineProperty(prototype, 'toJSON', descriptor);
       try {
-        try {
-          CodexDevelopmentSnapshotVerificationData({ ordinary: 'object' });
-        } catch (error) {
-          objectError = error;
-        }
-        try {
-          CodexDevelopmentSnapshotVerificationData(['ordinary-array']);
-        } catch (error) {
-          arrayError = error;
-        }
-      } finally {
-        restoreDescriptor(Array.prototype, arrayDescriptor);
+        CodexDevelopmentSnapshotVerificationData(candidate);
+      } catch (error) {
+        failure = error;
       }
     } finally {
-      restoreDescriptor(Object.prototype, objectDescriptor);
+      if (previous) Object.defineProperty(prototype, 'toJSON', previous);
+      else if (!Reflect.deleteProperty(prototype, 'toJSON')) {
+        throw new Error('Unable to restore canonical toJSON descriptor absence.');
+      }
     }
-  } finally {
-    // Both nested restoration paths complete before any matcher, formatting,
-    // logging, serialization, or asynchronous boundary can observe mutation.
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('must not define or inherit toJSON');
+    expect(Object.getOwnPropertyDescriptor(prototype, 'toJSON')).toEqual(previous);
   }
-
-  expect(objectError).toBeInstanceOf(Error);
-  expect((objectError as Error).message).toContain('must not define or inherit toJSON');
-  expect(arrayError).toBeInstanceOf(Error);
-  expect((arrayError as Error).message).toContain('must not define or inherit toJSON');
   expect(candidateCodeExecutions).toBe(0);
-  expect(Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON')).toEqual(objectDescriptor);
-  expect(Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON')).toEqual(arrayDescriptor);
 });
 
 test('strict verification-data boundary rejects every Proxy before installed traps execute', () => {

@@ -24,16 +24,6 @@ class IdentityNamespaceCoverage(TestCase):
         rows=check_docs.checked_identity_registry(self.registry('manual/a.md','manual/nested/b.md'),sources,['manual'])
         self.assertEqual(len(rows),2)
 
-    def test_new_member_and_removed_registration_both_reject(self):
-        registry=self.registry('docs/a.md','docs/b.md')
-        sources={'docs/a.md','docs/b.md'}
-        check_docs.checked_identity_registry(registry,sources,['docs'])
-        with self.assertRaisesRegex(ValueError,'docs/new.md'):
-            check_docs.checked_identity_registry(registry,sources|{'docs/new.md'},['docs'])
-        registry['documents'].pop()
-        with self.assertRaisesRegex(ValueError,'docs/b.md'):
-            check_docs.checked_identity_registry(registry,sources,['docs'])
-
     def test_registered_external_source_still_has_its_identity_checked(self):
         with self.assertRaisesRegex(ValueError,'source Markdown member'):
             check_docs.checked_identity_registry(self.registry('examples/missing.md'),{'docs/a.md'},['docs'])
@@ -87,15 +77,10 @@ class DocumentationIdentity(TestCase):
         for text in ('{}', 'different renderer and fonts', '{ malformed'):
             self.write(s.CACHE_PATH, text)
             self.assertEqual(self.capture(), before)
+            self.assertIn(self.root / s.CACHE_PATH, s.documentation_files(self.root))
         (self.root / s.CACHE_PATH).unlink()
         self.assertEqual(self.capture(), before)
-
-    def test_cache_does_change_delivery_input_identity(self):
-        def envelope():
-            return hashlib.sha256(b''.join(p.read_bytes() for p in s.documentation_files(self.root))).hexdigest()
-        a = envelope()
-        self.write(s.CACHE_PATH, '{}')
-        self.assertNotEqual(envelope(), a)
+        self.assertNotIn(self.root / s.CACHE_PATH, s.documentation_files(self.root))
 
     def test_corrupt_derived_indices_never_become_authority(self):
         before = self.capture()

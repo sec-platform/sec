@@ -115,6 +115,16 @@ test('sealed physical execution tree publishes exact caller bytes and retires on
       ...generation
     } as never)).toThrow('was not issued by Runtime Physical');
     const generationPath = generation.workingDirectory.root.path;
+    if (process.platform === 'win32') {
+      for (const [name, flags] of [['value.ts', 'r+'], ['foreign.ts', 'wx']] as const) {
+        const attempt = open(path.join(generationPath, 'src', name), flags);
+        try {
+          await expect(attempt).rejects.toBeInstanceOf(Error);
+        } finally {
+          await attempt.then(handle => handle.close(), () => undefined);
+        }
+      }
+    }
     expect(await readFile(path.join(generationPath, 'src', 'value.ts'), 'utf8'))
       .toBe('export const value = 1;\n');
     expect(await readFile(path.join(generationPath, 'tsconfig.json'), 'utf8'))
@@ -421,7 +431,18 @@ test('protected roots reject forged, overlapping, released and live replacement 
       generationParent: subject.root,
       protectedRoots: [protectedRoot]
     })).rejects.toThrow('overlaps a protected root');
-    expect(await readdir(fixture.generationParent.path)).toEqual([]);
+    expect(await readdir(subject.subjectPath)).toEqual(['subject.txt']);
+    if (process.platform === 'win32') {
+      await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
+        ...base,
+        generationParent: Object.freeze({
+          ...subject.root,
+          path: subject.root.path.toUpperCase()
+        }),
+        protectedRoots: [protectedRoot]
+      })).rejects.toThrow('overlaps a protected root');
+      expect(await readdir(subject.subjectPath)).toEqual(['subject.txt']);
+    }
   } finally {
     protectedRoot.release();
     await fixture.dependency.retire();
@@ -468,62 +489,6 @@ test('protected roots reject forged, overlapping, released and live replacement 
     await rm(replacement.rootPath, { recursive: true, force: true });
   }
 }, 60_000);
-
-test.skipIf(process.platform !== 'win32')(
-  'protected roots reject a case-equivalent owner spelling before publication',
-  async () => {
-    const fixture = await createFixture('sealed-execution-tree-protected-case');
-    const subject = await createMutableProtectedSubject(fixture, 'case-equivalent');
-    const protectedRoot = subject.capability;
-    try {
-      await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
-        deadlineAtUnixMs: Date.now() + 30_000,
-        directoryNamePrefix: 'execution-',
-        files: [{ bytes: Buffer.from('a'), path: 'value.ts' }],
-        generationParent: Object.freeze({
-          ...subject.root,
-          path: subject.root.path.toUpperCase()
-        }),
-        links: [],
-        protectedRoots: [protectedRoot]
-      })).rejects.toThrow('overlaps a protected root');
-      expect(await readdir(fixture.generationParent.path)).toEqual([]);
-    } finally {
-      protectedRoot.release();
-      await fixture.dependency.retire();
-      await rm(fixture.rootPath, { recursive: true, force: true });
-    }
-  },
-  60_000
-);
-
-test.skipIf(process.platform !== 'win32')(
-  'sealed execution handles exclude byte and membership mutation until terminal retirement',
-  async () => {
-    const fixture = await createFixture('sealed-execution-tree-writer-exclusion');
-    try {
-      const generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
-        deadlineAtUnixMs: Date.now() + 30_000,
-        directoryNamePrefix: 'execution-',
-        files: [{ bytes: Buffer.from('exact\n'), path: 'src/value.ts' }],
-        generationParent: fixture.generationParent,
-        links: [{ path: 'node_modules', source: fixture.dependency }]
-      });
-      const generationPath = generation.workingDirectory.root.path;
-      const sourcePath = path.join(generationPath, 'src', 'value.ts');
-      await expect(open(sourcePath, 'r+')).rejects.toBeInstanceOf(Error);
-      await expect(open(path.join(generationPath, 'src', 'foreign.ts'), 'wx'))
-        .rejects.toBeInstanceOf(Error);
-      expect(await readFile(sourcePath, 'utf8')).toBe('exact\n');
-      await generation.assertCurrent();
-      await generation.retire();
-    } finally {
-      await fixture.dependency.retire();
-      await rm(fixture.rootPath, { recursive: true, force: true });
-    }
-  },
-  60_000
-);
 
 test.skipIf(process.platform !== 'win32')(
   'sealed generation admission rejects a pre-existing writer handle',

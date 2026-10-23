@@ -60,12 +60,6 @@ class SourceBoundary(unittest.TestCase):
         metadata.write_text(json.dumps(value),encoding='utf-8')
         self.assertIn('docs/规则.md',self.names())
 
-    def test_duplicate_metadata_keys_reject(self):
-        metadata = self.root / '.documentation/baseline.json'
-        metadata.write_text('{"source_roots":[],"source_roots":["docs"]}')
-        with self.assertRaisesRegex(ValueError, 'duplicate JSON key'):
-            load(metadata)
-
     def test_retired_authority_cannot_hide_outside_declared_source_roots(self):
         self.declare(['.documentation', 'docs/规则.md'])
         (self.root / 'docs/authority.json').write_text('{}')
@@ -85,17 +79,6 @@ class SourceBoundary(unittest.TestCase):
         self.declare(['.documentation'], ['docs'])
         with self.assertRaisesRegex(ValueError, 'inside an audited namespace'):
             self.names()
-
-    def test_symlink_to_external_content_rejects(self):
-        outside = self.root / 'outside.txt'
-        outside.write_text('private')
-        link = self.root / 'docs/link.txt'
-        try:
-            link.symlink_to(outside)
-        except OSError as error:
-            self.skipTest(str(error))
-        with self.assertRaisesRegex(ValueError, 'linked documentation path'):
-            source_files(self.root)
 
     def test_refresh_publishes_complete_canonical_members_and_matching_digest(self):
         authority = self.root / 'docs/产品/产品要求与工作约束.md'

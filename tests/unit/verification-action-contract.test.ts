@@ -5,8 +5,6 @@ import {
   createBoundedProcessDiagnosticObjectReceipt
 } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { CodexDevelopmentAssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
-import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSemanticOperation,
@@ -376,23 +374,4 @@ test('cheap preflight topology is exact, caller state is never accepted, and lan
   )).toBe(true);
   expect(verificationActionDependsOnChangedInputs(action, ['tests/unit/other.test.ts'])).toBe(false);
   expect(verificationActionDependsOnChangedInputs(action, null)).toBe(true);
-});
-
-test('canonical Result preserves known failed reuse without promotion', () => {
-  const reusedFailure = {
-    schema: VERIFICATION_GATE_RESULT_SCHEMA, gateId: 'gate', gateRevision: 'v1', owner: 'owner',
-    requirementKey: 'required', subjectRevision: 'subject', inputDigest: DIGEST_A,
-    applicability: 'required', status: 'failed', disposition: 'reused', reasonCode: 'executed-failure',
-    requiredForClaims: ['claim'], supportedClaims: [],
-    environment: { runtime: 'bun', os: 'windows', arch: 'x64', filesystem: null, capabilities: [],
-      toolchainRevision: 'bun@1.3.14', providerRevisions: [] },
-    execution: null, evidenceRefs: ['evidence://original-failure'], invalidationRules: [], diagnostic: null
-  };
-  expect(() => CodexDevelopmentAssertVerificationGateResult(reusedFailure)).not.toThrow();
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ ...reusedFailure, status: 'passed',
-    reasonCode: 'executed-failure' })).toThrow('passed status requires');
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ ...reusedFailure,
-    evidenceRefs: [] })).toThrow('non-empty evidenceRefs');
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ ...reusedFailure,
-    environment: null })).toThrow('non-null environment');
 });
