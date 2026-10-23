@@ -22,23 +22,7 @@ function fakeProvider(
       parallelism
     }),
     create() {
-      let length = 0;
-      let destroyed = false;
-      return Object.freeze({
-        update(bytes: Uint8Array): void {
-          if (destroyed) throw new Error('destroyed');
-          length += bytes.byteLength;
-        },
-        digest(): Uint8Array {
-          if (destroyed) throw new Error('destroyed');
-          const out = new Uint8Array(32);
-          out[0] = length & 0xff;
-          return out;
-        },
-        destroy(): void {
-          destroyed = true;
-        }
-      });
+      throw new Error('Provider capture must not create a hash engine');
     }
   });
 }
@@ -69,7 +53,7 @@ test('ordinary content identity rejects hidden parallelism', () => {
   );
 });
 
-test('provider and engine surfaces reject accessors proxies and unknown fields', () => {
+test('provider surfaces reject accessors proxies and unknown fields', () => {
   const accessor = { ...fakeProvider() } as Record<string, unknown>;
   Object.defineProperty(accessor, 'create', {
     enumerable: true,

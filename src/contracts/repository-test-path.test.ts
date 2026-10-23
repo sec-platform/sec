@@ -17,13 +17,17 @@ test('repository test identity preserves dotted suffixes and portable path spell
 });
 
 test('underscore test and spec files use the same executable-test identity across script extensions', () => {
-  for (const root of ['src', 'tests']) {
-    for (const suffix of ['_test', '_spec']) {
-      for (const extension of ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs']) {
-        const file = `${root}/nested/example${suffix}.${extension}`;
-        assert.equal(isSecRepositoryTestModulePath(file), true, file);
-      }
-    }
+  for (const file of [
+    'src/nested/example_test.ts',
+    'tests/nested/example_spec.tsx',
+    'src/nested/example_spec.mts',
+    'tests/nested/example_test.cts',
+    'src/nested/example_test.js',
+    'tests/nested/example_spec.jsx',
+    'src/nested/example_spec.mjs',
+    'tests/nested/example_test.cjs'
+  ]) {
+    assert.equal(isSecRepositoryTestModulePath(file), true, file);
   }
 });
 

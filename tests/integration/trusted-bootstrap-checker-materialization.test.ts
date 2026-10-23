@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -18,7 +17,8 @@ test.serial('trusted checker materialization emits and reads back one bounded ex
     expect(bytes.length).toBeGreaterThan(0);
     expect(bytes.length).toBeLessThanOrEqual(8 * 1024 * 1024);
     expect(result.byteDigest).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
-    expect(existsSync(path.join(fixture.evidenceRoot, 'pre-receipt.json'))).toBe(false);
+    await expect(lstat(path.join(fixture.evidenceRoot, 'pre-receipt.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 
@@ -39,7 +39,8 @@ for (const mutation of TRUSTED_CHECKER_HOSTILE_MUTATIONS) {
       expect(messages.some(message =>
         message === 'Trusted checker bundle lost its exact native artifact identity site.'
         || message === 'Trusted checker bundle would relocate a source-relative import.meta resource.')).toBe(true);
-      expect(existsSync(path.join(fixture.evidenceRoot, 'checker.mjs'))).toBe(false);
+      await expect(lstat(path.join(fixture.evidenceRoot, 'checker.mjs')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
     });
   });
 }

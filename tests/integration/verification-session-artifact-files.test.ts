@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
@@ -144,13 +144,12 @@ test.skipIf(process.platform !== 'win32')('VerificationSession artifact write se
       'after-preimage-quarantine'
     )
   })).toThrow('interrupted at after-preimage-quarantine');
-  expect(existsSync(target)).toBe(false);
+  expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
   const interruptedNames = readdirSync(parent).sort();
   expect(interruptedNames.length).toBeGreaterThan(0);
   // Ordinary artifact reads must not gain recovery effects from this cutover.
   expect(() => readJson(target)).toThrow(physical.PhysicalNoFollowError);
   expect(readdirSync(parent).sort()).toEqual(interruptedNames);
-  expect(existsSync(target)).toBe(false);
 
   writeDurable(target, { owner: 'recovered' });
   expect(readFileSync(target, 'utf8')).toBe('{\n  "owner": "recovered"\n}\n');
