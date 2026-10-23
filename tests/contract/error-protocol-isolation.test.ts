@@ -4,7 +4,8 @@ import { buildErrorProtocol } from '../../src/application/error-protocol.ts';
 
 test('unknown thrown values always have a string diagnostic code and message', () => {
   const revoked = Proxy.revocable({}, {}); revoked.revoke();
-  for (const value of [null, undefined, false, 0, 'failure', 1n, Symbol('failure'), () => undefined, revoked.proxy]) {
+  const throwingCode = { get code() { throw new Error('code'); } };
+  for (const value of [null, undefined, false, 0, 'failure', 1n, Symbol('failure'), () => undefined, revoked.proxy, throwingCode]) {
     const result = buildErrorProtocol(value);
     assert.equal(result.code, 'UNEXPECTED'); assert.equal(result.message, 'Unexpected failure');
     assert.equal(result.recoverable, false); assert.equal(result.issueType, 'kernel');
@@ -26,7 +27,6 @@ test('message text cannot manufacture usage authority and non-string messages re
 });
 
 test('throwing input getters cannot mask the original known failure code', () => {
-  assert.doesNotThrow(() => buildErrorProtocol({ get code() { throw new Error('code'); } }));
   const value = buildErrorProtocol({ code: 'VERIFY-BLOCKED-001',
     get message() { throw new Error('message'); }, get details() { throw new Error('details'); } });
   assert.equal(value.code, 'VERIFY-BLOCKED-001'); assert.equal(value.issueType, 'composition');

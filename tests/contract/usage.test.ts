@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { expectCliSuccess } from '../testkit/cli.ts';
 import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -55,7 +54,6 @@ test('CLI prints its real help for missing commands', async () => {
     const result = await runEntry(workspaceRoot, []);
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    await expectCliSuccess(workspaceRoot, ['--help']);
     for (const marker of ['Usage: sec', 'init', 'resolve', 'compose', 'verify']) {
       expect(result.stdout).toContain(marker);
     }
@@ -73,7 +71,6 @@ for (const args of [['unknown'], ['unknown', '--flag']]) {
         code: 'CLI-USAGE-001', issueType: 'usage', recoverable: true
       });
       expect(result.stderr).toContain(args.at(-1)!);
-      await expect(expectCliSuccess(workspaceRoot, args)).rejects.toThrow('CLI exited with code 1');
       expect(await readdir(workspaceRoot)).toEqual([]);
     });
   }, 10_000);

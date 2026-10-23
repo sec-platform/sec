@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
+import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 
 // Real YAML and ordinary filesystem semantics are required. No JSON-parser,
@@ -28,7 +29,8 @@ test('generic reads consume strict YAML rather than another permissive entry', (
 
 test('invalid UTF-8 cannot be repaired into a different parsed value', () => using(async (_root, file) => {
   await fs.writeFile(file, Uint8Array.of(0x61, 0x3a, 0x20, 0xff));
-  await assert.rejects(readYaml(file));
+  await assert.rejects(readYaml(file), error => error instanceof Error
+    && /\bUTF-8\b/u.test(error.message) && error.cause instanceof TypeError);
 }));
 
 test('explicit per-consumer byte and alias limits replace neither schemas nor permissions', () => using(async (_root, file) => {
@@ -91,6 +93,7 @@ test.skipIf(process.platform === 'win32')(
     const outside = path.join(root, 'outside.yaml');
     await fs.writeFile(outside, 'escaped: true\n');
     await fs.symlink(outside, file, 'file');
-    await assert.rejects(readYaml(file));
+    await assert.rejects(readYaml(file), error => error instanceof PhysicalNoFollowError
+      && error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
   })
 );
