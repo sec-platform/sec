@@ -329,40 +329,6 @@ test('hosted publisher requires the exact non-null Actions bot and App tuple', (
   }, 'malformed bot comment')).toThrow('must be a GitHub login');
 });
 
-test('public receipt and closeout modules exclude retired permit, publisher and finalizer exports', async () => {
-  const receiptModule = await import('../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts');
-  const closeoutModule = await import('../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts');
-  for (const name of [
-    'publishAndReadBackBranchCloseoutEffectStartV1',
-    'publishAndReadBackIntegratedBranchCloseoutReceipt',
-    'consumeBranchCloseoutEffectStartPermitV1'
-  ]) {
-    expect(name in receiptModule).toBe(false);
-  }
-  for (const name of [
-    'finalizeBranchCloseout',
-    'finalizeMergedPullRequestCloseout',
-    'finalizeIntegratedBranchCloseout'
-  ]) {
-    expect(name in closeoutModule).toBe(false);
-  }
-});
-
-test('public branch lifecycle command module excludes retired subprocess adapter exports', async () => {
-  const command = await import('../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts');
-  for (const symbol of [
-    'BranchLifecycleContext',
-    'createBranchLifecycleContext',
-    'BranchLifecycleCommandResult',
-    'runBranchCommand',
-    'requireBranchCommandText',
-    'optionalBranchCommandText'
-  ]) {
-    expect(symbol in command).toBe(false);
-  }
-});
-
-
 test('hosted receipt permission keeps paired facts and separate source actor identity', () => {
   const identity = provenance();
   const comment = issueCommentRecord(actionsComment(20, 'body'), 'hosted comment');

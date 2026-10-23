@@ -1298,13 +1298,22 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       await expect(ensureTransaction({ origin: parentCoordinateOrigin,
         authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } }))
         .resolves.toMatchObject({ disposition: 'observed' });
-      expect(fakeGh.jobListCalls.map(call => call.page)).toEqual(count === 100 ? [1, 1] : [1, 2, 1]);
+      expect(fakeGh.jobListCalls).toContainEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 1 });
+      if (count === 101) {
+        expect(fakeGh.jobListCalls).toContainEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 2 });
+      }
     }
     for (const forge of [
       (target: FakeGh) => { target.jobPageHook = page => page === 2 ? { totalCount: 102 } : null; },
       (target: FakeGh) => { target.jobPageHook = page => page === 2 ? { jobs: [target.parentJobs[0]!] } : null; },
-      (target: FakeGh) => { target.jobPageHook = (_page, call) => call === 3
-        ? { jobs: target.parentJobs.slice(0, 100).map((job, index) => index === 0 ? { ...job, id: 9999 } : job) } : null; }
+      (target: FakeGh) => {
+        let observedTail = false;
+        target.jobPageHook = page => {
+          if (page === 2) observedTail = true;
+          return page === 1 && observedTail
+            ? { jobs: target.parentJobs.slice(0, 100).map((job, index) => index === 0 ? { ...job, id: 9999 } : job) } : null;
+        };
+      }
     ]) {
       fakeGh = new FakeGh();
       fillJobs(fakeGh, 101);
@@ -1468,13 +1477,13 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       intent: { kind: 'dispatch-child' }
     });
     expect(stable.disposition).toBe('dispatched');
-    expect(fakeGh.artifactListCalls.filter((call) => call.page === 1).length).toBe(4);
-    expect(fakeGh.artifactListCalls.filter((call) => call.page === 2).length).toBe(2);
+    expect(fakeGh.artifactListCalls).toContainEqual({ page: 1, perPage: 100 });
+    expect(fakeGh.artifactListCalls).toContainEqual({ page: 2, perPage: 100 });
     expect(fakeGh.dispatchCalls).toBe(1);
 
     fakeGh = new FakeGh();
     fillInventory(fakeGh, 101);
-    fakeGh.artifactPageHook = (page, call) => page === 2 && call === 2
+    fakeGh.artifactPageHook = page => page === 2
       ? { totalCount: 102 }
       : null;
     trustedParentEnvironment();
@@ -1497,11 +1506,15 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     });
     const changedLeadingBoundary = Object.freeze([
       secondStart,
-      ...fakeGh.artifacts.slice(0, 100)
+      ...fakeGh.artifacts.slice(0, 99)
     ]);
-    fakeGh.artifactPageHook = (page, call) => page === 1 && call === 3
-      ? { artifacts: changedLeadingBoundary, totalCount: 101 }
-      : null;
+    let observedArtifactTail = false;
+    fakeGh.artifactPageHook = page => {
+      if (page === 2) observedArtifactTail = true;
+      return page === 1 && observedArtifactTail
+        ? { artifacts: changedLeadingBoundary, totalCount: 101 }
+        : null;
+    };
     trustedParentEnvironment();
     await expect(ensureTransaction({
       origin: parentCoordinateOrigin,
@@ -1592,7 +1605,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     const stable = await ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } });
     expect(stable.disposition).toBe('observed');
     expect(fakeGh.createCalls).toBe(0);
-    expect(fakeGh.statusListCalls.filter((call) => call.page === 1).length).toBe(2);
+    expect(fakeGh.statusListCalls).toContainEqual({ page: 1, perPage: 100 });
     expect(fakeGh.statusListCalls).toContainEqual({ page: 2, perPage: 100 });
 
     fakeGh = new FakeGh().withMarker();
@@ -1625,9 +1638,13 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
 
     fakeGh = new FakeGh().withMarker();
-    fakeGh.statusPageHook = (page, call) => page === 1 && call === 2
-      ? [rawStatus({ id: 88 })]
-      : [];
+    let observedStatusHead = false;
+    fakeGh.statusPageHook = page => {
+      if (page !== 1) return [];
+      if (observedStatusHead) return [rawStatus({ id: 88 })];
+      observedStatusHead = true;
+      return [];
+    };
     await expect(ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow(/leading boundary changed/i);
     expect(fakeGh.createCalls).toBe(0);

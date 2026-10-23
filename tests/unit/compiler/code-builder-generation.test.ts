@@ -170,10 +170,23 @@ test('independent TS and TSX builders keep target grammar local across interleav
   assert.deepEqual((await executeGenerated(jsx.getText(), true)).v, { tag: 'div', props: null, children: [] });
 });
 
-test('virtual filenames and path separators preserve ordinary TS emission', () => {
-  const expected = 'export const value = 42;\n';
+test('virtual filenames and path separators preserve ordinary TS emission', async () => {
   for (const name of ['generated.ts', './generated.ts', 'nested/file.ts', 'nested/../file.ts', 'C:\\workspace\\file.ts', '/virtual/file.ts']) {
-    assert.equal(new CodeBuilder(name).addVariable({ name: 'value', initializer: '42', isExported: true }).getText(), expected);
+    const text = new CodeBuilder(name)
+      .addVariable({ name: 'value', initializer: '42', isExported: true }).getText();
+    const parsed = sourceFile(text);
+    assert.equal(parsed.statements.length, 1);
+    const statement = parsed.statements[0]!;
+    assert.ok(ts.isVariableStatement(statement));
+    assert.ok(statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword));
+    assert.ok(statement.declarationList.flags & ts.NodeFlags.Const);
+    assert.equal(statement.declarationList.declarations.length, 1);
+    const declaration = statement.declarationList.declarations[0]!;
+    assert.ok(ts.isIdentifier(declaration.name));
+    assert.equal(declaration.name.text, 'value');
+    assert.ok(declaration.initializer && ts.isNumericLiteral(declaration.initializer));
+    assert.equal(declaration.initializer.text, '42');
+    assert.equal((await executeGenerated(text)).value, 42);
   }
 });
 

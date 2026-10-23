@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   inspectNoFollowDirectoryChain,
+  inspectNoFollowOrdinaryFileEntry,
   retainNoFollowFileTransaction
 } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { removeNoFollowMigrationFile, updateNoFollowMigrationFile } from '../../../src/adapters/upgrade/migration-physical.ts';
@@ -799,9 +800,10 @@ test('large A binds within a small metadata budget without payload copies and wr
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-recovery-large-A-'));
     try {
       await fs.mkdir(path.join(root, 'preimage'));
+      const backup = inspectNoFollowDirectoryChain(root, 'Large A fixture').target;
       const intent = createUpgradeRecoveryIntent({
         workspace: snapshot.workspace,
-        backup: inspectNoFollowDirectoryChain(root, 'Large A fixture').target,
+        backup,
         binding,
         projection: snapshot.projection,
         limits: { maximumRecords: 100, maximumRecordBytes: 16_384, maximumTotalBytes: 50_000 }
@@ -817,14 +819,44 @@ test('large A binds within a small metadata budget without payload copies and wr
         update: () => payload
       });
       expect(await fs.readFile(fixture.planPath)).toEqual(payload);
+      const before = snapshot.projection.find(entry => entry.relativePath === 'sec.yaml')!;
+      const afterIdentity = inspectNoFollowOrdinaryFileEntry(snapshot.workspace, 'sec.yaml')!;
+      const after = {
+        size: payload.byteLength,
+        contentDigest: sha256({ bytes: payload.toString('hex') }),
+        permissionMode: before.permissionMode
+      };
+      // These are comparison facts from the admitted B and native A readback,
+      // not a serializer projection. Exact bodies reject payloads under any key.
+      const expectedRecords = new Map<string, unknown>([
+        ['prepared-intent', {
+          schema: 'sec-upgrade-recovery-record-v1', kind: 'prepared-intent',
+          body: { binding, workspace: snapshot.workspace, backup, projection: snapshot.projection }
+        }],
+        ['prepared-file-mutation', {
+          schema: 'sec-upgrade-recovery-record-v1', kind: 'prepared-file-mutation',
+          body: { sequence: 1, changes: [{ relativePath: 'sec.yaml', before, after }] }
+        }],
+        ['acknowledged-file-mutation', {
+          schema: 'sec-upgrade-recovery-record-v1', kind: 'acknowledged-file-mutation',
+          body: { sequence: 1, after: [{
+            relativePath: 'sec.yaml', kind: 'file', ...after,
+            identity: { device: afterIdentity.device, inode: afterIdentity.inode }
+          }] }
+        }]
+      ]);
+      const observedKinds = new Set<string>();
       let recordBytes = 0;
       for (const name of await fs.readdir(root)) {
         if (!name.endsWith('.json')) continue;
         const bytes = await fs.readFile(path.join(root, name));
         recordBytes += bytes.byteLength;
         expect(bytes.byteLength).toBeLessThan(16_384);
-        expect(bytes.toString('utf8')).not.toContain('afterBytes');
+        const record = JSON.parse(bytes.toString('utf8')) as { kind: string };
+        expect(record).toEqual(expectedRecords.get(record.kind));
+        observedKinds.add(record.kind);
       }
+      expect(observedKinds).toEqual(new Set(expectedRecords.keys()));
       expect(recordBytes).toBeLessThan(50_000);
       const transaction = retainNoFollowFileTransaction(fixture.root, 'Wrong A native observation');
       try {

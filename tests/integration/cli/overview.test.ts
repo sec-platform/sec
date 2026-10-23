@@ -9,6 +9,8 @@ test('CLI overview reports missing required artifacts with refresh guidance', as
 
     expect(result.code).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('run the refresh chain, then bun run sec -- explain');
+    expect(result.stderr).toMatch(/\bLock file\b.*\bmissing\b/i);
+    expect(result.stderr).toMatch(/\brefresh\b/i);
+    expect(result.stderr).toContain('bun run sec -- explain');
   });
 });

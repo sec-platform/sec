@@ -219,7 +219,7 @@ async function writeLegacyRecords(
   return records;
 }
 
-async function expectBlockedMigration(root: string, expectedMessage: string): Promise<void> {
+async function expectBlockedMigration(root: string, expectedMessage: string, expectedCode: 'RUNTIME-DEPS-002' | 'RUNTIME-DEPS-004'): Promise<void> {
   let error: unknown;
   try {
     await migrateDependencyTransitionJournal(root, {
@@ -228,9 +228,8 @@ async function expectBlockedMigration(root: string, expectedMessage: string): Pr
   } catch (caught) {
     error = caught;
   }
-  expect(error).toBeDefined();
   expect(error).toMatchObject({
-    code: expect.stringMatching(/^RUNTIME-DEPS-00[24]$/u),
+    code: expectedCode,
     message: expect.stringContaining(expectedMessage)
   });
 }
@@ -1034,7 +1033,7 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
       recordDigest: generatedStateDigest(terminalUnsigned)
     }) as LegacyRecord;
     await writeLegacyRecords(root, [records[0]!, nonterminal]);
-    await expectBlockedMigration(root, 'requires every chain to be terminal');
+    await expectBlockedMigration(root, 'requires every chain to be terminal', 'RUNTIME-DEPS-004');
     expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
       .not.toContain(TARGET_NAMESPACE);
   } finally {
@@ -1103,7 +1102,7 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
     const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-invalid-'));
     try {
       await prepare(root);
-      await expectBlockedMigration(root, message);
+      await expectBlockedMigration(root, message, 'RUNTIME-DEPS-002');
       expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
         .not.toContain(TARGET_NAMESPACE);
     } finally {
@@ -1139,7 +1138,7 @@ test('rejects source physical replacement without changing a completed target', 
     } catch (caught) {
       error = caught;
     }
-    expect(error).toMatchObject({ code: expect.stringMatching(/^RUNTIME-DEPS-00[24]$/u) });
+    expect(error).toMatchObject({ code: 'RUNTIME-DEPS-004' });
     expectSameFileSet(await readRegularFiles(targetJournalRoot(root)), targetBefore);
   } finally {
     await removeMigrationFixture(root);

@@ -27,10 +27,11 @@ test('repair plan routing uses application projection and entry rendering withou
     });
 
     const view = projectRepairSummary(plan, true);
+    const text = formatRepairSummary(view);
 
     expect(view.presentation).toBe('verify-pending');
-    expect(formatRepairSummary(view)).toMatch(/\bverify pending(?=$|[\s;,()])/u);
-    expect(formatRepairSummary(view)).not.toContain('dry-run');
+    expect(text).toMatch(/\bverify pending(?=$|[\s;,()])/u);
+    expect(text).not.toContain('dry-run');
     expect(view.taskCount).toBe(4);
     expect(view.blockerCount).toBe(4);
     expect(view.tasks).toHaveLength(3);
@@ -79,8 +80,6 @@ test('repair plan routing uses application projection and entry rendering withou
       /Failure fast\/policy(?=$|[\s;,()])[^\n]*repairable=false(?=$|[\s;,()])/u
     ]) expect(text).toMatch(meaning);
   }
-  expectPendingRepair(formatRepairSummary(view));
-
   await withTempWorkspace(async (workspaceRoot) => {
     const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     await writeJson(repairPlanPath, originalPlan);

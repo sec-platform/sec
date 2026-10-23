@@ -299,7 +299,7 @@ describe('bounded control-plane CLI projections', () => {
     expect(projected.findingCodes).toEqual(['one-root-class']);
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
-    expect(JSON.stringify(projected).length).toBeLessThan(1_500);
+    expect(JSON.stringify(projected)).not.toMatch(/instance \d+|path-\d+|noise/);
 
     const { declarationTopology: _declarationTopology, ...staleReport } = report;
     expect(() => projectRepositoryAuditCli(
@@ -324,7 +324,7 @@ describe('bounded control-plane CLI projections', () => {
       receipt: {
         exactMain: 'a'.repeat(40), exactMainTree: 'b'.repeat(40),
         receiptDigest: 'sha256:receipt',
-        catalog: { items: Array.from({ length: 500 }, (_, index) => ({ index })) },
+        catalog: { items: Array.from({ length: 500 }, (_, index) => ({ index, body: 'unprojected-catalog-body' })) },
         decision: {
           status: 'select-next', selectedWorkId: 'issue-346',
           selectedCandidateRef: 'operation-read-plan-authority-canary-v1',
@@ -339,7 +339,7 @@ describe('bounded control-plane CLI projections', () => {
       decision: { selectedWorkId: 'issue-346', requiredPreconditions: 2 }
     });
     expect(projected).not.toHaveProperty('receipt.catalog');
-    expect(JSON.stringify(projected).length).toBeLessThan(1_500);
+    expect(JSON.stringify(projected)).not.toContain('unprojected-catalog-body');
   });
 
   test('status reports open inventory cardinality without copying issue bodies', () => {
@@ -362,7 +362,8 @@ describe('bounded control-plane CLI projections', () => {
       reviewThreadPullRequestCount: 1
     });
     expect(projected).not.toHaveProperty('stableFacts');
-    expect(JSON.stringify(projected).length).toBeLessThan(1_500);
+    expect(JSON.stringify(projected)).not.toContain('x'.repeat(1_000));
+    expect(JSON.stringify(projected)).not.toContain('noise');
   });
 });
 

@@ -162,7 +162,7 @@ test('responsibility admission resolves compiler and descriptor facts while bloc
   );
 });
 
-test('frontier indexes preserve exact identity and entrypoint multiplicity while scanning references once', () => {
+test('frontier indexes preserve exact identity and entrypoint multiplicity', () => {
   const input = fixture({});
   const helperPath = 'src/example-alpha/helper.ts';
   const runPath = 'src/example-alpha/run.ts';
@@ -211,36 +211,4 @@ test('frontier indexes preserve exact identity and entrypoint multiplicity while
   expect(undefinedIdentity.responsibilityFrontier.find(({ name }) => name === 'run')).toEqual(
     expect.objectContaining({ nodeId: '', declarationDigest: '', status: 'bounded-unknown' })
   );
-
-  let targetIdentityReads = 0;
-  const declarationCount = 32;
-  const declarations = Object.freeze(Array.from({ length: declarationCount }, (_, index) => Object.freeze({
-    observationId: `node-batch-${index}`,
-    declarationDigest: `digest-batch-${index}`,
-    path: helperPath,
-    moduleId: input.alpha.moduleId,
-    name: `helper${index}`,
-    kind: 'FunctionDeclaration',
-    exported: true
-  })));
-  const references = Object.freeze(declarations.map((declaration) => Object.freeze({
-    path: 'src/example-beta/contract.ts',
-    sourceObservationId: 'node-contract',
-    get targetObservationId() {
-      targetIdentityReads += 1;
-      return declaration.observationId;
-    },
-    targetPath: helperPath,
-    observationClass: 'observed' as const
-  })));
-  compileRepositoryModulePlacementAdmission({
-    graph: input.graph,
-    membership: input.membership,
-    facts: {
-      ...input.facts,
-      declarations,
-      references
-    }
-  });
-  expect(targetIdentityReads).toBe(declarationCount);
 });

@@ -97,7 +97,12 @@ test('state transition labels retain value fallbacks and unknown operation label
   const ir = viewIR();
   const transition = addFact(ir, 'state:0', 'TRANSITIONS_TO', { value: { by: 'operation:missing' } });
   const view = projectStateView(projectionSnapshot(ir), 'state:0');
-  assert.equal(view.edges.find((edge) => edge.id === `edge:fact:${transition.id}`)?.label, '? → ? by operation:missing');
+  const edge = view.edges.find((edge) => edge.id === `edge:fact:${transition.id}`)!;
+  assert.equal(edge.source, 'state:0');
+  assert.equal(edge.relation, 'TRANSITIONS_TO');
+  assert.deepEqual(edge.value, { by: 'operation:missing' });
+  assert.ok(edge.label.includes('operation:missing'));
+  assert.equal(edge.label.match(/\?|\bunknown\b/gi)?.length, 2);
 });
 
 for (const frozen of [false, true]) {

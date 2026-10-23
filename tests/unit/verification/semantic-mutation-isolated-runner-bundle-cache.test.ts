@@ -1,10 +1,15 @@
 import { expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   createSemanticMutationIsolatedRunnerBundleLoaderForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests
 } from '../../../src/adapters/verification/run-semantic-mutation-isolated-child.ts';
+import { SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH } from '../../../src/adapters/verification/isolation/isolated-verification-child-progress.ts';
+import { SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT } from '../../../src/adapters/verification/semantic-mutation-isolated-runtime-plan.ts';
 
 function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
   let resolve!: () => void;
@@ -51,7 +56,7 @@ test('isolated runner bundle loader evicts a failed attempt', async () => {
   expect(builds).toBe(2);
 });
 
-test('isolated runner relocation retains only the compiler runtime and rejects an unrelated source', () => {
+test('isolated runner relocation resolves the compiler runtime from each deployed bundle and rejects an unrelated source', async () => {
   const buildModulesRoot = path.resolve('synthetic-compiler-modules');
   const compilerRuntimeRoot = path.join(buildModulesRoot, 'typescript', 'lib');
   const assignment = (directory: string) => new TextEncoder().encode(
@@ -66,7 +71,22 @@ test('isolated runner relocation retains only the compiler runtime and rejects a
     )
   );
   expect(relocated).not.toContain(buildModulesRoot);
-  expect(relocated).toContain('new URL(relativePath, import.meta.url)');
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-runner-relocation-'));
+  try {
+    for (const name of ['first root#', 'second root%']) {
+      const deploymentRoot = path.join(temporaryRoot, name);
+      const modulePath = path.join(deploymentRoot, SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH);
+      mkdirSync(path.dirname(modulePath), { recursive: true });
+      writeFileSync(modulePath, `${relocated}\nexport { __dirname as directory, __filename as filename };\n`);
+      const observed = await import(pathToFileURL(modulePath).href);
+      const runtimeDirectory = path.join(deploymentRoot,
+        SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT, 'typescript', 'lib');
+      expect(observed.directory).toBe(runtimeDirectory);
+      expect(observed.filename).toBe(path.join(runtimeDirectory, 'typescript.js'));
+    }
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 
   expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(
     assignment(path.resolve('foreign-compiler-runtime')),

@@ -39,7 +39,7 @@ test('a completed prior transition settles before a valid source update starts a
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const currentGeneration = configuredManagedHooksPath(repoRoot);
     expect(currentGeneration).not.toBe(previousGeneration);
-    await expect(lstat(previousGeneration)).rejects.toThrow();
+    await expect(lstat(previousGeneration)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await configTransitionNames(repoRoot)).toHaveLength(0);
     await expectManagedHooksMirror(repoRoot, currentGeneration);
   });
@@ -67,7 +67,7 @@ test('durable prior generation inventory settles after marker crash and source u
     expect(['installed', 'managed']).toContain((await installGitHooks({ repoRoot })).status);
     const currentGeneration = configuredManagedHooksPath(repoRoot);
     expect(currentGeneration).not.toBe(previousGeneration);
-    await expect(lstat(previousGeneration)).rejects.toThrow();
+    await expect(lstat(previousGeneration)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await configTransitionNames(repoRoot)).toHaveLength(0);
     await expectManagedHooksMirror(repoRoot, currentGeneration);
   });
