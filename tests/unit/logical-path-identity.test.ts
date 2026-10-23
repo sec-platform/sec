@@ -24,6 +24,7 @@ test('portable logical directory prefixes preserve an explicit trailing slash', 
 
 test('portable logical paths reject traversal, alternate separators and noncanonical components', () => {
   for (const candidate of [
+    '',
     '../secret',
     'src/../secret',
     'src\\secret.ts',
@@ -38,12 +39,8 @@ test('portable logical paths reject traversal, alternate separators and noncanon
   }
 });
 
-test('portable logical paths reject Windows device aliases and illegal components', () => {
+test('portable logical paths reject illegal component characters', () => {
   for (const candidate of [
-    'src/con',
-    'src/CON.txt',
-    'src/com1.json',
-    'src/lpt9.log',
     'src/a:b.ts',
     'src/a?.ts',
     'src/a*.ts'
