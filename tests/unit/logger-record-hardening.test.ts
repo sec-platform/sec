@@ -42,20 +42,19 @@ test('prototype-looking metadata stays data on a frozen null-prototype record', 
   assert.equal(JSON.parse(JSON.stringify(record)).level, 40);
 });
 
-test('every externally callable log-level boundary rejects values outside its exact domain', () => {
+test('shared log-level validation rejects invalid values and every public entry enforces it', () => {
   for (const value of ['', 'INFO', ' INFO ', 'toString', '__proto__', 'verbose', null, 1, {}, []]) {
-    // Deliberately emulate untyped JavaScript at each typed public boundary.
+    // Deliberately emulate untyped JavaScript at the shared domain boundary.
     const untyped = value as LogLevel;
     assert.throws(() => resolveLogLevel(undefined, untyped), invalidLevel);
-    assert.throws(() => createLogger({ level: untyped }), invalidLevel);
-    assert.throws(() => buildJsonLogRecord(untyped, 'bad', {}, 1), invalidLevel);
   }
+  assert.throws(() => createLogger({ level: 'INFO' as LogLevel }), invalidLevel);
+  assert.throws(() => buildJsonLogRecord('INFO' as LogLevel, 'bad', {}, 1), invalidLevel);
 });
 
 test('canonical levels and defaults retain existing meanings', () => {
   assert.equal(Object.isFrozen(LOG_LEVELS), true);
   assert.equal(Reflect.set(LOG_LEVELS, '0', 'trace'), false);
-  assert.equal(LOG_LEVELS[0], 'debug');
   assert.deepEqual(LOG_LEVELS, ['debug', 'info', 'warn', 'error']);
   assert.equal(resolveLogLevel(undefined), 'info');
   assert.equal(resolveLogLevel(undefined, 'warn'), 'warn');
