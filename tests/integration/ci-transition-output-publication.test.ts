@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -93,7 +94,8 @@ for (const replacement of ['directory', 'symlink'] as const) {
       expect(['PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'])
         .toContain((result.error as PhysicalNoFollowError).code);
       for (const directory of [parent, saved, redirected]) {
-        expect(existsSync(path.join(directory, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE))).toBe(false);
+        await expect(lstat(path.join(directory, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE)))
+          .rejects.toMatchObject({ code: 'ENOENT' });
       }
     } finally {
       rmSync(root, { recursive: true, force: true });

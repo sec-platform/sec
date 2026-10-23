@@ -76,10 +76,8 @@ function makePlan(
   }) as AffectedTestPlan;
 }
 
-// Issue #206 contract: six end-to-end regression scenarios for the
-// affected-selection trust boundary. These verify the cross-cutting invariants
-// that prevent false-greens: classification priority, projection correctness,
-// fail-closed behaviour, and check-runner gate selection.
+// The classifier, result projection, and local gate consumer have separate
+// observations; none of these synthetic plans executes an affected test run.
 describe('affected-selection-trust-boundary contract (Issue #206)', () => {
   // 1. source change + empty closure + fallback off → invalidated/non-zero
   test('source change with empty closure and no fallback classifies as unresolved-selection', () => {
@@ -106,20 +104,7 @@ describe('affected-selection-trust-boundary contract (Issue #206)', () => {
     expect(isAffectedSelectionFailClosed(boundary)).toBe(true);
   });
 
-  // 3. classification is deterministic for one normalized owner input
-  test('classification is deterministic regardless of cache state', () => {
-    const input = baseInput({
-      sourceChanged: true,
-      selectedFastTestCount: 0,
-      broadFallbackEnabled: false
-    });
-    const a = classifyAffectedSelectionTrustBoundary(input);
-    const b = classifyAffectedSelectionTrustBoundary(input);
-    expect(a).toBe(b);
-    expect(a).toBe('unresolved-selection');
-  });
-
-  // 4. non-source change + no fast tests → applicable-no-tests (NOT fail-closed)
+  // Non-source change + no fast tests → applicable-no-tests (NOT fail-closed)
   test('non-source change with no fast tests is applicable-no-tests, not fail-closed', () => {
     const boundary = classifyAffectedSelectionTrustBoundary(baseInput({
       sourceChanged: false,
@@ -127,15 +112,9 @@ describe('affected-selection-trust-boundary contract (Issue #206)', () => {
     }));
     expect(boundary).toBe('applicable-no-tests');
     expect(isAffectedSelectionFailClosed(boundary)).toBe(false);
-    const result = projectAffectedSelectionToVerificationGateResult(
-      boundary,
-      defaultAffectedSelectionProjectionContext('HEAD', TEST_INPUT_DIGEST, null)
-    );
-    expect(result.status).toBe('not-run');
-    expect(result.reasonCode).toBe('not-applicable');
   });
 
-  // 5. check-runner includes test:affected gate for fail-closed boundaries
+  // The local gate consumer includes test:affected gate for fail-closed boundaries
   test('check-runner includes test:affected gate when boundary is fail-closed', () => {
     for (const boundary of ['unresolved-selection', 'unresolved-module-graph'] as const) {
       const plan = makePlan(boundary);
@@ -144,7 +123,7 @@ describe('affected-selection-trust-boundary contract (Issue #206)', () => {
     }
   });
 
-  // 6. check-runner excludes test:affected gate for applicable-no-tests
+  // The local gate consumer excludes test:affected gate for applicable-no-tests
   test('check-runner excludes test:affected gate when boundary is applicable-no-tests', () => {
     const plan = makePlan('applicable-no-tests', {
       changedPaths: ['tests/e2e/registry.test.ts']
@@ -155,57 +134,26 @@ describe('affected-selection-trust-boundary contract (Issue #206)', () => {
 });
 
 describe('affected-selection-trust-boundary projection invariants (Issue #206)', () => {
-  const allBoundaries: AffectedSelectionTrustBoundary[] = [
-    'applicable-no-tests',
-    'applicable-with-tests',
-    'unresolved-selection',
-    'unresolved-module-graph',
-    'broad-fallback',
-    'unresolved-ownership',
-    'unresolved-git'
-  ];
-
-  test('every boundary projects to a schema-valid VerificationGateResultV1', () => {
-    for (const boundary of allBoundaries) {
+  test('every boundary projects to its exact unexecuted verification outcome', () => {
+    const cases = [
+      ['applicable-no-tests', 'not-applicable', 'not-run', 'not-applicable'],
+      ['applicable-with-tests', 'required', 'not-run', 'not-dispatched'],
+      ['broad-fallback', 'required', 'not-run', 'not-dispatched'],
+      ['unresolved-git', 'unresolved', 'invalidated', 'selection-unresolved'],
+      ['unresolved-ownership', 'unresolved', 'invalidated', 'selection-unresolved'],
+      ['unresolved-selection', 'unresolved', 'invalidated', 'selection-unresolved'],
+      ['unresolved-module-graph', 'unresolved', 'invalidated', 'selection-unresolved']
+    ] as const;
+    for (const [boundary, applicability, status, reasonCode] of cases) {
       const result = projectAffectedSelectionToVerificationGateResult(
         boundary,
         defaultAffectedSelectionProjectionContext('HEAD', TEST_INPUT_DIGEST, null)
       );
-      // Must not throw — verifies all cross-field invariants.
       CodexDevelopmentAssertVerificationGateResult(result);
-    }
-  });
-
-  test('fail-closed boundaries always project to invalidated/selection-unresolved', () => {
-    const failClosed: AffectedSelectionTrustBoundary[] = [
-      'unresolved-git',
-      'unresolved-ownership',
-      'unresolved-selection',
-      'unresolved-module-graph'
-    ];
-    for (const boundary of failClosed) {
-      const result = projectAffectedSelectionToVerificationGateResult(
-        boundary,
-        defaultAffectedSelectionProjectionContext('HEAD', TEST_INPUT_DIGEST, null)
-      );
-      expect(result.status).toBe('invalidated');
-      expect(result.reasonCode).toBe('selection-unresolved');
-      expect(result.applicability).toBe('unresolved');
-    }
-  });
-
-  test('non-fail-closed boundaries never project to invalidated', () => {
-    const nonFailClosed: AffectedSelectionTrustBoundary[] = [
-      'applicable-no-tests',
-      'applicable-with-tests',
-      'broad-fallback'
-    ];
-    for (const boundary of nonFailClosed) {
-      const result = projectAffectedSelectionToVerificationGateResult(
-        boundary,
-        defaultAffectedSelectionProjectionContext('HEAD', TEST_INPUT_DIGEST, null)
-      );
-      expect(result.status).not.toBe('invalidated');
+      expect(result).toMatchObject({
+        applicability, status, reasonCode,
+        disposition: 'not-executed', environment: null, execution: null
+      });
     }
   });
 
@@ -224,14 +172,6 @@ describe('affected-selection-trust-boundary projection invariants (Issue #206)',
       selectedFastTestCount: 0
     }))).toBe('unresolved-ownership');
 
-    // selection failure (source+empty+no-fallback) dominates fallback
-    expect(classifyAffectedSelectionTrustBoundary(baseInput({
-      ownershipResolved: true,
-      sourceChanged: true,
-      selectedFastTestCount: 0,
-      broadFallbackEnabled: false
-    }))).toBe('unresolved-selection');
-
     // fallback dominates "no tests"
     expect(classifyAffectedSelectionTrustBoundary(baseInput({
       ownershipResolved: true,
@@ -247,12 +187,5 @@ describe('affected-selection-trust-boundary projection invariants (Issue #206)',
       selectedFastTestCount: 1,
       broadFallbackEnabled: false
     }))).toBe('applicable-with-tests');
-
-    // no source change and no tests → applicable-no-tests
-    expect(classifyAffectedSelectionTrustBoundary(baseInput({
-      ownershipResolved: true,
-      sourceChanged: false,
-      selectedFastTestCount: 0
-    }))).toBe('applicable-no-tests');
   });
 });

@@ -9,7 +9,7 @@ import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-conte
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
-import { parseReviewSummaryJson, validateReviewSummary } from '../../src/assurance/verification/review/contract/summary.ts';
+import { parseReviewSummaryJson } from '../../src/assurance/verification/review/contract/summary.ts';
 import { verifyWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
@@ -61,7 +61,7 @@ test('canonical Review Summary publication persists the artifact and generated p
   const summary = await publishReviewSummary(workspaceRoot, lock, provenance, report, coverage);
   const persistedLock = await readJson<LockFile>(lockPath);
   const persistedSource = await fs.readFile(reviewSummaryPath, 'utf8');
-  const persistedSummary = await readJson<typeof summary>(reviewSummaryPath);
+  const persistedSummary = parseReviewSummaryJson(persistedSource);
 
   expect(summary.ciSummary).toEqual({
     status: 'passed',
@@ -77,8 +77,7 @@ test('canonical Review Summary publication persists the artifact and generated p
     installImpactCount: 0
   });
   expect(summary.conflictHints).toHaveLength(0);
-  expect(parseReviewSummaryJson(persistedSource)).toEqual(summary);
-  expect(validateReviewSummary(persistedSummary)).toEqual(summary);
+  expect(persistedSummary).toEqual(summary);
   expect(() => parseReviewSummaryJson(JSON.stringify({ ...persistedSummary, formatVersion: 'unknown' }))).toThrow();
   expect(() => parseReviewSummaryJson(JSON.stringify({ ...persistedSummary, undeclared: true }))).toThrow();
   const formatVersion = JSON.stringify(summary.formatVersion);
