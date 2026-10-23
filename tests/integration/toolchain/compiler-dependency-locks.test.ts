@@ -1,3 +1,9 @@
+import { randomUUID } from 'node:crypto';
+import type { PhysicalDirectoryIdentity } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  observeNoFollowOwnedFile,
+  readNoFollowOwnedFileBytes
+} from '../../../src/adapters/toolchain/dependencies/runtime/dependency-coordination-location.ts';
 import {
   EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS,
   EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
@@ -9,12 +15,79 @@ import {
   fs,
   installCompilerDependencyFixture,
   path,
+  physicalNoFollow,
   readJson,
+  settleWorkspaceCallback,
   test,
   withCompilerTestWorkspace,
   withTempWorkspace,
   writeCompilerDependencyRoot
 } from './compiler-dependency-fixtures.ts';
+
+// Capture before exercising the failure. A later path lookup is never authority
+// to remove a replacement lock or unknown recovery residue.
+function retainFixtureFileRemoval(filePath: string): () => Promise<void> {
+  const observed = observeNoFollowOwnedFile(filePath, 'Injected compiler lock');
+  if (observed === null) throw new Error('Injected compiler lock is absent before capture.');
+  const bytes = readNoFollowOwnedFileBytes(observed, 'Injected compiler lock bytes');
+  let removed = false;
+  return async () => {
+    if (removed) return;
+    physicalNoFollow.assertSameNoFollowDirectoryIdentity(observed.parent, 'Injected compiler lock cleanup parent');
+    if (observeNoFollowOwnedFile(filePath, 'Injected compiler lock cleanup') !== null) {
+      const anchorName = `.compiler-fixture-cleanup-${randomUUID()}`;
+      const anchorBytes = Buffer.from(`${anchorName}\n`);
+      const anchor = physicalNoFollow.publishExclusiveDurableCanonicalFile({
+        parent: observed.parent, name: anchorName, bytes: anchorBytes, validate: () => undefined
+      });
+      if (!anchor.created) throw new Error('Compiler fixture cleanup anchor was not newly created.');
+      let guardSettled = false;
+      await settleWorkspaceCallback(async () => {
+        const guard = physicalNoFollow.tryRetainExclusiveFileGuard(
+          observed.parent, anchorName, anchor.physical, anchorBytes, observed.name
+        );
+        if (guard === null) {
+          guardSettled = true;
+          throw new Error('Compiler fixture cleanup resource guard is busy.');
+        }
+        await settleWorkspaceCallback(async () => {
+          physicalNoFollow.deleteRetainedNoFollowEntry({
+            root: observed.parent,
+            relativePath: observed.name,
+            kind: 'file',
+            device: observed.device,
+            inode: observed.inode,
+            expectedFileBytes: bytes,
+            resourceGuard: guard,
+            ancestorDirectories: []
+          });
+        }, async () => { guard.dispose(); guardSettled = true; });
+      }, async () => {
+        // This fresh anchor is fixture-owned and was never passed to the SUT.
+        // Its native guard has settled before its exact identity is removed.
+        if (!guardSettled) return;
+        physicalNoFollow.deleteRetainedNoFollowEntry({
+          root: observed.parent, relativePath: anchorName, kind: 'file',
+          device: anchor.physical.device, inode: anchor.physical.inode, ancestorDirectories: []
+        });
+      });
+    }
+    removed = true;
+  };
+}
+
+async function withInjectedFile(
+  filePath: string,
+  bytes: string,
+  run: (remove: () => Promise<void>) => Promise<void>
+): Promise<void> {
+  let remove: (() => Promise<void>) | undefined;
+  await settleWorkspaceCallback(async () => {
+    await fs.writeFile(filePath, bytes, { flag: 'wx' });
+    remove = retainFixtureFileRemoval(filePath);
+    await run(remove);
+  }, async () => { await remove?.(); });
+}
 
 describe('compiler dependency installation', () => {
   effectfulTest(test, 'preserves a replaced staging source and recovers after its original identity returns', {
@@ -34,45 +107,85 @@ describe('compiler dependency installation', () => {
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       let replaced = false;
       let stagedSource: string | null = null;
-
-      await expect(ensureCompilerDepsReady({
-        ...baseOptions,
-        sleep: async () => undefined,
-        testCompilerPublishPlatform: 'win32',
-        testCompilerRename: async (source, target) => {
-          const stagedPublish = path.basename(source) === 'node_modules' &&
-            path.basename(path.dirname(source)).includes('.staging-');
-          if (stagedPublish && !replaced) {
-            replaced = true;
-            stagedSource = source;
-            await fs.rename(source, `${source}-original`);
-            await fs.mkdir(source);
-            const error = new Error('injected transient rename with source replacement') as NodeJS.ErrnoException;
-            error.code = 'EBUSY';
-            throw error;
+      let stageParent: PhysicalDirectoryIdentity | undefined;
+      let originalSource: PhysicalDirectoryIdentity | undefined;
+      let replacementSource: PhysicalDirectoryIdentity | undefined;
+      const restoreStage = async () => {
+        if (originalSource === undefined) return;
+        const sourceName = path.basename(originalSource.path);
+        const current = physicalNoFollow.inspectNoFollowDirectoryLeaf(stageParent!, sourceName);
+        const parked = physicalNoFollow.inspectNoFollowDirectoryLeaf(stageParent!, `${sourceName}-original`);
+        const isOriginal = (value: PhysicalDirectoryIdentity | null) => value !== null &&
+          value.device === originalSource!.device && value.inode === originalSource!.inode &&
+          value.objectId === originalSource!.objectId;
+        // Relocation may have thrown after rename but before durability/readback.
+        // Reconcile only the two known names against the pre-effect identity.
+        if (isOriginal(current) && parked === null) {
+          originalSource = undefined;
+          return;
+        }
+        if (!isOriginal(parked)) throw new Error('Original compiler fixture stage identity is unresolved; residue is preserved.');
+        if (current !== null) {
+          if (replacementSource === undefined || current.device !== replacementSource.device ||
+              current.inode !== replacementSource.inode || current.objectId !== replacementSource.objectId) {
+            throw new Error('Compiler fixture replacement stage changed; residue is preserved.');
           }
-          await fs.rename(source, target);
+          physicalNoFollow.deleteRetainedNoFollowEntry({
+            root: stageParent!, relativePath: sourceName, kind: 'directory',
+            device: replacementSource.device, inode: replacementSource.inode, ancestorDirectories: []
+          });
+          replacementSource = undefined;
         }
-      }, tempRoot)).rejects.toMatchObject({
-        code: 'IMPORT-AUTHORITY-004'
-      });
-      expect(replaced).toBe(true);
-      expect(stagedSource).not.toBeNull();
-      expect((await fs.lstat(stagedSource!)).isDirectory()).toBeTrue();
-      expect(await fs.readFile(path.join(
-        `${stagedSource!}-original`, 'typescript', 'lib', 'typescript.js'
-      ), 'utf8')).toBe('generation-2:typescript\n');
-      await fs.rmdir(stagedSource!);
-      await fs.rename(`${stagedSource!}-original`, stagedSource!);
-      expect((await ensureCompilerDepsReady({
-        ...baseOptions,
-        materialize: async () => {
-          throw new Error('Recovered exact stage must not install again.');
-        }
-      }, tempRoot)).source).toBe('existing');
-      expect(await fs.readFile(path.join(
-        tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'
-      ), 'utf8')).toBe('generation-2:typescript\n');
+        physicalNoFollow.relocateRetainedNoFollowDirectory({
+          directory: parked!, tombstoneName: sourceName
+        });
+        originalSource = undefined;
+      };
+
+      await settleWorkspaceCallback(async () => {
+        await expect(ensureCompilerDepsReady({
+          ...baseOptions,
+          sleep: async () => undefined,
+          testCompilerPublishPlatform: 'win32',
+          testCompilerRename: async (source, target) => {
+            const stagedPublish = path.basename(source) === 'node_modules' &&
+              path.basename(path.dirname(source)).includes('.staging-');
+            if (stagedPublish && !replaced) {
+              replaced = true;
+              stagedSource = source;
+              stageParent = physicalNoFollow.inspectNoFollowDirectoryChain(path.dirname(source), 'Compiler fixture stage parent').target;
+              originalSource = physicalNoFollow.inspectNoFollowDirectoryChain(source, 'Compiler fixture stage').target;
+              physicalNoFollow.relocateRetainedNoFollowDirectory({
+                directory: originalSource,
+                tombstoneName: `${path.basename(source)}-original`
+              });
+              replacementSource = physicalNoFollow.createExclusiveNoFollowDirectory(stageParent, path.basename(source));
+              const error = new Error('injected transient rename with source replacement') as NodeJS.ErrnoException;
+              error.code = 'EBUSY';
+              throw error;
+            }
+            await fs.rename(source, target);
+          }
+        }, tempRoot)).rejects.toMatchObject({
+          code: 'IMPORT-AUTHORITY-004'
+        });
+        expect(replaced).toBe(true);
+        expect(stagedSource).not.toBeNull();
+        expect((await fs.lstat(stagedSource!)).isDirectory()).toBeTrue();
+        expect(await fs.readFile(path.join(
+          `${stagedSource!}-original`, 'typescript', 'lib', 'typescript.js'
+        ), 'utf8')).toBe('generation-2:typescript\n');
+        await restoreStage();
+        expect((await ensureCompilerDepsReady({
+          ...baseOptions,
+          materialize: async () => {
+            throw new Error('Recovered exact stage must not install again.');
+          }
+        }, tempRoot)).source).toBe('existing');
+        expect(await fs.readFile(path.join(
+          tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'
+        ), 'utf8')).toBe('generation-2:typescript\n');
+      }, restoreStage);
     }));
 
   test('rejects invalid or widening operation budgets before creating a dependency namespace', async () => {
@@ -104,31 +217,32 @@ describe('compiler dependency installation', () => {
         }
       }, tempRoot);
       const lockPath = compilerCoordinationLockPath(tempRoot);
-      await fs.writeFile(lockPath, `${JSON.stringify({
+      await withInjectedFile(lockPath, `${JSON.stringify({
         createdAt: new Date().toISOString(),
         pid: process.pid,
         token: 'live-owner'
-      })}\n`);
-      const controller = new AbortController();
-      let installCalls = 0;
+      })}\n`, async () => {
+        const controller = new AbortController();
+        const cancellation = new Error('fixture lock wait aborted');
+        let installCalls = 0;
 
-      await expect(ensureCompilerDepsReady({
-        ...operation,
-        materialize: async () => {
-          installCalls += 1;
-          return { code: 0, stdout: '', stderr: '' };
-        },
-        lockTimeoutMs: 1_000,
-        pollIntervalMs: 1,
-        signal: controller.signal,
-        sleep: async () => new Promise<void>(() => {
-          queueMicrotask(() => controller.abort(new Error('fixture lock wait aborted')));
-        })
-      }, tempRoot)).rejects.toBeTruthy();
+        await expect(ensureCompilerDepsReady({
+          ...operation,
+          materialize: async () => {
+            installCalls += 1;
+            return { code: 0, stdout: '', stderr: '' };
+          },
+          lockTimeoutMs: 1_000,
+          pollIntervalMs: 1,
+          signal: controller.signal,
+          sleep: async () => new Promise<void>(() => {
+            queueMicrotask(() => controller.abort(cancellation));
+          })
+        }, tempRoot)).rejects.toBe(cancellation);
 
-      expect(installCalls).toBe(0);
-      expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'live-owner' });
-      await fs.rm(lockPath);
+        expect(installCalls).toBe(0);
+        expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'live-owner' });
+      });
     }));
 
   effectfulTest(test, 'gives the compiler command only the operation budget remaining after lock contention', {
@@ -146,38 +260,39 @@ describe('compiler dependency installation', () => {
       }, tempRoot);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       const lockPath = compilerCoordinationLockPath(tempRoot);
-      await fs.writeFile(lockPath, `${JSON.stringify({
+      await withInjectedFile(lockPath, `${JSON.stringify({
         createdAt: new Date().toISOString(),
         pid: process.pid,
         token: 'temporary-live-owner'
-      })}\n`);
-      const lockContentionElapsedMs = 150;
-      const initialRemainingMs = operation.deadlineAtUnixMs - Date.now();
-      let waited = false;
-      let observedCommandTimeoutMs: number | undefined;
+      })}\n`, async (removeLock) => {
+        const lockContentionElapsedMs = 150;
+        const initialRemainingMs = operation.deadlineAtUnixMs - Date.now();
+        let waited = false;
+        let observedCommandTimeoutMs: number | undefined;
 
-      const ready = await ensureCompilerDepsReady({
-        ...operation,
-        materialize: async (_args, command) => {
-          observedCommandTimeoutMs = command.timeoutMs;
-          await installCompilerDependencyFixture(command.cwd, 'remaining-budget');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        },
-        pollIntervalMs: 1,
-        sleep: async () => {
-          if (!waited) {
-            waited = true;
-            await new Promise<void>(resolve => setTimeout(resolve, lockContentionElapsedMs));
-            await fs.rm(lockPath);
+        const ready = await ensureCompilerDepsReady({
+          ...operation,
+          materialize: async (_args, command) => {
+            observedCommandTimeoutMs = command.timeoutMs;
+            await installCompilerDependencyFixture(command.cwd, 'remaining-budget');
+            return { code: 0, stdout: 'ok', stderr: '' };
+          },
+          pollIntervalMs: 1,
+          sleep: async () => {
+            if (!waited) {
+              waited = true;
+              await new Promise<void>(resolve => setTimeout(resolve, lockContentionElapsedMs));
+              await removeLock();
+            }
           }
-        }
-      }, tempRoot);
+        }, tempRoot);
 
-      expect(ready.source).toBe('installed');
-      expect(waited).toBe(true);
-      expect(observedCommandTimeoutMs).toBeGreaterThan(0);
-      expect(observedCommandTimeoutMs).toBeLessThan(initialRemainingMs - lockContentionElapsedMs);
-      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(ready.source).toBe('installed');
+        expect(waited).toBe(true);
+        expect(observedCommandTimeoutMs).toBeGreaterThan(0);
+        expect(observedCommandTimeoutMs).toBeLessThan(initialRemainingMs - lockContentionElapsedMs);
+        await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      });
     }));
 
   effectfulTest(test, 'removes its exact compiler lock even when the final caller fence rejects', {
@@ -231,7 +346,8 @@ describe('compiler dependency installation', () => {
       }, tempRoot);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       const lockPath = compilerCoordinationLockPath(tempRoot);
-      const deleteAttempts: number[] = [];
+      let retryPreimage: Readonly<{ device: bigint; inode: bigint; bytes: Buffer }> | undefined;
+      let observedRetry = false;
       const ready = await ensureCompilerDepsReady({
         ...operation,
         materialize: async (_args, command) => {
@@ -242,15 +358,19 @@ describe('compiler dependency installation', () => {
         testInstallLockDeletePlatform: 'win32',
         testInstallLockDelete: async (filePath, attempt) => {
           expect(filePath.startsWith('\\\\?\\') ? filePath.slice(4) : filePath).toBe(lockPath);
-          deleteAttempts.push(attempt);
+          const identity = await fs.lstat(filePath, { bigint: true });
+          const bytes = await fs.readFile(filePath);
           if (attempt === 1) {
+            retryPreimage = { device: identity.dev, inode: identity.ino, bytes };
             throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
           }
+          expect({ device: identity.dev, inode: identity.ino, bytes }).toEqual(retryPreimage);
+          observedRetry = true;
         }
       }, tempRoot);
 
       expect(ready.source).toBe('installed');
-      expect(deleteAttempts).toEqual([1, 2, 1, 2]);
+      expect(observedRetry).toBe(true);
       await expect(fs.stat(lockPath))
         .rejects.toMatchObject({ code: 'ENOENT' });
     }));
@@ -271,33 +391,36 @@ describe('compiler dependency installation', () => {
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       const lockPath = compilerCoordinationLockPath(tempRoot);
       let replaced = false;
-      await expect(ensureCompilerDepsReady({
-        ...operation,
-        materialize: async (_args, command) => {
-          await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-replacement');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        },
-        pollIntervalMs: 1,
-        testInstallLockDeletePlatform: 'win32',
-        testInstallLockDelete: async (filePath, attempt) => {
-          if (attempt !== 1) return;
-          await fs.rm(filePath);
-          await fs.writeFile(filePath, `${JSON.stringify({
-            createdAt: new Date().toISOString(),
-            pid: process.pid,
-            token: 'replacement-owner'
-          })}\n`);
-          replaced = true;
-          throw Object.assign(new Error('fixture Windows replacement race'), { code: 'EPERM' });
-        }
-      }, tempRoot)).rejects.toMatchObject({
-        code: 'RUNTIME-DEPS-003',
-        details: { outcome: 'preserved-replacement' }
-      });
+      let removeReplacement: (() => Promise<void>) | undefined;
+      await settleWorkspaceCallback(async () => {
+        await expect(ensureCompilerDepsReady({
+          ...operation,
+          materialize: async (_args, command) => {
+            await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-replacement');
+            return { code: 0, stdout: 'ok', stderr: '' };
+          },
+          pollIntervalMs: 1,
+          testInstallLockDeletePlatform: 'win32',
+          testInstallLockDelete: async (filePath, attempt) => {
+            if (attempt !== 1) return;
+            await retainFixtureFileRemoval(filePath)();
+            await fs.writeFile(filePath, `${JSON.stringify({
+              createdAt: new Date().toISOString(),
+              pid: process.pid,
+              token: 'replacement-owner'
+            })}\n`, { flag: 'wx' });
+            removeReplacement = retainFixtureFileRemoval(filePath);
+            replaced = true;
+            throw Object.assign(new Error('fixture Windows replacement race'), { code: 'EPERM' });
+          }
+        }, tempRoot)).rejects.toMatchObject({
+          code: 'RUNTIME-DEPS-003',
+          details: { outcome: 'preserved-replacement' }
+        });
 
-      expect(replaced).toBe(true);
-      expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'replacement-owner' });
-      await fs.rm(lockPath);
+        expect(replaced).toBe(true);
+        expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'replacement-owner' });
+      }, async () => { await removeReplacement?.(); });
     }));
 
   effectfulTest(test, 'reports an unknown Windows lock settlement when the operation deadline expires', {
@@ -314,11 +437,10 @@ describe('compiler dependency installation', () => {
         }
       }, tempRoot);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
-      const lockPath = compilerCoordinationLockPath(tempRoot);
       let monotonicNowMs = performance.now();
-      let failure: unknown;
-      try {
-        await ensureCompilerDepsReady({
+      let settleInterruptedDeletion: (() => Promise<void>) | undefined;
+      await settleWorkspaceCallback(async () => {
+        await expect(ensureCompilerDepsReady({
           ...operation,
           materialize: async (_args, command) => {
             await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-deadline');
@@ -327,20 +449,18 @@ describe('compiler dependency installation', () => {
           monotonicNowMs: () => monotonicNowMs,
           pollIntervalMs: 1,
           testInstallLockDeletePlatform: 'win32',
-          testInstallLockDelete: async () => {
+          testInstallLockDelete: async (filePath) => {
+            // The fixture interrupted this exact owner-requested deletion.
+            // Retain its preimage now, never adopt whatever exists after failure.
+            settleInterruptedDeletion ??= retainFixtureFileRemoval(filePath);
             monotonicNowMs += 100_000;
             throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
           }
-        }, tempRoot);
-      } catch (error) {
-        failure = error;
-      } finally {
-        await fs.rm(lockPath, { force: true });
-      }
-      expect(failure).toMatchObject({
-        code: 'RUNTIME-DEPS-003',
-        details: { outcome: 'unknown' }
-      });
+        }, tempRoot)).rejects.toMatchObject({
+          code: 'RUNTIME-DEPS-003',
+          details: { outcome: 'unknown' }
+        });
+      }, async () => { await settleInterruptedDeletion?.(); });
     }));
 
   effectfulTest(test, 'reclaims a dead compiler install owner instead of timing out future development', {
@@ -358,26 +478,27 @@ describe('compiler dependency installation', () => {
       }, tempRoot);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       const lockPath = compilerCoordinationLockPath(tempRoot);
-      await fs.writeFile(lockPath, `${JSON.stringify({
+      await withInjectedFile(lockPath, `${JSON.stringify({
         createdAt: '2026-01-01T00:00:00.000Z',
         pid: 2_147_483_647,
         token: 'dead-owner'
-      })}\n`);
-      let installCalls = 0;
+      })}\n`, async () => {
+        let installCalls = 0;
 
-      const ready = await ensureCompilerDepsReady({
-        ...operation,
-        materialize: async (_args, command) => {
-          installCalls += 1;
-          await installCompilerDependencyFixture(command.cwd, 'recovered');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        },
-        pollIntervalMs: 10,
-      }, tempRoot);
+        const ready = await ensureCompilerDepsReady({
+          ...operation,
+          materialize: async (_args, command) => {
+            installCalls += 1;
+            await installCompilerDependencyFixture(command.cwd, 'recovered');
+            return { code: 0, stdout: 'ok', stderr: '' };
+          },
+          pollIntervalMs: 10,
+        }, tempRoot);
 
-      expect(ready.source).toBe('installed');
-      expect(installCalls).toBe(1);
-      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(ready.source).toBe('installed');
+        expect(installCalls).toBe(1);
+        await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      });
     }));
 
   effectfulTest(test, 'preserves an unissued legacy reclaim marker for explicit architecture migration', {
@@ -389,34 +510,36 @@ describe('compiler dependency installation', () => {
       const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
       const reclaimPath = `${lockPath}.reclaim`;
       await fs.mkdir(path.dirname(lockPath), { recursive: true });
-      await fs.writeFile(lockPath, `${JSON.stringify({
+      await withInjectedFile(lockPath, `${JSON.stringify({
         createdAt: '2026-01-01T00:00:00.000Z',
         pid: 2_147_483_647,
         token: 'dead-legacy-owner'
-      })}\n`);
-      await fs.writeFile(reclaimPath, '123e4567-e89b-42d3-a456-426614174000\n');
-      const expired = new Date('2026-01-01T00:00:00.000Z');
-      await fs.utimes(reclaimPath, expired, expired);
-      await expect(ensureCompilerDepsReady({
-        ...operation,
-        materialize: async () => {
-          throw new Error('Unissued legacy marker must not start an install.');
-        },
-        pollIntervalMs: 10
-      }, tempRoot)).rejects.toMatchObject({
-        code: 'RUNTIME-DEPS-004',
-        details: { migrationRequired: true }
+      })}\n`, async (removeLock) => {
+        await withInjectedFile(reclaimPath, '123e4567-e89b-42d3-a456-426614174000\n', async (removeReclaim) => {
+          const expired = new Date('2026-01-01T00:00:00.000Z');
+          await fs.utimes(reclaimPath, expired, expired);
+          await expect(ensureCompilerDepsReady({
+            ...operation,
+            materialize: async () => {
+              throw new Error('Unissued legacy marker must not start an install.');
+            },
+            pollIntervalMs: 10
+          }, tempRoot)).rejects.toMatchObject({
+            code: 'RUNTIME-DEPS-004',
+            details: { migrationRequired: true }
+          });
+          expect((await readJson<{ token: string }>(lockPath)).token).toBe('dead-legacy-owner');
+          expect(await fs.readFile(reclaimPath, 'utf8')).toBe('123e4567-e89b-42d3-a456-426614174000\n');
+          await removeReclaim();
+          await removeLock();
+          expect((await ensureCompilerDepsReady({
+            ...operation,
+            materialize: async (_args, command) => {
+              await installCompilerDependencyFixture(command.cwd, 'recovered-after-explicit-legacy-settlement');
+              return { code: 0, stdout: 'ok', stderr: '' };
+            }
+          }, tempRoot)).source).toBe('installed');
+        });
       });
-      expect((await readJson<{ token: string }>(lockPath)).token).toBe('dead-legacy-owner');
-      expect(await fs.readFile(reclaimPath, 'utf8')).toBe('123e4567-e89b-42d3-a456-426614174000\n');
-      await fs.rm(reclaimPath);
-      await fs.rm(lockPath);
-      expect((await ensureCompilerDepsReady({
-        ...operation,
-        materialize: async (_args, command) => {
-          await installCompilerDependencyFixture(command.cwd, 'recovered-after-explicit-legacy-settlement');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        }
-      }, tempRoot)).source).toBe('installed');
     }));
   });
