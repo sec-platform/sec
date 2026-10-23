@@ -87,7 +87,15 @@ test('presentation distinguishes marker-named and truncated colliding data keys'
 
 test('error codes read once, reject nonstrings, and do not throw through the projection', () => {
   let reads = 0;
-  assert.equal(getErrorCode({ get code() { reads++; return 'E-CODE'; } }), 'E-CODE'); assert.equal(reads, 1);
+  const inherited = Object.create({ get code() { reads++; return 'E-CODE'; } });
+  assert.equal(getErrorCode(inherited), 'E-CODE'); assert.equal(reads, 1);
+  assert.equal(getErrorCode({}), undefined);
+  assert.equal(getErrorCode({ code: '' }), '');
+  const readable = new Proxy({}, {
+    has() { throw new Error('presence is not an error-code read'); },
+    get(_target, key) { return key === 'code' ? 'READABLE' : undefined; }
+  });
+  assert.equal(getErrorCode(readable), 'READABLE');
   let conversions = 0;
   const nonStringCode = { toString() { conversions++; throw new Error('must not run'); } };
   for (const code of [null, 0, nonStringCode, Symbol('code')]) assert.equal(getErrorCode({ code }), undefined);

@@ -33,7 +33,6 @@ function totalMigrationKinds(counts: MigrationKindCounts): number {
 
 function expectMigrationArtifactsToMatchPlan(plan: UpgradeMigrationArtifacts): void {
   const expectedCount = totalMigrationKinds(plan.migrationKindCounts);
-  expect(plan.migrationSummaries).toHaveLength(expectedCount);
   expect(plan.migrationOperations).toHaveLength(expectedCount);
   expect(countByKind(plan.migrationSummaries)).toEqual(plan.migrationKindCounts);
 

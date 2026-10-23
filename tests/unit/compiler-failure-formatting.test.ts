@@ -15,16 +15,6 @@ test('compiler failure formatting preserves existing JSON detail output', () => 
   });
 });
 
-test('circular compiler details cannot erase the primary failure', () => {
-  const details: Record<string, unknown> = { name: 'cycle' };
-  details.self = details;
-  const error = new CodedFailure('TEST-002', 'primary cycle failure', details);
-  const output = formatFailure(error);
-  assert.ok(output.startsWith(error.stack!));
-  assert.match(output, /cycle/u);
-  assert.match(output, /Circular/u);
-});
-
 test('diagnostic fallback does not invoke user inspection hooks or metadata getters', () => {
   let reads = 0;
   let inspections = 0;

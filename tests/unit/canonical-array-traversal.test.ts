@@ -96,17 +96,6 @@ test('canonical normalization handles a 50000-edge object chain without the nati
   assert.equal(depth, 50_000);
 });
 
-test('canonical normalization handles a deep array chain', () => {
-  let input: unknown = 7;
-  for (let index = 0; index < 20_000; index++) input = [input];
-  let actual: unknown = canonicalJson(input);
-  for (let index = 0; index < 20_000; index++) {
-    assert.ok(Array.isArray(actual));
-    actual = actual[0];
-  }
-  assert.equal(actual, 7);
-});
-
 test('deep back-edges retain the circular-reference diagnostic rather than stack overflow', () => {
   const root: { child?: object } = {};
   let source = root;

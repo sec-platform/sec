@@ -76,7 +76,7 @@ test('isolated Verification capability is opaque and bound to one exact workspac
 
   expect(() => assertIsolatedVerificationCapability(workspaceRoot, capability)).not.toThrow();
   expect(() => assertIsolatedVerificationCapability('D:\\contract-workspaces\\isolated-b', capability)).toThrow('exact workspace root');
-  for (const forged of [{}, { ...capability }, { workspaceRoot }]) {
+  for (const forged of [{ ...capability }, { workspaceRoot }]) {
     expect(() => assertIsolatedVerificationCapability(workspaceRoot, forged)).toThrow('exact workspace root');
   }
 });

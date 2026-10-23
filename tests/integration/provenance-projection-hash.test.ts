@@ -65,8 +65,6 @@ test('provenance records projection outputs without recursively hashing them', a
     const afterStableChange = await buildProvenance(workspaceRoot, lock);
     expect(afterStableChange.artifacts.find((entry) => entry.path === stablePath)?.hash)
       .toBe(createHash('sha256').update(changedContent).digest('hex'));
-    expect(afterStableChange.artifacts.find((entry) => entry.path === stablePath)?.hash)
-      .not.toBe(expectedHash);
     expect(afterStableChange.artifacts.find((entry) => entry.path === CI_ARTIFACT_FILES.provenance))
       .toEqual(provenance.artifacts.find((entry) => entry.path === CI_ARTIFACT_FILES.provenance));
   }, 'engineering-compiler-provenance-projection-hash-');

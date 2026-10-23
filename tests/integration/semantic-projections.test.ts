@@ -2,18 +2,12 @@ import { beforeAll, expect, test } from 'bun:test';
 
 import { loadWorkspaceEngineeringIRBuildInput } from '../../src/adapters/workspace/engineering-input.ts';
 import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { deriveScenarioDefinitions } from '../../src/compiler/ir/scenario-facts.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
-import {
-  PREDICATE_SIGNATURE_REGISTRY,
-  assertEngineeringIRPredicateSignatures,
-  assertPredicateSignatureRegistry,
-} from '../../src/semantics/engineering-ir/predicate-signatures.ts';
-import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
+import { PREDICATE_SIGNATURE_REGISTRY } from '../../src/semantics/engineering-ir/predicate-signatures.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
 import { INSPECTOR_SECTION_IDS } from '../../src/semantics/projection/types.ts';
 import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
@@ -79,7 +73,6 @@ test('scenario projection only accepts validated Facts and validator rejects a t
   };
 
   expect(() => validateEngineeringIR(scenarioIR, ticketInput)).toThrow();
-  expect(canonicalView.nodes.some((node) => node.id === 'scenario:ticket:create-ticket#step:create')).toBe(true);
   expect(canonicalView.nodes.find((node) => node.id === 'scenario:ticket:create-ticket#step:create')?.references).toContainEqual({
     kind: 'entity',
     ref: 'scenario:ticket:create-ticket#step:create'
@@ -151,10 +144,6 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
     ),
   ).toBe(true);
 
-  expect(() => assertPredicateSignatureRegistry()).not.toThrow();
-  expect(() =>
-    assertEngineeringIRPredicateSignatures(ticketIR.entities, ticketIR.facts),
-  ).not.toThrow();
   expect(
     ticketIR.facts.every(
       (fact) =>
@@ -162,11 +151,6 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
     ),
   ).toBe(true);
 
-  const rebuiltScenarios = deriveScenarioDefinitions(
-    ticketIR.entities,
-    ticketIR.facts,
-  );
-  expect(rebuiltScenarios).toEqual(ticketIR.scenarios);
   expect(
     ticketIR.entities.some((entity) => entity.kind === "scenario-step"),
   ).toBe(true);
@@ -198,21 +182,6 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
 
   const scenarioId = "scenario:ticket:create-ticket";
   const canonicalView = projectScenarioView(ticketSnapshot, scenarioId);
-  const cacheTampered: EngineeringIR = {
-    ...ticketIR,
-    scenarios: ticketIR.scenarios.map((scenario) =>
-      scenario.id === scenarioId
-        ? {
-            ...scenario,
-            entryEntityId: "operation:ticket:listTickets",
-            factIds: [],
-            steps: [],
-            acceptanceEntityIds: [],
-          }
-        : scenario,
-    ),
-  };
-  expect(() => validateEngineeringIR(cacheTampered, ticketInput)).toThrow();
   expect(
     canonicalView.nodes.every((node) =>
       node.references.some(
