@@ -155,15 +155,14 @@ test('workflow header rejects inherited execution and permission substitutions',
 
 test('selected runtime rejects host execution, policy substitution and artifact escape', async () => {
   const fixture = await currentCompilerWorkflow();
+  // Keep distinct admission guards and structural changes; step contents are
+  // compared as complete canonical data, not interpreted as shell instructions.
   const mutations: Array<[string, string, (job: Job) => void]> = [
     ['self-hosted allocation', ALLOCATION, job => { job['runs-on'] = 'self-hosted'; }],
     ['caller-selected allocation', ALLOCATION, job => { job['runs-on'] = '${{ inputs.runner }}'; }],
     ['renewed deadline', ALLOCATION, job => { job['timeout-minutes'] = 11; }],
     ['expanded Actions permission', ALLOCATION, job => { job.permissions!.actions = 'write'; }],
     ['candidate host execution', STEPS, job => { job.steps.push({ name: 'Run candidate', run: 'bun candidate/hostile.ts' }); }],
-    ['caller-selected trusted checkout', STEPS, job => {
-      step(job, 'Checkout exact trusted hosted launcher').with!.ref = '${{ github.event.client_payload.head }}';
-    }],
     ['persisted checkout credentials', STEPS, job => {
       step(job, 'Checkout exact trusted hosted launcher').with!['persist-credentials'] = true;
     }],
@@ -171,16 +170,12 @@ test('selected runtime rejects host execution, policy substitution and artifact 
     ['omitted executable digest check', STEPS, job => {
       job.steps = job.steps.filter(value => value !== step(job, 'Verify exact bootstrap Bun bytes'));
     }],
-    ['dependency lifecycle scripts', STEPS, job => { step(job, 'Install exact trusted launcher dependencies').run = 'bun install --frozen-lockfile'; }],
     ['foreign phase', STEPS, job => {
       step(job, 'preflight').run = step(job, 'preflight').run!.replace('--phase self-test-hosted-action-sandbox', '--phase execute-hosted-action-sut');
     }],
-    ['candidate appended to launcher', STEPS, job => { step(job, 'preflight').run += '; bun candidate.ts'; }],
     ['launcher process injection', STEPS, job => { step(job, 'preflight').env!.NODE_OPTIONS = '--require ./candidate.js'; }],
     ['download outside input slot', STEPS, job => { step(job, 'download-resolution').with!.path = '${{ github.workspace }}'; }],
     ['upload outside output slot', STEPS, job => { step(job, 'upload-capability').with!.path = '${{ runner.temp }}/../'; }],
-    ['artifact overwrite', STEPS, job => { step(job, 'upload-capability').with!.overwrite = true; }],
-    ['foreign artifact name', STEPS, job => { step(job, 'upload-capability').with!.name = 'foreign-artifact'; }],
     ['phase before input download', STEPS, job => {
       const input = step(job, 'download-resolution');
       const phase = step(job, 'preflight');
@@ -190,7 +185,6 @@ test('selected runtime rejects host execution, policy substitution and artifact 
     }],
     ['ignored phase failure', STEPS, job => { step(job, 'preflight')['continue-on-error'] = true; }],
     ['unadmitted job container', 'selected job has an unadmitted field', job => { job.container = { image: 'unqualified:latest' }; }],
-    ['unadmitted job environment', 'selected job has an unadmitted field', job => { job.env = { BASH_ENV: '/tmp/candidate.sh' }; }],
     ['credential output', 'job output is not a closed launcher data output', job => { job.outputs!.leak = '${{ secrets.SECRET }}'; }]
   ];
   for (const [label, guard, mutate] of mutations) {

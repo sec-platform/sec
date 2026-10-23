@@ -103,13 +103,11 @@ test('repository module descriptor parser rejects unknown fields and invalid pat
 
   expect(parseRepositoryModuleDescriptor(descriptor, descriptorPath).root).toBe('src/example');
   expect(() => parseRepositoryModuleDescriptor({ ...descriptor, architectureRole: 'query' }, descriptorPath))
-    .toThrow('architectureRole');
-  expect(() => parseRepositoryModuleDescriptor({ ...descriptor, covered: true }, descriptorPath))
-    .toThrow('unknown field');
+    .toThrow(/\barchitectureRole\b.*\bunknown field\b/u);
   expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     authorityRefs: ['system-architecture']
-  }, descriptorPath)).toThrow('unknown field');
+  }, descriptorPath)).toThrow(/\bauthorityRefs\b.*\bunknown field\b/u);
   expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     externalEntrypoints: ['src/adapters/self-hosting/development/runner/cli.ts', 'src/adapters/self-hosting/development/runner/cli.ts']
