@@ -18,8 +18,10 @@ import {
 } from '../../../src/adapters/mutation/windows-file-attributes.ts';
 import { semanticMutationByteDigest, SemanticMutationContractError, sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
 import { assertSemanticMutationRollbackManifestInvariant } from '../../../src/compiler/semantic-mutation/source-edit-artifact.ts';
+import { getErrorCode } from '../../../src/contracts/failure-inspection.ts';
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan, type SemanticMutationWindowsFileAttributes } from '../../../src/semantics/mutation/types.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const ALL_WINDOWS_ATTRIBUTES: SemanticMutationWindowsFileAttributes = Object.freeze({
   readOnly: true,
@@ -247,7 +249,7 @@ test('Windows attributes survive atomic publish and rollback with exact source r
       return;
     }
 
-    try {
+    await settleWorkspaceCallback(async () => {
       await applySemanticMutationWindowsFileAttributes(targetPath, ALL_WINDOWS_ATTRIBUTES);
       const capturedAttributes = await readSemanticMutationWindowsFileAttributes(targetPath);
       expect(capturedAttributes).toEqual(ALL_WINDOWS_ATTRIBUTES);
@@ -311,11 +313,15 @@ test('Windows attributes survive atomic publish and rollback with exact source r
       expect(semanticMutationByteDigest(restored.bytes)).toBe(manifest.beforeByteDigest);
       expect(restored.windowsFileAttributes).toEqual(ALL_WINDOWS_ATTRIBUTES);
       expect(await readSemanticMutationWindowsFileAttributes(targetPath)).toEqual(ALL_WINDOWS_ATTRIBUTES);
-    } finally {
-      const exists = await fs.access(targetPath).then(() => true).catch(() => false);
-      if (exists) {
-        await applySemanticMutationWindowsFileAttributes(targetPath, CLEARED_WINDOWS_ATTRIBUTES);
+    }, async () => {
+      try {
+        const target = await fs.lstat(targetPath);
+        if (!target.isFile()) throw new Error('Windows rollback cleanup target is not an ordinary file');
+      } catch (error) {
+        if (getErrorCode(error) === 'ENOENT') return;
+        throw error;
       }
-    }
+      await applySemanticMutationWindowsFileAttributes(targetPath, CLEARED_WINDOWS_ATTRIBUTES);
+    });
   }, 'engineering-compiler-semantic-mutation-windows-rollback-');
 }, 120000);

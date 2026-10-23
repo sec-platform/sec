@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { renderTemplateString } from '../../../src/compiler/templates/render-template-string.ts';
+import { renderTemplateString, TEMPLATE_MAX_INPUT_BYTES } from '../../../src/compiler/templates/render-template-string.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
 const code = (expected: string, details?: Record<string, unknown>) => (error: unknown): boolean => {
@@ -73,6 +73,8 @@ test('interpolation uses literal keys and literal replacement bytes', () => {
   }), code('COMPOSE-TEMPLATE-007', { key: 'value', valueType: 'number' }));
 });
 
+// Boundary fixtures for the current renderer resource profile, not a permanent
+// size/compatibility promise or evidence that this budget is optimal.
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 test('template output accumulates substitutions up to its exact byte limit', () => {
@@ -121,7 +123,7 @@ test('template inactive branches do not interpolate missing values', () => {
 });
 
 test('template input bound and context primitive validation remain fail-closed', () => {
-  assert.throws(() => renderTemplateString('x'.repeat(1024 * 1024 + 1), {}), code('COMPOSE-TEMPLATE-006'));
+  assert.throws(() => renderTemplateString('x'.repeat(TEMPLATE_MAX_INPUT_BYTES + 1), {}), code('COMPOSE-TEMPLATE-006'));
   for (const value of [null, {}, [], Infinity, undefined, () => 'x']) {
     assert.throws(() => renderTemplateString('__VALUE__', { VALUE: value }), code('COMPOSE-TEMPLATE-007'));
   }

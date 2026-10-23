@@ -229,7 +229,7 @@ test('raw validator checks bounded evidence identities without letting JSON hook
     ref: 'case',
     get digest() { getterCalls++; throw Error('must not execute'); }
   }] as never;
-  expectCodedFailure(() => validateEngineeringIR(dangerous, source), 'IR-VALIDATION-008');
+  expectCodedFailure(() => validateEngineeringIR(dangerous, source), 'IR-VALIDATION-005');
   expect(getterCalls).toBe(0);
 });
 

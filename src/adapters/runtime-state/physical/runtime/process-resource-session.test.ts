@@ -19,7 +19,7 @@ import {
   type OperationDigest,
   type OperationEffectKind
 } from '../../../../execution/operation/semantic.ts';
-import { ResourceCompositeSettlementError, settleResources } from '../../../../execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError, settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import {
   issueIndependentProviderProcessCapability
 } from './independent-provider-process.ts';
@@ -898,27 +898,45 @@ test('bound archive commands preserve original issuer, captured data and single-
   const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
   const issuer = createProcessResourceCommandIssuer();
   const foreign = createProcessResourceCommandIssuer();
-  const binding = bindProcessResourceCommandIssuer(session, issuer.identity);
-  const retained = retainTestBoundary();
-  const argv = ['--no-env-file', '--eval', 'process.stdout.write(process.env.RECIPE_VALUE ?? "missing")'];
-  const env = { RECIPE_VALUE: 'original' };
-  const input = { boundary: retained.boundary, args: argv,
-    options: { env, envMode: 'replace' as const, maxStdoutBytes: 16, maxStderrBytes: 0 } };
-  expect(() => foreign.issue(binding, input)).toThrow('original live issuer');
-  expect(() => issuer.issue({ ...binding }, input)).toThrow('original live issuer');
-  const command = issuer.issue(binding, input);
-  argv[2] = 'process.stdout.write("changed")';
-  env.RECIPE_VALUE = 'changed';
-  expect(() => session.close()).toThrow('outstanding bound-command');
-  await expect(runBoundProcessResourceCommand(session, binding, { ...command })).rejects.toThrow('original member');
-  const result = await runBoundProcessResourceCommand(session, binding, command);
-  expect(Buffer.from(result.result.stdout).toString('utf8')).toBe('original');
-  expect(session.processCount).toBe(1);
-  await expect(runBoundProcessResourceCommand(session, binding, command)).rejects.toThrow('already used');
-  expect(() => retained.boundary.workingDirectory.assertCurrent()).toThrow();
-  const receipt = session.close();
-  assertProcessResourceSessionReceipt(receipt);
-  expect(receipt.processCount).toBe(1);
+  let binding: ReturnType<typeof bindProcessResourceCommandIssuer> | undefined;
+  let retained: ReturnType<typeof retainTestBoundary> | undefined;
+  let transferred = false;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+    const inputBoundary = retained = retainTestBoundary();
+    const argv = ['--no-env-file', '--eval', 'process.stdout.write(process.env.RECIPE_VALUE ?? "missing")'];
+    const env = { RECIPE_VALUE: 'original' };
+    const input = { boundary: inputBoundary.boundary, args: argv,
+      options: { env, envMode: 'replace' as const, maxStdoutBytes: 16, maxStderrBytes: 0 } };
+    expect(() => { foreign.issue(binding!, input); transferred = true; }).toThrow('original live issuer');
+    expect(() => { issuer.issue({ ...binding! }, input); transferred = true; }).toThrow('original live issuer');
+    const command = issuer.issue(binding, input);
+    transferred = true;
+    argv[2] = 'process.stdout.write("changed")';
+    env.RECIPE_VALUE = 'changed';
+    expect(() => session.close()).toThrow('outstanding bound-command');
+    await expect(runBoundProcessResourceCommand(session, binding, { ...command })).rejects.toThrow('original member');
+    const result = await runBoundProcessResourceCommand(session, binding, command);
+    expect(Buffer.from(result.result.stdout).toString('utf8')).toBe('original');
+    expect(session.processCount).toBe(1);
+    await expect(runBoundProcessResourceCommand(session, binding, command)).rejects.toThrow('already used');
+    expect(() => inputBoundary.boundary.workingDirectory.assertCurrent()).toThrow();
+    const receipt = session.close();
+    assertProcessResourceSessionReceipt(receipt);
+    expect(receipt.processCount).toBe(1);
+  } catch (error) {
+    primary = { label: 'bound archive command assertions', error };
+  }
+  // Every run above is joined. Prepared commands remain owner-releasable;
+  // issued running/released/cleanup-unknown inputs are never caller-disposed.
+  settleResources({ primary, cleanup: [
+    { label: 'prepared archive commands', settle: () => {
+      if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
+    } },
+    { label: 'untransferred archive input', settle: () => { if (!transferred) retained?.dispose(); } },
+    { label: 'archive command session', settle: () => { session.close(); } }
+  ] });
 });
 
 test('unstarted archive commands release only their binding and never renew the process ceiling', () => {
@@ -928,20 +946,36 @@ test('unstarted archive commands release only their binding and never renew the 
   ] });
   const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
   const issuer = createProcessResourceCommandIssuer(), foreign = createProcessResourceCommandIssuer();
-  const binding = bindProcessResourceCommandIssuer(session, issuer.identity);
-  const other = bindProcessResourceCommandIssuer(session, foreign.identity);
-  const retained = retainTestBoundary();
-  issuer.issue(binding, { boundary: retained.boundary, args: ['--version'],
-    options: { env: {}, envMode: 'replace', maxStdoutBytes: 8, maxStderrBytes: 0 } });
-  releasePreparedProcessResourceCommands(session, other);
-  expect(() => session.close()).toThrow('outstanding bound-command');
-  expect(() => retained.boundary.workingDirectory.assertCurrent()).not.toThrow();
-  expect(() => issuer.issue(binding, { boundary: retained.boundary, args: ['--version'],
-    options: { env: {}, envMode: 'replace', maxStdoutBytes: 8, maxStderrBytes: 0 } })).toThrow('process ceiling');
-  releasePreparedProcessResourceCommands(session, binding);
-  expect(() => retained.boundary.workingDirectory.assertCurrent()).toThrow();
-  expect(session.processCount).toBe(0);
-  assertProcessResourceSessionReceipt(session.close());
+  let binding: ReturnType<typeof bindProcessResourceCommandIssuer> | undefined;
+  let retained: ReturnType<typeof retainTestBoundary> | undefined;
+  let transferred = false;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+    const other = bindProcessResourceCommandIssuer(session, foreign.identity);
+    const inputBoundary = retained = retainTestBoundary();
+    issuer.issue(binding, { boundary: inputBoundary.boundary, args: ['--version'],
+      options: { env: {}, envMode: 'replace', maxStdoutBytes: 8, maxStderrBytes: 0 } });
+    transferred = true;
+    releasePreparedProcessResourceCommands(session, other);
+    expect(() => session.close()).toThrow('outstanding bound-command');
+    expect(() => inputBoundary.boundary.workingDirectory.assertCurrent()).not.toThrow();
+    expect(() => issuer.issue(binding!, { boundary: inputBoundary.boundary, args: ['--version'],
+      options: { env: {}, envMode: 'replace', maxStdoutBytes: 8, maxStderrBytes: 0 } })).toThrow('process ceiling');
+    releasePreparedProcessResourceCommands(session, binding);
+    expect(() => inputBoundary.boundary.workingDirectory.assertCurrent()).toThrow();
+    expect(session.processCount).toBe(0);
+    assertProcessResourceSessionReceipt(session.close());
+  } catch (error) {
+    primary = { label: 'unstarted archive command assertions', error };
+  }
+  settleResources({ primary, cleanup: [
+    { label: 'prepared archive commands', settle: () => {
+      if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
+    } },
+    { label: 'untransferred archive input', settle: () => { if (!transferred) retained?.dispose(); } },
+    { label: 'archive command session', settle: () => { session.close(); } }
+  ] });
 });
 
 test('cancelled bound archive commands consume no later child and still release retained resources', async () => {
@@ -949,36 +983,70 @@ test('cancelled bound archive commands consume no later child and still release 
   const operation = boundOperation({ label: 'new-bound-cancellation' });
   const session = openProcessResourceSession({ operation, signal: controller.signal,
     requirementBindingContext: requirementBindingContext(operation) });
-  const issuer = createProcessResourceCommandIssuer(), binding = bindProcessResourceCommandIssuer(session, issuer.identity);
-  const retained = retainTestBoundary();
-  const command = issuer.issue(binding, { boundary: retained.boundary,
-    args: ['--no-env-file', '--eval', 'process.stdout.write("must-not-run")'],
-    options: { env: {}, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
-  controller.abort(new Error('original operation cancelled'));
-  await expect(runBoundProcessResourceCommand(session, binding, command)).rejects.toThrow('cancelled');
-  expect(session.processCount).toBe(0);
-  expect(() => retained.boundary.workingDirectory.assertCurrent()).toThrow();
-  assertProcessResourceSessionReceipt(session.close());
+  const issuer = createProcessResourceCommandIssuer();
+  let binding: ReturnType<typeof bindProcessResourceCommandIssuer> | undefined;
+  let retained: ReturnType<typeof retainTestBoundary> | undefined;
+  let transferred = false;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+    const inputBoundary = retained = retainTestBoundary();
+    const command = issuer.issue(binding, { boundary: inputBoundary.boundary,
+      args: ['--no-env-file', '--eval', 'process.stdout.write("must-not-run")'],
+      options: { env: {}, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
+    transferred = true;
+    controller.abort(new Error('original operation cancelled'));
+    await expect(runBoundProcessResourceCommand(session, binding, command)).rejects.toThrow('cancelled');
+    expect(session.processCount).toBe(0);
+    expect(() => inputBoundary.boundary.workingDirectory.assertCurrent()).toThrow();
+    assertProcessResourceSessionReceipt(session.close());
+  } catch (error) {
+    primary = { label: 'cancelled archive command assertions', error };
+  }
+  settleResources({ primary, cleanup: [
+    { label: 'prepared archive commands', settle: () => {
+      if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
+    } },
+    { label: 'untransferred archive input', settle: () => { if (!transferred) retained?.dispose(); } },
+    { label: 'archive command session', settle: () => { session.close(); } }
+  ] });
 });
 
 test('bound command admission rejects reentrant close before registering retained resources', () => {
   const operation = boundOperation({ label: 'new-bound-reentrant-close' });
   const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
-  const issuer = createProcessResourceCommandIssuer(), binding = bindProcessResourceCommandIssuer(session, issuer.identity);
-  const retained = retainTestBoundary();
+  const issuer = createProcessResourceCommandIssuer();
+  let binding: ReturnType<typeof bindProcessResourceCommandIssuer> | undefined;
+  let retained: ReturnType<typeof retainTestBoundary> | undefined;
+  let transferred = false;
+  let primary: ResourceSettlementFailure | undefined;
   let closed: ProcessResourceSessionReceipt | undefined;
   const env = new Proxy({}, { ownKeys() { closed = session.close(); return []; } });
   try {
-    expect(() => issuer.issue(binding, { boundary: retained.boundary, args: ['--version'],
-      options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } }))
+    binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+    const inputBoundary = retained = retainTestBoundary();
+    expect(() => {
+      issuer.issue(binding!, { boundary: inputBoundary.boundary, args: ['--version'],
+        options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
+      transferred = true;
+    })
       .toThrow('original live issuer');
     expect(closed).toBeDefined();
     if (closed === undefined) throw new Error('Reentrant close did not return its original receipt.');
     expect(session.close()).toBe(closed);
     expect(session.processCount).toBe(0);
     // Failed preparation never transfers this retained input to a command.
-    expect(() => retained.boundary.workingDirectory.assertCurrent()).not.toThrow();
-  } finally { retained.dispose(); }
+    expect(() => inputBoundary.boundary.workingDirectory.assertCurrent()).not.toThrow();
+  } catch (error) {
+    primary = { label: 'reentrant close assertions', error };
+  }
+  settleResources({ primary, cleanup: [
+    { label: 'prepared archive commands', settle: () => {
+      if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
+    } },
+    { label: 'untransferred archive input', settle: () => { if (!transferred) retained?.dispose(); } },
+    { label: 'archive command session', settle: () => { session.close(); } }
+  ] });
 });
 
 test('bound command admission rechecks preparation capacity after reentrant issue', () => {
@@ -987,26 +1055,43 @@ test('bound command admission rechecks preparation capacity after reentrant issu
     { resource: 'output-bytes', maximum: 16 }, { resource: 'processes', maximum: 1 }
   ] });
   const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
-  const issuer = createProcessResourceCommandIssuer(), binding = bindProcessResourceCommandIssuer(session, issuer.identity);
-  const outer = retainTestBoundary(), inner = retainTestBoundary();
+  const issuer = createProcessResourceCommandIssuer();
+  let binding: ReturnType<typeof bindProcessResourceCommandIssuer> | undefined;
+  let outer: ReturnType<typeof retainTestBoundary> | undefined;
+  let inner: ReturnType<typeof retainTestBoundary> | undefined;
+  let outerIssued = false;
   let innerIssued = false;
-  const env = new Proxy({}, { ownKeys() {
-    issuer.issue(binding, { boundary: inner.boundary, args: ['--version'],
-      options: { env: {}, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
-    innerIssued = true;
-    return [];
-  } });
+  let primary: ResourceSettlementFailure | undefined;
   try {
-    expect(() => issuer.issue(binding, { boundary: outer.boundary, args: ['--version'],
-      options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } })).toThrow('process ceiling');
+    binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+    const outerInput = outer = retainTestBoundary();
+    const innerInput = inner = retainTestBoundary();
+    const env = new Proxy({}, { ownKeys() {
+      issuer.issue(binding!, { boundary: innerInput.boundary, args: ['--version'],
+        options: { env: {}, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
+      innerIssued = true;
+      return [];
+    } });
+    expect(() => {
+      issuer.issue(binding!, { boundary: outerInput.boundary, args: ['--version'],
+        options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
+      outerIssued = true;
+    }).toThrow('process ceiling');
     expect(innerIssued).toBe(true);
     expect(() => session.close()).toThrow('outstanding bound-command');
     releasePreparedProcessResourceCommands(session, binding);
-    expect(() => inner.boundary.workingDirectory.assertCurrent()).toThrow();
+    expect(() => innerInput.boundary.workingDirectory.assertCurrent()).toThrow();
     expect(session.processCount).toBe(0);
     assertProcessResourceSessionReceipt(session.close());
-  } finally {
-    outer.dispose();
-    if (!innerIssued) inner.dispose();
+  } catch (error) {
+    primary = { label: 'reentrant issue assertions', error };
   }
+  settleResources({ primary, cleanup: [
+    { label: 'prepared archive commands', settle: () => {
+      if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
+    } },
+    { label: 'untransferred inner input', settle: () => { if (!innerIssued) inner?.dispose(); } },
+    { label: 'untransferred outer input', settle: () => { if (!outerIssued) outer?.dispose(); } },
+    { label: 'archive command session', settle: () => { session.close(); } }
+  ] });
 });

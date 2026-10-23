@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { addFact, type FactInput } from '../../../src/compiler/ir/ir-fact-store.ts';
-import { normalizeEvidence, normalizeProvenance } from '../../../src/compiler/ir/ir-normalization.ts';
 import { digest, semanticRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../../src/compiler/projection/project-architecture-view.ts';
@@ -231,28 +230,42 @@ test('fact assertion rejects missing provenance and out-of-range confidence', ()
 });
 
 
-test('provenance key collisions fail before a Fact loses either source', () => {
+test('distinct provenance tuples survive fact construction without choosing an ambiguous wire order', () => {
   const pairs: FactProvenance[][] = [
-    [{ kind: 'compiler', sourceId: 'a\0b', sourcePath: 'c' }, { kind: 'compiler', sourceId: 'a', sourcePath: 'b\0c' }],
-    [{ kind: 'compiler', sourceId: 'a' }, { kind: 'compiler', sourceId: 'a', sourcePath: '' }],
-    [{ kind: 'compiler', sourceId: 'a', revision: 'r' }, { revision: 'r', sourceId: 'a', kind: 'compiler' }]
+    [{ kind: 'compiler', sourceId: 'a', sourcePath: 'b\0c' }, { kind: 'compiler', sourceId: 'a\0b', sourcePath: 'c' }],
+    [{ kind: 'compiler', sourceId: 'a' }, { kind: 'compiler', sourceId: 'a', sourcePath: '' }]
   ];
   for (const pair of pairs) for (const provenance of [pair, [...pair].reverse()]) {
+    const facts = new Map<string, SemanticFact>();
+    const id = addFact(facts, factInput({ provenance }));
+    expect(facts.get(id)!.assertions[0]!.provenance).toEqual(pair);
+  }
+  const first: FactProvenance = { kind: 'compiler', sourceId: 'a', revision: 'r' };
+  const reordered: FactProvenance = { revision: 'r', sourceId: 'a', kind: 'compiler' };
+  for (const provenance of [[first, reordered], [reordered, first]]) {
     const facts = new Map<string, SemanticFact>();
     expect(() => addFact(facts, factInput({ provenance }))).toThrow(expect.objectContaining({ code: 'CANONICAL-KEY-CONFLICT' }));
     expect(facts.size).toBe(0);
   }
 });
 
-test('conflicting evidence cannot replace an existing assertion during a merge', () => {
-  const competing = [{ kind: 'test', ref: 'a', competing: 'first' }, { kind: 'test', ref: 'a', competing: 'second' }];
-  const pairs: EvidenceReference[][] = [
-    [{ kind: 'test', ref: 'a\0b', digest: 'c' }, { kind: 'test', ref: 'a', digest: 'b\0c' }],
-    [{ kind: 'test', ref: 'a' }, { kind: 'test', ref: 'a', digest: '' }],
-    [{ kind: 'test', ref: 'a', digest: 'd' }, { digest: 'd', ref: 'a', kind: 'test' }],
-    competing
+test('evidence merge retains distinct references and rejects ambiguous wire order without replacing the assertion', () => {
+  const digest = `sha256:${'a'.repeat(64)}`;
+  const distinct: EvidenceReference[][] = [
+    [{ kind: 'test', ref: 'a' }, { kind: 'test', ref: 'a', digest }],
+    [{ kind: 'test', ref: 'a', digest }, { kind: 'test', ref: 'b', digest }]
   ];
-  for (const pair of pairs) for (const [first, second] of [pair, [...pair].reverse()]) {
+  for (const pair of distinct) for (const [first, second] of [pair, [...pair].reverse()]) {
+    const facts = new Map<string, SemanticFact>();
+    const id = addFact(facts, factInput({ evidence: [first!] }));
+    expect(addFact(facts, factInput({ evidence: [second!] }))).toBe(id);
+    expect(facts.get(id)!.assertions).toHaveLength(1);
+    expect(facts.get(id)!.assertions[0]!.evidence).toEqual(pair);
+  }
+  const conflicting: EvidenceReference[][] = [
+    [{ kind: 'test', ref: 'a', digest }, { digest, ref: 'a', kind: 'test' }]
+  ];
+  for (const pair of conflicting) for (const [first, second] of [pair, [...pair].reverse()]) {
     const facts = new Map<string, SemanticFact>();
     const id = addFact(facts, factInput({ evidence: [first!] }));
     const before = structuredClone(facts.get(id));
@@ -261,47 +274,32 @@ test('conflicting evidence cannot replace an existing assertion during a merge',
   }
 });
 
-test('metadata deduplication preserves legacy wire identities and optional undefined fields', () => {
-  const first: FactProvenance = { revision: undefined, sourceId: 'owner', kind: 'compiler' };
-  const last: FactProvenance = { sourceId: 'owner', kind: 'compiler' };
-  const normalized = normalizeProvenance([first, { ...first }, last]);
-  expect(normalized).toHaveLength(1);
+test('fact construction preserves the legacy assertion wire identity when optional fields are absent', () => {
+  const provenance: FactProvenance = { sourceId: 'owner', kind: 'compiler' };
+  const evidence: EvidenceReference = { kind: 'test', ref: 'case' };
   const facts = new Map<string, SemanticFact>();
-  const id = addFact(facts, factInput({ provenance: [first, last] }));
+  const id = addFact(facts, factInput({ provenance: [provenance, { ...provenance }], evidence: [evidence, { ...evidence }] }));
   const wire = '[{"sourceId":"owner","kind":"compiler"}]';
   const expected = createHash('sha256').update(`${id}\0authoritative\0${wire}`).digest('hex').slice(0, 24);
-  expect(facts.get(id)!.assertions[0]!.id).toBe(`assertion:${expected}`);
-  expect(JSON.stringify(normalized)).toBe(wire);
-  const evidence: EvidenceReference = { digest: undefined, kind: 'test', ref: 'case' };
-  expect(normalizeEvidence([evidence, { ...evidence }])).toEqual([evidence]);
-  expect(normalizeEvidence([{ kind: 'test', ref: 'b' }, { kind: 'test', ref: 'a' }]).map(e => e.ref)).toEqual(['a', 'b']);
+  const assertion = facts.get(id)!.assertions[0]!;
+  expect(assertion.id).toBe(`assertion:${expected}`);
+  expect(JSON.stringify(assertion.provenance)).toBe(wire);
+  expect(assertion.evidence).toEqual([{ kind: 'test', ref: 'case' }]);
 });
 
-test('stable metadata duplicates preserve non-enumerable, symbol and JSON extension data', () => {
-  for (const digest of [undefined, 'd']) {
-    const first: EvidenceReference = { kind: 'test', ref: 'case' };
-    const last: EvidenceReference = { kind: 'test', ref: 'case' };
-    for (const value of [first, last]) Object.defineProperty(value, 'digest', { value: digest, enumerable: false });
-    expect(normalizeEvidence([first, first])[0]).toBe(first);
-    expect(normalizeEvidence([first, last])[0]).toBe(last);
-  }
-  const first = { kind: 'test', ref: 'case', extra: { count: 1, enabled: true, values: [null, 2] } };
-  const last = { ...first, extra: structuredClone(first.extra), [Symbol('not-wire')]: 'ignored' };
-  let reads = 0;
-  Object.defineProperty(last, 'notWire', { get() { reads++; return 'ignored'; }, enumerable: false });
-  expect(normalizeEvidence([first, last])[0]).toBe(last);
-  expect(reads).toBe(0);
-});
-
-test('non-enumerable metadata key fields still reject tuple collisions with equal JSON wire', () => {
-  const first: EvidenceReference = { kind: 'test', ref: 'a\0b', digest: 'c' };
-  const second: EvidenceReference = { kind: 'test', ref: 'a', digest: 'b\0c' };
+test('equal JSON wire cannot hide non-enumerable evidence identities from raw IR validation', () => {
+  const first: EvidenceReference = { kind: 'test', ref: 'case-a', digest: `sha256:${'a'.repeat(64)}` };
+  const second: EvidenceReference = { kind: 'test', ref: 'case-b', digest: `sha256:${'b'.repeat(64)}` };
   for (const value of [first, second]) for (const key of ['ref', 'digest']) {
     Object.defineProperty(value, key, { enumerable: false });
   }
   expect(JSON.stringify(first)).toBe(JSON.stringify(second));
-  for (const pair of [[first, second], [second, first]]) {
-    expect(() => normalizeEvidence(pair)).toThrow(expect.objectContaining({ code: 'CANONICAL-KEY-CONFLICT' }));
+  const input = projectionInput();
+  const base = buildEngineeringIR(input);
+  for (const evidence of [[first, second], [second, first]]) {
+    const raw = structuredClone(base);
+    raw.facts[0]!.assertions[0]!.evidence = evidence;
+    expectCodedFailure(() => validateEngineeringIR(raw, input), 'IR-VALIDATION-008');
   }
 });
 

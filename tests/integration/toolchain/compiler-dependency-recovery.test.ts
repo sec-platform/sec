@@ -1,6 +1,7 @@
 import { createGeneratedStateRegistrationMutationBackend } from '../../../src/adapters/runtime-state/generated-state/registration-store.ts';
 import { compilerDependencyStoragePaths } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts';
 import { generatedStateDigest } from '../../../src/execution/generated-state/contract.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import {
   CodedFailure,
   EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS,
@@ -345,7 +346,7 @@ describe('compiler dependency installation', () => {
         sourcePath: ready.sourceGeneration!.sourcePath
       });
       const legacyFixture = await fs.mkdtemp(path.join(tmpdir(), 'sec-legacy-projection-'));
-      try {
+      await settleWorkspaceCallback(async () => {
         const sharedRoot = path.join(legacyFixture, '.shared-deps');
         const stageRoot = path.join(sharedRoot, '.runtime-generation-abc123');
         const stagePath = path.join(stageRoot, 'node_modules');
@@ -376,19 +377,22 @@ describe('compiler dependency installation', () => {
         const recordPath = path.join(dependencyTransitionNamespacePaths(root).recordsRoot,
           transitionRecordName(blocked.recordDigest));
         const originalBytes = await fs.readFile(recordPath);
-        try {
-          await fs.writeFile(recordPath, Buffer.from(originalBytes.toString('utf8').replace('runtime-projection', 'untime-projection')));
-          await expect(ensureCompilerDepsReady(operation, root)).rejects.toBeDefined();
-        } finally {
-          await fs.writeFile(recordPath, originalBytes);
-        }
+        const tamperedBytes = Buffer.from(originalBytes.toString('utf8').replace('runtime-projection', 'untime-projection'));
+        await settleWorkspaceCallback(async () => {
+          await fs.writeFile(recordPath, tamperedBytes);
+          // The malformed kind fails ledger admission before recovery can
+          // wrap a physical-residue failure in IMPORT-AUTHORITY-004.
+          await expect(ensureCompilerDepsReady(operation, root)).rejects.toMatchObject({
+            code: 'RUNTIME-DEPS-002',
+            message: expect.stringContaining('journal record fields are invalid')
+          });
+          expect(await fs.readFile(recordPath)).toEqual(tamperedBytes);
+        }, () => fs.writeFile(recordPath, originalBytes));
         const settled = await ensureCompilerDepsReady(operation, root);
         expect(settled.source).toBe('existing');
         expect((await readDependencyTransition(root, options))?.phase).toBe('rolled-back');
         await expect(fs.lstat(activePath)).rejects.toMatchObject({ code: 'ENOENT' });
-      } finally {
-        await fs.rm(legacyFixture, { recursive: true, force: true });
-      }
+      }, () => fs.rm(legacyFixture, { recursive: true, force: true }));
     }));
   effectfulTest(test, 'preserves an unknown physical worktree dependency directory instead of claiming it', {
     operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,

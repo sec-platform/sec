@@ -533,27 +533,43 @@ test('overlapping cyclic test inputs preserve exact reads, negative paths, and f
   }
 });
 
-test('repository unknown merge preserves predicate distinctions, order, and test-only multiplicity', async () => {
+test('repository unknown merge removes shared compiler copies but retains distinct source occurrences', async () => {
   const { compileRepositorySourceProgramModel } = await import('./repository.ts');
-  const sources = {
-    'src/value.ts': 'export const value = 1;\n',
-    'tests/opaque.test.ts': "import { unknownValue } from 'opaque-package'; export const observed = unknownValue;\n"
-  };
+  const testPath = 'tests/opaque.test.ts';
+  const source = [
+    "import { unknownValue } from 'opaque-package';",
+    "import { otherValue } from 'opaque-package';",
+    'export async function observed(target: string) {',
+    '  await import(target);',
+    '  await import(target);',
+    '  return [unknownValue, otherValue];',
+    '}',
+    ''
+  ].join('\n');
+  const sources = { 'src/value.ts': 'export const value = 1;\n', [testPath]: source };
   const files = Object.entries(sources).map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
   const moduleMembership = Object.freeze({ descriptors: Object.freeze([]), graphRoots: Object.freeze([]),
     moduleRoots: Object.freeze([]), moduleForPath: () => null });
   const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
   const typescriptModel = compileTypeScriptSourceProgramModel({ sourceRevision, files, moduleMembership });
-  const observations = compileSourceProgramTestObservations({ productionModel: typescriptModel, files, moduleMembership });
-  const existing = typescriptModel.unknowns.find(({ span }) => span !== null)!;
-  expect(existing).toBeDefined();
-  const sameOffsets = { ...existing, span: { ...existing.span!, startLine: 99, endLine: 100 } };
-  const extra = { ...existing, code: 'fixture-independent-unknown', span: null };
-  const differentEnd = { ...existing, span: { ...existing.span!, end: existing.span!.end + 1 } };
-  const differentDetail = { ...existing, detail: `${existing.detail}:independent` };
-  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership, typescriptModel,
-    testObservations: { ...observations, unknowns: [sameOffsets, extra, extra, differentEnd, differentDetail] } });
-  expect(model.unknowns.slice(0, typescriptModel.unknowns.length + 4)).toEqual([
-    ...typescriptModel.unknowns, differentEnd, differentDetail, extra, extra
-  ]);
+  const testObservations = compileSourceProgramTestObservations({ productionModel: typescriptModel, files, moduleMembership });
+  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership, typescriptModel, testObservations });
+  const occurrences = (code: string) => model.unknowns.filter(unknown => unknown.code === code)
+    .map(({ path, detail, span }) => ({ path, detail, start: span?.start, end: span?.end }))
+    .sort((left, right) => (left.start ?? -1) - (right.start ?? -1));
+  const firstImport = source.indexOf("'opaque-package'");
+  const secondImport = source.indexOf("'opaque-package'", firstImport + 1);
+  expect(occurrences('external-module-opaque')).toEqual([firstImport, secondImport].map(start => ({
+    path: testPath, detail: 'opaque-package', start, end: start + "'opaque-package'".length
+  })));
+  const firstDynamic = source.indexOf('import(target)');
+  const secondDynamic = source.indexOf('import(target)', firstDynamic + 1);
+  for (const [code, detail] of [
+    ['dynamic-module-unresolved', 'import(target)'],
+    ['test-dynamic-module-unresolved', 'dynamic import specifier is not a static string']
+  ] as const) {
+    expect(occurrences(code)).toEqual([firstDynamic, secondDynamic].map(start => ({
+      path: testPath, detail, start, end: start + 'import(target)'.length
+    })));
+  }
 });

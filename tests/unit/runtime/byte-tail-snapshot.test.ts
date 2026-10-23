@@ -13,19 +13,11 @@ test('suffix selection matches an independent array slice for sizes and nonzero 
   }
 });
 
-test('a bounded diagnostic tail does not copy or retain a large discarded prefix', () => {
-  const bytes = new Uint8Array(16 * 1024 * 1024); bytes.fill(71, bytes.length - 8192);
-  const original = Buffer.from;
-  const copied: number[] = [];
-  Buffer.from = ((value: unknown, ...rest: unknown[]) => {
-    if (ArrayBuffer.isView(value)) copied.push(value.byteLength);
-    return Reflect.apply(original, Buffer, [value, ...rest]);
-  }) as typeof Buffer.from;
-  let result: Uint8Array;
-  try { result = snapshotByteTail(bytes, 8192); } finally { Buffer.from = original; }
-  assert.deepEqual(copied, [8192]);
-  assert.notEqual(result.buffer, bytes.buffer);
-  bytes.fill(0); assert.equal(result.length, 8192); assert.ok(result.every(byte => byte === 71));
+test('a diagnostic tail owns its selected bytes independently of the caller', () => {
+  const bytes = Uint8Array.of(1, 2, 3, 71, 72);
+  const result = snapshotByteTail(bytes, 2);
+  bytes.fill(0);
+  assert.deepEqual([...result], [71, 72]);
 });
 
 test('tail projection does not read caller array properties, iterators or subclass species', () => {

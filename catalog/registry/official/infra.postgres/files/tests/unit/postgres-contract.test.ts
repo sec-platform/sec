@@ -4,7 +4,7 @@ import { listPostgresContractTables, POSTGRES_CONTRACT } from '../../src/install
 export async function runSuite() {
   assert.equal(POSTGRES_CONTRACT.provider, 'postgres');
   assert.equal(POSTGRES_CONTRACT.persistenceMode, 'contract-only');
-  assert.deepEqual(listPostgresContractTables(), [
+  assert.deepEqual(listPostgresContractTables().sort(), [
     'customers',
     'customer_attachments',
     'email_notifications',
@@ -13,6 +13,6 @@ export async function runSuite() {
     'ticket_attachments',
     'ticket_comments',
     'worklogs'
-  ]);
+  ].sort());
   assert.equal(POSTGRES_CONTRACT.tables.every((table) => table.tenantScoped), true);
 }

@@ -1072,6 +1072,26 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     } finally {
       closeSync(largeHandle);
     }
+    // Independent fixture oracle: hash the known prefix, sparse zero region,
+    // and suffix, without reading through either inventory/digest owner.
+    const contentHash = createHash('sha256').update('{"bytes":"');
+    const byteHash = createHash('sha256');
+    const start = Buffer.from('large-start');
+    const end = Buffer.from('large-end');
+    contentHash.update(start.toString('hex'));
+    byteHash.update(start);
+    const zeros = Buffer.alloc(1024 * 1024);
+    const zeroHex = zeros.toString('hex');
+    for (let remaining = largeSize - start.length - end.length; remaining > 0;) {
+      const size = Math.min(remaining, zeros.length);
+      contentHash.update(zeroHex.slice(0, size * 2));
+      byteHash.update(zeros.subarray(0, size));
+      remaining -= size;
+    }
+    contentHash.update(end.toString('hex')).update('"}');
+    byteHash.update(end);
+    const expectedContentDigest = `sha256:${contentHash.digest('hex')}`;
+    const expectedByteDigest = `sha256:${byteHash.digest('hex')}`;
     const identity = inspectNoFollowDirectoryChain(target, 'streaming inventory target').target;
     expect(() => scanNoFollowDirectoryTree(identity)).toThrow('exceeds the bounded no-follow read size');
     expect(() => readNoFollowOrdinaryFile(identity, 'large.bin')).toThrow('exceeds the bounded no-follow read size');
@@ -1091,9 +1111,13 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
       `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
     );
     expect(first.get('small.txt')).not.toHaveProperty('byteDigest');
-    expect(first.get('large.bin')).toMatchObject({ kind: 'file', size: largeSize });
-    expect(first.get('large.bin')?.contentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(rawInventory.get('large.bin')?.contentDigest).toBe(first.get('large.bin')?.contentDigest);
+    expect(first.get('large.bin')).toMatchObject({
+      kind: 'file', size: largeSize, contentDigest: expectedContentDigest
+    });
+    expect(rawInventory.get('large.bin')).toMatchObject({
+      kind: 'file', size: largeSize,
+      contentDigest: expectedContentDigest, byteDigest: expectedByteDigest
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

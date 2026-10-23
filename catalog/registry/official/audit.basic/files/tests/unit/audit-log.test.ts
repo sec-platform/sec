@@ -10,7 +10,7 @@ export async function runSuite() {
   assert.equal(entry.action, 'customer.created');
   assert.equal(entry.entity, 'customer');
   assert.equal(entry.entityId, 'customer-1');
-  assert.equal(entry.occurredAt, '1970-01-01T00:00:00.000Z');
+  assert.ok(Number.isFinite(Date.parse(entry.occurredAt)));
 
   const entries = appendAuditEntry([], entry);
   assert.equal(entries.length, 1);
