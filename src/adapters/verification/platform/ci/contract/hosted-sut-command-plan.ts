@@ -580,7 +580,8 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/contract/development/merge-gate.test.ts',
   'tests/contract/verification/tcb-closure-lock.test.ts',
   'tests/contract/repository/repository-audit.test.ts',
-  'tests/contract/documentation-authority.test.ts',
+  'tests/unit/development/active-documentation-contract.test.ts',
+  'tests/unit/development/documentation-source.test.ts',
   'tests/contract/verification/test-impact.test.ts',
   'tests/contract/verification/ci-lanes.test.ts'
 ] as const);

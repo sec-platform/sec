@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { stat } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 
 import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, hostedSessionCoordinationBudget } from '../../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
@@ -7,6 +8,7 @@ import { CI_VERIFICATION_ACTION_DISPATCH_TYPE } from '../../../src/adapters/veri
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
 import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
+import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { CI_VERIFICATION_EXECUTION_MODEL } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { readCompilerFile } from '../../helpers/compiler-fixtures.ts';
@@ -403,7 +405,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   ]);
 });
 
-test('every per-job SUT launcher installs locked trusted source dependencies before its first phase', async () => {
+test('SUT launchers bind locked dependencies and bootstrap selects existing required checks', async () => {
   const [compiler, bootstrap] = await Promise.all([
     readCompilerFile('.github/workflows/compiler-pr-validation.yml'),
     readCompilerFile('.github/workflows/trusted-bootstrap.yml')
@@ -457,6 +459,26 @@ test('every per-job SUT launcher installs locked trusted source dependencies bef
   expect(bootstrapEntrypoint.env?.SEC_HOSTED_NEEDS_JSON).toBe('${{ toJSON(needs) }}');
   expect(bootstrapEntrypoint.run)
     .toBe('exec bun --no-env-file src/bootstrap/development/hosted-job-runtime.ts --job candidate-sut --phase execute-trusted-bootstrap-sut');
+
+  // Inspect the emitted command, not a second copy of the producer's list.
+  // Python docs:doctor does not exercise these TypeScript identity/source consumers.
+  const focusedCommands = [...TRUSTED_BOOTSTRAP_SUT_HARNESS.matchAll(
+    /await execute\("focused-tests", (\[[^\n]*?\])\);/gu
+  )];
+  expect(focusedCommands).toHaveLength(1);
+  const focusedArgv = JSON.parse(focusedCommands[0]![1]!) as string[];
+  expect(focusedArgv.slice(0, 3)).toEqual(['bun', 'test', '--timeout']);
+  expect(Number(focusedArgv[3])).toBeGreaterThan(0);
+  const focusedTests = focusedArgv.slice(4);
+  expect(focusedTests).toEqual(expect.arrayContaining([
+    'tests/unit/development/active-documentation-contract.test.ts',
+    'tests/unit/development/documentation-source.test.ts'
+  ]));
+  expect(new Set(focusedTests).size).toBe(focusedTests.length);
+  for (const file of focusedTests) {
+    expect(file).toMatch(/^tests\/(?:[^/]+\/)*[^/]+\.test\.ts$/u);
+    expect((await stat(new URL(`../../../${file}`, import.meta.url))).isFile()).toBe(true);
+  }
 });
 
 test('TrustedBootstrap SUT policy rejects credential, input checkout, deadline and upload drift', async () => {
