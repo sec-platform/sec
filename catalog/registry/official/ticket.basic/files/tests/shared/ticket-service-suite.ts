@@ -27,43 +27,13 @@ export async function runTicketServiceSuite() {
   assert.equal(ticket.status, 'open');
   assert.equal(ticket.dueDate, '2026-05-01');
   assert.equal(ticket.createdBy, 'user-tenant-a-admin');
-  assert.equal(listTickets(db, tenantA).length, 1);
-  assert.equal(listTicketsByAssignee(db, tenantA, 'user-tenant-a-admin').length, 1);
-  assert.equal(listTicketsWithFilters(db, tenantA, { status: 'open' }).length, 1);
-
-  const attachment = addTicketAttachment(db, tenantA, {
-    ticketId: ticket.id,
-    fileName: 'incident.txt',
-    contentType: 'text/plain',
-    size: 12,
-    contentText: 'triage notes'
-  });
-
-  assert.equal(attachment.tenantId, 'tenant-a');
-  assert.equal(listTicketAttachments(db, tenantA, ticket.id).length, 1);
-  assert.throws(() => listTicketAttachments(db, tenantB, ticket.id), /Ticket is not available/);
-
-  const comment = addTicketComment(db, tenantA, {
-    ticketId: ticket.id,
-    body: 'Customer is waiting for an update'
-  });
-
-  assert.equal(comment.authorId, 'user-tenant-a-admin');
-  assert.equal(listTicketComments(db, tenantA, ticket.id).length, 1);
-  assert.throws(() => listTicketComments(db, tenantB, ticket.id), /Ticket is not available/);
-  assert.throws(() => addTicketComment(db, tenantA, { ticketId: ticket.id, body: '   ' }), /Ticket comment is required/);
-
-  assert.throws(
-    () => transitionTicketStatus(db, tenantA, ticket.id, 'closed'),
-    /Invalid ticket status transition: open -> closed/
-  );
-  assert.equal(ticket.status, 'open');
   const transitioned = transitionTicketStatus(db, tenantA, ticket.id, 'in_progress');
   assert.equal(transitioned.status, 'in_progress');
-  assert.equal(listTicketsWithFilters(db, tenantA, { status: 'in_progress' }).length, 1);
+  assert.deepEqual(listTicketsWithFilters(db, tenantA, { status: 'in_progress' }).map(({ id }) => id), [ticket.id]);
   assert.equal(listTickets(db, tenantB).length, 0);
   assert.throws(() => transitionTicketStatus(db, tenantB, ticket.id, 'closed'), /Ticket is not available/);
   assert.throws(() => createTicket(db, tenantA, { title: '   ' }), /Ticket title is required/);
+  assert.deepEqual(listTickets(db, tenantA).map(({ id }) => id), [ticket.id]);
 }
 
 export async function runTicketFlowSuite() {
@@ -75,19 +45,21 @@ export async function runTicketFlowSuite() {
     assigneeId: 'user-tenant-a-admin',
     dueDate: '2026-05-01'
   });
-  createTicket(db, tenantA, {
+  const secondTicket = createTicket(db, tenantA, {
     title: 'Prepare renewal checklist',
     assigneeId: 'renewal-owner'
   });
-  createTicket(db, tenantB, {
+  const otherTenantTicket = createTicket(db, tenantB, {
     title: 'Tenant B support ticket',
     assigneeId: 'user-tenant-b-admin'
   });
 
-  assert.equal(listTickets(db, tenantA).length, 2);
-  assert.equal(listTickets(db, tenantB).length, 1);
-  assert.equal(listTicketsByAssignee(db, tenantA, 'user-tenant-a-admin').length, 1);
-  assert.equal(listTicketsWithFilters(db, tenantA, { status: 'open' }).length, 2);
+  assert.deepEqual(listTickets(db, tenantA).map(({ id }) => id).sort((a, b) => a - b),
+    [firstTicket.id, secondTicket.id].sort((a, b) => a - b));
+  assert.deepEqual(listTickets(db, tenantB).map(({ id }) => id), [otherTenantTicket.id]);
+  assert.deepEqual(listTicketsByAssignee(db, tenantA, 'user-tenant-a-admin').map(({ id }) => id), [firstTicket.id]);
+  assert.deepEqual(listTicketsWithFilters(db, tenantA, { status: 'open' }).map(({ id }) => id).sort((a, b) => a - b),
+    [firstTicket.id, secondTicket.id].sort((a, b) => a - b));
 
   const attachment = addTicketAttachment(db, tenantA, {
     ticketId: firstTicket.id,
@@ -97,8 +69,14 @@ export async function runTicketFlowSuite() {
     contentText: 'base64-placeholder'
   });
 
+  assert.equal(attachment.tenantId, 'tenant-a');
+  assert.equal(attachment.ticketId, firstTicket.id);
   assert.equal(attachment.fileName, 'evidence.png');
-  assert.equal(listTicketAttachments(db, tenantA, firstTicket.id).length, 1);
+  assert.equal(attachment.contentType, 'image/png');
+  assert.equal(attachment.size, 24);
+  assert.equal(attachment.contentText, 'base64-placeholder');
+  assert.deepEqual(listTicketAttachments(db, tenantA, firstTicket.id).map(({ fileName, contentText }) => [fileName, contentText]),
+    [['evidence.png', 'base64-placeholder']]);
   assert.throws(() => listTicketAttachments(db, tenantB, firstTicket.id), /Ticket is not available/);
 
   const comment = addTicketComment(db, tenantA, {
@@ -107,8 +85,12 @@ export async function runTicketFlowSuite() {
   });
 
   assert.equal(comment.authorId, 'user-tenant-a-admin');
-  assert.equal(listTicketComments(db, tenantA, firstTicket.id).length, 1);
+  assert.equal(comment.ticketId, firstTicket.id);
+  assert.equal(comment.body, 'Customer confirmed the issue is intermittent');
+  assert.deepEqual(listTicketComments(db, tenantA, firstTicket.id).map(({ body }) => body),
+    ['Customer confirmed the issue is intermittent']);
   assert.throws(() => listTicketComments(db, tenantB, firstTicket.id), /Ticket is not available/);
+  assert.throws(() => addTicketComment(db, tenantA, { ticketId: firstTicket.id, body: '   ' }), /Ticket comment is required/);
 
   assert.throws(
     () => transitionTicketStatus(db, tenantA, firstTicket.id, 'closed'),
@@ -118,7 +100,7 @@ export async function runTicketFlowSuite() {
   transitionTicketStatus(db, tenantA, firstTicket.id, 'in_progress');
   const transitioned = transitionTicketStatus(db, tenantA, firstTicket.id, 'closed');
   assert.equal(transitioned.status, 'closed');
-  assert.equal(listTicketsWithFilters(db, tenantA, { status: 'closed' }).length, 1);
+  assert.deepEqual(listTicketsWithFilters(db, tenantA, { status: 'closed' }).map(({ id }) => id), [firstTicket.id]);
   assert.equal(listTickets(db, tenantA).find((candidate) => candidate.id === firstTicket.id)?.status, 'closed');
   assert.equal(listTickets(db, tenantB).some((candidate) => candidate.id === firstTicket.id), false);
 }

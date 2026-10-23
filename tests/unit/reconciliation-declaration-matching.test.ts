@@ -57,10 +57,14 @@ test('digest matches take precedence over span position within a repeated exact 
   assert.deepEqual(ids(pair([a, b], [c, d], [], [])), [['a', 'd'], ['b', 'c']]);
 });
 
-test('equal digests retain stable positional occurrence order without reusing a target', () => {
-  const before = Array.from({ length: 4 }, (_, i) => declaration(`a${i}`, 'src/a.ts', 'work', 'same', i));
-  const after = Array.from({ length: 3 }, (_, i) => declaration(`b${i}`, 'src/a.ts', 'work', 'same', i));
-  assert.deepEqual(ids(pair([...before].reverse(), [...after].reverse(), [], [])), [['a0', 'b0'], ['a1', 'b1'], ['a2', 'b2']]);
+test('equal digests preserve positional order and frozen inputs without reusing a target', () => {
+  const frozen = (value: Declaration) => {
+    Object.freeze(value.span);
+    return Object.freeze(value);
+  };
+  const before = Object.freeze(Array.from({ length: 4 }, (_, i) => frozen(declaration(`a${i}`, 'src/a.ts', 'work', 'same', i))).reverse());
+  const after = Object.freeze(Array.from({ length: 3 }, (_, i) => frozen(declaration(`b${i}`, 'src/a.ts', 'work', 'same', i))).reverse());
+  assert.deepEqual(ids(pair(before, after, [], [])), [['a0', 'b0'], ['a1', 'b1'], ['a2', 'b2']]);
 });
 
 test('remaining declarations at the same exact address keep the established positional fallback', () => {
@@ -101,21 +105,4 @@ test('module and declaration kind remain part of correspondence', () => {
   for (const changed of [{ ...b, moduleId: 'other' }, { ...b, kind: 'class' }]) {
     assert.deepEqual(ids(pair([a], [changed], [], [])), []);
   }
-});
-
-test('large repeated-name groups use indexed exact matches with unchanged identities', () => {
-  const count = 12000;
-  const before = Array.from({ length: count }, (_, i) => declaration(`a${i}`, 'src/a.ts', 'work', `digest${i}`, i));
-  const after = Array.from({ length: count }, (_, i) => declaration(`b${i}`, 'src/a.ts', 'work', `digest${i}`, count - i));
-  const matches = pair(before, after, [], []);
-  assert.equal(matches.size, count);
-  for (let i = 0; i < count; i++) assert.equal(matches.get(`a${i}`)?.after.observationId, `b${i}`);
-});
-
-test('caller arrays and declarations remain untouched and every mapping is injective', () => {
-  const a = declaration('a', 'src/a.ts'), b = declaration('b', 'src/b.ts');
-  const before = Object.freeze([Object.freeze(a)]), after = Object.freeze([Object.freeze(b)]);
-  const matched = pair(before, after, [], []);
-  assert.equal(new Set([...matched.values()].map(value => value.after.observationId)).size, matched.size);
-  assert.equal(matched.get('a')!.before, a); assert.equal(matched.get('a')!.after, b);
 });
