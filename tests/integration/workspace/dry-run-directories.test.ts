@@ -6,8 +6,7 @@ import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-co
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
 import { prepareBlockUpgradeDryRunFixture, withBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
-import { expectUpgradeDryRunFailureWithoutDiagnostics } from './upgrade-diagnostics-fixtures.ts';
-import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
+import { expectUpgradeDryRunFailureWithoutDiagnostics, runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records create delete and copy directory migration impacts', async () => {
   const upgradePlan = await runPlannedBlockUpgradeDryRun({

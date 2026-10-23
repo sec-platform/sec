@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   mutateTrustedCheckerSource, observeBundledCheckerIdentityFixture,
   TRUSTED_CHECKER_HOSTILE_MUTATIONS, withTrustedBootstrapCheckerFixture
-} from '../../helpers/trusted-bootstrap-checker-fixture.ts';
+} from './trusted-bootstrap-checker-fixture.ts';
 
 test.serial('trusted checker materialization emits and reads back one bounded exact-source program', async () => {
   await withTrustedBootstrapCheckerFixture(null, async fixture => {

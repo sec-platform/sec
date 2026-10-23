@@ -1,14 +1,9 @@
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import {
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
-  SOURCE_RUNTIME_MODULE_RELATIVE_PATH,
-  parseCompilerPackageEntrypointBinding,
-  resolveCompilerRuntimeLayout
+  packageArtifactLauncherScript,
+  parseCompilerPackageEntrypointBinding
 } from '../../../src/adapters/toolchain/runtime/layout.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
@@ -44,23 +39,27 @@ test('runtime entrypoints retain ordinary Unicode and dot-prefixed directory nam
     { source: '..source/文件.ts', artifact: '..dist/é.js', command: 'sec' });
 });
 
-test('runtime artifact root and single-command constraints remain enforced', () => {
+test('runtime package entrypoints enforce artifact roots, command cardinality and exact launchers', () => {
+  expect(() => parseCompilerPackageEntrypointBinding({
+    source: './source/cli.ts',
+    bin: { fixture: './output/cli.js' },
+    scripts: { fixture: 'bun ./other.ts' }
+  })).toThrow('must use the exact launcher for its package form');
+  expect(() => parseCompilerPackageEntrypointBinding({
+    source: './source/cli.ts',
+    bin: { fixture: './output/cli.js' },
+    scripts: { fixture: '"$npm_execpath" ./source/cli.ts' }
+  })).toThrow('must use the exact launcher for its package form');
+  expect(parseCompilerPackageEntrypointBinding({
+    bin: { fixture: './output/cli.js' },
+    scripts: { fixture: packageArtifactLauncherScript('output/cli.js') }
+  })).toEqual({ artifact: 'output/cli.js', command: 'fixture', source: null });
+  expect(() => parseCompilerPackageEntrypointBinding({
+    source: '../other/cli.ts',
+    bin: { fixture: './output/cli.js' },
+    scripts: { fixture: PACKAGE_SOURCE_LAUNCHER_SCRIPT }
+  })).toThrow('source must be one explicit package-relative path');
+
   assert.throws(() => parseCompilerPackageEntrypointBinding(manifest('./src/cli.ts', './index.js')), invalid);
   assert.throws(() => parseCompilerPackageEntrypointBinding({ ...manifest(), bin: { first: './dist/a.js', second: './dist/b.js' } }), invalid);
-});
-
-test('real package-file layout resolution rejects a parent entrypoint before publishing a CLI path', () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-layout-path-'));
-  const moduleUrl = pathToFileURL(path.join(root, SOURCE_RUNTIME_MODULE_RELATIVE_PATH)).href;
-  try {
-    writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest('./..')));
-    assert.throws(() => resolveCompilerRuntimeLayout(moduleUrl), invalid);
-    writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest()));
-    const layout = resolveCompilerRuntimeLayout(moduleUrl);
-    assert.equal(layout.packageRoot, root);
-    assert.equal(layout.cliEntrypointPath, path.join(root, 'src', 'cli.ts'));
-    assert.equal(layout.mode, 'source');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
 });

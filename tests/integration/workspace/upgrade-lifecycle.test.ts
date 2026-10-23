@@ -20,7 +20,7 @@ import { runUpgradeWorkspaceWithLease } from '../../../src/bootstrap/upgrade/upg
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { prepareBlockUpgradeDryRunFixture, writeBlockUpgradeFixture } from '../../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithoutDiagnostics } from './upgrade-diagnostics-fixtures.ts';
+import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithoutDiagnostics } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade success provenance binds the committed applied terminal bytes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

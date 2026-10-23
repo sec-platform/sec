@@ -1,8 +1,25 @@
 import path from 'node:path';
 
+import { applyMigrationEntries as applyMigrationEntriesWithFence } from '../../../src/bootstrap/upgrade/upgrade-workspace.ts';
 import type { UpgradeMigrationEntry } from '../../../src/semantics/upgrade/manifest-types.ts';
-import { applyMigrationEntries } from '../../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
+
+const testCommitFence = async (): Promise<void> => undefined;
+
+export function applyMigrationEntries(
+  workspaceRoot: string,
+  targetManifestRoot: string,
+  impacts: string[],
+  entries: UpgradeMigrationEntry[]
+): Promise<void> {
+  return applyMigrationEntriesWithFence(
+    workspaceRoot,
+    targetManifestRoot,
+    impacts,
+    entries,
+    testCommitFence
+  );
+}
 
 type ConfigRewriteUpdate = { path: string[]; value?: unknown; operation?: 'set' | 'delete' };
 

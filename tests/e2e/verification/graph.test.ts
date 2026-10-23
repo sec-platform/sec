@@ -12,9 +12,16 @@ import { buildSemanticViewSet } from '../../../src/compiler/projection/build-sem
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
 import { expectGraphEdge, expectGraphNode } from '../../helpers/graph-assertions.ts';
-import { emptyPolicyScopeReport } from '../../helpers/policy-fixtures.ts';
 import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../../helpers/upgrade-fixtures.ts';
 import { prepareResolvedWorkspace } from '../../testkit/workspace.ts';
+
+function emptyPolicyScopeReport(): PolicyReport['project'] {
+  return {
+    policies: [],
+    sources: [],
+    violations: []
+  };
+}
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {

@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
 import { defaultInstallRegistry } from '../../../src/adapters/compilation/compose/install-strategies.ts';
-import { getWorkspacePaths, privateRegistryRelativePath } from "../../../src/adapters/workspace-context.ts";
+import { getWorkspacePaths, privateRegistryRelativePath, resolveRegistryRoot, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { loadPlan } from '../../../src/adapters/workspace/sources/load-plan.ts';
 import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
 import type { BlockManifest, InstallPlanStep } from '../../../src/compiler/contract.ts';
@@ -110,4 +112,14 @@ test('install strategy rejects persisted lock targets that escape project root',
       }
     })).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
   }, 'engineering-compiler-path-install-target-');
+});
+
+test('artifact and registry consumers accept canonical dot-prefixed directories', () => {
+  const root = path.resolve('containment-fixture');
+  const paths = getWorkspacePaths(root);
+  assert.equal(resolveWorkspaceArtifactPath(root, '.sec/artifacts/..cache/report.json'),
+    path.join(paths.artifactsRoot, '..cache', 'report.json'));
+  assert.equal(resolveRegistryRoot(root, 'workspace', '..registry'), path.join(root, '..registry'));
+  assert.throws(() => resolveWorkspaceArtifactPath(root, '.sec/artifacts/../report.json'));
+  assert.throws(() => resolveRegistryRoot(root, 'workspace', '../registry'));
 });

@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
-import { applyMigrationEntries } from '../../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 import {
+  applyMigrationEntries,
   copyDirectory,
   copyFile,
   createDirectory,

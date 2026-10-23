@@ -3,9 +3,9 @@ import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { materializeTrustedBootstrapCheckerProgram } from '../../src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-program.ts';
-import { compilerRoot } from '../../src/adapters/workspace-context.ts';
-import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
+import { materializeTrustedBootstrapCheckerProgram } from '../../../src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-program.ts';
+import { compilerRoot } from '../../../src/adapters/workspace-context.ts';
+import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
 
 export const TRUSTED_CHECKER_NATIVE = 'src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-native.ts';
 

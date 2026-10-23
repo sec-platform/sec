@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -10,11 +12,11 @@ import {
   compilerRuntimeLayout,
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
   packageArtifactLauncherScript,
-  parseCompilerPackageEntrypointBinding,
   resolveCompilerRuntimeLayout,
   resolveCompilerRuntimeResources,
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH
 } from '../../../src/adapters/toolchain/runtime.ts';
+import { CodedFailure } from '../../../src/contracts/failure.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'output/cli.js',
@@ -103,27 +105,7 @@ describe('compiler runtime layout', () => {
     }
   });
 
-  test('manifest mismatches, unknown layouts and non-file URLs fail closed', async () => {
-    expect(() => parseCompilerPackageEntrypointBinding({
-      source: './source/cli.ts',
-      bin: { fixture: './output/cli.js' },
-      scripts: { fixture: 'bun ./other.ts' }
-    })).toThrow('must use the exact launcher for its package form');
-    expect(() => parseCompilerPackageEntrypointBinding({
-      source: './source/cli.ts',
-      bin: { fixture: './output/cli.js' },
-      scripts: { fixture: '"$npm_execpath" ./source/cli.ts' }
-    })).toThrow('must use the exact launcher for its package form');
-    expect(parseCompilerPackageEntrypointBinding({
-      bin: { fixture: './output/cli.js' },
-      scripts: { fixture: packageArtifactLauncherScript('output/cli.js') }
-    })).toEqual({ artifact: 'output/cli.js', command: 'fixture', source: null });
-    expect(() => parseCompilerPackageEntrypointBinding({
-      source: '../other/cli.ts',
-      bin: { fixture: './output/cli.js' },
-      scripts: { fixture: PACKAGE_SOURCE_LAUNCHER_SCRIPT }
-    })).toThrow('source must be one explicit package-relative path');
-
+  test('unknown module locations and non-file URLs fail closed', async () => {
     const packageRoot = await createPackageFixture();
     try {
       expect(() => resolveCompilerRuntimeLayout(
@@ -146,4 +128,21 @@ describe('compiler runtime layout', () => {
     expect(compilerRuntimeLayout.repositorySourceRoot).toBe(packageRoot);
     expect(compilerCliEntrypoint).toBe(compilerRuntimeLayout.cliEntrypointPath);
   });
+});
+
+test('real package-file layout resolution rejects a parent entrypoint before publishing a CLI path', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-layout-path-'));
+  const moduleUrl = pathToFileURL(path.join(root, SOURCE_RUNTIME_MODULE_RELATIVE_PATH)).href;
+  try {
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ source: './..', bin: { sec: './dist/index.js' }, scripts: { sec: PACKAGE_SOURCE_LAUNCHER_SCRIPT } }));
+    assert.throws(() => resolveCompilerRuntimeLayout(moduleUrl),
+      (error: unknown) => error instanceof CodedFailure && error.code === 'RUNTIME-LAYOUT-001');
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ source: './src/cli.ts', bin: { sec: './dist/index.js' }, scripts: { sec: PACKAGE_SOURCE_LAUNCHER_SCRIPT } }));
+    const layout = resolveCompilerRuntimeLayout(moduleUrl);
+    assert.equal(layout.packageRoot, root);
+    assert.equal(layout.cliEntrypointPath, path.join(root, 'src', 'cli.ts'));
+    assert.equal(layout.mode, 'source');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

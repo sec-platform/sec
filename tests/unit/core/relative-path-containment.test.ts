@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { getWorkspacePaths, resolveRegistryRoot, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { isPathInside, isSafeRelativePath, resolvePathInside } from "../../../src/contracts/relative-path.ts";
 
 const root = path.resolve('containment-fixture');
@@ -31,15 +30,6 @@ test('root equality and the explicit empty-input option retain their distinct me
   assert.equal(resolvePathInside(root, ''), null);
   assert.equal(resolvePathInside(root, '', { allowEmpty: true }), root);
   assert.equal(resolvePathInside(root, '.'), root);
-});
-
-test('artifact and registry consumers accept canonical dot-prefixed directories', () => {
-  const paths = getWorkspacePaths(root);
-  assert.equal(resolveWorkspaceArtifactPath(root, '.sec/artifacts/..cache/report.json'),
-    path.join(paths.artifactsRoot, '..cache', 'report.json'));
-  assert.equal(resolveRegistryRoot(root, 'workspace', '..registry'), path.join(root, '..registry'));
-  assert.throws(() => resolveWorkspaceArtifactPath(root, '.sec/artifacts/../report.json'));
-  assert.throws(() => resolveRegistryRoot(root, 'workspace', '../registry'));
 });
 
 test('native path semantics do not treat POSIX backslash characters as parent separators', () => {

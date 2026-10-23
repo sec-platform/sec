@@ -937,18 +937,28 @@ test.skipIf(process.platform !== 'linux')('reverse removal preserves an owned fi
 });
 
 test('snapshot acquisition captures operation and attempt before the first suspended fence', async () => {
-  await withRecoveryFixture(async fixture => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-upgrade-binding-capture-'));
+  const lockPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.graphLock);
+  let captured: UpgradeWorkspaceSnapshot | undefined;
+  try {
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await fs.writeFile(path.join(root, 'sec.yaml'), originalPlanBytes);
+    await fs.writeFile(lockPath, originalLockBytes);
     const supplied = { ...binding };
-    const captured = await snapshotWorkspace(fixture.root, fixture.lockPath, async () => {
+    captured = await snapshotWorkspace(root, lockPath, async () => {
       supplied.operationIdentityDigest = `sha256:${'e'.repeat(64)}`;
       supplied.attemptRevision = `sha256:${'f'.repeat(64)}`;
     }, supplied);
+    const record = JSON.parse((await readRecoveryRecord(captured, 'prepared-intent')).bytes.toString('utf8'));
+    expect(record.body.binding).toEqual(binding);
+    expect(record.body.binding).not.toEqual(supplied);
+  } finally {
     try {
-      const record = JSON.parse((await readRecoveryRecord(captured, 'prepared-intent')).bytes.toString('utf8'));
-      expect(record.body.binding).toEqual(binding);
-      expect(record.body.binding).not.toEqual(supplied);
-    } finally { await retireUpgradeBackup(captured); }
-  });
+      if (captured !== undefined) await retireUpgradeBackup(captured);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }
 });
 
 

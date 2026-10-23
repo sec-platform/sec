@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { buildExplainGraph } from '../../../src/adapters/compilation/emit/write-explain-graph.ts';
+import type { LockFile } from '../../../src/compiler/contract.ts';
 import type { AcceptanceCoverageReport } from '../../../src/assurance/acceptance/coverage.ts';
 import type { ViewEdge, ViewNode } from '../../../src/semantics/projection/types.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
@@ -189,4 +190,56 @@ test('semantic ports retain canonical endpoints and references without legacy al
   const endpoints = new Set(graph.nodes.map(entry => entry.id));
   expect(endpoints.size).toBe(graph.nodes.length);
   expect(graph.edges.every(edge => endpoints.has(edge.from) && endpoints.has(edge.to))).toBe(true);
+});
+
+function appIdentityLock(name: string): LockFile {
+  return {
+    formatVersion: "1",
+    app: {
+      id: "stable-app",
+      name,
+      stack: "typescript-library",
+      mode: "single-tenant",
+    },
+    resolvedBlocks: [],
+    resolvedCapabilities: [],
+    installPlan: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    semanticViews: buildSemanticViewFixture(),
+    passStatus: {
+      parse: "succeeded",
+      align: "succeeded",
+      resolve: "succeeded",
+      compose: "succeeded",
+      verify: "succeeded",
+      repair: "skipped",
+      lock: "succeeded",
+      emit: "succeeded",
+    },
+  };
+}
+
+test("ExplainGraph uses lock app.id for identity and app.name only for label", async () => {
+  const before = await buildExplainGraph(
+    process.cwd(),
+    appIdentityLock("Before"),
+    EMPTY_PROVENANCE,
+    EMPTY_COVERAGE,
+    null,
+  );
+  const after = await buildExplainGraph(
+    process.cwd(),
+    appIdentityLock("After"),
+    EMPTY_PROVENANCE,
+    EMPTY_COVERAGE,
+    null,
+  );
+
+  expect(before.nodes).toEqual([
+    { id: "app:stable-app", type: "app", label: "Before" },
+  ]);
+  expect(after.nodes).toEqual([
+    { id: "app:stable-app", type: "app", label: "After" },
+  ]);
 });

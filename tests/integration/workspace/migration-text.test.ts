@@ -2,9 +2,8 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { applyMigrationEntries } from '../../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-import { textAppend } from './migration-fixtures.ts';
+import { applyMigrationEntries, textAppend } from './migration-fixtures.ts';
 
 test('text-append migration preserves existing content and creates missing parent targets', async () => {
   await withTempWorkspace(async (tempRoot) => {
