@@ -154,12 +154,18 @@ test('Docker command provider ignores ambient command and directory redirection'
     TMP: process.env.TMP
   };
   try {
+    expect(() => assertDockerCommandProviderCapability({ ...fixture.capability }))
+      .toThrow('not owner-issued');
+    expect(() => requireDockerCommandProviderCapability(undefined))
+      .toThrow('capability is unavailable');
     process.env.PATH = path.join(fixture.root, 'ambient-bin');
     process.env.PROGRAMFILES = path.join(fixture.root, 'ambient-program-files');
     process.env.TEMP = path.join(fixture.root, 'ambient-temp');
     process.env.TMP = path.join(fixture.root, 'ambient-tmp');
     expect('loginStart' in fixture.capability).toBe(false);
     claimed = claimDockerCommandProviderCapability(fixture.capability);
+    expect(() => claimDockerCommandProviderCapability(fixture.capability))
+      .toThrow('is claimed');
     expect('loginStart' in claimed).toBe(false);
     expect(claimed.executable).toBe(fixture.executablePath);
     expect(claimed.environment.PATH).toBe(
@@ -176,23 +182,6 @@ test('Docker command provider ignores ambient command and directory redirection'
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('Docker command provider is nonforgeable and single-use', async () => {
-  const fixture = await retainedProviderFixture();
-  try {
-    expect(() => assertDockerCommandProviderCapability({ ...fixture.capability }))
-      .toThrow('not owner-issued');
-    expect(() => requireDockerCommandProviderCapability(undefined))
-      .toThrow('capability is unavailable');
-    const claimed = claimDockerCommandProviderCapability(fixture.capability);
-    expect(() => claimDockerCommandProviderCapability(fixture.capability))
-      .toThrow('is claimed');
-    claimed.boundary.workingDirectory.dispose();
-    claimed.boundary.executable.dispose();
-  } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });

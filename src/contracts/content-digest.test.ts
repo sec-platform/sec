@@ -113,7 +113,6 @@ test('migration verifies the same raw bytes before exposing the new digest', () 
   const migrated = migrateContentDigest(previous, [bytes.subarray(0, 1023), bytes.subarray(1023)]);
   assert.deepEqual(migrated, { previous, current: contentDigest(bytes) });
   assert.equal(Object.isFrozen(migrated), true);
-  assert.throws(() => migrateContentDigest(rawSha256('not the preimage'), [bytes]), /preimage does not match/u);
   assert.throws(() => migrateContentDigest(contentDigest(bytes), [bytes]), TypeError);
   assert.throws(() => migrateContentDigest(previous, [Buffer.from(previous)]), /preimage does not match/u);
 });

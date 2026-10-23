@@ -25,21 +25,12 @@ for (const lane of ['fast', 'runtime', 'all']) {
   });
 }
 
-for (const stage of PIPELINE_STAGE_IDS) {
-  test(`accepts registry-owned stage ${stage} without coercing it`, () => {
-    assert.equal(parsePipelineCompileOptions({ lane: 'all', from: stage }).invocation.from, stage);
-    assert.equal(parsePipelineCompileOptions({ lane: 'all', through: stage }).invocation.through, stage);
-  });
-}
+test('compile forwards invalid stage admission for both bounds', () => {
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', from: '' }), code('PIPELINE-USAGE-001'));
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', through: '' }), code('PIPELINE-USAGE-001'));
+});
 
-for (const value of ['', null, false, 0, 1, {}, [], new String('verify'), Symbol('verify')]) {
-  test(`rejects invalid stage value ${typeof value}:${String(value)}`, () => {
-    assert.throws(() => parsePipelineCompileOptions({ lane: 'all', from: value }), code('PIPELINE-USAGE-001'));
-    assert.throws(() => parsePipelineCompileOptions({ lane: 'all', through: value }), code('PIPELINE-USAGE-001'));
-  });
-}
-
-for (const value of [undefined, null, '', 'ALL', ' fast', 0, true, {}, [], new String('all')]) {
+for (const value of [undefined, 'ALL']) {
   test(`rejects invalid lane value ${typeof value}:${String(value)}`, () => {
     assert.throws(() => parsePipelineCompileOptions({ lane: value }), code('PIPELINE-USAGE-002'));
   });

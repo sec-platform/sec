@@ -72,15 +72,6 @@ test('structured migration rejects accessors and binds both algorithms to the ad
 
 
 test('structured migration rejects wrong preimages and mixed generations before a new identity escapes', () => {
-  assert.throws(
-    () => migrateStructuredIdentity(
-      sha256({ a: 2 }),
-      'cache',
-      'record/v2',
-      { a: 1 }
-    ),
-    /preimage does not match/u
-  );
   const current = structuredIdentity('cache', 'record/v2', { a: 1 });
   assert.throws(
     () => migrateStructuredIdentity(

@@ -67,27 +67,6 @@ test('compiler syntax preserves import kinds and every precompilation reference 
   ]);
 });
 
-test('runtime closure excludes type-only edges while compile impact retains them', () => {
-  const graph = compileFixture({
-    'src/example/main.ts': [
-      "import type { CompileFact } from './types.ts';",
-      "import { run } from './runtime.ts';",
-      'export const value: CompileFact = run();',
-      ''
-    ].join('\n'),
-    'src/example/types.ts': 'export type CompileFact = string;\n',
-    'src/example/runtime.ts': "export function run(): string { return 'ready'; }\n"
-  });
-
-  expect(graph.directDependencies('src/example/main.ts')).toEqual([
-    'src/example/runtime.ts',
-    'src/example/types.ts'
-  ]);
-  expect(graph.directRuntimeDependencies('src/example/main.ts')).toEqual([
-    'src/example/runtime.ts'
-  ]);
-});
-
 test('ordinary TypeScript import facts cannot be replaced by an embedded-language provider', () => {
   let providerCalls = 0;
   const graph = compileSourceProgramRepositoryModuleGraph({

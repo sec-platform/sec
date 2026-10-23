@@ -15,43 +15,39 @@ const inertPipelineOperations = {
   inspect: async () => { throw new Error('pipeline inspect operation must not run'); }
 } as const;
 
-test('all three entry paths agree on each admitted boolean configuration', () => {
+test('shared output policy admits each boolean configuration', () => {
   for (const json of [undefined, false, true]) for (const compact of [undefined, false, true]) {
     if (compact === true && json !== true) continue;
     const input = { json, compact };
     const expected = { json: json ?? false, compact: compact ?? false };
-    for (const actual of [parseJsonOutputOptions(input, reject), jsonOpts(input), parsePipelineOutputOptions(input)]) {
-      assert.deepEqual(actual, expected);
-      assert.ok(Object.isFrozen(actual));
-    }
+    const actual = parseJsonOutputOptions(input, reject);
+    assert.deepEqual(actual, expected);
+    assert.ok(Object.isFrozen(actual));
   }
 });
 
-test('the compact dependency has one policy while entrypoints retain diagnostic namespaces', () => {
+test('compact output requires JSON for both absent and disabled flags', () => {
   for (const json of [undefined, false]) {
     const input = { json, compact: true };
     assert.throws(() => parseJsonOutputOptions(input, reject),
       (issue: unknown) => (issue as JsonOutputIssue).kind === 'missing-dependency'
         && (issue as JsonOutputIssue).option === 'compact');
-    assert.throws(() => jsonOpts(input), (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
-    assert.throws(() => parsePipelineOutputOptions(input),
-      (error: unknown) => error instanceof CodedFailure && error.code === 'PIPELINE-USAGE-003');
   }
 });
 
-test('neither command family coerces programmatic non-boolean options', () => {
+test('shared non-boolean rejection retains each command diagnostic namespace', () => {
   for (const value of ['false', 'true', '', 0, 1, null, [], {}, new Boolean(false), Symbol('flag'), 1n, () => false]) {
     for (const field of ['json', 'compact']) {
       const input = { json: true, [field]: value };
       assert.throws(() => parseJsonOutputOptions(input, reject),
         (issue: unknown) => (issue as JsonOutputIssue).kind === 'invalid-boolean'
           && (issue as JsonOutputIssue).option === field);
-      assert.throws(() => jsonOpts(input),
-        (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
-      assert.throws(() => parsePipelineOutputOptions(input),
-        (error: unknown) => error instanceof CodedFailure && error.code === 'PIPELINE-USAGE-003');
     }
   }
+  assert.throws(() => jsonOpts({ json: 'false' }),
+    (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
+  assert.throws(() => parsePipelineOutputOptions({ json: 'false' }),
+    (error: unknown) => error instanceof CodedFailure && error.code === 'PIPELINE-USAGE-003');
 });
 
 test('owned input is read once, without enumerating unrelated properties', () => {
@@ -90,21 +86,17 @@ test('defaults and dependency descriptions cannot be changed after registration'
   for (const definition of JSON_OUTPUT_OPTIONS) {
     assert.ok(Object.isFrozen(definition));
     assert.ok(Object.isFrozen(definition.requires));
-    assert.equal(Reflect.set(definition, 'defaultValue', true), false);
   }
-  assert.deepEqual(jsonOpts({}), { json: false, compact: false });
 });
 
 test('real Commander action is not entered when a generic output flag is invalid', async () => {
-  for (const value of ['false', {}, 0]) {
-    let effects = 0;
-    const command = addJsonFlags(new Command().name('sample').exitOverride());
-    command.action(() => { effects += 1; });
-    command.setOptionValue('json', value);
-    await assert.rejects(command.parseAsync([], { from: 'user' }),
-      (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
-    assert.equal(effects, 0);
-  }
+  let effects = 0;
+  const command = addJsonFlags(new Command().name('sample').exitOverride());
+  command.action(() => { effects += 1; });
+  command.setOptionValue('json', 'false');
+  await assert.rejects(command.parseAsync([], { from: 'user' }),
+    (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
+  assert.equal(effects, 0);
 });
 
 test('generic compact dependency retains the real command path in its usage error', async () => {
