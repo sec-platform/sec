@@ -1,0 +1,73 @@
+import { expect, test } from "bun:test";
+
+import { buildExplainGraph } from "../../../src/adapters/compilation/emit/write-explain-graph.ts";
+import type { AcceptanceCoverageReport } from '../../../src/assurance/acceptance/coverage.ts';
+import type { LockFile } from "../../../src/compiler/contract.ts";
+import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
+import { buildSemanticViewFixture } from "../../helpers/semantic-view-fixtures.ts";
+
+function lock(name: string): LockFile {
+  return {
+    formatVersion: "1",
+    app: {
+      id: "stable-app",
+      name,
+      stack: "typescript-library",
+      mode: "single-tenant",
+    },
+    resolvedBlocks: [],
+    resolvedCapabilities: [],
+    installPlan: [],
+    generatedPaths: [],
+    acceptancePlan: [],
+    semanticViews: buildSemanticViewFixture(),
+    passStatus: {
+      parse: "succeeded",
+      align: "succeeded",
+      resolve: "succeeded",
+      compose: "succeeded",
+      verify: "succeeded",
+      repair: "skipped",
+      lock: "succeeded",
+      emit: "succeeded",
+    },
+  };
+}
+
+const provenance: ProvenanceFile = {
+  formatVersion: "1",
+  artifacts: [],
+};
+
+const coverage: AcceptanceCoverageReport = {
+  formatVersion: "2",
+  status: "passed",
+  source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
+  acceptancePassed: [],
+  blocks: [],
+  uncoveredBlocks: [],
+};
+
+test("ExplainGraph uses lock app.id for identity and app.name only for label", async () => {
+  const before = await buildExplainGraph(
+    process.cwd(),
+    lock("Before"),
+    provenance,
+    coverage,
+    null,
+  );
+  const after = await buildExplainGraph(
+    process.cwd(),
+    lock("After"),
+    provenance,
+    coverage,
+    null,
+  );
+
+  expect(before.nodes).toEqual([
+    { id: "app:stable-app", type: "app", label: "Before" },
+  ]);
+  expect(after.nodes).toEqual([
+    { id: "app:stable-app", type: "app", label: "After" },
+  ]);
+});

@@ -33,7 +33,7 @@ forbiddenPaths:
 acceptance:
   - exact-verification
 tests:
-  - tests/unit/ci-verification-execution.test.ts
+  - tests/unit/verification/ci-verification-execution.test.ts
 ---
 
 # Exact Verification

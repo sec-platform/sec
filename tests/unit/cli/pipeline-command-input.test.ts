@@ -1,0 +1,94 @@
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+
+import { PIPELINE_EXECUTION_BOUNDARIES } from '../../../src/compiler/pipeline/execution-boundaries.ts';
+import { PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from '../../../src/compiler/pipeline/stages.ts';
+import { CodedFailure } from '../../../src/contracts/failure.ts';
+import { parsePipelineCompileOptions, parsePipelineOutputOptions } from '../../../src/entry/cli/pipeline-command-input.ts';
+
+function code(expected: string): (error: unknown) => boolean {
+  return (error) => error instanceof CodedFailure && error.code === expected;
+}
+
+test('captures the default CLI invocation without inventing absent stage bounds', () => {
+  assert.deepEqual(parsePipelineCompileOptions({ lane: 'all' }), {
+    output: { json: false, compact: false },
+    invocation: { source: 'cli', verificationLane: 'all' }
+  });
+});
+
+for (const lane of ['fast', 'runtime', 'all']) {
+  test(`captures the exact ${lane} lane with both stage bounds`, () => {
+    const result = parsePipelineCompileOptions({ lane, from: 'semantic', through: 'verify', json: true, compact: true });
+    assert.deepEqual(result.invocation, { source: 'cli', from: 'semantic', through: 'verify', verificationLane: lane });
+    assert.deepEqual(result.output, { json: true, compact: true });
+  });
+}
+
+test('compile forwards invalid stage admission for both bounds', () => {
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', from: '' }), code('PIPELINE-USAGE-001'));
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', through: '' }), code('PIPELINE-USAGE-001'));
+});
+
+for (const value of [undefined, 'ALL']) {
+  test(`rejects invalid lane value ${typeof value}:${String(value)}`, () => {
+    assert.throws(() => parsePipelineCompileOptions({ lane: value }), code('PIPELINE-USAGE-002'));
+  });
+}
+
+test('compile routes a non-boolean output flag through pipeline usage admission', () => {
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', json: 'false' }), code('PIPELINE-USAGE-003'));
+});
+
+test('compile rejects compact output without JSON', () => {
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);
+});
+
+test('rejects values without invoking conversion hooks', () => {
+  let calls = 0;
+  const value = { toString() { calls += 1; return 'all'; }, [Symbol.toPrimitive]() { calls += 1; return 'all'; } };
+  assert.throws(() => parsePipelineCompileOptions({ lane: value }), code('PIPELINE-USAGE-002'));
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', from: value }), code('PIPELINE-USAGE-001'));
+  assert.throws(() => parsePipelineOutputOptions({ json: value }), code('PIPELINE-USAGE-003'));
+  assert.equal(calls, 0);
+});
+
+test('captures only the command fields once, ignoring unrelated getters', () => {
+  const reads: Record<string, number> = {};
+  const input: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries({ json: true, compact: false, lane: 'all', from: 'resolve', through: 'emit' })) {
+    Object.defineProperty(input, key, { get() { reads[key] = (reads[key] ?? 0) + 1; return reads[key] === 1 ? value : undefined; } });
+  }
+  Object.defineProperty(input, 'unrelated', { enumerable: true, get() { throw new Error('not command input'); } });
+  const result = parsePipelineCompileOptions(input);
+  assert.equal(result.invocation.from, 'resolve');
+  assert.equal(result.invocation.through, 'emit');
+  assert.deepEqual(reads, { json: 1, compact: 1, from: 1, through: 1, lane: 1 });
+});
+
+test('inspection does not access compilation fields', () => {
+  const input = Object.defineProperty({ json: true }, 'lane', { get() { throw new Error('not inspect input'); } });
+  assert.deepEqual(parsePipelineOutputOptions(input), { json: true, compact: false });
+});
+
+test('returned values are frozen, detached from caller mutation and cannot change invocation source', () => {
+  const input = { lane: 'all', from: 'resolve', json: true, source: 'api' };
+  const result = parsePipelineCompileOptions(input);
+  input.from = 'emit'; input.json = false;
+  assert.equal(result.invocation.from, 'resolve');
+  assert.equal(result.invocation.source, 'cli');
+  assert.equal(result.output.json, true);
+  assert.ok(Object.isFrozen(result));
+  assert.ok(Object.isFrozen(result.invocation));
+  assert.ok(Object.isFrozen(result.output));
+});
+
+test('stage vocabulary cannot diverge from its already-derived verification prefix', () => {
+  assert.ok(Object.isFrozen(PIPELINE_STAGE_IDS));
+  assert.ok(Object.isFrozen(PIPELINE_EXECUTION_BOUNDARIES));
+  assert.ok(Object.isFrozen(PIPELINE_VERIFY_STAGE_IDS));
+  const stages = [...PIPELINE_STAGE_IDS];
+  assert.equal(Reflect.set(PIPELINE_STAGE_IDS, 0, 'injected'), false);
+  assert.deepEqual(PIPELINE_STAGE_IDS, stages);
+  assert.deepEqual(PIPELINE_VERIFY_STAGE_IDS, PIPELINE_STAGE_IDS.slice(0, PIPELINE_STAGE_IDS.indexOf('verify') + 1));
+});
