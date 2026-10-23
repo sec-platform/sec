@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { CodedFailure } from '../../src/contracts/failure.ts';
+import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
@@ -216,9 +217,11 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
   });
 });
 
-test('semantic operation input sequence remains ordered in Engineering IR attributes', () => {
+test('semantic operation input sequence survives normalization and Engineering IR attributes', () => {
   const semanticContract = contract();
   semanticContract.contract.operations[0]!.inputs = ['number', 'string', 'number'];
+  semanticContract.contract = normalizeSemanticContract(semanticContract.contract);
+  expect(semanticContract.contract.operations[0]!.inputs).toEqual(['number', 'string', 'number']);
 
   const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [semanticContract] });
   const operation = ir.entities.find((entity) => entity.id === 'operation:item:closeItem');
