@@ -67,29 +67,6 @@ function fixture() {
   }
 }
 
-test('the production projection interprets candidate B bytes with adopted compiler A and exact raw read identities', async () => {
-  const subject = fixture();
-  try {
-    const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
-    // An accidental no-argument trustedRuntimeClosure reads the real interpreter
-    // tree and returns many dispatchers, so it cannot satisfy this independent oracle.
-    expect(projection.reviewedProcessDispatchers).toEqual([dispatcher]);
-    expect(Object.keys(projection.sourceInputDigests)).toEqual([
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints, leafPath
-    ].sort());
-    expect(projection.sourceInputDigests[leafPath]).toBe(rawSha256('export const leaf = 1;\r\n'));
-    expect(projection.compilerInputDigest).toBe(compilerInputDigest);
-    expect(projection.sourceInputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH]).toBeUndefined();
-    expect(projection.sourceInputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH]).toBeUndefined();
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest,
-      JSON.parse(JSON.stringify(projection)))).toEqual([dispatcher]);
-    expect(Object.isFrozen(projection)).toBe(true);
-    expect(Object.isFrozen(projection.sourceInputDigests)).toBe(true);
-  } finally {
-    subject.cleanup();
-  }
-});
-
 test('production dispatcher projection binds both opaque resources through the exact candidate census', async () => {
   const subject = fixture();
   let primary: ResourceSettlementFailure | undefined;
@@ -146,6 +123,20 @@ test('unread candidate compiler, registry and unrelated edits cannot replace ado
   const subject = fixture();
   try {
     const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
+    // An accidental no-argument trustedRuntimeClosure reads the real interpreter
+    // tree and returns many dispatchers, so it cannot satisfy this independent oracle.
+    expect(projection.reviewedProcessDispatchers).toEqual([dispatcher]);
+    expect(Object.keys(projection.sourceInputDigests)).toEqual([
+      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints, leafPath
+    ].sort());
+    expect(projection.sourceInputDigests[leafPath]).toBe(rawSha256('export const leaf = 1;\r\n'));
+    expect(projection.compilerInputDigest).toBe(compilerInputDigest);
+    expect(projection.sourceInputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH]).toBeUndefined();
+    expect(projection.sourceInputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH]).toBeUndefined();
+    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest,
+      JSON.parse(JSON.stringify(projection)))).toEqual([dispatcher]);
+    expect(Object.isFrozen(projection)).toBe(true);
+    expect(Object.isFrozen(projection.sourceInputDigests)).toBe(true);
     const changed = subject.files.map(input => [unrelatedPath, SEC_TCB_CLOSURE_RUNTIME_PATH,
       SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH].includes(input.path)
       ? file(input.path, 'throw new Error("candidate data is not the adopted compiler");\n') : input);

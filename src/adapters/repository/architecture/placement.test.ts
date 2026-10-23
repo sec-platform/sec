@@ -57,8 +57,6 @@ function descriptor(moduleId: string, root: string): RepositoryModuleDescriptor 
 }
 
 function fixture(input: Readonly<{
-  runImportsHelper?: boolean;
-  runImportsContract?: boolean;
   reverseContractImport?: boolean;
   includeUnclassified?: boolean;
 }>) {
@@ -70,7 +68,7 @@ function fixture(input: Readonly<{
   const unknownPath = 'src/example-alpha/unknown.ts';
   const files = [runPath, helperPath, contractPath, ...(input.includeUnclassified ? [unknownPath] : [])];
   const source = new Map<string, string>([
-    [runPath, `${input.runImportsHelper ? "import { helper } from './helper.ts';\n" : ''}${input.runImportsContract ? "import type { Contract } from '../example-beta/contract.ts';\n" : ''}export function run(): ${input.runImportsContract ? 'Contract' : 'number'} { return ${input.runImportsContract ? "{ value: 'ready' }" : input.runImportsHelper ? 'helper()' : '1'}; }`],
+    [runPath, 'export function run(): number { return 1; }'],
     [helperPath, 'export function helper() { return 1; }'],
     [contractPath, `${input.reverseContractImport ? "import { run } from '../example-alpha/run.ts';\n" : ''}export interface Contract { value: string; }`],
     [unknownPath, 'export function publicUnknown() {}\nfunction effectUnknown() {}']

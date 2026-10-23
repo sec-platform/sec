@@ -5,15 +5,11 @@ import path from 'node:path';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
-  configRewrite,
   copyDirectory,
   copyFile,
   createDirectory,
   deleteFile,
   fileReplace,
-  jsonArrayAppend,
-  jsonArrayRemove,
-  jsonObjectMerge,
   renameDirectory,
   renameFile,
   textAppend
@@ -101,96 +97,6 @@ test('copy-directory migration rejects file targets before copying', async () =>
       code: 'UPGRADE-MIGRATION-027'
     });
     await expect(fs.readFile(path.join(workspaceRoot, 'modules', 'runtime'), 'utf8')).resolves.toBe('occupied\n');
-  });
-});
-
-test('config-rewrite migration rejects directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await expect(
-      applyMigrationEntries(
-        workspaceRoot,
-        manifestRoot,
-        ['app.config.json'],
-        [configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }])]
-      )
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
-  });
-});
-
-test('json-array-append migration rejects directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
-  });
-});
-
-test('json-array-remove migration rejects directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
-  });
-});
-
-test('json-object-merge migration creates missing JSON targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(workspaceRoot, { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await applyMigrationEntries(
-      workspaceRoot,
-      manifestRoot,
-      ['app.config.json'],
-      [jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })]
-    );
-
-    expect(JSON.parse(await fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8'))).toEqual(
-      { compiler: { upgrade: { enabled: true } } }
-    );
-  });
-});
-
-test('json-object-merge migration rejects directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await expect(
-      applyMigrationEntries(
-        workspaceRoot,
-        manifestRoot,
-        ['app.config.json'],
-        [jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })]
-      )
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
   });
 });
 

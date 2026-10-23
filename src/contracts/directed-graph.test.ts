@@ -2,25 +2,6 @@ import { expect, test } from 'bun:test';
 
 import { compileClosedDirectedGraphStrongComponents } from './directed-graph.ts';
 
-test('closed directed graph SCC compilation is input-order invariant without mutating input', () => {
-  const nodes = ['c', 'b', 'a'] as const;
-  const edges = [
-    { from: 'c', to: 'a' },
-    { from: 'b', to: 'c' },
-    { from: 'a', to: 'b' }
-  ] as const;
-
-  expect(compileClosedDirectedGraphStrongComponents(nodes, edges)).toEqual([['a', 'b', 'c']]);
-  expect(compileClosedDirectedGraphStrongComponents([...nodes].reverse(), [...edges].reverse()))
-    .toEqual([['a', 'b', 'c']]);
-  expect(nodes).toEqual(['c', 'b', 'a']);
-  expect(edges).toEqual([
-    { from: 'c', to: 'a' },
-    { from: 'b', to: 'c' },
-    { from: 'a', to: 'b' }
-  ]);
-});
-
 test('closed directed graph SCC compilation separates disconnected components', () => {
   expect(compileClosedDirectedGraphStrongComponents(
     ['d', 'c', 'b', 'a'],

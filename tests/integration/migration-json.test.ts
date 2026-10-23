@@ -11,6 +11,23 @@ import {
   withMigrationWorkspace
 } from './migration-fixtures.ts';
 
+test('JSON migrations reject directory targets before reading or mutating JSON', async () => {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'));
+
+    for (const entry of [
+      configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }]),
+      jsonArrayAppend('app.config.json', ['plugins'], ['tenant']),
+      jsonArrayRemove('app.config.json', ['plugins'], ['auth']),
+      jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })
+    ]) {
+      await expect(apply(['app.config.json'], [entry])).rejects.toMatchObject({
+        code: 'UPGRADE-MIGRATION-017'
+      });
+    }
+  });
+});
+
 test('config-rewrite migration updates and deletes nested and root JSON configuration', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
     await writeJson(path.join(workspaceRoot, 'app.config.json'), {
@@ -136,8 +153,15 @@ test('json-array-remove migration skips missing JSON targets', async () => {
   });
 });
 
-test('json-object-merge migration recursively merges nested objects', async () => {
+test('json-object-merge migration creates missing targets and recursively merges nested objects', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await apply(['new.config.json'], [
+      jsonObjectMerge('new.config.json', ['compiler'], { upgrade: { enabled: true } })
+    ]);
+    expect(JSON.parse(await fs.readFile(path.join(workspaceRoot, 'new.config.json'), 'utf8'))).toEqual(
+      { compiler: { upgrade: { enabled: true } } }
+    );
+
     await writeJson(path.join(workspaceRoot, 'app.config.json'), {
       feature: { auth: { enabled: false, mode: 'basic' }, keep: true }
     });

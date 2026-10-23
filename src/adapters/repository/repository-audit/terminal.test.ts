@@ -65,19 +65,6 @@ test('repository audit diagnostic distinguishes aggregate output exhaustion', ()
     .toBe('output-budget-exhausted');
 });
 
-test('repository audit diagnostic preserves typed protocol rejection', () => {
-  const diagnostic = compileRepositoryAuditWorkerDiagnostic(
-    new RepositoryAuditWorkerProtocolError('foreign-subject', 'subject differs'),
-    null
-  );
-  expect(diagnostic).toEqual(expect.objectContaining({
-    reason: 'protocol-invalid',
-    failureKind: 'protocol-admission',
-    protocolErrorCode: 'foreign-subject',
-    process: null
-  }));
-});
-
 test('repository audit diagnostic preserves primary failure plus cleanup residue', () => {
   const primary = new Error('worker execution failed');
   const settlementError = new PhysicalResourceCompositeSettlementError([
@@ -94,6 +81,10 @@ test('repository audit diagnostic preserves primary failure plus cleanup residue
 test('source transition wrapper preserves safe owner denial details without raw error bytes', () => {
   const diagnostic = compileRepositoryAuditWorkerDiagnostic(
     new RepositoryAuditWorkerProtocolError('foreign-subject', 'secret raw stdout or source content'), null);
+  expect(diagnostic).toMatchObject({
+    reason: 'protocol-invalid', failureKind: 'protocol-admission',
+    protocolErrorCode: 'foreign-subject', process: null
+  });
   let caught: unknown;
   try { requireSettledSourceProgramTransitionAssessment({ status: 'denied', diagnostic }); }
   catch (error) { caught = error; }

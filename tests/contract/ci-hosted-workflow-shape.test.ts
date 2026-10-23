@@ -22,22 +22,6 @@ const ALLOCATION = 'job identity, allocation, deadline or permissions differ';
 const STEPS = 'setup, launcher phases or native artifact steps differ';
 const HEADER = 'complete workflow header scheduling differs';
 
-test('MainHealth runtime readiness input routing cannot be removed or redirected', async () => {
-  const source = await readCompilerFile(COMPILER);
-  const baseline = parseYaml(source) as Workflow;
-  expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(source)).not.toThrow();
-  for (const mutate of [
-    (value: Step) => { delete value.shell; },
-    (value: Step) => { value.shell = 'bash {0}'; },
-    (value: Step) => { value.run = 'bun --version --eval "process.exit(0)"'; },
-    (value: Step) => { value.env = { SEC_MAIN_HEALTH_SHA: '${{ github.event.client_payload.payload.otherSha }}' }; }
-  ]) {
-    const changed = structuredClone(baseline);
-    mutate(step(changed.jobs['main-health']!, 'runtime-readiness'));
-    expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(stringifyYaml(changed))).toThrow();
-  }
-});
-
 // The checked-in source is independent of the validator's step compiler. These
 // controls establish source shape only, never live origin or native qualification.
 async function currentCompilerWorkflow(): Promise<Workflow> {
@@ -119,6 +103,20 @@ test('a valid selected job cannot hide mutations of other executable workflow me
     }],
     ['retained member credential injection', 'mature entry recipe differs', value => {
       value.jobs['main-health']!.env = { ACTIONS_RUNTIME_TOKEN: '${{ secrets.TOKEN }}' };
+    }],
+    ['retained member omitted readiness shell', 'mature entry recipe differs', value => {
+      delete step(value.jobs['main-health']!, 'runtime-readiness').shell;
+    }],
+    ['retained member readiness shell substitution', 'mature entry recipe differs', value => {
+      step(value.jobs['main-health']!, 'runtime-readiness').shell = 'bash {0}';
+    }],
+    ['retained member readiness command substitution', 'mature entry recipe differs', value => {
+      step(value.jobs['main-health']!, 'runtime-readiness').run = 'bun --version --eval "process.exit(0)"';
+    }],
+    ['retained member readiness input redirection', 'mature entry recipe differs', value => {
+      step(value.jobs['main-health']!, 'runtime-readiness').env = {
+        SEC_MAIN_HEALTH_SHA: '${{ github.event.client_payload.payload.otherSha }}'
+      };
     }],
     ['retained member hidden writer', 'mature entry recipe differs', value => {
       value.jobs['main-health']!.steps.push({ name: 'Foreign upload', run: 'upload another job output' });

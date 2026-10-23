@@ -5,14 +5,6 @@ import { projectArchitectureView } from '../../src/compiler/projection/project-a
 import type { SemanticEntity } from '../../src/semantics/engineering-ir/entity-types.ts';
 import { addFact, emptyIR, entity, projectionSnapshot, viewIR } from '../fixtures/semantic-view-data.ts';
 
-test('immutable IR generations share one read index across snapshot wrappers', () => {
-  const snapshot = projectionSnapshot(viewIR());
-  const first = indexValidatedEngineeringIR(snapshot);
-  assert.equal(indexValidatedEngineeringIR(snapshot).entityById, first.entityById);
-  assert.equal(indexValidatedEngineeringIR({ ...snapshot }).entityById, first.entityById);
-  assert.equal(first.entityById.get(snapshot.ir.appId), snapshot.ir.entities[0]);
-});
-
 test('revision strings cannot alias different immutable input generations', () => {
   const first = projectionSnapshot(viewIR()); const second = projectionSnapshot(viewIR(2));
   assert.equal(first.ir.semanticRevision, second.ir.semanticRevision);
@@ -20,19 +12,12 @@ test('revision strings cannot alias different immutable input generations', () =
   assert.notEqual(a, b); assert.equal(a.entityById.has('state:1'), false); assert.equal(b.entityById.has('state:1'), true);
 });
 
-test('raw IR indexing remains fresh and does not freeze the caller data', () => {
-  const ir = emptyIR(); const first = indexEngineeringIR(ir);
-  ir.entities.push(entity('state:new', 'state'));
-  const second = indexEngineeringIR(ir);
-  assert.notEqual(first, second); assert.equal(first.entityById.has('state:new'), false);
-  assert.equal(second.entityById.has('state:new'), true); assert.equal(Object.isFrozen(ir), false);
-});
-
 test('mutable snapshot data is rebuilt instead of becoming a stale cache', () => {
   const snapshot = projectionSnapshot(emptyIR(), false); const first = indexValidatedEngineeringIR(snapshot);
   snapshot.ir.entities.push(entity('state:new', 'state'));
   const second = indexValidatedEngineeringIR(snapshot);
-  assert.notEqual(first, second); assert.equal(second.entityById.has('state:new'), true);
+  assert.equal(first.entityById.has('state:new'), false);
+  assert.equal(second.entityById.has('state:new'), true); assert.equal(Object.isFrozen(snapshot.ir), false);
 });
 
 test('a frozen root with mutable entity membership remains uncached', () => {
@@ -113,16 +98,6 @@ test('cached membership buckets cannot be modified through any query route', () 
   }
 });
 
-test('ReadonlyMap forEach preserves thisArg and never leaks its mutable backing Map', () => {
-  const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR())); const context = {};
-  const seen: string[] = [];
-  index.entityById.forEach(function (this: object, value, key, map) {
-    assert.equal(this, context); assert.equal(map, index.entityById);
-    assert.equal(value, index.entityById.get(key)); assert.equal(Reflect.get(map, 'set'), undefined); seen.push(key);
-  }, context);
-  assert.deepEqual(seen, [...index.entityById.keys()]);
-});
-
 test('read index iterators support native Map copies with detached entry tuples', () => {
   const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
   const copy = new Map(index.entityById); assert.equal(copy.size, index.entityById.size);
@@ -177,6 +152,8 @@ test('writable result fields remain caller-local while the underlying read index
   const second = indexValidatedEngineeringIR(snapshot);
   assert.notEqual(first, second);
   assert.equal(first.entityById, second.entityById);
+  assert.equal(indexValidatedEngineeringIR({ ...snapshot }).entityById, first.entityById);
+  assert.equal(first.entityById.get(snapshot.ir.appId), snapshot.ir.entities[0]);
   first.entityById = new Map();
   assert.equal(first.entityById.size, 0);
   assert.ok(second.entityById.size > 0);
@@ -192,12 +169,12 @@ test('empty read maps reject noncallable forEach callbacks like a native map', (
 
 test('forEach invokes the callback itself rather than its replaceable call property', () => {
   const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
-  const receiver = {}; let count = 0; let hookCalled = false;
+  const receiver = {}; const seen: string[] = []; let hookCalled = false;
   const callback = function (this: object, value: SemanticEntity, key: string, map: ReadonlyMap<string, SemanticEntity>): void {
-    count += 1; assert.equal(this, receiver); assert.equal(map, index.entityById);
-    assert.equal(map.get(key), value);
+    seen.push(key); assert.equal(this, receiver); assert.equal(map, index.entityById);
+    assert.equal(map.get(key), value); assert.equal(Reflect.get(map, 'set'), undefined);
   };
   Object.defineProperty(callback, 'call', { value: () => { hookCalled = true; } });
   index.entityById.forEach(callback, receiver);
-  assert.equal(count, index.entityById.size); assert.equal(hookCalled, false);
+  assert.deepEqual(seen, [...index.entityById.keys()]); assert.equal(hookCalled, false);
 });

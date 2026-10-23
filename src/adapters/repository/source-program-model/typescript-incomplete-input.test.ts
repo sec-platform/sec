@@ -36,11 +36,9 @@ for (const source of [
 ]) {
   test(`incomplete loader input remains explicit and does not poison the next generation: ${source}`, () => {
     try {
-      const model = compileTypeScriptSourceProgramModel(input(source));
-      assert.ok(model.unknowns.some(({ code }) => code === 'dynamic-module-unresolved'));
-      assert.equal(model.references.some(({ kind }) => kind === 'import'), false);
       const first = compileTypeScriptSourceProgramModelIncremental(input(source), null);
       assert.ok(first.model.unknowns.some(({ code }) => code === 'dynamic-module-unresolved'));
+      assert.equal(first.model.references.some(({ kind }) => kind === 'import'), false);
       const next = compileTypeScriptSourceProgramModelIncremental(input('export const ready = 1;'), first.state);
       assert.deepEqual(next.model.unknowns, []);
       assert.deepEqual(next.model.declarations.map(({ name }) => name), ['ready']);
