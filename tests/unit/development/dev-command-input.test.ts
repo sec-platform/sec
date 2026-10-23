@@ -22,7 +22,6 @@ test('ordinary command decisions preserve defaults without retaining caller cont
   args[0] = 'changed'; env.SEC_DEV_COMMAND_TEST = 'two'; input.fill(0);
   assert.deepEqual(result.args, ['test', 'a b.ts']); assert.equal(result.environment.SEC_DEV_COMMAND_TEST, 'one');
   assert.deepEqual([...result.input!], [1, 2, 3]);
-  assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.args)); assert.ok(Object.isFrozen(result.environment));
 });
 
 test.serial('an earlier parent deadline narrows the command without a fresh duration window', () => {

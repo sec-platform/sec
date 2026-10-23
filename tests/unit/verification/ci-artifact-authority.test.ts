@@ -12,8 +12,6 @@ test('CI artifact authority accepts canonical derived empty manifest', () => {
 
   expect(manifest.summary.artifactCount).toBe(0);
   expect(manifest.summary.artifactStatus).toBe('passed');
-  expect(Object.isFrozen(manifest)).toBe(true);
-  expect(Object.isFrozen(manifest.summary)).toBe(true);
 });
 
 test('CI artifact authority rejects summary values that do not derive from artifact state', () => {

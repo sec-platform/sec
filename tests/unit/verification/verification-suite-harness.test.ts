@@ -70,17 +70,17 @@ test('candidate error accessors cannot terminate the harness during failure proj
 
 test('suite invocation capture snapshots paths and callbacks without freezing caller data', () => {
   const files = ['tests/unit/first.test.ts'];
-  const callback = (_file: string) => {};
+  const passed: string[] = [];
+  const callback = (file: string) => { passed.push(file); };
   const input = { workspaceRoot: '.', suiteRoot: 'tests/unit', files, onSuitePassed: callback };
   const captured = captureFastSuiteProcessInput(input);
   files[0] = 'tests/unit/changed.test.ts';
   input.workspaceRoot = '/changed';
+  input.onSuitePassed = () => { throw new Error('replacement callback'); };
   expect(captured.workspaceRoot).toBe('.');
   expect(captured.files).toEqual(['tests/unit/first.test.ts']);
-  expect(captured.onSuitePassed).toBe(callback);
-  expect(Object.isFrozen(captured)).toBe(true);
-  expect(Object.isFrozen(captured.files)).toBe(true);
-  expect(Object.isFrozen(files)).toBe(false);
+  captured.onSuitePassed?.('tests/unit/first.test.ts');
+  expect(passed).toEqual(['tests/unit/first.test.ts']);
 });
 
 test('suite invocation capture rejects proxies and getters without invoking them', () => {

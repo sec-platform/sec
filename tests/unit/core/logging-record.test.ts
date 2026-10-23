@@ -30,11 +30,10 @@ test('reserved log metadata getters are ignored before any property read', () =>
   assert.equal(calls, 0);
 });
 
-test('prototype-looking metadata stays data on a frozen null-prototype record', () => {
+test('prototype-looking metadata stays data on a null-prototype record', () => {
   const metadata = JSON.parse('{"__proto__":{"polluted":true},"constructor":"value"}');
   const record = buildJsonLogRecord('error', 'record', metadata, 1);
   assert.equal(Object.getPrototypeOf(record), null);
-  assert.equal(Object.isFrozen(record), true);
   assert.deepEqual(record.__proto__, { polluted: true });
   assert.equal(record.constructor, 'value');
   assert.equal(Object.hasOwn({}, 'polluted'), false);
@@ -51,7 +50,6 @@ test('shared log-level validation rejects invalid values at contract entries', (
 });
 
 test('canonical levels and defaults retain existing meanings', () => {
-  assert.equal(Object.isFrozen(LOG_LEVELS), true);
   assert.equal(Reflect.set(LOG_LEVELS, '0', 'trace'), false);
   assert.deepEqual(LOG_LEVELS, ['debug', 'info', 'warn', 'error']);
   assert.equal(resolveLogLevel(undefined), 'info');

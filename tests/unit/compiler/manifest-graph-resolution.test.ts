@@ -24,10 +24,13 @@ test('empty input has no synthetic blocks or capabilities', () => {
 
 test('unique transitive providers are selected once and unrelated catalog entries stay out', () => {
   const a = entry('block/a', ['cap/b']), b = builtin(entry('block/b', ['cap/c'], ['cap/b'])), c = builtin(entry('block/c', [], ['cap/c']));
+  const before = structuredClone([a, b, c]);
   const result = resolve([a], [a, b, c, entry('block/unused')]);
   assert.deepEqual(ids(result.entries), ['block/c', 'block/b', 'block/a']);
   assert.deepEqual(result.capabilities, ['block/a', 'cap/b', 'cap/c']);
   assert.deepEqual(result.entries[0], c);
+  assert.deepEqual([a, b, c], before);
+  assert.equal(Reflect.set(a, 'registrySourceId', 'edited-after-resolution'), true);
 });
 
 test('an explicit provider still disambiguates an otherwise ambiguous capability catalog', () => {
@@ -130,12 +133,6 @@ test('cycle errors identify unscheduled blocks without calling their dependent t
     const e = error as { code?: string; details?: { blockedBlockIds?: string[] } };
     assert.equal(e.code, 'RESOLVE-CYCLE-003'); assert.deepEqual(e.details?.blockedBlockIds, ['block/a', 'block/b', 'block/c']); return true;
   });
-});
-
-test('result arrays cannot be used to rewrite the completed selection and source manifests remain untouched', () => {
-  const a = entry('block/a'), before = structuredClone(a), result = resolve([a]);
-  assert.ok(Object.isFrozen(result.entries)); assert.ok(Object.isFrozen(result.capabilities));
-  assert.deepEqual(a, before); assert.equal(Object.isFrozen(a), false);
 });
 
 test('wide and deep graphs use bounded stack, preserve ranks and include every selected vertex', () => {

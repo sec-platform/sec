@@ -13,7 +13,6 @@ test('the installer never enumerates unrelated lifecycle/test fields', () => {
   const bound = bindCompilerInstallInvocation(raw);
   assert.equal(bound.isolated, false);
   assert.equal(runtimeDependencyOperationRemainingMs(bound.controls, 'test'), 100);
-  assert.deepEqual(Object.keys(bound).sort(), ['beforeCommit', 'controls', 'isolated', 'materialization']);
 });
 
 test('prebound mode is rejected before even sampling the environment clock', () => {

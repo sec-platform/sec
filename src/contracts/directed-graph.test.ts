@@ -9,17 +9,16 @@ function chain(size: number): { nodes: string[]; edges: DirectedGraphEdge[] } {
   return { nodes, edges };
 }
 
-test('empty directed graph returns a frozen empty partition', () => {
+test('empty directed graph returns an empty partition', () => {
   const result = scc([], []);
   assert.deepEqual(result, []);
-  assert.ok(Object.isFrozen(result));
 });
 
 test('isolated, self-loop and duplicate nodes preserve set semantics', () => {
   const result = scc(['b', 'a', 'a'], [{ from: 'b', to: 'b' }]);
   assert.deepEqual(result, [['a'], ['b']]);
-  assert.ok(Object.isFrozen(result));
-  for (const component of result) assert.ok(Object.isFrozen(component));
+  for (const component of result) assert.equal(Reflect.set(component, '0', 'forged'), false);
+  assert.deepEqual(result, [['a'], ['b']]);
 });
 
 test('SCC rejects either endpoint outside the closed node set', () => {

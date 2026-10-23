@@ -101,8 +101,9 @@ for (const mode of ['issued', 'foreign', 'shallow-frozen'] as const) {
     assert.equal(Reflect.set(shard.file, 'path', 'src/replacement.ts'), mode !== 'issued');
     assert.equal(canonicalBytes(model), before);
     if (mode === 'issued') {
-      assert.equal(model.files[0], shard.file);
-      assert.equal(model.references[0], shard.references[0]);
+      const expectedFacts = fixture().facts;
+      assert.deepEqual(model.files, [expectedFacts.file]);
+      assert.deepEqual(model.references, expectedFacts.references);
     }
   });
 }

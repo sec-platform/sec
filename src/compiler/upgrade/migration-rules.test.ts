@@ -26,50 +26,50 @@ test('database copy job is a planned write and its migration id is a portable le
 test('config paths never mutate inherited object members', () => {
   const inherited = { settings: { enabled: false } };
   const config = Object.create(inherited) as Record<string, unknown>;
-  expect(applyConfigUpdates(config, [{ path: ['settings', 'enabled'], value: true }])).toBe(config);
+  const updated = applyConfigUpdates(config, [{ path: ['settings', 'enabled'], value: true }]) as Record<string, unknown>;
   expect(inherited.settings).toEqual({ enabled: false });
-  expect(Object.hasOwn(config, 'settings')).toBe(true);
-  expect(config.settings).toEqual({ enabled: true });
+  expect(Object.hasOwn(updated, 'settings')).toBe(true);
+  expect(updated.settings).toEqual({ enabled: true });
 });
 
 test('deleting a path present only on the prototype is a no-op', () => {
   const inherited = { settings: { enabled: true } };
   const config = Object.create(inherited) as Record<string, unknown>;
-  applyConfigUpdates(config, [{ path: ['settings', 'enabled'], operation: 'delete' }]);
+  const updated = applyConfigUpdates(config, [{ path: ['settings', 'enabled'], operation: 'delete' }]) as Record<string, unknown>;
   expect(inherited.settings).toEqual({ enabled: true });
-  expect(Object.keys(config)).toEqual([]);
+  expect(Object.keys(updated)).toEqual([]);
 });
 
 test('array append and remove distinguish own arrays from inherited arrays', () => {
   const inherited = { items: ['original'] };
   const appended = Object.create(inherited) as Record<string, unknown>;
-  applyJsonArrayAppend(appended, { ...identity, kind: 'json-array-append', path: ['items'], items: ['new'] });
-  expect(appended.items).toEqual(['new']);
+  const appendedResult = applyJsonArrayAppend(appended, { ...identity, kind: 'json-array-append', path: ['items'], items: ['new'] }) as Record<string, unknown>;
+  expect(appendedResult.items).toEqual(['new']);
   expect(inherited.items).toEqual(['original']);
   const removed = Object.create(inherited) as Record<string, unknown>;
-  applyJsonArrayRemove(removed, { ...identity, kind: 'json-array-remove', path: ['items'], items: ['original'] });
-  expect(Object.keys(removed)).toEqual([]);
+  const removedResult = applyJsonArrayRemove(removed, { ...identity, kind: 'json-array-remove', path: ['items'], items: ['original'] }) as Record<string, unknown>;
+  expect(Object.keys(removedResult)).toEqual([]);
   expect(inherited.items).toEqual(['original']);
 });
 
 test('array parent creation does not borrow an inherited container', () => {
   const inherited = { settings: { items: ['original'] } };
   const config = Object.create(inherited) as Record<string, unknown>;
-  applyJsonArrayAppend(config, { ...identity, kind: 'json-array-append', path: ['settings', 'items'], items: ['new'] });
-  expect(config.settings).toEqual({ items: ['new'] });
+  const updated = applyJsonArrayAppend(config, { ...identity, kind: 'json-array-append', path: ['settings', 'items'], items: ['new'] }) as Record<string, unknown>;
+  expect(updated.settings).toEqual({ items: ['new'] });
   expect(inherited.settings).toEqual({ items: ['original'] });
 });
 
 test('object merge isolates both inherited destination and nested merge targets', () => {
   const inherited = { settings: { enabled: false } };
   const config = Object.create(inherited) as Record<string, unknown>;
-  applyJsonObjectMerge(config, { ...identity, kind: 'json-object-merge', path: ['settings'], value: { enabled: true } });
-  expect(config.settings).toEqual({ enabled: true });
+  const updated = applyJsonObjectMerge(config, { ...identity, kind: 'json-object-merge', path: ['settings'], value: { enabled: true } }) as Record<string, unknown>;
+  expect(updated.settings).toEqual({ enabled: true });
   expect(inherited.settings).toEqual({ enabled: false });
   const shared = { original: true };
   const nested = { settings: Object.create({ options: shared }) as Record<string, unknown> };
-  applyJsonObjectMerge(nested, { ...identity, kind: 'json-object-merge', path: ['settings'], value: { options: { added: true } } });
-  expect(nested.settings.options).toEqual({ added: true });
+  const nestedResult = applyJsonObjectMerge(nested, { ...identity, kind: 'json-object-merge', path: ['settings'], value: { options: { added: true } } }) as typeof nested;
+  expect(nestedResult.settings.options).toEqual({ added: true });
   expect(shared).toEqual({ original: true });
 });
 
@@ -79,9 +79,9 @@ test('data writes do not dispatch inherited setters', () => {
     set() { writes += 1; }, configurable: true
   });
   const config = Object.create(prototype) as Record<string, unknown>;
-  applyConfigUpdates(config, [{ path: ['settings', 'enabled'], value: true }]);
+  const updated = applyConfigUpdates(config, [{ path: ['settings', 'enabled'], value: true }]) as Record<string, unknown>;
   expect(writes).toBe(0);
-  expect(Object.getOwnPropertyDescriptor(config, 'settings')?.value).toEqual({ enabled: true });
+  expect(Object.getOwnPropertyDescriptor(updated, 'settings')?.value).toEqual({ enabled: true });
 });
 
 test('own accessors are rejected without invoking them during traversal or merge', () => {
@@ -110,12 +110,12 @@ test('reserved path segments and nested merge keys remain rejected', () => {
   }
 });
 
-test('ordinary own data preserves in-place merge, append deduplication and removal', () => {
-  const config: Record<string, unknown> = { settings: { original: true }, items: ['original'] };
-  expect(applyJsonObjectMerge(config, {
+test('ordinary own data preserves merge values, append deduplication and removal', () => {
+  let config: unknown = { settings: { original: true }, items: ['original'] };
+  config = applyJsonObjectMerge(config, {
     ...identity, kind: 'json-object-merge', path: ['settings'], value: { added: true }
-  })).toBe(config);
-  applyJsonArrayAppend(config, { ...identity, kind: 'json-array-append', path: ['items'], items: ['original', 'new'] });
-  applyJsonArrayRemove(config, { ...identity, kind: 'json-array-remove', path: ['items'], items: ['original'] });
+  });
+  config = applyJsonArrayAppend(config, { ...identity, kind: 'json-array-append', path: ['items'], items: ['original', 'new'] });
+  config = applyJsonArrayRemove(config, { ...identity, kind: 'json-array-remove', path: ['items'], items: ['original'] });
   expect(config).toEqual({ settings: { original: true, added: true }, items: ['new'] });
 });

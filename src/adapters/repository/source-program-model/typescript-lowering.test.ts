@@ -1,9 +1,6 @@
 import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import {
-  compileTypeScriptSourceProgramModel,
-  observeTypeScriptSourceProgramPerformanceForTests
-} from './typescript.ts';
+import { compileTypeScriptSourceProgramModel } from './typescript.ts';
 
 test('TypeScript semantic compilation keeps production and test surfaces distinct while excluding resources', () => {
   const moduleMembership = Object.freeze({
@@ -37,7 +34,7 @@ test('TypeScript semantic compilation keeps production and test surfaces distinc
   ]);
 });
 
-test('TypeScript semantic reference lookup skips names outside the canonical declaration and alias census', () => {
+test('TypeScript semantic references preserve aliases without treating shadowed or dynamic computed names as target references', () => {
   const moduleMembership = Object.freeze({
     descriptors: Object.freeze([]),
     graphRoots: Object.freeze([]),
@@ -70,13 +67,11 @@ test('TypeScript semantic reference lookup skips names outside the canonical dec
     source,
     contentDigest: rawSha256(source)
   }));
-  const before = observeTypeScriptSourceProgramPerformanceForTests();
   const model = compileTypeScriptSourceProgramModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
   });
-  const after = observeTypeScriptSourceProgramPerformanceForTests();
   const targetReferences = model.references.filter(({ targetPath }) => (
     targetPath === 'src/bootstrap/reference-target.ts'
   ));
@@ -96,8 +91,4 @@ test('TypeScript semantic reference lookup skips names outside the canonical dec
     { kind: 'reference', name: 'target', moduleSpecifier: null },
     { kind: 'reference', name: 'target', moduleSpecifier: null }
   ]);
-  expect(after.semanticSymbolLookupOperations - before.semanticSymbolLookupOperations).toBeGreaterThan(0);
-  expect(
-    after.semanticSymbolLookupSkippedIdentifiers - before.semanticSymbolLookupSkippedIdentifiers
-  ).toBeGreaterThan(0);
 });

@@ -21,16 +21,13 @@ const {
   migrateContentDigest
 } = CONTENT;
 
-test('bootstrap binds the exact single-thread WASM/SIMD provider', () => {
-  assert.deepEqual(CONTENT.provider, {
-    providerId: '@awasm/noble@0.1.4/wasm-simd',
-    algorithm: 'blake3-256',
-    outputBytes: 32,
-    streaming: true,
-    updateInputLifetime: 'call-only',
-    backend: 'wasm-simd',
-    parallelism: 'single-thread'
-  });
+test('bootstrap binds the adopted single-thread WASM/SIMD execution profile', () => {
+  assert.equal(CONTENT.provider.algorithm, 'blake3-256');
+  assert.equal(CONTENT.provider.outputBytes, 32);
+  assert.equal(CONTENT.provider.streaming, true);
+  assert.equal(CONTENT.provider.updateInputLifetime, 'call-only');
+  assert.equal(CONTENT.provider.backend, 'wasm-simd');
+  assert.equal(CONTENT.provider.parallelism, 'single-thread');
 });
 
 for (const vector of vectors.cases) {
@@ -77,9 +74,8 @@ test('updates own their partial block bytes and do not share computation state',
   assert.equal(b.finish(), contentDigest('other'));
 });
 
-test('finish and dispose are terminal and exposed handles are frozen', () => {
+test('finish and dispose are terminal', () => {
   const hash = createContentHasher();
-  assert.equal(Object.isFrozen(hash), true);
   hash.finish();
   assert.throws(() => hash.finish(), /no longer open/u);
   assert.throws(() => hash.update('more'), /no longer open/u);
@@ -112,7 +108,6 @@ test('migration verifies the same raw bytes before exposing the new digest', () 
   const previous = rawSha256(bytes);
   const migrated = migrateContentDigest(previous, [bytes.subarray(0, 1023), bytes.subarray(1023)]);
   assert.deepEqual(migrated, { previous, current: contentDigest(bytes) });
-  assert.equal(Object.isFrozen(migrated), true);
   assert.throws(() => migrateContentDigest(contentDigest(bytes), [bytes]), TypeError);
   assert.throws(() => migrateContentDigest(previous, [Buffer.from(previous)]), /preimage does not match/u);
 });

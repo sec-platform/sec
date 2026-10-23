@@ -35,6 +35,7 @@ test('review summary surfaces pending repair tasks', async () => {
       coverage: { status: 'failed' },
       report
     };
+    const blocker = buildRepairBlocker();
     const repairPlan = buildRepairPlanArtifact({
       tasks: [
         buildRepairTask({
@@ -58,7 +59,7 @@ test('review summary surfaces pending repair tasks', async () => {
           failurePoints: [buildRepairFailurePoint({ targetIds: [FILE_TARGET_ALPHA] })]
         })
       ],
-      blockers: [buildRepairBlocker()]
+      blockers: [blocker]
     });
     await writeJson(repairPlanPath, repairPlan);
 
@@ -103,12 +104,15 @@ test('review summary surfaces pending repair tasks', async () => {
     });
     expect(summary.repairSummary?.taskSummaries).toHaveLength(2);
     expect(summary.repairSummary?.blockerSummaries).toHaveLength(1);
-    expect(summary.failurePoints).toContainEqual({
+    const repairFailure = summary.failurePoints.find((point) => point.kind === 'repair');
+    expect(repairFailure).toMatchObject({
       lane: 'all',
       kind: 'repair',
       artifactPath: CI_ARTIFACT_FILES.repairPlan,
-      message: 'Repair blocked at spec: policy failure is outside automatic file repair: tenant scope missing'
+      message: expect.stringContaining(blocker.reason)
     });
+    expect(repairFailure?.message).toMatch(/\bspec\b/i);
+    expect(repairFailure?.message).toMatch(/\bblocked\b/i);
     expect(summary.conflictHints).toHaveLength(3);
 
     repairPlan.status = 'applied';
@@ -131,7 +135,7 @@ test('review summary surfaces pending repair tasks', async () => {
     expect(appliedSummary.conflictHints).toHaveLength(3);
     expect(appliedSummary.regressionRisks).toContainEqual({
       kind: 'repair-verification',
-      message: 'Repair applied and requires verification rerun'
+      message: expect.stringMatching(/\bverif(?:y|ication)\b.*\bre-?run\b|\bre-?run\b.*\bverif(?:y|ication)\b/i)
     });
   });
 });

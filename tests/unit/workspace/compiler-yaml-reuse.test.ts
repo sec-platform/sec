@@ -78,16 +78,19 @@ test('Plan syntax rejection keeps its domain error and original library cause', 
   finally { f.cleanup(); }
 });
 
-test('Manifest root and version overlay use strict YAML without changing resolved version or frozen cache results', () => {
+test('Manifest root and version overlay preserve resolved values without cache pollution', () => {
   const f = fixture(); try {
     writeFileSync(f.manifestPath, JSON.stringify(f.manifest));
     const base = loadManifestById('block/example', f.options); assert.equal(base.manifest.version, '1.0.0');
-    assert.equal(loadManifestById('block/example', f.options), base);
     const overlay = path.join(path.dirname(f.manifestPath), 'versions', '2.0.0'); mkdirSync(overlay, { recursive: true });
     writeFileSync(path.join(overlay, 'block.manifest.yaml'), 'version: 2.0.0\nprovides: [new]\n');
     const next = loadManifestById('block/example', { ...f.options, version: '2.0.0' });
     assert.equal(next.manifest.version, '2.0.0'); assert.deepEqual(next.manifest.provides, ['new']);
-    assert.ok(Object.isFrozen(next.manifest)); assert.equal(base.manifest.version, '1.0.0');
+    Reflect.set(next.manifest, 'version', 'forged');
+    Reflect.set(next.manifest.provides, '0', 'forged');
+    const reloaded = loadManifestById('block/example', { ...f.options, version: '2.0.0' });
+    assert.equal(reloaded.manifest.version, '2.0.0'); assert.deepEqual(reloaded.manifest.provides, ['new']);
+    assert.equal(base.manifest.version, '1.0.0');
   } finally { f.cleanup(); }
 });
 

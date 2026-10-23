@@ -58,6 +58,11 @@ test('semantic artifact identity is owner-issued and changes with rendered sourc
   assert.equal(first.identity.schema, 'v1');
   assert.deepEqual(repeated.identity, first.identity);
   assert.notDeepEqual(changed.identity, first.identity);
+  const capturedIdentity = { ...first.identity };
+  for (const key of ['profile', 'domain', 'schema', 'digest']) {
+    Reflect.set(first.identity, key, 'forged');
+  }
+  assert.deepEqual(first.identity, capturedIdentity);
   assert.equal(Object.isFrozen(first), true);
 });
 

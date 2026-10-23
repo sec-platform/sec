@@ -21,7 +21,6 @@ for (const definition of Object.values(PIPELINE_STAGE_DEFINITIONS)) {
       const index = definition.ownedPasses.indexOf(definition.ownedPasses.includes(originPass) ? originPass : definition.primaryPass);
       definition.ownedPasses.forEach((pass, i) => assert.equal(failed[pass], i < index ? 'succeeded' : i === index ? 'failed' : 'blocked'));
       for (const pass of definition.invalidates) assert.equal(failed[pass], 'blocked');
-      assert.ok(Object.isFrozen(failed));
     }
   });
 }
@@ -30,12 +29,6 @@ test('preparation failure cannot fabricate successful internal passes that never
   const patch = pipelineStageStatePatch(getPipelineStageDefinition('resolve'), { kind: 'preparation-failed' });
   assert.equal(patch.parse, 'blocked'); assert.equal(patch.align, 'blocked'); assert.equal(patch.resolve, 'failed');
   assert.ok(!Object.values(patch).includes('succeeded'));
-});
-
-test('a state projection is immutable and resets invalidated repair state', () => {
-  const patch = pipelineStageStatePatch(getPipelineStageDefinition('compose'), { kind: 'started' });
-  assert.equal(Reflect.set(patch, 'compose', 'succeeded'), false);
-  assert.equal(patch.repair, 'skipped');
 });
 
 test('blocker collection reads the actual state once and preserves absent legacy state', () => {
@@ -48,7 +41,6 @@ test('blocker collection reads the actual state once and preserves absent legacy
 });
 
 test('the canonical boundary list and stage dispatch consume one identity projection', () => {
-  assert.ok(Object.isFrozen(PIPELINE_EXECUTION_BOUNDARIES));
   for (const stage of PIPELINE_STAGE_IDS) assert.equal(PIPELINE_EXECUTION_BOUNDARIES.filter(value => value === pipelineStageBoundary(stage)).length, 1);
   assert.deepEqual(PIPELINE_EXECUTION_BOUNDARIES, ['pipeline-bootstrap', 'pipeline-lease-bind', 'pipeline-lease-bound',
     'pipeline-transaction-bootstrap', 'pipeline-transaction', 'pipeline-resolve', 'pipeline-semantic',

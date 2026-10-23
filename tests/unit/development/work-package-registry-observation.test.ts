@@ -311,12 +311,21 @@ test('the body locator is captured exactly once even when source accessors chang
   assert.equal(parseVerificationRegistryProjection(source).entries[1]!.manifestPath, prPath);
 });
 
-test('one manifest avoids an unnecessary size-preflight process', async () => {
-  const events: string[][] = [], debits: number[] = [];
-  await projectWorkPackageRegistry(request, reader(events), count => debits.push(count));
-  assert.equal(events.length, 3);
-  assert.deepEqual(events.at(-1), ['cat-file', 'blob', defaultBlob]);
-  assert.deepEqual(debits, [1, 1, 1]);
+test('one manifest preserves raw bytes and accounts for every observed record in the caller budget', async () => {
+  const events: string[][] = [];
+  let consumedRecords = 0;
+  const source = await projectWorkPackageRegistry(request, reader(events), count => {
+    assert.ok(Number.isSafeInteger(count) && count >= 0);
+    consumedRecords += count;
+  });
+  assert.deepEqual(parseVerificationRegistryProjection(source).entries, [
+    { manifestPath: defaultPath, manifestDigest: rawDigest('default\r\n'), source: 'default',
+      prNumber: null, baseSha: null, headSha: null, headTreeSha: null }
+  ]);
+  // Every response from this one-manifest fixture contains one record, whether
+  // content is read directly or after a metadata preflight. Charge the actual
+  // observations without prescribing a process count or debit partition.
+  assert.equal(consumedRecords, events.length);
 });
 
 for (const invalid of [0, -1, 1.5, Number.NaN, Infinity, 32 * 1024 * 1024 + 1]) {

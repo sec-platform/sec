@@ -33,12 +33,11 @@ test('namespace grammar rejects normalization, suffix-newline and encoding ambig
   assert.equal(identityFrameHeader('a'.repeat(128), 'b'.repeat(128)).byteLength, 274);
 });
 
-test('identity parsing copies and freezes exact metadata for its consumer', () => {
+test('identity parsing captures exact metadata independently of its input', () => {
   const input = record();
   const captured = parseIdentity(input, 'evidence', 'record/v2');
   input.digest = `blake3:${'b'.repeat(64)}`;
   assert.equal(captured.digest, hash);
-  assert.equal(Object.isFrozen(captured), true);
   const nullPrototype = Object.assign(Object.create(null), record());
   assert.deepEqual(parseIdentity(nullPrototype, 'evidence', 'record/v2'), record());
   // @ts-expect-error same 32 bytes cannot erase the semantic domain

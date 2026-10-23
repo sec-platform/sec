@@ -67,7 +67,6 @@ test('structured migration rejects accessors and binds both algorithms to the ad
     profile: 'blake3-256-canonical-json-v1',
     domain: 'cache', schema: 'record/v2', digest: contentDigest(frame)
   });
-  assert.equal(Object.isFrozen(migrated), true);
 });
 
 

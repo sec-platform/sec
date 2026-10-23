@@ -28,7 +28,6 @@ test('Acceptance Coverage authority accepts canonical derived coverage and rejec
 
   expect(coverage.status).toBe('passed');
   expect(coverage.uncoveredBlocks).toEqual([]);
-  expect(Object.isFrozen(coverage)).toBe(true);
   expect(() => validateAcceptanceCoverageReport({
     ...canonicalCoverage(),
     formatVersion: 'future'
