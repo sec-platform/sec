@@ -768,13 +768,8 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
       `${'a'.repeat(64)}/verification-actions`,
       `${'a'.repeat(64)}/verification-actions/record.json`
     ]);
-    const full = scanNoFollowDirectoryTree(identity, {
-      deadlineAtMs: performance.now() + 10_000,
-      maximumEntries: 32,
-      maximumBytes: 8192
-    });
-    expect(forest.find(({ relativePath }) => relativePath.endsWith('record.json'))?.bytes)
-      .toEqual(full.find(({ relativePath }) => relativePath.endsWith('record.json'))?.bytes);
+    expect(Buffer.from(forest.find(({ relativePath }) => relativePath.endsWith('record.json'))?.bytes ?? []))
+      .toEqual(Buffer.from('selected\n'));
     expect(() => scanNoFollowDirectoryTreeSelectedForest(identity, {
       ...options,
       maximumBytes: 1

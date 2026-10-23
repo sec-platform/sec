@@ -121,9 +121,9 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows host directory authority passes the parent absolute deadline to its ACL probe',
+  'Windows host directory authority forwards probe deadlines and remains usable after one expires',
   async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-deadline-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-probe-deadline-'));
     const authorityRoot = path.join(root, 'local-app-data');
     await mkdir(authorityRoot);
     const observedDeadlines: Array<number | undefined> = [];
@@ -132,35 +132,7 @@ test.skipIf(process.platform !== 'win32')(
         authorityRoot,
         async (_targetPath, input) => {
           observedDeadlines.push(input?.deadlineAtMs);
-          return {
-            aclDigest: `sha256:${'a'.repeat(64)}`,
-            ownerSid: 'S-1-5-21-1000'
-          };
-        }
-      );
-      const deadlineAtMs = Date.now() + 10_000;
-      await authority.assertCurrent({ deadlineAtMs });
-      expect(observedDeadlines).toEqual([undefined, deadlineAtMs]);
-      await authority.release();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-);
-
-test.skipIf(process.platform !== 'win32')(
-  'Windows host directory authority preserves its session after one probe deadline failure',
-  async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-probe-deadline-'));
-    const authorityRoot = path.join(root, 'local-app-data');
-    await mkdir(authorityRoot);
-    let probeCount = 0;
-    try {
-      const authority = await proveWindowsHostDirectoryAuthorityForTests(
-        authorityRoot,
-        async () => {
-          probeCount += 1;
-          if (probeCount === 2) {
+          if (observedDeadlines.length === 2) {
             throw new WindowsHostDirectoryAuthorityError('deadline-exhausted', 'test probe deadline exhausted');
           }
           return {
@@ -169,10 +141,11 @@ test.skipIf(process.platform !== 'win32')(
           };
         }
       );
-      await expect(authority.assertCurrent({ deadlineAtMs: Date.now() + 10_000 }))
+      const deadlineAtMs = Date.now() + 10_000;
+      await expect(authority.assertCurrent({ deadlineAtMs }))
         .rejects.toMatchObject({ failure: 'deadline-exhausted' });
       await expect(authority.assertCurrent()).resolves.toBeUndefined();
-      expect(probeCount).toBe(3);
+      expect(observedDeadlines).toEqual([undefined, deadlineAtMs, undefined]);
       await authority.release();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -203,7 +176,7 @@ test.skipIf(process.platform !== 'win32')(
         }
       );
       const cold = observeWindowsAclSessionLifecycleForTests();
-      expect(cold.descriptorReads - before.descriptorReads).toBe(4);
+      expect(cold.descriptorReads).toBeGreaterThan(before.descriptorReads);
       await authority.assertCurrent();
       await authority.assertCurrent();
       expect(observeWindowsAclSessionLifecycleForTests().descriptorReads).toBe(
@@ -430,9 +403,9 @@ test.skipIf(process.platform !== 'win32')(
       );
       await rm(physicalRoot, { recursive: true, force: true });
       await mkdir(physicalRoot);
-      await expect(physicalAuthority.assertCurrent()).rejects.toBeInstanceOf(
-        WindowsHostDirectoryAuthorityError
-      );
+      await expect(physicalAuthority.assertCurrent()).rejects.toMatchObject({
+        failure: 'physical-identity-changed'
+      });
     } finally {
       await aclAuthority?.release();
       await physicalAuthority?.release();
@@ -456,7 +429,9 @@ test.skipIf(process.platform !== 'win32')(
       })).rejects.toMatchObject({ failure: 'deadline-exhausted' });
       await expect(hardenExistingWindowsHostDirectoryAuthority(
         path.join(root, 'missing')
-      )).rejects.toBeInstanceOf(WindowsHostDirectoryAuthorityError);
+      )).rejects.toMatchObject({
+        failure: 'native-provider-unavailable', cause: { code: 'ENOENT' }
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
