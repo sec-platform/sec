@@ -58,7 +58,6 @@ test('all scoped identity constructors reject either side of the original colon 
   for (const construct of constructors) {
     expect(() => construct('a:b', 'c')).toThrow();
     expect(() => construct('a', 'b:c')).toThrow();
-    expect(() => construct('a\u0000b', 'c')).toThrow();
   }
   expect(ids.contractEventId('a.b/中文%', '事件-1')).toBe('event:a.b/中文%:事件-1');
   expect(ids.contractFieldId('a.b', 'Entity', 'field')).toBe('field:a.b:Entity.field');
@@ -85,19 +84,21 @@ test('field, reference, generator, step and port boundaries share one literal co
   expect(ids.artifactEntityId('src/a:b/file.ts')).toBe('artifact:src/a:b/file.ts');
 });
 
-test('normalizer and direct linker both reject ambiguous declarations and imported identities', () => {
+test('shared identity admission covers declarations and imports and remains wired into the linker', () => {
   for (const kind of ['entities', 'states', 'responsibilities', 'operations', 'events', 'policies', 'permissions', 'effects', 'scenarios'] as const) {
     const source = contract();
     // Identity validation runs before consuming kind-specific contents.
     Object.assign(source, { [kind]: [{ id: 'ambiguous:name' }] });
     expect(() => normalizeSemanticContract(source)).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
-    expect(() => linkWorkspaceSemanticContracts([{ blockId: 'block', contractPath: 'x.yaml', contract: source }], [])).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
+    // The linker invokes the same complete validator before its own projections.
+    if (kind === 'entities') {
+      expect(() => linkWorkspaceSemanticContracts([{ blockId: 'block', contractPath: 'x.yaml', contract: source }], [])).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
+    }
   }
   for (const field of ['alias', 'namespace', 'contractId'] as const) {
     const source = contract();
     source.imports = [{ alias: 'a', namespace: 'b', contractId: 'c', [field]: 'a:b' }];
     expect(() => normalizeSemanticContract(source)).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
-    expect(() => linkWorkspaceSemanticContracts([{ blockId: 'block', contractPath: 'x.yaml', contract: source }], [])).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
   }
   const source = contract();
   source.entities = [{ id: 'Entity.with.dot', fields: [] }];

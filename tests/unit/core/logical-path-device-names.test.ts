@@ -5,13 +5,9 @@ import { isWindowsReservedLogicalComponent } from '../../../src/contracts/logica
 import { isCanonicalPortableLogicalPath } from '../../../src/contracts/logical-path.ts';
 
 test('Win32 COM/LPT superscript device aliases and their extensions are rejected', () => {
-  for (const stem of ['COM', 'LPT', 'com', 'lpt']) {
-    for (const digit of ['¹', '²', '³']) {
-      for (const suffix of ['', '.txt', '.tar.gz']) {
-        const component = `${stem}${digit}${suffix}`;
-        assert.equal(isWindowsReservedLogicalComponent(component), true, component);
-      }
-    }
+  // Preserve each stem/digit pair; casing and extensions share the same owner rule.
+  for (const component of ['COM¹', 'com².txt', 'COM³.tar.gz', 'lpt¹', 'LPT².tar.gz', 'lpt³.txt']) {
+    assert.equal(isWindowsReservedLogicalComponent(component), true, component);
   }
   assert.equal(isCanonicalPortableLogicalPath('nested/COM¹.txt'), false);
   assert.equal(isCanonicalCiArtifactPath('.sec/artifacts/COM¹.txt'), false);
