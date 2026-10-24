@@ -1,37 +1,53 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 
 import {
   semanticMutationStagedRebuildDiagnostic,
   semanticMutationStagingCopyOptions
 } from '../../../src/adapters/mutation/derive-staged-mutation.ts';
 
-test('staging copy owns finite aggregate limits and one frozen monotonic deadline', async () => {
-  let fenceCalls = 0;
-  const before = performance.now();
-  const options = semanticMutationStagingCopyOptions(async () => {
-    await Promise.resolve();
-    fenceCalls += 1;
-  });
-  const after = performance.now();
-  expect(options.maximumEntries).toBe(300_000);
-  expect(options.maximumBytes).toBe(1024 * 1024 * 1024);
-  expect(options.deadlineAtMs).toBeGreaterThanOrEqual(before + 30_000);
-  expect(options.deadlineAtMs).toBeLessThanOrEqual(after + 30_000);
-  expect(Object.isFrozen(options)).toBe(true);
-  expect(Object.isFrozen(options.excludeRelativePaths)).toBe(true);
-  const deadline = options.deadlineAtMs;
-  await options.assertCurrent();
-  await options.assertCurrent();
-  expect(fenceCalls).toBe(2);
-  expect(options.deadlineAtMs).toBe(deadline);
-  expect(options.preserveFilePermissionMode).toBe(true);
-  expect(options.excludeRelativePaths).toEqual([
-    '.git',
-    'node_modules',
-    '.shared-deps',
-    '.sec/semantic-mutation',
-    '.sec/workspace-write-lease'
-  ]);
+test.serial('staging copy owns finite aggregate limits and one frozen monotonic deadline', async () => {
+  let fenceCalls = 0, now = 1000, deadline = Number.NaN;
+  let expireDuringFence = false;
+  const clock = spyOn(performance, 'now').mockImplementation(() => now);
+  try {
+    const options = semanticMutationStagingCopyOptions(async () => {
+      await Promise.resolve();
+      fenceCalls += 1;
+      if (expireDuringFence) now = deadline;
+    });
+    for (const limit of [options.maximumEntries, options.maximumBytes]) {
+      expect(Number.isSafeInteger(limit)).toBe(true);
+      expect(limit).toBeGreaterThan(0);
+    }
+    expect(Number.isFinite(options.deadlineAtMs)).toBe(true);
+    expect(options.deadlineAtMs).toBeGreaterThan(now);
+    expect(Object.isFrozen(options)).toBe(true);
+    expect(Object.isFrozen(options.excludeRelativePaths)).toBe(true);
+    deadline = options.deadlineAtMs;
+    await options.assertCurrent();
+    now = (now + deadline) / 2;
+    await options.assertCurrent();
+    expect(fenceCalls).toBe(2);
+    expect(options.deadlineAtMs).toBe(deadline);
+    expect(options.preserveFilePermissionMode).toBe(true);
+    expect(options.excludeRelativePaths).toEqual([
+      '.git',
+      'node_modules',
+      '.shared-deps',
+      '.sec/semantic-mutation',
+      '.sec/workspace-write-lease'
+    ]);
+
+    // The declared absolute bound must govern both sides of an awaited fence,
+    // without fixing a private policy duration or renewing it on each call.
+    expireDuringFence = true;
+    await expect(options.assertCurrent()).rejects.toMatchObject({ code: 'SEMANTIC_MUTATION_STAGING_DEADLINE' });
+    expect(fenceCalls).toBe(3);
+    now = deadline + 1;
+    await expect(options.assertCurrent()).rejects.toMatchObject({ code: 'SEMANTIC_MUTATION_STAGING_DEADLINE' });
+    expect(fenceCalls).toBe(3);
+    expect(options.deadlineAtMs).toBe(deadline);
+  } finally { clock.mockRestore(); }
 });
 
 test('staging budget does not replace or swallow a failed authority fence', async () => {

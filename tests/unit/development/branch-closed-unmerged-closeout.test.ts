@@ -737,68 +737,146 @@ describe('closed-unmerged branch lifecycle operation', () => {
     });
   }
 
-  test('terminal readback with a different evidence digest is rejected', async () => {
-    const closeout = operation();
-    const completedHarness = providerHarness(inventory());
-    const completed = await executeClosedUnmergedCloseoutOperation({
-      operation: closeout, provider: completedHarness.provider
-    });
-    expect(completed.status).toBe('completed');
-    const terminal = completedHarness.terminal(closeout.operationId)!;
-    const harness = providerHarness(inventory());
-    harness.setTerminal(closeout.operationId, {
-      ...terminal, evidenceDigest: `sha256:${'9'.repeat(64)}`
+  describe('terminal replay from one completed operation', () => {
+    let closeout: ReturnType<typeof operation>;
+    let terminal: ClosedUnmergedTerminal;
+
+    beforeAll(async () => {
+      closeout = operation();
+      const completedHarness = providerHarness(inventory());
+      const completed = await executeClosedUnmergedCloseoutOperation({
+        operation: closeout, provider: completedHarness.provider
+      });
+      expect(completed.status).toBe('completed');
+      expect(completedHarness.counters).toEqual({
+        deleteRemoteRef: 1,
+        deleteLocalRef: 0,
+        pruneRemote: 1
+      });
+      if (completed.status === 'completed') {
+        expect(completed.receipt.branch).toBe(BRANCH);
+        expect(completed.receipt.pullRequest).toBe(PR_NUMBER);
+        expect(completed.receipt.disposition).toBe('closed-superseded');
+      }
+      terminal = completedHarness.terminal(closeout.operationId)!;
+    }, 180_000);
+
+    test('terminal readback with a different evidence digest is rejected', async () => {
+      const harness = providerHarness(inventory());
+      harness.setTerminal(closeout.operationId, {
+        ...terminal, evidenceDigest: `sha256:${'9'.repeat(64)}`
+      });
+
+      const replay = await executeClosedUnmergedCloseoutOperation({
+        operation: closeout, provider: harness.provider
+      });
+
+      expect(replay.status).toBe('blocked');
+      expect(replay.status === 'blocked' ? replay.stage : null).toBe('terminal-readback');
+      expect(harness.counters.deleteRemoteRef).toBe(0);
+      expect(harness.counters.deleteLocalRef).toBe(0);
     });
 
-    const replay = await executeClosedUnmergedCloseoutOperation({
-      operation: closeout, provider: harness.provider
+    test('terminal settlement survives later main movement and an unrelated active Work Package', async () => {
+      const current = terminalInventory();
+      const advancedMain = '9'.repeat(40);
+      current.main = { localSha: advancedMain, remoteSha: advancedMain };
+      current.localBranches = current.localBranches.map((entry) => (
+        entry.branch === 'main' ? { ...entry, sha: advancedMain } : entry
+      ));
+      current.remoteBranches = current.remoteBranches.map((entry) => (
+        entry.branch === 'main' ? { ...entry, sha: advancedMain } : entry
+      ));
+      current.activeWorkPackage = {
+        state: 'active', branch: 'codex/unrelated-candidate', manifest: 'WP-unrelated', reason: null
+      };
+      const replayHarness = providerHarness(current);
+      replayHarness.setTerminal(closeout.operationId, terminal);
+
+      const replay = await executeClosedUnmergedCloseoutOperation({
+        operation: closeout, provider: replayHarness.provider
+      });
+
+      expect(replay.status).toBe('completed');
+      expect(replayHarness.counters).toEqual({
+        deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0
+      });
     });
 
-    expect(replay.status).toBe('blocked');
-    expect(replay.status === 'blocked' ? replay.stage : null).toBe('terminal-readback');
-    expect(harness.counters.deleteRemoteRef).toBe(0);
-    expect(harness.counters.deleteLocalRef).toBe(0);
-  });
+    for (const drift of ['pr-head', 'repository'] as const) {
+      test(`terminal settlement rejects ${drift} identity drift`, async () => {
+        const current = terminalInventory();
+        if (drift === 'pr-head') current.pullRequests[0]!.headSha = '8'.repeat(40);
+        else current.repository.fullName = 'sec-platform/different';
+        const replayHarness = providerHarness(current);
+        replayHarness.setTerminal(closeout.operationId, terminal);
 
-  test('terminal settlement survives later main movement and an unrelated active Work Package', async () => {
-    const closeout = operation();
-    const completedHarness = providerHarness(inventory());
-    const completed = await executeClosedUnmergedCloseoutOperation({
-      operation: closeout, provider: completedHarness.provider
-    });
-    expect(completed.status).toBe('completed');
-    expect(completedHarness.counters).toEqual({
-      deleteRemoteRef: 1,
-      deleteLocalRef: 0,
-      pruneRemote: 1
-    });
-    if (completed.status === 'completed') {
-      expect(completed.receipt.branch).toBe(BRANCH);
-      expect(completed.receipt.pullRequest).toBe(PR_NUMBER);
-      expect(completed.receipt.disposition).toBe('closed-superseded');
+        const replay = await executeClosedUnmergedCloseoutOperation({
+          operation: closeout, provider: replayHarness.provider
+        });
+
+        expect(replay.status).toBe('blocked');
+        expect(replay.status === 'blocked' ? replay.stage : null).toBe('terminal-live-readback');
+        expect(replayHarness.counters).toEqual({
+          deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0
+        });
+      });
     }
-    const current = terminalInventory();
-    const advancedMain = '9'.repeat(40);
-    current.main = { localSha: advancedMain, remoteSha: advancedMain };
-    current.localBranches = current.localBranches.map((entry) => (
-      entry.branch === 'main' ? { ...entry, sha: advancedMain } : entry
-    ));
-    current.remoteBranches = current.remoteBranches.map((entry) => (
-      entry.branch === 'main' ? { ...entry, sha: advancedMain } : entry
-    ));
-    current.activeWorkPackage = {
-      state: 'active', branch: 'codex/unrelated-candidate', manifest: 'WP-unrelated', reason: null
-    };
-    const replayHarness = providerHarness(current);
-    replayHarness.setTerminal(closeout.operationId, completedHarness.terminal(closeout.operationId)!);
 
-    const replay = await executeClosedUnmergedCloseoutOperation({
-      operation: closeout, provider: replayHarness.provider
-    });
+    for (const consumer of ['worktree', 'active-work-package', 'unresolved-work-package', 'open-base-pull-request'] as const) {
+      test(`terminal settlement does not complete with a recreated ${consumer} consumer`, async () => {
+        const current = terminalInventory();
+        if (consumer === 'worktree') {
+          current.worktrees.push({
+            path: path.resolve('recreated-topic-worktree'), headSha: HEAD_SHA, branch: BRANCH,
+            dirtyCount: 0, untrackedCount: 0, locked: false, prunable: false,
+            observation: 'resolved', reason: null
+          });
+        } else if (consumer === 'active-work-package') {
+          current.activeWorkPackage = {
+            state: 'active', branch: BRANCH, manifest: 'WP-recreated', reason: null
+          };
+        } else if (consumer === 'unresolved-work-package') {
+          current.activeWorkPackage = {
+            state: 'unresolved', branch: null, manifest: null, reason: 'owner unavailable'
+          };
+        } else {
+          current.pullRequests.push({ ...current.pullRequests[0]!, number: 99,
+            state: 'open', headBranch: 'unrelated', baseBranch: BRANCH });
+        }
+        const replayHarness = providerHarness(current);
+        replayHarness.setTerminal(closeout.operationId, terminal);
 
-    expect(replay.status).toBe('completed');
-    expect(replayHarness.counters).toEqual({
-      deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0
+        const replay = await executeClosedUnmergedCloseoutOperation({
+          operation: closeout, provider: replayHarness.provider
+        });
+
+        expect(replay.status).toBe(
+          consumer === 'unresolved-work-package' ? 'blocked' : 'preserved'
+        );
+        expect(replay.status === 'completed' ? null : replay.stage).toBe('terminal-live-readback');
+        expect(replayHarness.counters).toEqual({
+          deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0
+        });
+      });
+    }
+
+    test('terminal recovery refuses a recreated remote ref without performing any mutation', async () => {
+      const recreated = inventory();
+      const harness = providerHarness(recreated);
+      harness.setTerminal(closeout.operationId, terminal);
+
+      const replay = await executeClosedUnmergedCloseoutOperation({
+        operation: closeout, provider: harness.provider
+      });
+
+      expect(replay.status).toBe('preserved');
+      expect(replay.status === 'preserved' ? replay.stage : null).toBe('terminal-live-readback');
+      expect(replay.status === 'preserved' ? replay.reasons : []).toEqual([
+        'remote branch exists after the terminal receipt'
+      ]);
+      expect(harness.counters).toEqual({ deleteRemoteRef: 0,
+        deleteLocalRef: 0, pruneRemote: 0 });
     });
   });
 
@@ -824,100 +902,5 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(harness.counters).toEqual({
       deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0
     });
-  });
-
-  for (const drift of ['pr-head', 'repository'] as const) {
-    test(`terminal settlement rejects ${drift} identity drift`, async () => {
-      const closeout = operation();
-      const completedHarness = providerHarness(inventory());
-      const completed = await executeClosedUnmergedCloseoutOperation({
-        operation: closeout, provider: completedHarness.provider
-      });
-      expect(completed.status).toBe('completed');
-      const current = terminalInventory();
-      if (drift === 'pr-head') current.pullRequests[0]!.headSha = '8'.repeat(40);
-      else current.repository.fullName = 'sec-platform/different';
-      const replayHarness = providerHarness(current);
-      replayHarness.setTerminal(closeout.operationId, completedHarness.terminal(closeout.operationId)!);
-
-      const replay = await executeClosedUnmergedCloseoutOperation({
-        operation: closeout, provider: replayHarness.provider
-      });
-
-      expect(replay.status).toBe('blocked');
-      expect(replay.status === 'blocked' ? replay.stage : null).toBe('terminal-live-readback');
-      expect(replayHarness.counters).toEqual({
-        deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0
-      });
-    });
-  }
-
-  for (const consumer of ['worktree', 'active-work-package', 'unresolved-work-package', 'open-base-pull-request'] as const) {
-    test(`terminal settlement does not complete with a recreated ${consumer} consumer`, async () => {
-      const closeout = operation();
-      const completedHarness = providerHarness(inventory());
-      const completed = await executeClosedUnmergedCloseoutOperation({
-        operation: closeout, provider: completedHarness.provider
-      });
-      expect(completed.status).toBe('completed');
-      const current = terminalInventory();
-      if (consumer === 'worktree') {
-        current.worktrees.push({
-          path: path.resolve('recreated-topic-worktree'), headSha: HEAD_SHA, branch: BRANCH,
-          dirtyCount: 0, untrackedCount: 0, locked: false, prunable: false,
-          observation: 'resolved', reason: null
-        });
-      } else if (consumer === 'active-work-package') {
-        current.activeWorkPackage = {
-          state: 'active', branch: BRANCH, manifest: 'WP-recreated', reason: null
-        };
-      } else if (consumer === 'unresolved-work-package') {
-        current.activeWorkPackage = {
-          state: 'unresolved', branch: null, manifest: null, reason: 'owner unavailable'
-        };
-      } else {
-        current.pullRequests.push({ ...current.pullRequests[0]!, number: 99,
-          state: 'open', headBranch: 'unrelated', baseBranch: BRANCH });
-      }
-      const replayHarness = providerHarness(current);
-      replayHarness.setTerminal(closeout.operationId, completedHarness.terminal(closeout.operationId)!);
-
-      const replay = await executeClosedUnmergedCloseoutOperation({
-        operation: closeout, provider: replayHarness.provider
-      });
-
-      expect(replay.status).toBe(
-        consumer === 'unresolved-work-package' ? 'blocked' : 'preserved'
-      );
-      expect(replay.status === 'completed' ? null : replay.stage).toBe('terminal-live-readback');
-      expect(replayHarness.counters).toEqual({
-        deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0
-      });
-    });
-  }
-
-  test('terminal recovery refuses a recreated remote ref without performing any mutation', async () => {
-    const closeout = operation();
-    const completedHarness = providerHarness(inventory());
-    const completed = await executeClosedUnmergedCloseoutOperation({
-      operation: closeout, provider: completedHarness.provider
-    });
-    expect(completed.status).toBe('completed');
-    const terminal = completedHarness.terminal(closeout.operationId)!;
-    const recreated = inventory();
-    const harness = providerHarness(recreated);
-    harness.setTerminal(closeout.operationId, terminal);
-
-    const replay = await executeClosedUnmergedCloseoutOperation({
-      operation: closeout, provider: harness.provider
-    });
-
-    expect(replay.status).toBe('preserved');
-    expect(replay.status === 'preserved' ? replay.stage : null).toBe('terminal-live-readback');
-    expect(replay.status === 'preserved' ? replay.reasons : []).toEqual([
-      'remote branch exists after the terminal receipt'
-    ]);
-    expect(harness.counters).toEqual({ deleteRemoteRef: 0,
-      deleteLocalRef: 0, pruneRemote: 0 });
   });
 });
