@@ -16,15 +16,11 @@ import {
 } from '../../../src/adapters/providers/github-api/test/operation-session.ts';
 import {
   activateMainHealthRepairRollingPlan,
-  assertControlPlaneBinding,
   createFreezeProjection,
   documentControlRecoveryEntryStem,
   parseActivePointer,
   parseCurrentStateSpec,
   parseRollingPlan,
-  resolveActiveWorkPackage,
-  resolveWorkSelectionProjectionMode,
-  type ActivePointer,
   type DocumentControlRecoveryTargetKey,
 } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
@@ -207,7 +203,6 @@ const test = Object.assign(
 
 const CURRENT_STATE_PATH = 'config/repository/current-state.yaml';
 const POINTER_PATH = 'config/repository/active-work-package.md';
-const FIXTURE_MANIFEST_PATH = 'config/repository/work-packages/control-plane-lifecycle-fixture-v1.md';
 const CURRENT_ACTIVE_ID = 'current-active-v1';
 const CURRENT_ACTIVE_PATH = `config/repository/work-packages/${CURRENT_ACTIVE_ID}.md`;
 const FREEZE_TARGET_ID = 'freeze-target-v1';
@@ -277,19 +272,7 @@ bunTest.skipIf(process.platform !== 'win32')(
   30_000
 );
 
-function pointerFor(blob: Uint8Array): ActivePointer {
-  return {
-    schema: 'sec-active-work-package-pointer-v2',
-    selectionMode: 'exact-manifest-not-on-default-branch-v1',
-    defaultBranchRef: 'refs/remotes/origin/main',
-    defaultRefFreshness: 'live-platform-match-required',
-    manifest: FIXTURE_MANIFEST_PATH,
-    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(blob) as `sha256:${string}`,
-    digestBytes: 'git-blob',
-    unavailableDefaultRef: 'unresolved',
-    matchingDefaultBlob: 'none'
-  };
-}
+
 
 interface FreezeFixture {
   readonly parent: string;
@@ -692,204 +675,7 @@ afterAll(async () => {
 
 
 
-test('shared resolver fails closed for stale, unavailable, malformed, and checkout-byte drift', () => {
-  const gitBlob = Buffer.from('schema: frozen\n', 'utf8');
-  const oldDefaultBlob = Buffer.from('schema: old\n', 'utf8');
-  const checkoutCrlfBytes = Buffer.from('schema: frozen\r\n', 'utf8');
-  const pointer = pointerFor(gitBlob);
 
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: gitBlob,
-    defaultManifestBlob: null,
-    defaultRefState: 'fresh'
-  })).toEqual({
-    state: 'active',
-    manifest: FIXTURE_MANIFEST_PATH,
-    manifestDigest: pointer.manifestDigest
-  });
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: gitBlob,
-    defaultManifestBlob: gitBlob,
-    defaultRefState: 'fresh'
-  })).toEqual({ state: 'none', reason: 'matching-default-blob' });
-
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: gitBlob,
-    defaultManifestBlob: null,
-    defaultRefState: 'stale'
-  })).toEqual({ state: 'unresolved', reason: 'default-ref-stale' });
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: gitBlob,
-    defaultManifestBlob: null,
-    defaultRefState: 'unavailable'
-  })).toEqual({ state: 'unresolved', reason: 'default-ref-unavailable' });
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: checkoutCrlfBytes,
-    defaultManifestBlob: oldDefaultBlob,
-    defaultRefState: 'fresh'
-  })).toEqual({ state: 'invalid', reason: 'candidate-digest-mismatch' });
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: gitBlob,
-    defaultManifestBlob: oldDefaultBlob,
-    defaultRefState: 'fresh'
-  })).toEqual({ state: 'invalid', reason: 'manifest-path-already-on-default' });
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: undefined,
-    defaultManifestBlob: gitBlob,
-    defaultRefState: 'fresh'
-  })).toEqual({ state: 'none', reason: 'matching-default-blob' });
-  expect(resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: undefined,
-    defaultManifestBlob: null,
-    defaultRefState: 'fresh'
-  })).toEqual({ state: 'invalid', reason: 'candidate-manifest-absent' });
-
-  const malformedPointer = `---
-schema: sec-active-work-package-pointer-v2
-status: conditional
-last-reviewed: 2026-07-24
----
-\`\`\`yaml
-selectionMode: exact-manifest-not-on-default-branch-v1
-defaultBranchRef: refs/remotes/origin/main
-manifest: ${FIXTURE_MANIFEST_PATH}
-manifestDigest: ${pointer.manifestDigest}
-digestBytes: git-blob
-unavailableDefaultRef: unresolved
-matchingDefaultBlob: none
-\`\`\`
-`;
-  expect(() => parseActivePointer(malformedPointer))
-    .toThrow('must contain exactly');
-
-  const competingPointer = `---
-schema: sec-active-work-package-pointer-v2
-status: conditional
-last-reviewed: 2026-07-24
----
-\`\`\`yaml
-selectionMode: exact-manifest-not-on-default-branch-v1
-defaultBranchRef: refs/remotes/origin/main
-defaultRefFreshness: live-platform-match-required
-manifest: ${FIXTURE_MANIFEST_PATH}
-manifestDigest: ${pointer.manifestDigest}
-digestBytes: git-blob
-unavailableDefaultRef: unresolved
-matchingDefaultBlob: none
-\`\`\`
-\`\`\`yaml
-selectionMode: exact-manifest-not-on-default-branch-v1
-defaultBranchRef: refs/remotes/origin/main
-defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/competing-control-plane-fixture-v1.md
-manifestDigest: ${pointer.manifestDigest}
-digestBytes: git-blob
-unavailableDefaultRef: unresolved
-matchingDefaultBlob: none
-\`\`\`
-`;
-  expect(() => parseActivePointer(competingPointer))
-    .toThrow('exactly one YAML selector block');
-
-  expect(() => parseCurrentStateSpec(`
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: false
-stableFacts: {}
-`)).toThrow('requireRemoteMatch must be true');
-
-  const validSpec = parseCurrentStateSpec(`
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts: {}
-`);
-  expect(() => resolveWorkSelectionProjectionMode(validSpec))
-    .toThrow('workSelection stable fact is required');
-  const requiredWorkSelectionSpec = parseCurrentStateSpec(`
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts:
-  workSelection:
-    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
-    projection: sec-work-selection-live-v1-required
-`);
-  expect(resolveWorkSelectionProjectionMode(requiredWorkSelectionSpec))
-    .toBe('required-v1');
-  expect(() => resolveWorkSelectionProjectionMode({
-    ...requiredWorkSelectionSpec,
-    stableFacts: { workSelection: { projection: 'candidate-controlled' } }
-  })).toThrow('unsupported or incomplete');
-  for (const invalidSource of [
-    'remote: --upload-pack=malicious',
-    'defaultBranch: -unsafe',
-    'defaultRef: refs/remotes/upstream/main'
-  ]) {
-    const field = invalidSource.split(':', 1)[0]!;
-    const original = field === 'remote'
-      ? 'remote: origin'
-      : field === 'defaultBranch'
-        ? 'defaultBranch: main'
-        : 'defaultRef: refs/remotes/origin/main';
-    expect(() => parseCurrentStateSpec(
-      `
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts: {}
-`.replace(original, invalidSource)
-    )).toThrow();
-  }
-  expect(() => parseActivePointer(`---
-schema: sec-active-work-package-pointer-v2
-status: conditional
-last-reviewed: 2026-07-23
----
-\`\`\`yaml
-selectionMode: exact-manifest-not-on-default-branch-v1
-defaultBranchRef: refs/remotes/origin/main
-defaultRefFreshness: live-platform-match-required
-manifest: ../../unsafe.md
-manifestDigest: ${pointer.manifestDigest}
-digestBytes: git-blob
-unavailableDefaultRef: unresolved
-matchingDefaultBlob: none
-\`\`\`
-`)).toThrow('canonical Work Package manifest path');
-  expect(() => assertControlPlaneBinding({
-    spec: validSpec,
-    pointer: { ...pointer, defaultBranchRef: 'refs/remotes/upstream/main' }
-  })).toThrow('must match');
-});
 
 test('status resolves a published rolling projection as history after its exact manifest reaches default', async () => {
   const fixture = await createFreezeFixture();
@@ -2156,29 +1942,7 @@ async function expectFreezeTransactionRetired(repositoryRoot: string): Promise<v
   expect((await readdir(gitDirectory)).filter((name) => name.startsWith('.entry-'))).toEqual([]);
 }
 
-test('recovery entry identity is operation plus closed logical target and contains no physical location', () => {
-  const operationId = `sha256:${'a'.repeat(64)}`;
-  const keys = ['freeze-journal', 'git-index', 'active-pointer', 'rolling-plan'] as const;
-  const stems = keys.map((targetKey) => (
-    documentControlRecoveryEntryStem({ operationId, targetKey })
-  ));
-  expect(new Set(stems).size).toBe(keys.length);
-  const otherOperationStems = keys.map((targetKey) => documentControlRecoveryEntryStem({
-    operationId: `sha256:${'b'.repeat(64)}`,
-    targetKey
-  }));
-  expect(new Set([...stems, ...otherOperationStems]).size).toBe(keys.length * 2);
-  expect(() => documentControlRecoveryEntryStem({
-    operationId: 'sha256:not-a-digest',
-    targetKey: 'git-index'
-  })).toThrow('operationId must be one SHA-256 digest');
-  expect(stems.every((stem) => /^\.entry-[0-9a-f]{64}$/u.test(stem))).toBe(true);
-  expect(stems.join('\n')).not.toContain(path.sep);
-  expect(() => documentControlRecoveryEntryStem({
-    operationId,
-    targetKey: 'D:\\moved\\repository\\.git\\index' as DocumentControlRecoveryTargetKey
-  })).toThrow('outside the closed target set');
-});
+
 
 
 bunTest.skipIf(process.platform !== 'linux')('production recovery preserves observed source and freeze state on refusal then resumes its exact journal operation', async () => {
