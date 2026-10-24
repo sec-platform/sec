@@ -303,7 +303,7 @@ export async function runBunInstall(
           boundAttemptDigest: processOperation.boundAttemptDigest,
           requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT
         });
-        const executed = await processSession.run(retainedCommandBoundary, commandArgs, {
+        const executed = await resources.runProcess(processSession, retainedCommandBoundary, commandArgs, {
           ...retainedRunOptions,
           ...COMPILER_INSTALL_OUTPUT_LIMITS,
           beforeSpawn: async () => {

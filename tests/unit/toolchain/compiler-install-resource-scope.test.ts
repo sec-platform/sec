@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import type { RetainedNoFollowChildProcessDirectory, RetainedNoFollowOrdinaryFile } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { openProcessResourceSession, type ProcessResourceSession } from '../../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
-import { CompilerInstallSettlementFailure, withCompilerInstallResources } from '../../../src/adapters/toolchain/dependencies/runtime/install-resource-scope.ts';
+import { compilerInstallProcessSettlementUnproven, CompilerInstallSettlementFailure, withCompilerInstallResources } from '../../../src/adapters/toolchain/dependencies/runtime/install-resource-scope.ts';
 import { sha256 } from '../../../src/contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../src/execution/operation/requirement-binding-context.ts';
 import {
@@ -72,6 +72,7 @@ for (const primary of [undefined, null, false, 0, 'execution failure']) {
       throw primary;
     }), error => {
       assert.ok(error instanceof CompilerInstallSettlementFailure);
+      assert.equal(compilerInstallProcessSettlementUnproven(error), false);
       assert.equal(error.primaryFailed, true); assert.equal(error.cause, primary);
       assert.deepEqual(error.resourceFailures.map(f => f.reason), [closeFailure, disposeFailure]);
       assert.deepEqual(error.resourceFailures.map(f => f.resource), ['process-session', 'executable']);
@@ -112,4 +113,42 @@ test('settlement does not stringify hostile thrown values', async () => {
     assert.ok(error instanceof CompilerInstallSettlementFailure);
     assert.equal(error.cause, value); assert.equal(error.resourceFailures[0]?.reason, proxy); return true;
   });
+});
+
+test('only an admitted process with unproven termination retains its original failure', async () => {
+  for (const phase of ['admission', 'spawn-fence', 'running', 'settled'] as const) {
+    const { proxy: primary, revoke } = Proxy.revocable({}, {});
+    revoke();
+    const owned = ownedSession();
+    const events: string[] = [];
+    const session = {
+      async run(_boundary: unknown, _args: unknown, options: Parameters<ProcessResourceSession['run']>[2]) {
+        if (phase === 'admission') throw primary;
+        await options.beforeSpawn?.();
+        if (phase === 'running') throw primary;
+        return { ordinal: 1, result: { code: 1, stdout: new Uint8Array(), stderr: 'failed but stopped' } };
+      },
+      close() { events.push('session'); return owned.session.close(); }
+    } as unknown as ProcessResourceSession;
+    const failure = await withCompilerInstallResources(async resources => {
+      resources.executable(executable(() => { events.push('executable'); }));
+      resources.processSession(session, owned.expected);
+      // Mechanical process scope only: this test launches no native child.
+      await resources.runProcess(session, {} as Parameters<ProcessResourceSession['run']>[0], [], {
+        maxStderrBytes: 0, maxStdoutBytes: 0,
+        beforeSpawn: () => { if (phase === 'spawn-fence') throw primary; }
+      });
+      throw primary;
+    }).then(() => { throw new Error('Expected the original execution failure'); }, error => error);
+    assert.deepEqual(events, ['session', 'executable']);
+    assert.equal(compilerInstallProcessSettlementUnproven(failure), phase === 'running');
+    if (phase === 'running') {
+      assert.ok(failure instanceof CompilerInstallSettlementFailure);
+      assert.equal(failure.cause, primary);
+      assert.deepEqual(failure.resourceFailures, []);
+      assert.equal(compilerInstallProcessSettlementUnproven({ ...failure }), false);
+      assert.equal(compilerInstallProcessSettlementUnproven(
+        new CompilerInstallSettlementFailure({ reason: primary }, [])), false);
+    } else assert.equal(failure, primary);
+  }
 });

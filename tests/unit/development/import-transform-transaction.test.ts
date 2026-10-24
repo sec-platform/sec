@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, rmdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -57,18 +57,54 @@ test('interrupted terminal deletion is outside active recovery and resumes witho
     const garbage = path.join(root, '.sec', 'import-transform-retired', accepted.transactionId);
     expect(await readdir(garbage)).toHaveLength(before.length - 1);
     await expect(stat(path.join(garbage, deleted))).rejects.toHaveProperty('code', 'ENOENT');
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
+    const interruptedSweep = new Error('interrupted during normal publication garbage retirement');
+    await expect(publishImportTransformTransaction(root, [{ relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }], {
+      afterTerminalRetirementEntry: () => { throw interruptedSweep; }
+    })).rejects.toBe(interruptedSweep);
+    expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('b0\n');
     const foreign = path.join(garbage, 'foreign.txt');
     await writeFile(foreign, 'must survive');
-    await writeFile(path.join(root, 'b.ts'), 'b0\n');
+    const unbound = path.join(root, '.sec', 'import-transform-retired', 'unbound');
+    await mkdir(unbound);
+    await writeFile(path.join(unbound, 'foreign.txt'), 'unbound bytes must survive');
+    const malformed = path.join(root, '.sec', 'import-transform-retired', 'malformed');
+    await mkdir(malformed);
+    const binding = JSON.parse(await readFile(path.join(garbage, 'binding.json'), 'utf8'));
+    binding.transactionId = 'malformed';
+    binding.writes[0].relativePath = '../escape.ts';
+    const malformedBinding = JSON.stringify(binding);
+    await writeFile(path.join(malformed, 'binding.json'), malformedBinding);
     const next = await publishImportTransformTransaction(root, [{ relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }]);
     expect(next.status).toBe('accepted');
     expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a1\n');
     expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('b1\n');
-    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 1, retained: [garbage] });
+    const retirement = await retireTerminalImportTransformTransactions(root);
+    expect(retirement.retired).toBe(1);
+    expect([...retirement.retained].sort()).toEqual([garbage, unbound, malformed].sort());
     expect(await readFile(foreign, 'utf8')).toBe('must survive');
+    expect(await readFile(path.join(unbound, 'foreign.txt'), 'utf8')).toBe('unbound bytes must survive');
+    expect(await readFile(path.join(malformed, 'binding.json'), 'utf8')).toBe(malformedBinding);
     await rm(foreign);
-    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 1, retained: [] });
+    await rm(unbound, { recursive: true });
+    await rm(malformed, { recursive: true });
+    await rmdir(path.dirname(path.dirname(next.journalPath)));
+    const oversizedReceipt = path.join(garbage, 'terminal-receipt.json');
+    const oversizedBytes = ' '.repeat(4097);
+    await writeFile(oversizedReceipt, oversizedBytes);
+    await writeFile(path.join(root, 'c.ts'), 'c0\n');
+    const preserved = await publishImportTransformTransaction(root, [{ relativePath: 'c.ts', expectedBytes: Buffer.from('c0\n'), replacementBytes: Buffer.from('c1\n') }]);
+    expect(preserved.status).toBe('accepted');
+    expect(await readFile(oversizedReceipt, 'utf8')).toBe(oversizedBytes);
+    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 1, retained: [garbage] });
+    await rmdir(path.dirname(path.dirname(preserved.journalPath)));
+    await rm(oversizedReceipt);
+    const resumed = await publishImportTransformTransaction(root, [{ relativePath: 'c.ts', expectedBytes: Buffer.from('c1\n'), replacementBytes: Buffer.from('c2\n') }]);
+    expect(resumed.status).toBe('accepted');
     await expect(stat(garbage)).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a1\n');
+    expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('b1\n');
+    expect(await readFile(path.join(root, 'c.ts'), 'utf8')).toBe('c2\n');
   });
 });
 

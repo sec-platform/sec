@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainCurrentProcessExecutable, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
+import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, retainedCommandFailureTreeClosed, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
 import { compilerRoot } from "../../../src/adapters/workspace-context.ts";
 
 import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
@@ -300,6 +300,9 @@ test.skipIf(process.platform !== 'win32')(
 
   expect(failure).toBeInstanceOf(RetainedCommandTransportError);
   const typed = failure as RetainedCommandTransportError;
+  expect(retainedCommandFailureTreeClosed(typed)).toBe(true);
+  expect(retainedCommandFailureTreeClosed({ ...typed })).toBeNull();
+  expect(retainedCommandFailureTreeClosed(new RetainedCommandTransportError('unissued', typed.outcome))).toBeNull();
   expect(typed.outcome).toMatchObject({
     status: 'timed-out',
     trigger: 'timed-out',
@@ -310,6 +313,8 @@ test.skipIf(process.platform !== 'win32')(
       treeClosed: true
     }
   });
+  Object.defineProperty(typed, 'outcome', { value: { termination: { treeClosed: false } } });
+  expect(retainedCommandFailureTreeClosed(typed)).toBe(true);
   }
 );
 

@@ -6,7 +6,7 @@ import { setTimeout as sleepMs } from 'node:timers/promises';
 import { canonicalEquals, canonicalJson, cloneAndDeepFreeze, compareCodeUnits, digest, sortedKeys } from '../../../../contracts/canonical.ts';
 import { type CommitFence } from "../../../../contracts/commit-fence.ts";
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
-import { boundedFailureCode } from '../../../../contracts/failure-inspection.ts';
+import { boundedFailureCode, failureMessage } from '../../../../contracts/failure-inspection.ts';
 import { CodedFailure } from '../../../../contracts/failure.ts';
 import { formatJsonFile } from "../../../../contracts/json-text.ts";
 import { isPathInside } from "../../../../contracts/relative-path.ts";
@@ -38,6 +38,7 @@ import {
   type RuntimeDependencySpec
 } from '../contract/runtime-dependency-spec.ts';
 import { runBunInstall } from './compiler-install-process.ts';
+import { compilerInstallProcessSettlementUnproven } from './install-resource-scope.ts';
 import {
   canonicalCompilerDependencyGenerationOwnerRoot,
   compilerDependencyLocatorObservation,
@@ -2676,14 +2677,20 @@ function runtimeDependencyFailureEvidence(error: unknown): Readonly<{
   message: string;
   name: string;
 }> {
-  const value = error instanceof Error ? error : new Error(String(error));
-  const code = 'code' in value && typeof value.code === 'string' ? value.code : null;
-  return Object.freeze({
-    code,
-    details: value instanceof CodedFailure ? value.details : null,
-    message: value.message.slice(0, 1_024),
-    name: value.name
-  });
+  try {
+    const value = error instanceof Error ? error : new Error(failureMessage(error));
+    const code = 'code' in value && typeof value.code === 'string' ? value.code : null;
+    return Object.freeze({
+      code,
+      details: value instanceof CodedFailure ? value.details : null,
+      message: failureMessage(value).slice(0, 1_024),
+      name: value.name
+    });
+  } catch {
+    // Diagnostics cannot replace the original operation or cleanup failure.
+    return Object.freeze({ code: null, details: null,
+      message: failureMessage(error).slice(0, 1_024), name: 'UnknownThrownValue' });
+  }
 }
 
 type RuntimeDependencyCapturedFailure = Readonly<{ error: unknown }>;
@@ -2709,7 +2716,12 @@ function runtimeDependencyInstallLockSettlementFailure(input: Readonly<{
         ? null
         : runtimeDependencyFailureEvidence(input.cleanupFailure.error),
       lockPath: input.lockPath
-    }
+    },
+    { cause: new AggregateError(
+      [input.callbackFailure, input.fenceFailure, input.cleanupFailure]
+        .flatMap(failure => failure === undefined ? [] : [failure.error]),
+      'Runtime dependency operation, final fence, and lock settlement failures'
+    ) }
   );
 }
 
@@ -2825,7 +2837,9 @@ async function withInstallLock<T>(
   // Settlement is deliberately outside the operation budget: once this
   // process owns the exact token, neither an exhausted deadline nor an abort
   // may strand it.  The caller fence is still observed, but its failure cannot
-  // skip the retained identity/token CAS deletion below.
+  // skip the retained identity/token CAS deletion below. An install process
+  // whose termination remains unproven is different: preserve its exact lock
+  // together with the stage that may still have an external writer.
   let fenceFailure: RuntimeDependencyCapturedFailure | undefined;
   try {
     await operationOptions.beforeCommit?.();
@@ -2835,7 +2849,8 @@ async function withInstallLock<T>(
   let cleanupFailure: RuntimeDependencyCapturedFailure | undefined;
   let terminalHandoff = false;
   try {
-    if (owner !== null && ownerObservation !== null) {
+    if (owner !== null && ownerObservation !== null &&
+        !compilerInstallProcessSettlementUnproven(callbackFailure?.error)) {
       const terminalHandoffRequest = typeof callbackResult === 'object' && callbackResult !== null
         ? installLockTerminalHandoffRequests.get(callbackResult)
         : undefined;
@@ -5498,6 +5513,10 @@ async function stageCompilerDependencyGeneration(
     }
     return { binding, stageIntent, stagingRoot, stagingRootSlot };
   } catch (error) {
+    // A rejected native execution can still own writers in this stage. Keep
+    // its original intent and exact lock; only real termination can permit
+    // retirement. Do not translate away the scope-owned preservation state.
+    if (compilerInstallProcessSettlementUnproven(error)) throw error;
     try {
       if (stageIntent !== null) {
         await settleCompilerDependencyStageIntent(

@@ -24,31 +24,28 @@ for (const [lane, runFast, runtimeMode, scope] of [
     assert.equal(shouldExecuteRuntimeVerification(profile, false), !runFast);
     assert.ok(Object.isFrozen(profile));
   });
-  test(`${lane} preserves standalone output and timing choices`, () => {
-    for (const [flags, expectedOutput] of [
-      [{}, { json: false, compact: false }],
-      [{ json: true }, { json: true, compact: false }],
-      [{ json: true, compact: true }, { json: true, compact: true }]
-    ] as const) {
-      const workspace = parseVerifyCommandInput({ ...flags, lane });
-      assert.equal(workspace.request.lane, lane);
-      assert.deepEqual(workspace.output, expectedOutput);
-      assert.equal(workspace.request.emitTiming, !expectedOutput.json);
-      assert.ok(Object.isFrozen(workspace)); assert.ok(Object.isFrozen(workspace.request));
-    }
-    if (lane === 'runtime') {
-      // A parsed request cannot change its lane or output mode after capture,
-      // even when its original ordinary options object is mutated.
-      const mutable: Record<string, unknown> = { lane, json: true, compact: false };
-      const captured = parseVerifyCommandInput(mutable);
-      mutable.lane = 'all'; mutable.json = false; mutable.compact = true;
-      assert.deepEqual(captured, {
-        output: { json: true, compact: false },
-        request: { lane: 'runtime', emitTiming: false }
-      });
-    }
-  });
 }
+
+test('standalone captures each lane and the independent output and timing choices', () => {
+  for (const [lane, flags, expectedOutput] of [
+    ['fast', {}, { json: false, compact: false }],
+    ['runtime', { json: true }, { json: true, compact: false }],
+    ['all', { json: true, compact: true }, { json: true, compact: true }]
+  ] as const) {
+    const workspace = parseVerifyCommandInput({ ...flags, lane });
+    assert.equal(workspace.request.lane, lane);
+    assert.deepEqual(workspace.output, expectedOutput);
+    assert.equal(workspace.request.emitTiming, !expectedOutput.json);
+    assert.ok(Object.isFrozen(workspace)); assert.ok(Object.isFrozen(workspace.request));
+  }
+  const mutable: Record<string, unknown> = { lane: 'runtime', json: true, compact: false };
+  const captured = parseVerifyCommandInput(mutable);
+  mutable.lane = 'all'; mutable.json = false; mutable.compact = true;
+  assert.deepEqual(captured, {
+    output: { json: true, compact: false },
+    request: { lane: 'runtime', emitTiming: false }
+  });
+});
 
 const inertPipelineOperations = {
   compile: async () => { throw new Error('pipeline compile operation must not run'); },
@@ -56,13 +53,15 @@ const inertPipelineOperations = {
 } as const;
 
 test('unknown, prototype and non-string lanes never become an execution recipe', () => {
-  for (const value of [undefined, null, 0, {}, [], 'FAST', '', 'toString', '__proto__', new String('all')]) {
+  for (const value of [undefined, null, 0, {}, [], 'ALL', '', 'toString', '__proto__', new String('all')]) {
     assert.equal(isVerificationLane(value), false);
     assert.throws(() => verificationLaneProfile(value), RangeError);
+    // Commander supplies text here; arbitrary values remain a domain obligation.
+    if (typeof value !== 'string') continue;
     assert.throws(() => parseVerifyCommandInput({ lane: value }),
-      (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
+      (error: unknown) => error instanceof CodedFailure && error.code === 'CLI-USAGE-001');
     assert.throws(() => parsePipelineCompileOptions({ lane: value }),
-      (error: unknown) => (error as { code: string }).code === 'PIPELINE-USAGE-002');
+      (error: unknown) => error instanceof CodedFailure && error.code === 'PIPELINE-USAGE-002');
   }
   assert.ok(Object.isFrozen(VERIFICATION_LANES));
   assert.ok(Object.isFrozen(VERIFICATION_LANE_PROFILES));

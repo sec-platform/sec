@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { PhysicalDirectoryIdentity } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import type { ProcessResourceSession } from '../../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
+import { compilerDependencyStoragePaths } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts';
+import { compilerInstallProcessSettlementUnproven, withCompilerInstallResources } from '../../../src/adapters/toolchain/dependencies/runtime/install-resource-scope.ts';
+import { generatedStateDigest } from '../../../src/execution/generated-state/contract.ts';
 import {
   observeNoFollowOwnedFile,
   readNoFollowOwnedFileBytes
@@ -371,6 +375,95 @@ describe('compiler dependency installation', () => {
         expect(replaced).toBe(true);
         expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'replacement-owner' });
       }, async () => { await removeReplacement?.(); });
+    }));
+
+  effectfulTest(test, 'preserves the exact stage intent and compiler lock when process termination is unproven', {
+    operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+    cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
+  }, (effectfulContext) =>
+    withCompilerTestWorkspace(effectfulContext, 'engineering-compiler-dev-deps-unsettled-', async (tempRoot, operation) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = compilerCoordinationLockPath(tempRoot);
+      const processFailure = new Error('fixture process termination was not observed');
+      const closeFailure = new Error('fixture process session close failed');
+      const { proxy: fenceFailure, revoke } = Proxy.revocable({}, {});
+      revoke();
+      let stageRoot: string | undefined;
+      let removeLock: (() => Promise<void>) | undefined;
+      let originalLock: ReturnType<typeof observeNoFollowOwnedFile> = null;
+      let originalLockBytes: Buffer | undefined;
+      let originalStage: readonly bigint[] | undefined;
+      let intentBytes: readonly (readonly [string, Buffer])[] = [];
+      let scopeFailure: unknown;
+      await settleWorkspaceCallback(async () => {
+        const failure = await ensureCompilerDepsReady({
+          ...operation,
+          beforeCommit: () => { if (scopeFailure !== undefined) throw fenceFailure; },
+          materialize: async (_args, command) => {
+            stageRoot = command.cwd;
+            await fs.writeFile(path.join(stageRoot, 'unsettled.txt'), 'unsettled stage bytes\n');
+            const stage = await fs.lstat(stageRoot, { bigint: true });
+            originalStage = [stage.dev, stage.ino];
+            const intents = compilerDependencyStoragePaths(tempRoot).stageIntentRoot;
+            intentBytes = await Promise.all((await fs.readdir(intents)).sort().map(async name =>
+              [name, await fs.readFile(path.join(intents, name))] as const));
+            expect(intentBytes).toHaveLength(1);
+            originalLock = observeNoFollowOwnedFile(lockPath, 'Unsettled compiler fixture original lock');
+            if (originalLock === null) throw new Error('Compiler fixture has no original lock');
+            originalLockBytes = readNoFollowOwnedFileBytes(originalLock, 'Unsettled compiler fixture original bytes');
+            removeLock = retainFixtureFileRemoval(lockPath);
+            // Inject the process scope's real failure protocol, not a native
+            // termination claim. This fixture never starts an external writer.
+            const session = {
+              async run(_boundary: unknown, _argv: unknown, options: Parameters<ProcessResourceSession['run']>[2]) {
+                await options.beforeSpawn?.();
+                throw processFailure;
+              },
+              close() { throw closeFailure; }
+            } as unknown as ProcessResourceSession;
+            const binding = generatedStateDigest({ fixture: 'unsettled-compiler-process' });
+            return withCompilerInstallResources(async resources => {
+              resources.processSession(session, {
+                operationIdentityDigest: binding, boundAttemptDigest: binding, requirementId: 'fixture.install'
+              });
+              await resources.runProcess(session, {} as Parameters<ProcessResourceSession['run']>[0], [], {
+                maxStderrBytes: 0, maxStdoutBytes: 0
+              });
+              throw new Error('Unsettled fixture process unexpectedly succeeded');
+            }).catch(error => { scopeFailure = error; throw error; });
+          }
+        }, tempRoot).then(() => { throw new Error('Unsettled compiler install unexpectedly succeeded'); }, error => error);
+        expect(failure).toMatchObject({ code: 'RUNTIME-DEPS-003', details: {
+          callbackFailure: { code: 'RUNTIME-DEPS-SETTLEMENT-001' },
+          fenceFailure: { code: null, details: null },
+          cleanupFailure: null
+        } });
+        expect(failure.cause).toBeInstanceOf(AggregateError);
+        expect(failure.cause.errors).toHaveLength(2);
+        expect(failure.cause.errors[0]).toBe(scopeFailure);
+        expect(failure.cause.errors[1]).toBe(fenceFailure);
+        expect(failure.cause.errors[0].cause).toBe(processFailure);
+        expect(failure.cause.errors[0].resourceFailures[0].reason).toBe(closeFailure);
+        expect(compilerInstallProcessSettlementUnproven(scopeFailure)).toBe(true);
+        expect(scopeFailure).toMatchObject({ cause: processFailure,
+          resourceFailures: [{ resource: 'process-session', reason: closeFailure }] });
+        const previousLock = originalLock as ReturnType<typeof observeNoFollowOwnedFile>;
+        if (stageRoot === undefined || previousLock === null) throw new Error('Unsettled fixture did not reach its stage');
+        const stage = await fs.lstat(stageRoot, { bigint: true });
+        expect([stage.dev, stage.ino]).toEqual(originalStage);
+        expect(await fs.readFile(path.join(stageRoot, 'unsettled.txt'), 'utf8')).toBe('unsettled stage bytes\n');
+        const currentLock = observeNoFollowOwnedFile(lockPath, 'Unsettled compiler fixture retained lock');
+        expect(currentLock).toMatchObject({ device: previousLock.device, inode: previousLock.inode, size: previousLock.size });
+        expect(readNoFollowOwnedFileBytes(currentLock!, 'Unsettled compiler fixture retained bytes')).toEqual(originalLockBytes!);
+        const intents = compilerDependencyStoragePaths(tempRoot).stageIntentRoot;
+        expect(await Promise.all((await fs.readdir(intents)).sort().map(async name =>
+          [name, await fs.readFile(path.join(intents, name))] as const))).toEqual(intentBytes);
+        await expect(fs.lstat(path.join(tempRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+      }, async () => {
+        // Test-owned cleanup only: no native writer was launched. Removing
+        // this exact fixture lock does not qualify production orphan recovery.
+        await removeLock?.();
+      });
     }));
 
   effectfulTest(test, 'reclaims a dead compiler install owner instead of timing out future development', {

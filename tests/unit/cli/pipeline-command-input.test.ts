@@ -28,10 +28,6 @@ test('compile forwards invalid stage admission for both bounds', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', through: '' }), code('PIPELINE-USAGE-001'));
 });
 
-test('rejects an invalid textual lane', () => {
-  assert.throws(() => parsePipelineCompileOptions({ lane: 'ALL' }), code('PIPELINE-USAGE-002'));
-});
-
 test('compile rejects compact output without JSON', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);
 });

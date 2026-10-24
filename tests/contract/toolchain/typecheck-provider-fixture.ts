@@ -26,7 +26,8 @@ export async function withCheckerExecutionBoundary<T>(
     dependencyDirectory: RetainedNoFollowProvenDirectoryGeneration;
     processExecutionAdmission: TypeScriptCheckerProcessExecutionAdmission;
     workingDirectory: RetainedNoFollowSealedDirectoryGeneration;
-  }>) => Promise<T>
+  }>) => Promise<T>,
+  diagnosticArguments: readonly string[] = []
 ): Promise<T> {
   const root = inspectNoFollowDirectoryChain(workingRoot, 'test immutable checker root').target;
   const inventory = scanNoFollowDirectoryTreeInventory(root, {
@@ -85,7 +86,7 @@ export async function withCheckerExecutionBoundary<T>(
     const operation = compileTypecheckSemanticOperation({
       checker,
       deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-      diagnosticArguments: [],
+      diagnosticArguments,
       projectConfigPath: checker.provider.projectConfig
     });
     const processSession = openProcessResourceSession({
