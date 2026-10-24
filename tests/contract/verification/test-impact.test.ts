@@ -139,26 +139,6 @@ test('observed git-hook entrypoints route through development hooks ownership', 
     .toContain('tests/unit/install-hooks-fixture.test.ts');
 });
 
-test('repository module graph is the single resolved dependency observation', () => {
-  const provider = sourceProvider({
-    'src/compiler/fixture.ts': 'export const fixture = true;',
-    'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;"
-  });
-  const graph = readRepositoryModuleGraphV1(provider);
-  const resolution = resolveTestImpactSelectionTrustBoundary(provider);
-
-  expect(resolution).toEqual({ selectionResolved: true, unresolvedModuleFiles: [] });
-  expect(graph.files.length).toBeGreaterThan(0);
-  expectUnique(graph.files);
-  expectUnique(graph.references.map((reference) => (
-    `${reference.from}\0${reference.kind}\0${reference.specifier}\0${reference.resolvedTarget ?? ''}`
-  )));
-  for (const reference of graph.references) {
-    expect(reference.candidateTargets).toEqual([...new Set(reference.candidateTargets)].sort());
-    if (reference.resolvedTarget !== null) expect(graph.files).toContain(reference.resolvedTarget);
-  }
-});
-
 test('impact follows executable imports instead of import-like text', () => {
   const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
   const facade = 'src/bootstrap/engineering/virtual-entrypoint.ts';
@@ -191,33 +171,34 @@ test('impact follows executable imports instead of import-like text', () => {
   }]);
 });
 
-test('colocated source tests use the canonical repository test-module identity', () => {
-  const source = 'src/compiler/colocated-source.ts';
-  const selected = 'src/compiler/colocated-source.spec.ts';
-  const provider = sourceProvider({
-    [source]: 'export const value = 1;',
-    [selected]: "import { value } from './colocated-source.ts'; void value;"
-  });
-
-  expect(isTestImpactModuleGraphInputFile(selected, provider)).toBe(false);
-  expect(isTestImpactSourceFile(selected, provider)).toBe(false);
-  expect(selectTestsForSources([source], provider).fast).toEqual([selected]);
-});
-
 test('compiler-resolved named barrel references do not select unrelated consumers', () => {
   const alpha = 'src/compiler/virtual-alpha.ts';
   const beta = 'src/compiler/virtual-beta.ts';
   const facade = 'src/compiler/virtual-public.ts';
-  const alphaTest = 'tests/unit/virtual-alpha.test.ts';
+  const alphaTest = 'src/compiler/virtual-alpha.spec.ts';
   const betaTest = 'tests/unit/virtual-beta.test.ts';
   const provider = sourceProvider({
     [alpha]: 'export const alpha = 1;',
     [beta]: 'export const beta = 2;',
     [facade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
-    [alphaTest]: "import { alpha } from '../../src/compiler/virtual-public.ts'; void alpha;",
+    [alphaTest]: "import { alpha } from './virtual-public.ts'; void alpha;",
     [betaTest]: "import { beta } from '../../src/compiler/virtual-public.ts'; void beta;"
   });
 
+  const graph = readRepositoryModuleGraphV1(provider);
+  expect(resolveTestImpactSelectionTrustBoundary(provider))
+    .toEqual({ selectionResolved: true, unresolvedModuleFiles: [] });
+  expect(graph.files.length).toBeGreaterThan(0);
+  expectUnique(graph.files);
+  expectUnique(graph.references.map((reference) => (
+    `${reference.from}\0${reference.kind}\0${reference.specifier}\0${reference.resolvedTarget ?? ''}`
+  )));
+  for (const reference of graph.references) {
+    expect(reference.candidateTargets).toEqual([...new Set(reference.candidateTargets)].sort());
+    if (reference.resolvedTarget !== null) expect(graph.files).toContain(reference.resolvedTarget);
+  }
+  expect(isTestImpactModuleGraphInputFile(alphaTest, provider)).toBe(false);
+  expect(isTestImpactSourceFile(alphaTest, provider)).toBe(false);
   expect(selectTestsForSources([alpha], provider).fast).toEqual([alphaTest]);
   expect(selectTestsForSources([beta], provider).fast).toEqual([betaTest]);
   expect(selectTestsForSources([facade], provider).fast).toEqual([alphaTest, betaTest]);

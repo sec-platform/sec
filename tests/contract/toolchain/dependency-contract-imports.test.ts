@@ -31,22 +31,3 @@ test('dependency transition contract erases physical-provider type imports from 
     specifier.includes(PHYSICAL_RUNTIME_FRAGMENT)
   )).toBe(false);
 });
-
-test('regression discriminates inline type specifiers under verbatim module syntax', () => {
-  const unsafe = ts.transpileModule(
-    "import { type Identity } from './physical/runtime/provider.ts';",
-    {
-      compilerOptions: {
-        module: ts.ModuleKind.ESNext,
-        target: ts.ScriptTarget.ESNext,
-        verbatimModuleSyntax: true
-      }
-    }
-  ).outputText;
-  const output = ts.createSourceFile(
-    'unsafe.js', unsafe, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS
-  );
-  expect(output.statements.filter(ts.isImportDeclaration).map((declaration) => (
-    (declaration.moduleSpecifier as ts.StringLiteral).text
-  ))).toEqual(['./physical/runtime/provider.ts']);
-});

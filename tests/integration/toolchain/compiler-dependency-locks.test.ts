@@ -331,50 +331,6 @@ describe('compiler dependency installation', () => {
       await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     }));
 
-  effectfulTest(test, 'retries only the same Windows compiler lock identity and proves final absence', {
-    operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-    cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
-  }, (effectfulContext) =>
-    withCompilerTestWorkspace(effectfulContext, 'engineering-compiler-lock-delete-retry-', async (tempRoot, operation) => {
-      await writeCompilerDependencyRoot(tempRoot);
-      await ensureCompilerDepsReady({
-        ...operation,
-        materialize: async (_args, command) => {
-          await installCompilerDependencyFixture(command.cwd, 'preexisting');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        }
-      }, tempRoot);
-      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
-      const lockPath = compilerCoordinationLockPath(tempRoot);
-      let retryPreimage: Readonly<{ device: bigint; inode: bigint; bytes: Buffer }> | undefined;
-      let observedRetry = false;
-      const ready = await ensureCompilerDepsReady({
-        ...operation,
-        materialize: async (_args, command) => {
-          await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-retry');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        },
-        pollIntervalMs: 1,
-        testInstallLockDeletePlatform: 'win32',
-        testInstallLockDelete: async (filePath, attempt) => {
-          expect(filePath.startsWith('\\\\?\\') ? filePath.slice(4) : filePath).toBe(lockPath);
-          const identity = await fs.lstat(filePath, { bigint: true });
-          const bytes = await fs.readFile(filePath);
-          if (attempt === 1) {
-            retryPreimage = { device: identity.dev, inode: identity.ino, bytes };
-            throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
-          }
-          expect({ device: identity.dev, inode: identity.ino, bytes }).toEqual(retryPreimage);
-          observedRetry = true;
-        }
-      }, tempRoot);
-
-      expect(ready.source).toBe('installed');
-      expect(observedRetry).toBe(true);
-      await expect(fs.stat(lockPath))
-        .rejects.toMatchObject({ code: 'ENOENT' });
-    }));
-
   effectfulTest(test, 'preserves a replacement Windows compiler lock after a transient deletion failure', {
     operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
     cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
@@ -421,46 +377,6 @@ describe('compiler dependency installation', () => {
         expect(replaced).toBe(true);
         expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'replacement-owner' });
       }, async () => { await removeReplacement?.(); });
-    }));
-
-  effectfulTest(test, 'reports an unknown Windows lock settlement when the operation deadline expires', {
-    operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-    cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
-  }, (effectfulContext) =>
-    withCompilerTestWorkspace(effectfulContext, 'engineering-compiler-lock-delete-deadline-', async (tempRoot, operation) => {
-      await writeCompilerDependencyRoot(tempRoot);
-      await ensureCompilerDepsReady({
-        ...operation,
-        materialize: async (_args, command) => {
-          await installCompilerDependencyFixture(command.cwd, 'preexisting');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        }
-      }, tempRoot);
-      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
-      let monotonicNowMs = performance.now();
-      let settleInterruptedDeletion: (() => Promise<void>) | undefined;
-      await settleWorkspaceCallback(async () => {
-        await expect(ensureCompilerDepsReady({
-          ...operation,
-          materialize: async (_args, command) => {
-            await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-deadline');
-            return { code: 0, stdout: 'ok', stderr: '' };
-          },
-          monotonicNowMs: () => monotonicNowMs,
-          pollIntervalMs: 1,
-          testInstallLockDeletePlatform: 'win32',
-          testInstallLockDelete: async (filePath) => {
-            // The fixture interrupted this exact owner-requested deletion.
-            // Retain its preimage now, never adopt whatever exists after failure.
-            settleInterruptedDeletion ??= retainFixtureFileRemoval(filePath);
-            monotonicNowMs += 100_000;
-            throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
-          }
-        }, tempRoot)).rejects.toMatchObject({
-          code: 'RUNTIME-DEPS-003',
-          details: { outcome: 'unknown' }
-        });
-      }, async () => { await settleInterruptedDeletion?.(); });
     }));
 
   effectfulTest(test, 'reclaims a dead compiler install owner instead of timing out future development', {

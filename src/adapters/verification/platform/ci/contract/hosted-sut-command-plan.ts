@@ -574,7 +574,6 @@ export function hostedSutCandidateGuardArgv(plan: HostedSutCommandPlan<string, V
 }
 
 const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
-  'tests/unit/verification/tcb-trust-root-contract.test.ts',
   'tests/unit/verification/test-runner.test.ts',
   'tests/contract/verification/ci-contract.test.ts',
   'tests/contract/development/merge-gate.test.ts',

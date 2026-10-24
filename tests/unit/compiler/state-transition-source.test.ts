@@ -30,8 +30,9 @@ async function execute(text: string): Promise<Generated> {
 }
 
 test('the actual state renderer produces a runnable total transition map with only public transition data', async () => {
-  const source = renderStateTransitionMapSource(task());
-  assert.ok(source.startsWith('// @generated semantic-task:workflow-map contract:workflow state:workflow\n'));
+  const input = task(); input.stateId = 'workflow-state';
+  const source = renderStateTransitionMapSource(input);
+  assert.ok(source.startsWith('// @generated semantic-task:workflow-map contract:workflow state:workflow-state\n'));
   const parsed = ts.createSourceFile('generated.ts', source, ts.ScriptTarget.Latest, true);
   assert.deepEqual(parsed.statements.map(statement => statement.kind), [
     ts.SyntaxKind.ImportDeclaration, ts.SyntaxKind.VariableStatement,
@@ -53,11 +54,11 @@ test('the actual state renderer produces a runnable total transition map with on
     const name = statement.declarationList.declarations[0]!.name;
     assert.ok(ts.isIdentifier(name));
     return name.text;
-  }), ['WORKFLOW_VALUES', 'WORKFLOW_TRANSITIONS', 'NEXT_WORKFLOW']);
-  const generated = await execute(source);
-  assert.deepEqual(generated.WORKFLOW_VALUES, ['done', 'pending']);
-  assert.deepEqual(generated.NEXT_WORKFLOW, { done: 'done', pending: 'done' });
-  assert.deepEqual(generated.WORKFLOW_TRANSITIONS, [
+  }), ['WORKFLOW_STATE_VALUES', 'WORKFLOW_STATE_TRANSITIONS', 'NEXT_WORKFLOW_STATE']);
+  const generated = await execute(source) as unknown as { WORKFLOW_STATE_VALUES: string[]; WORKFLOW_STATE_TRANSITIONS: unknown[]; NEXT_WORKFLOW_STATE: Record<string, string> };
+  assert.deepEqual(generated.WORKFLOW_STATE_VALUES, ['done', 'pending']);
+  assert.deepEqual(generated.NEXT_WORKFLOW_STATE, { done: 'done', pending: 'done' });
+  assert.deepEqual(generated.WORKFLOW_STATE_TRANSITIONS, [
     { from: 'done', to: 'done', by: 'act1' }, { from: 'pending', to: 'done', by: 'act0' }
   ]);
 });
@@ -96,10 +97,14 @@ test('the empty state domain retains its existing valid empty-function interpret
 
 test('malformed transition functions and injected type bindings never publish generated source', () => {
   const missing = task(); missing.transitions.pop();
+  assert.throws(() => renderStateTransitionMapSource(missing), {
+    code: 'GENERATOR-PLAN-004', message: 'State "workflow" requires exactly one outgoing transition from "done"'
+  });
   const duplicate = task(); duplicate.transitions.push({ ...duplicate.transitions[0]! });
   const foreign = task(); foreign.transitions[0]!.to = 'undeclared';
+  const unknownSource = task(); unknownSource.transitions[0]!.from = 'undeclared';
   const repeatedState = task(); repeatedState.stateValues.push('pending');
-  for (const input of [missing, duplicate, foreign, repeatedState]) {
+  for (const input of [duplicate, foreign, unknownSource, repeatedState]) {
     assert.throws(() => renderStateTransitionMapSource(input), error =>
       error instanceof Error && /State "workflow"/.test(error.message));
   }
@@ -109,7 +114,7 @@ test('malformed transition functions and injected type bindings never publish ge
 });
 
 test('rendering neither mutates caller plan data nor makes declaration order an output dependency', () => {
-  const input = task(), before = JSON.stringify(input);
+  const input = task(['a:b', 'a', 'c', 'b:c'], ['c', 'b:c', 'a', 'a:b']), before = JSON.stringify(input);
   const first = renderStateTransitionMapSource(input);
   assert.equal(JSON.stringify(input), before);
   const reordered = structuredClone(input); reordered.stateValues.reverse(); reordered.transitions.reverse();

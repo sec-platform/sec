@@ -360,6 +360,8 @@ test('preserves persisted Bun-drift recovery evidence and blocks a new install',
       code: 'IMPORT-AUTHORITY-001',
       message: expect.stringContaining('Bun runtime identity mismatch')
     });
+    const recordsRoot = path.join(targetJournalRoot(root), 'records');
+    const beforeRecords = await readRegularFiles(recordsRoot);
 
     let commandStarts = 0;
     await expect(migrateDependencyTransitionJournal(root, {
@@ -382,6 +384,8 @@ test('preserves persisted Bun-drift recovery evidence and blocks a new install',
       kind: 'compiler-bridge',
       phase: 'recovery-required'
     });
+    expect(terminal?.failure).toEqual(installIdentityFailure);
+    expect(await readRegularFiles(recordsRoot)).toEqual(beforeRecords);
     expect(commandStarts).toBe(0);
   } finally {
     await removeMigrationFixture(root);
@@ -455,35 +459,6 @@ test('preserves unregistered or physically replaced legacy stages before any set
   }
 }, 30_000);
 
-test('preserves unknown bridge recovery failures instead of reclassifying them as Bun drift', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-unknown-'));
-  try {
-    await prepareBridgeRecovery({
-      failure: Object.freeze({ code: 'UNKNOWN-RECOVERY', message: 'unclassified owner failure' }),
-      root
-    });
-    const recordsRoot = path.join(targetJournalRoot(root), 'records');
-    const beforeRecords = (await readdir(recordsRoot)).sort();
-    await expect(migrateDependencyTransitionJournal(root, {
-      lockTimeoutMs: 30_000
-    })).rejects.toMatchObject({
-      code: 'RUNTIME-DEPS-004',
-      details: { migrationRequired: true }
-    });
-    expect((await readdir(recordsRoot)).sort()).toEqual(beforeRecords);
-    const preserved = await readDependencyTransition(
-      root,
-      runtimeDependencyOperationOptions({ lockTimeoutMs: 30_000 })
-    );
-    expect(preserved).toMatchObject({
-      failure: { code: 'UNKNOWN-RECOVERY', message: 'unclassified owner failure' },
-      phase: 'recovery-required'
-    });
-  } finally {
-    await removeMigrationFixture(root);
-  }
-});
-
 test('blocks legacy bridge admission when persisted journal evidence changes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-journal-'));
   try {
@@ -503,57 +478,6 @@ test('blocks legacy bridge admission when persisted journal evidence changes', a
     await removeMigrationFixture(root);
   }
 }, 30_000);
-
-test('retires a valid terminal legacy ledger into one immutable v2 admission and retains v1 evidence', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-migration-'));
-  try {
-    const records = await writeLegacyRecords(root);
-    const oldBytes = new Map<string, Buffer>();
-    for (const record of records) {
-      oldBytes.set(
-        `record-${record.recordDigest.slice('sha256:'.length)}.json`,
-        legacyRecordBytes(record)
-      );
-    }
-
-    await migrateDependencyTransitionJournal(root, {
-      lockTimeoutMs: 30_000
-    });
-
-    expect(await readRegularFiles(legacyRecordsRoot(root))).toEqual(oldBytes);
-    const targetFiles = await readRegularFiles(targetJournalRoot(root));
-    const targetRecordFiles = [...targetFiles.entries()]
-      .filter(([name]) => name.startsWith('records' + path.sep));
-    expect(targetRecordFiles).toHaveLength(0);
-    expect([...targetFiles.keys()].some((name) => /migration-.*-prepared\.json$/u.test(name))).toBe(true);
-    expect([...targetFiles.keys()].some((name) => /migration-.*-complete\.json$/u.test(name))).toBe(true);
-    expect(await readdir(legacyRecordsRoot(root))).toHaveLength(records.length);
-  } finally {
-    await removeMigrationFixture(root);
-  }
-});
-
-test('accepts a native empty v2 namespace without legacy source or migration intent', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-native-v2-'));
-  try {
-    const targetRoot = targetJournalRoot(root);
-    await mkdir(path.join(targetRoot, 'records'), { recursive: true });
-    await mkdir(path.join(targetRoot, 'rollovers'));
-
-    await migrateDependencyTransitionJournal(root, {
-      lockTimeoutMs: 30_000
-    });
-    await migrateDependencyTransitionJournal(root, {
-      lockTimeoutMs: 30_000
-    });
-
-    const backupRoot = path.dirname(targetRoot);
-    expect(await readdir(backupRoot)).not.toContain(LEGACY_NAMESPACE);
-    expect(await readRegularFiles(targetRoot)).toEqual(new Map());
-  } finally {
-    await removeMigrationFixture(root);
-  }
-});
 
 test.serial('coordination cutover locator survives an invocation-owned Runtime State environment', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-locator-'));
@@ -580,6 +504,8 @@ test.serial('coordination cutover locator survives an invocation-owned Runtime S
 
     expect(await readFile(marker)).toEqual(markerBytes);
     expect(await readFile(locator)).toEqual(locatorBytes);
+    expect(await readdir(path.dirname(targetJournalRoot(root)))).not.toContain(LEGACY_NAMESPACE);
+    expect(await readRegularFiles(targetJournalRoot(root))).toEqual(new Map());
     await expect(lstat(path.join(invocationState, 'workspaces', 'v1')))
       .rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
@@ -1080,10 +1006,22 @@ test('rejects source physical replacement without changing a completed target', 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-replacement-'));
   try {
     const records = await writeLegacyRecords(root);
+    const oldBytes = new Map<string, Buffer>();
+    for (const record of records) {
+      oldBytes.set(
+        `record-${record.recordDigest.slice('sha256:'.length)}.json`,
+        legacyRecordBytes(record)
+      );
+    }
     await migrateDependencyTransitionJournal(root, {
       lockTimeoutMs: 30_000
     });
     const targetBefore = await readRegularFiles(targetJournalRoot(root));
+    expect(await readRegularFiles(legacyRecordsRoot(root))).toEqual(oldBytes);
+    expect([...targetBefore.keys()].filter((name) => name.startsWith('records' + path.sep))).toHaveLength(0);
+    expect([...targetBefore.keys()].some((name) => /migration-.*-prepared\.json$/u.test(name))).toBe(true);
+    expect([...targetBefore.keys()].some((name) => /migration-.*-complete\.json$/u.test(name))).toBe(true);
+    expect(await readdir(legacyRecordsRoot(root))).toHaveLength(records.length);
     const sourceRoot = legacyRecordsRoot(root);
     const replacement = `${sourceRoot}-replacement`;
     await rename(sourceRoot, replacement);

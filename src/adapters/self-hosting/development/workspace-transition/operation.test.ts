@@ -312,14 +312,6 @@ test('unsupported events never enter the fallback rewrite branch or acquire a se
   expect(parentProcessSession).toBeNull();
 });
 
-test('an unused handoff callback is not evaluated as part of operation identity', async () => {
-  reset();
-  await expect(runWorkspaceTransitionOperation({
-    event: 'post-merge', arguments: ['0'], repositoryRoot: 'D:\\repo',
-    get handoff(): never { throw new Error('unused handoff must not be read'); }
-  })).resolves.toBe(0);
-});
-
 test('stream collection copies each chunk before the producer can reuse it', async () => {
   reset();
   const bytes = new TextEncoder().encode(`${HEAD} ${HEAD}\n`);

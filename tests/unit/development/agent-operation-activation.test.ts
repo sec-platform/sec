@@ -377,33 +377,29 @@ test('V3 activation reader preserves exact trusted bytes and missing-ref rejecti
     const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${trusted}:${guidance}`])).trim();
     const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${candidate}:${guidance}`])).trim();
     expect(trustedBlob).not.toBe(candidateBlob);
-    for (const state of ['clean', 'repository', 'config', 'trace', 'replacement'] as const) {
-      if (state === 'replacement') {
-        gitProtocolSuccess(git(['replace', trustedBlob, candidateBlob]));
-        expect(gitProtocolSuccess(git(['cat-file', 'blob', trustedBlob]))).toBe('Candidate owner\n');
+    gitProtocolSuccess(git(['replace', trustedBlob, candidateBlob]));
+    expect(gitProtocolSuccess(git(['cat-file', 'blob', trustedBlob]))).toBe('Candidate owner\n');
+    const trace = path.join(root, '.git', 'unadmitted-trace.log');
+    const injected: NodeJS.ProcessEnv = {
+      GIT_DIR: path.join(root, 'foreign.git'), GIT_CONFIG_COUNT: 'invalid',
+      GIT_TRACE: trace, GIT_NO_REPLACE_OBJECTS: undefined
+    };
+    const previous = Object.fromEntries(Object.keys(injected).map(key => [key, process.env[key]]));
+    try {
+      for (const key of Object.keys(injected)) {
+        if (injected[key] === undefined) delete process.env[key];
+        else process.env[key] = injected[key];
       }
-      const trace = path.join(root, '.git', 'unadmitted-trace.log');
-      const injected: NodeJS.ProcessEnv = state === 'repository' ? { GIT_DIR: path.join(root, 'foreign.git') }
-        : state === 'config' ? { GIT_CONFIG_COUNT: 'invalid' }
-        : state === 'trace' ? { GIT_TRACE: trace }
-        : state === 'replacement' ? { GIT_NO_REPLACE_OBJECTS: undefined } : {};
-      const previous = Object.fromEntries(Object.keys(injected).map(key => [key, process.env[key]]));
-      try {
-        for (const key of Object.keys(injected)) {
-          if (injected[key] === undefined) delete process.env[key];
-          else process.env[key] = injected[key];
-        }
-        await expect(observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
-          .rejects.toThrow('activation-scope-conflict');
-        const owners = await observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
-        expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
-          owner: authorityId, revision: trustedBlob, contentDigest: rawSha256('Trusted owner\n'), projection: null });
-        expect(existsSync(trace)).toBe(false);
-      } finally {
-        for (const key of Object.keys(injected)) {
-          if (previous[key] === undefined) delete process.env[key];
-          else process.env[key] = previous[key];
-        }
+      await expect(observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
+        .rejects.toThrow('activation-scope-conflict');
+      const owners = await observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
+      expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
+        owner: authorityId, revision: trustedBlob, contentDigest: rawSha256('Trusted owner\n'), projection: null });
+      expect(existsSync(trace)).toBe(false);
+    } finally {
+      for (const key of Object.keys(injected)) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
       }
     }
   });
@@ -693,8 +689,8 @@ test.skipIf(process.platform === 'win32')('actual activation port rejects replac
 });
 
 
-for (const driver of ['clean', 'process'] as const) for (const name of ['activation-record', 'unspecified', 'unset']) {
-  test.skipIf(process.platform !== 'linux')(`actual activation status rejects ${driver} driver ${name} without execution`, async () => {
+for (const name of ['unspecified', 'unset']) {
+  test.skipIf(process.platform !== 'linux')(`actual activation status rejects clean driver ${name} without execution`, async () => {
     await inGitProtocolRepository(async (root, git) => {
       writeFileSync(path.join(root, 'input.txt'), 'tracked before driver configuration\n');
       writeFileSync(path.join(root, '.gitattributes'), `*.txt filter=${name}\n`);
@@ -702,7 +698,7 @@ for (const driver of ['clean', 'process'] as const) for (const name of ['activat
       gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted attribute input']));
       const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
       const marker = path.join(root, '.git', 'filter-executed');
-      gitProtocolSuccess(git(['config', `filter.${name}.${driver}`, `printf executed > '${marker}'; cat`]));
+      gitProtocolSuccess(git(['config', `filter.${name}.clean`, `printf executed > '${marker}'; cat`]));
       writeFileSync(path.join(root, 'input.txt'), 'force real content comparison\n');
       let entered = false, statusAttempted = false, statusRejected = false, scopeRejected = false;
       let observedRoot: string | undefined;

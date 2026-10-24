@@ -181,7 +181,10 @@ test('cancellation during an absent-ledger observation does not become a success
 
 test('a structural clone of a valid record is not admitted to effectful succession', async () => using(async f => {
   const first = await beginDependencyTransition(request(f));
-  await assert.rejects(advanceDependencyTransition({ ...first }, { phase: 'complete' }, f.options), /owner-admitted/);
+  await assert.rejects(advanceDependencyTransition({ ...first }, { phase: 'complete' }, f.options), {
+    code: 'RUNTIME-DEPS-004',
+    message: 'Dependency transition write requires an owner-admitted immutable record'
+  });
 }));
 
 test('falsy failure projections stay nonempty and reach the durable writer unchanged', async () => {

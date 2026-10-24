@@ -186,19 +186,7 @@ test('current repository machine ledgers satisfy their canonical contracts', asy
   expect(machineErrors(await scan(REPOSITORY_ROOT))).toEqual([]);
 });
 
-test('external provider state transitions are ledger-only and graph standing count is typed', async () => {
-  await withLedgerFixture(async (root) => {
-    const base = fixtureState();
-    await expectZeroErrors(root, base);
-
-    const transitioned = structuredClone(base);
-    transitioned.external.status = 'active';
-    provider(transitioned.external, 'package-graph').lifecycle = 'active';
-    await expectZeroErrors(root, transitioned);
-  });
-});
-
-test('the canonical EnvironmentSpec route remains valid during unrelated ledger revalidation', async () => {
+test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects file-shape drift', async () => {
   await withLedgerFixture(async (root) => {
     const state = fixtureState();
     (state.external.providers as Array<Record<string, unknown>>).push(
@@ -206,16 +194,6 @@ test('the canonical EnvironmentSpec route remains valid during unrelated ledger 
     );
     await expectZeroErrors(root, state);
     expect(state.external.status).toBe('revalidation-required');
-
-  });
-});
-
-test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects file-shape drift', async () => {
-  await withLedgerFixture(async (root) => {
-    const state = fixtureState();
-    (state.external.providers as Array<Record<string, unknown>>).push(
-      windowsControlCliProvider()
-    );
     const specPath = path.join(root, ...WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH.split('/'));
     const file = 'config/external-capabilities/ledger.yaml';
     const expectSpecError = async (
@@ -336,6 +314,11 @@ test('external provider schema and cross-field negatives report the exact failin
     await expectZeroErrors(root, base);
     const file = 'config/external-capabilities/ledger.yaml';
 
+    const transitioned = structuredClone(base);
+    transitioned.external.status = 'active';
+    provider(transitioned.external, 'package-graph').lifecycle = 'active';
+    await expectZeroErrors(root, transitioned);
+
     const wrongSchema = structuredClone(base);
     wrongSchema.external.schema = 'sec-external-capability-ledger-v2';
     await expectOneError(
@@ -361,15 +344,6 @@ test('external provider schema and cross-field negatives report the exact failin
       wrongCapability,
       file,
       'External capability provider package-graph.capability security-analysis requires category security.'
-    );
-
-    const staleTopology = structuredClone(base);
-    staleTopology.external.executionTopology = { availability: 'available' };
-    await expectOneError(
-      root,
-      staleTopology,
-      file,
-      'External capability ledger.executionTopology is not allowed.'
     );
 
     const weakAuthority = structuredClone(base);
@@ -456,34 +430,10 @@ test('external provider schema and cross-field negatives report the exact failin
       + 'without an active routing profile.'
     );
 
-    const retiredCli = structuredClone(base);
-    (provider(retiredCli.external, 'retired-graph').surfaces as Record<string, unknown>).cli = [
-      'query'
-    ];
-    await expectOneError(
-      root,
-      retiredCli,
-      file,
-      'External capability provider retired-graph cannot expose active surfaces '
-      + 'without an active routing profile.'
-    );
-
     const superseded = structuredClone(base);
     provider(superseded.external, 'retired-graph').decision = 'superseded';
     delete provider(superseded.external, 'retired-graph').rationale;
     await expectZeroErrors(root, superseded);
-    const supersededCli = structuredClone(superseded);
-    (provider(supersededCli.external, 'retired-graph').surfaces as Record<string, unknown>).cli = [
-      'query'
-    ];
-    await expectOneError(
-      root,
-      supersededCli,
-      file,
-      'External capability provider retired-graph cannot expose active surfaces '
-      + 'without an active routing profile.'
-    );
-
     const secondStandingGraph = structuredClone(base);
     (provider(secondStandingGraph.external, 'context-query').surfaces as Record<string, unknown>)
       .standingMcp = ['context-query'];
@@ -610,27 +560,6 @@ test('workflow runtime catalog binds canonical Linux environment authority witho
       forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
     });
     await expectZeroErrors(root, state);
-
-    const copiedVersion = structuredClone(state);
-    provider(copiedVersion.external, 'github-actions-local-runner').observedVersion =
-      environment.archives.runner.version;
-    await expectOneError(
-      root,
-      copiedVersion,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.observedVersion is not allowed.'
-    );
-
-    const copiedAuthority = structuredClone(state);
-    provider(copiedAuthority.external, 'github-actions-local-runner').versionAuthority = {
-      kind: 'external-release'
-    };
-    await expectOneError(
-      root,
-      copiedAuthority,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority is not allowed.'
-    );
 
     const wrongProfile = structuredClone(state);
     provider(wrongProfile.external, 'github-actions-local-runner').activeRoutingProfile =

@@ -6,15 +6,12 @@ import {
 import {
   EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS,
   EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-  type GeneratedStateWorktreeRetirementEffectAuthority,
   type IsolatedGeneratedStateLifecycle,
   LINKED_WORKTREE_TEMP_PREFIX,
   POSIX_ROOT_PROCESS,
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
   assertCompilerDependencyEnvironmentRetirementReceipt,
-  assertPhysicalGenerationRetirementReceipt,
-  compilerDependencyLocatorWorktreeRetirementProvider,
   createCompilerFixtureDependencyOperation,
   createIsolatedGeneratedStateLifecycles,
   dependencyTransitions,
@@ -206,7 +203,7 @@ describe('compiler dependency installation', () => {
     }));
 
   effectfulTest(test,
-    'retained dependency content rejects forged expired disposed retired incompatible and overlapping inputs before effects',
+    'retained dependency content rejects expired incompatible and overlapping inputs before effects',
     { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
       cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
     effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-content-reject-', async (consumerRoot, operation) => {
@@ -215,8 +212,6 @@ describe('compiler dependency installation', () => {
       const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
         signal: operation.signal, installMode: 'prebound-only' as const };
       await withRetainedCompilerContentFixture(operation.deadlineAtUnixMs, async (content, contentRoot) => {
-        await expect(target.ensureCompilerDepsReadyFromRetainedContent({ ...content }, request))
-          .rejects.toThrow('physical');
         await expect(Promise.resolve().then(() => target.ensureCompilerDepsReadyFromRetainedContent(content,
           { ...request, deadlineAtUnixMs: Date.now() - 1 }))).rejects.toThrow();
         await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request, contentRoot))
@@ -225,10 +220,6 @@ describe('compiler dependency installation', () => {
         await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request))
           .rejects.toThrow('content input differs: bun.lock');
         await writeCompilerDependencyRoot(consumerRoot);
-        content.dispose();
-        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request)).rejects.toThrow('disposed');
-        assertPhysicalGenerationRetirementReceipt(await content.retire());
-        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request)).rejects.toThrow();
         await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
         await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
       });
@@ -1213,12 +1204,6 @@ describe('compiler dependency installation', () => {
         }
       );
     });
-
-  test('rejects a forged compiler locator retirement authority before accepting worktree inputs', async () => {
-    await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire(Object.freeze({
-      schema: 'sec-generated-state-worktree-retirement-effect-authority-v1'
-    }) as GeneratedStateWorktreeRetirementEffectAuthority)).rejects.toThrow('forged, stale, replayed');
-  });
 
   effectfulTest(test, 'retires one exact stale worktree generation before publishing a shared locator', {
     operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,

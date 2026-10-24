@@ -3,7 +3,7 @@ import path from 'node:path';
 import { planCompilerDependencyGeneratedStateSettlement } from '../execution/dependency-generated-state.ts';
 import type { GeneratedStateInventory } from '../execution/generated-state/contract.ts';
 import { settleCompilerDependencyGeneratedState } from './dependency-generated-state.ts';
-import { ensureProjectDependencyEnvironment, prepareProjectDependencySource } from './project-dependency-preparation.ts';
+import { ensureProjectDependencyEnvironment } from './project-dependency-preparation.ts';
 
 const source = Object.freeze({ ownerRoot: 'canonical-owner', sourcePath: 'canonical-source' });
 const binding = Object.freeze({ manifestHash: 'locked-manifest' });
@@ -35,37 +35,28 @@ test('complete project use case owns source preparation before target transactio
   order.length = 0; failPreparation = true;
   await expect(ensureProjectDependencyEnvironment(ports)).rejects.toThrow('source owner blocked');
   expect(order).toEqual(['paths', 'spec', 'observe']);
-});
-test('project source preparation only observes prepared readiness and rejects unavailable or foreign sources before target admission', async () => {
-  const order: string[] = [];
-  const ports = { isolated: false, manifestHash: binding.manifestHash,
-    compilerDependencyRoot: 'compiler', compilerNodeModulesPath: 'compiler-modules',
-    async observeCompilerReady() { order.push('observe'); return { kind: 'ready', binding: { runtimeMaterialization: binding }, sourceGeneration: source }; },
-    async verifyIsolatedSource() { throw new Error('offline verification is not selected'); }
-  };
-  const result = await prepareProjectDependencySource(ports);
-  expect(order).toEqual(['observe']);
-  expect(result.sourceGeneration).toBe(source);
-  for (const isolated of [false, true]) {
-    for (const ready of [null,
-      { kind: 'incompatible-bridge', binding: { runtimeMaterialization: binding } },
-      { kind: 'ready', binding: { runtimeMaterialization: null } },
-      { kind: 'ready', binding: { runtimeMaterialization: binding } },
-      { kind: 'ready', binding: { runtimeMaterialization: { manifestHash: 'foreign-manifest' } } }]) {
-      order.length = 0;
-      await expect(prepareProjectDependencySource({ ...ports, isolated,
-        async observeCompilerReady() { order.push('observe'); return ready; }
-      })).rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
-      expect(order).toEqual(['observe']);
-    }
+  for (const [installMode, ready] of [
+    ['allow', null],
+    ['offline-copy-only', { kind: 'ready', binding: { runtimeMaterialization: { manifestHash: 'foreign-manifest' } }, sourceGeneration: source }]
+  ] as const) {
+    order.length = 0;
+    await expect(ensureProjectDependencyEnvironment({ ...ports, installMode,
+      async observeCompilerReady() { order.push('observe'); return ready; }
+    })).rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
+    expect(order).toEqual(['paths', 'spec', 'observe']);
   }
 });
-test('offline project source preparation refuses an invalid isolated source', async () => {
-  await expect(prepareProjectDependencySource({ isolated: true, manifestHash: binding.manifestHash,
-      compilerDependencyRoot: 'compiler', compilerNodeModulesPath: 'compiler-modules',
-      async observeCompilerReady() { return { kind: 'ready', binding: { runtimeMaterialization: binding }, sourceGeneration: source }; },
-      async verifyIsolatedSource() { return false; }
-    })).rejects.toThrow('unavailable for isolated verification');
+test('offline project source preparation refuses an invalid isolated source before target admission', async () => {
+  await expect(ensureProjectDependencyEnvironment({ installMode: 'offline-copy-only',
+    async readPreboundTarget() { throw new Error('must not choose prebound'); },
+    readCanonicalPaths() { return { compilerDependencyRoot: 'compiler', compilerNodeModulesPath: 'compiler-modules' }; },
+    async readRuntimeSpec() { return { manifestHash: binding.manifestHash }; },
+    async observeCompilerReady() { return { kind: 'ready', binding: { runtimeMaterialization: binding }, sourceGeneration: source }; },
+    async verifyIsolatedSource(observedBinding, sourcePath) {
+      expect(observedBinding).toBe(binding); expect(sourcePath).toBe('canonical-source'); return false;
+    },
+    async publishTarget() { throw new Error('invalid isolated source reached target'); }
+  })).rejects.toThrow('unavailable for isolated verification');
 });
 test('dependency settlement rejects a stale plan before journal mutation and orders both inventory reads', async () => {
   const root = path.resolve('fixture-repository');

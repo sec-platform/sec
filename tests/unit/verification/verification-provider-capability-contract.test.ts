@@ -45,6 +45,32 @@ describe('verification provider capability contract', () => {
     expect(reviewer.availability).toBe('unavailable');
     expect(hosted.role).toBe('hosted-verification');
     expect(hosted.availability).toBe('unknown');
+
+    const trustedRuntime = createVerificationProviderCapability({
+      capability: 'trusted-runtime-verification',
+      role: 'hosted-verification',
+      provider: 'sec-trusted-runtime',
+      availability: 'unknown',
+      reasonCode: 'provider-receipt-unverified',
+      receiptRef: null,
+      observedAt: OBSERVED_AT
+    });
+    expect(trustedRuntime.capability).toBe('trusted-runtime-verification');
+    expect(trustedRuntime.provider).toBe('sec-trusted-runtime');
+    expect(trustedRuntime.role).toBe('hosted-verification');
+
+    const claimedTrustedRuntime = createVerificationProviderCapability({
+      capability: 'trusted-runtime-verification',
+      role: 'hosted-verification',
+      provider: 'sec-trusted-runtime',
+      availability: 'available',
+      reasonCode: null,
+      receiptRef: POSITIVE_EVIDENCE,
+      observedAt: OBSERVED_AT
+    });
+    expect(claimedTrustedRuntime.availability).toBe('unknown');
+    expect(claimedTrustedRuntime.reasonCode).toBe('provider-receipt-unverified');
+    expect(claimedTrustedRuntime.receiptRef).toBeNull();
   });
 
   test('tracked external capability state rejects runtime provider availability epochs', () => {
@@ -138,6 +164,12 @@ describe('verification provider capability contract', () => {
         { capability: 'github-actions-hosted-verification', role: 'hosted-verification', provider: 'github-actions', availability: 'unknown', reasonCode: 'provider-receipt-unverified', receiptRef: null, observedAt: OBSERVED_AT }
       ]
     });
+    expect(resolveProviderAvailability(registry, 'trusted-runtime-verification')).toMatchObject({
+      provider: 'sec-trusted-runtime',
+      role: 'hosted-verification',
+      availability: 'unknown',
+      reasonCode: 'provider-unregistered'
+    });
     expect(registry.epochDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(registry.capabilities.map((entry) => entry.capability).sort()).toEqual([
       'codex-review',
@@ -191,6 +223,26 @@ describe('verification provider capability contract', () => {
       capability: 'github-writer', role: 'writer', provider: 'codex-code-review',
       availability: 'unknown', reasonCode: 'provider-receipt-unverified', receiptRef: null, observedAt: OBSERVED_AT
     })).toThrow('must use provider github-api');
+
+    expect(() => createVerificationProviderCapability({
+      capability: 'trusted-runtime-verification',
+      role: 'hosted-verification',
+      provider: 'github-actions',
+      availability: 'unknown',
+      reasonCode: 'provider-receipt-unverified',
+      receiptRef: null,
+      observedAt: OBSERVED_AT
+    })).toThrow('must use provider sec-trusted-runtime');
+
+    expect(() => createVerificationProviderCapability({
+      capability: 'github-actions-hosted-verification',
+      role: 'hosted-verification',
+      provider: 'sec-trusted-runtime',
+      availability: 'unknown',
+      reasonCode: 'provider-receipt-unverified',
+      receiptRef: null,
+      observedAt: OBSERVED_AT
+    })).toThrow('must use provider github-actions');
   });
 });
 

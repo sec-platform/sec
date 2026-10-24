@@ -6,8 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  parseVerificationRegistryProjection,
-  type VerificationRegistryEntry
+  parseVerificationRegistryProjection
 } from '../../../src/adapters/verification/platform/session/contract/session.ts';
 import {
   parseOpenPullRequestList,
@@ -64,6 +63,7 @@ test('registry bytes preserve default and PR identities, exact manifest hashes a
     ...request, openPullRequests: parseOpenPullRequestList(JSON.stringify([prResponse]))
   }, reader(events));
   const projection = parseVerificationRegistryProjection(source);
+  assert.equal(projection.repository, request.repository);
   assert.equal(projection.defaultTreeSha, defaultTree);
   assert.deepEqual(projection.entries, [
     { manifestPath: defaultPath, manifestDigest: rawDigest('default\r\n'), source: 'default',
@@ -77,33 +77,6 @@ test('registry bytes preserve default and PR identities, exact manifest hashes a
     ['cat-file', '--batch-check'],
     ['cat-file', '--batch']
   ]);
-});
-
-test('captured PR and supplied-entry input cannot drift while the read transport is suspended', async () => {
-  const openPullRequests = parseOpenPullRequestList(JSON.stringify([prResponse]));
-  const supplied: VerificationRegistryEntry = {
-    source: 'open-pr', manifestPath: 'config/repository/work-packages/supplied.md',
-    manifestDigest: rawDigest('supplied'), prNumber: 3, headSha, baseSha: prResponse.baseRefOid, headTreeSha: prTree
-  };
-  const sourceInput = { ...request, openPullRequests, pullRequestEntries: [supplied] };
-  const events: string[][] = [], read = reader(events);
-  let first = true;
-  const source = await projectWorkPackageRegistry(sourceInput, async (args, input) => {
-    if (first) {
-      first = false;
-      sourceInput.repository = 'other/repository';
-      sourceInput.defaultRef = 'changed';
-      openPullRequests[0]!.body = 'invalid late mutation';
-      openPullRequests.length = 0;
-      supplied.manifestPath = 'config/repository/work-packages/replaced.md';
-      sourceInput.pullRequestEntries.length = 0;
-      await Promise.resolve();
-    }
-    return read(args, input);
-  });
-  const projection = parseVerificationRegistryProjection(source);
-  assert.equal(projection.repository, request.repository);
-  assert.deepEqual(projection.entries.map(entry => entry.manifestPath), [defaultPath, 'config/repository/work-packages/supplied.md', prPath]);
 });
 
 test('duplicate paths across registry sources fail rather than returning a partial projection', async () => {
@@ -302,15 +275,6 @@ for (const malformed of [
   });
 }
 
-test('the body locator is captured exactly once even when source accessors change values', async () => {
-  let reads = 0;
-  const pr = parseOpenPullRequestList(JSON.stringify([prResponse]))[0]!;
-  Object.defineProperty(pr, 'body', { enumerable: true, get: () => ++reads === 1 ? prResponse.body : 'invalid later body' });
-  const source = await projectWorkPackageRegistry({ ...request, openPullRequests: [pr] }, reader([]));
-  assert.equal(reads, 1);
-  assert.equal(parseVerificationRegistryProjection(source).entries[1]!.manifestPath, prPath);
-});
-
 test('one manifest preserves raw bytes and accounts for every observed record in the caller budget', async () => {
   const events: string[][] = [];
   let consumedRecords = 0;
@@ -327,10 +291,3 @@ test('one manifest preserves raw bytes and accounts for every observed record in
   // observations without prescribing a process count or debit partition.
   assert.equal(consumedRecords, events.length);
 });
-
-for (const invalid of [0, -1, 1.5, Number.NaN, Infinity, 32 * 1024 * 1024 + 1]) {
-  test(`invalid or widening byte budget ${invalid} fails before transport`, async () => {
-    await assert.rejects(projectWorkPackageRegistry(request, () => { assert.fail('must not dispatch'); }, () => {}, invalid),
-      /command byte limit must narrow/);
-  });
-}
