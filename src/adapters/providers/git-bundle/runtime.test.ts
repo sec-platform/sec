@@ -497,4 +497,14 @@ describe('trusted-root content observations through private Git metadata', () =>
     })).rejects.toThrow();
     expect(entered).toBe(false);
   });
+
+  test('rejects a completed artifact above the consumer admitted byte budget', async () => {
+    const repository = repositoryFixture();
+    const outputRoot = temporaryRoot('oversized-history');
+    await expect(createGitCandidateBundle({ sourceRoot: repository.root,
+      temporaryRoot: outputRoot, baseSha: repository.baseSha, headSha: repository.headSha,
+      maximumBundleBytes: 1 })).rejects.toThrow('exceeds its admitted artifact byte budget');
+    expect(git(repository.root, ['rev-parse', 'HEAD'])).toBe(repository.headSha);
+  });
+
 });

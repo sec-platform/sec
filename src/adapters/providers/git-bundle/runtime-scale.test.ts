@@ -4,7 +4,7 @@ import { rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../self-hosting/development/runner/test-execution-policy.ts';
-import { createGitCandidateBundle, materializeGitCandidateCheckoutTransport, withGitCandidateCheckout } from './runtime.ts';
+import { materializeGitCandidateCheckoutTransport, withGitCandidateCheckout } from './runtime.ts';
 import { createGitBundleTestFixture } from './test/runtime-fixture.ts';
 
 const { roots, temporaryRoot, git, repositoryFixture } = createGitBundleTestFixture();
@@ -45,13 +45,6 @@ describe('Git candidate bundle native scale', () => {
     });
   }, DEFAULT_TEST_TIMEOUT_MS);
 
-  test('rejects a completed artifact above the consumer admitted byte budget', async () => {
-    const repository = repositoryFixture();
-    const outputRoot = temporaryRoot('oversized-history');
-    await expect(createGitCandidateBundle({ sourceRoot: repository.root,
-      temporaryRoot: outputRoot, baseSha: repository.baseSha, headSha: repository.headSha,
-      maximumBundleBytes: 1 })).rejects.toThrow('exceeds its admitted artifact byte budget');
-    expect(git(repository.root, ['rev-parse', 'HEAD'])).toBe(repository.headSha);
-  });
+
 
 });
