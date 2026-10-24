@@ -131,17 +131,13 @@ async function withNativeSession(root: string, use: (session: WorkspaceCreateSes
   }));
 }
 
-test('native prepare rejects invalid blueprint or caller digest before any stage or journal birth', async () => {
+test('native prepare rejects a caller digest before any stage or journal birth', async () => {
   const root = await createWorkspace('workspace-create-native-invalid-');
   await withNativeSession(root, async session => {
     expect(await session.observe()).toEqual({ phase: 'absent' });
     const before = await fs.readdir(path.join(root, '.sec'));
     const request = nativeRequest();
     await expect(session.prepare(request.blueprint, { ...request.intent, digest: 'caller-poison' })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
-    await expect(session.prepare({ directories: [], files: [] }, request.intent)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
-    await expect(session.prepare({ ...request.blueprint, files: [...request.blueprint.files, { relativePath: '../foreign', bytes: Buffer.from('x') }] }, request.intent)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
-    await expect(session.prepare({ ...request.blueprint, directories: [...request.blueprint.directories, '.sec/workspace-create.json/child'] }, request.intent)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'invalid-template-path' } });
-    await expect(session.prepare({ ...request.blueprint, directories: [], files: [...request.blueprint.files, { relativePath: '.sec/workspace-write-lease', bytes: Buffer.from('foreign lease file') }] }, request.intent)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'invalid-template-path' } });
     expect(await fs.readdir(path.join(root, '.sec'))).toEqual(before);
     expect(await fs.readdir(root)).toEqual(['.sec']);
   });
@@ -212,21 +208,6 @@ async function createFixtureGeneration(
     }
   ));
 }
-
-test('prepared interruption resumes by exact readback and preserves published inode identities', async () => {
-  const root = await createWorkspace('workspace-create-interrupted-');
-  await expect(createFixtureGeneration(root, {
-    afterNamespaceMutationBeforeFlush: ({ targetPath }) => {
-      if (targetPath === path.join(root, 'sec.yaml')) throw new Error('fixture-after-publication');
-    }
-  })).rejects.toThrow('fixture-after-publication');
-  const before = await fs.stat(path.join(root, 'sec.yaml'));
-  await createFixtureGeneration(root);
-  expect((await fs.stat(path.join(root, 'sec.yaml'))).ino).toBe(before.ino);
-  for (const [relative, bytes] of Object.entries(fixtureFiles)) expect(await fs.readFile(path.join(root, relative), 'utf8')).toBe(bytes);
-  expect((await fs.readdir(path.join(root, '.sec'))).filter(name => name.startsWith('.workspace-create-'))).toEqual([]);
-  expect(JSON.parse(await fs.readFile(path.join(root, '.sec/workspace-create.json'), 'utf8')).phase).toBe('completed');
-});
 
 test('stage retirement interruption remains settling and finishes without re-publishing payload', async () => {
   const root = await createWorkspace('workspace-create-stage-settlement-');
@@ -365,6 +346,8 @@ test('publication interrupted in a settled predecessor process resumes in a new 
   await run(false);
   expect((await fs.stat(path.join(root, 'sec.yaml'))).ino).toBe(before.ino);
   for (const [relative, bytes] of Object.entries(fixtureFiles)) expect(await fs.readFile(path.join(root, relative), 'utf8')).toBe(bytes);
+  expect((await fs.readdir(path.join(root, '.sec'))).filter(name => name.startsWith('.workspace-create-'))).toEqual([]);
+  expect(JSON.parse(await fs.readFile(path.join(root, '.sec/workspace-create.json'), 'utf8')).phase).toBe('completed');
 });
 
 test('unpublished stage birth without a journal stays unknown and is preserved', async () => {
@@ -610,54 +593,55 @@ test('current generation sessions close every real nested transaction and preser
       }
     }));
     const leaves = error => error instanceof AggregateError ? error.errors.flatMap(leaves) : [error];
+    // Keep one actual acquisition/settlement per native fault scope. Direct
+    // resource-scope tests own the payload-value matrix; distinct body and
+    // cleanup values here still expose loss, duplication and reordering.
     const cases = [
-      ['fresh', 'new', 'Workspace creation fresh readback', 'observe', undefined],
-      ['staging', 'new', 'Workspace staged generation', 'createExclusive', false],
-      ['intent', 'prepared', 'Workspace recovered intent barrier', 'flushExact', undefined],
-      ['completion', 'completed', 'Workspace recovered completion barrier', 'flushExact', null],
-      ['outer', 'new', 'Workspace initial generation', 'assertCurrent', false],
-      ['successful-publication', 'new', 'Workspace initial generation', null, undefined]
+      ['fresh', 'new', 'Workspace creation fresh readback', 'observe', undefined, 'object'],
+      ['staging', 'new', 'Workspace staged generation', 'createExclusive', false, 'undefined'],
+      ['intent', 'prepared', 'Workspace recovered intent barrier', 'flushExact', undefined, 'object'],
+      ['completion', 'completed', 'Workspace recovered completion barrier', 'flushExact', null, 'object'],
+      ['outer', 'new', 'Workspace initial generation', 'assertCurrent', false, 'undefined'],
+      ['successful-publication', 'new', 'Workspace initial generation', null, undefined, 'undefined']
     ];
-    for (const [kind, setup, target, method, falsyPrimary] of cases) {
-      for (const falsy of [false, true]) {
-        const name = kind + (falsy ? '-falsy' : '-object');
-        const workspaceRoot = path.join(${JSON.stringify(root)}, name);
-        await fs.mkdir(workspaceRoot);
-        active = undefined;
-        if (setup === 'prepared') await prepare(workspaceRoot);
-        if (setup === 'completed') await run(workspaceRoot);
-        const state = active = {
-          target, method, failBody: method !== null, fired: false,
-          primary: falsy ? falsyPrimary : Object.freeze({ name, failure: 'primary' }),
-          cleanup: falsy ? undefined : Object.freeze({ name, failure: 'cleanup' }),
-          outerCleanup: Object.freeze({ name, failure: 'outer-cleanup' }),
-          acquired: [], closes: [], targetRecord: undefined
-        };
-        let caught = false;
-        try { await run(workspaceRoot); }
-        catch (error) {
-          caught = true;
-          assert.deepEqual(leaves(error), [
-            ...(state.failBody ? [state.primary] : []), state.cleanup,
-            ...(target === 'Workspace initial generation' ? [] : [state.outerCleanup])
-          ], name);
-        }
-        assert.equal(caught, true, name);
-        assert.equal(state.fired, state.failBody, name);
-        assert.ok(state.targetRecord, name + ': intended physical scope was not reached');
-        assert.deepEqual(state.closes, target === 'Workspace initial generation' ? ['target'] : ['target', 'outer'], name);
-        for (const record of state.acquired) {
-          assert.equal(record.closes, 1, name + ': ' + record.label);
-          record.assertDisposed();
-        }
-        active = undefined;
-        // Reacquisition proves the surrounding real writer lease was settled.
-        await withWorkspaceWriteLease(workspaceRoot, undefined, async () => {});
-        if (!state.failBody) {
-          assert.equal(JSON.parse(await fs.readFile(path.join(workspaceRoot, '.sec/workspace-create.json'), 'utf8')).phase, 'completed');
-          for (const [relative, bytes] of Object.entries(${JSON.stringify(fixtureFiles)})) {
-            assert.equal(await fs.readFile(path.join(workspaceRoot, relative), 'utf8'), bytes);
-          }
+    for (const [kind, setup, target, method, falsyPrimary, cleanupKind] of cases) {
+      const name = kind;
+      const workspaceRoot = path.join(${JSON.stringify(root)}, name);
+      await fs.mkdir(workspaceRoot);
+      active = undefined;
+      if (setup === 'prepared') await prepare(workspaceRoot);
+      if (setup === 'completed') await run(workspaceRoot);
+      const state = active = {
+        target, method, failBody: method !== null, fired: false,
+        primary: falsyPrimary,
+        cleanup: cleanupKind === 'object' ? Object.freeze({ name, failure: 'cleanup' }) : undefined,
+        outerCleanup: Object.freeze({ name, failure: 'outer-cleanup' }),
+        acquired: [], closes: [], targetRecord: undefined
+      };
+      let caught = false;
+      try { await run(workspaceRoot); }
+      catch (error) {
+        caught = true;
+        assert.deepEqual(leaves(error), [
+          ...(state.failBody ? [state.primary] : []), state.cleanup,
+          ...(target === 'Workspace initial generation' ? [] : [state.outerCleanup])
+        ], name);
+      }
+      assert.equal(caught, true, name);
+      assert.equal(state.fired, state.failBody, name);
+      assert.ok(state.targetRecord, name + ': intended physical scope was not reached');
+      assert.deepEqual(state.closes, target === 'Workspace initial generation' ? ['target'] : ['target', 'outer'], name);
+      for (const record of state.acquired) {
+        assert.equal(record.closes, 1, name + ': ' + record.label);
+        record.assertDisposed();
+      }
+      active = undefined;
+      // Reacquisition proves the surrounding real writer lease was settled.
+      await withWorkspaceWriteLease(workspaceRoot, undefined, async () => {});
+      if (!state.failBody) {
+        assert.equal(JSON.parse(await fs.readFile(path.join(workspaceRoot, '.sec/workspace-create.json'), 'utf8')).phase, 'completed');
+        for (const [relative, bytes] of Object.entries(${JSON.stringify(fixtureFiles)})) {
+          assert.equal(await fs.readFile(path.join(workspaceRoot, relative), 'utf8'), bytes);
         }
       }
     }

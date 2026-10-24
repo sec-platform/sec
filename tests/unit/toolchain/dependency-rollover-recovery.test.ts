@@ -29,10 +29,16 @@ async function stopAtRetirement(f: Fixture) {
 
 // All production source is used in native execution. The accompanying local
 // replay explicitly substitutes physical/store providers, not parser or phases.
-test('prepared recovery accepts its created next directory and is idempotent after completion', async () => using(async f => {
+test('prepared recovery preserves read-only immutable observation and is idempotent after completion', async () => using(async f => {
   fs.mkdirSync(f.prepared.nextRecordsPath);
-  const observed = await inspectActiveDependencyTransitionRollover(f.root, f.options);
+  const controls = new Proxy({ ...f.options, get beforeCommit() { assert.fail('write callback'); throw new Error('unreachable'); },
+    get generatedStateLifecycle() { return assert.fail('lifecycle'); }, get installMode() { return assert.fail('mode'); }
+  }, { ownKeys() { assert.fail('whole input enumeration'); } });
+  const observed = await inspectActiveDependencyTransitionRollover(f.root, controls);
   assert.equal(observed?.active?.phase, 'prepared');
+  assert.equal(Reflect.set(observed!.active!.checkpoint.sourceGeneration.physical, 'inode', 'changed'), false);
+  assert.equal(Reflect.set(observed!.active!.ownerRootPhysical, 'inode', 'changed'), false);
+  assert.equal(Object.isFrozen(observed!.active!.checkpoint), true);
   await recoverDependencyTransitionRollover(f.root, f.options);
   const before = await assertComplete(f);
   await recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() { assert.fail('already completed effect'); } });
@@ -97,31 +103,14 @@ test('replacement removed by the commit fence prevents the first archive leaf de
   assert.deepEqual(fs.readdirSync(f.prepared.retiredRecordsPath), before);
 }));
 
-test('immutable readback rejects nested caller mutation and preserves the durable receipt', async () => using(async f => {
-  const result = await inspectActiveDependencyTransitionRollover(f.root, f.options);
-  assert.equal(Reflect.set(result!.active!.checkpoint.sourceGeneration.physical, 'inode', 'changed'), false);
-  assert.equal(Reflect.set(result!.active!.ownerRootPhysical, 'inode', 'changed'), false);
-  assert.equal(Object.isFrozen(result!.active!.checkpoint), true);
-  await recoverDependencyTransitionRollover(f.root, f.options); await assertComplete(f);
-}));
-
-test('read-only census never reads effect or installation capabilities', async () => using(async f => {
-  const controls = new Proxy({ ...f.options, get beforeCommit() { assert.fail('write callback'); throw new Error('unreachable'); },
-    get generatedStateLifecycle() { return assert.fail('lifecycle'); }, get installMode() { return assert.fail('mode'); }
-  }, { ownKeys() { assert.fail('whole input enumeration'); } });
-  assert.equal((await inspectActiveDependencyTransitionRollover(f.root, controls))?.active?.phase, 'prepared');
-}));
-
-test('recovery captures its fence once before a callback can replace it', async () => using(async f => {
-  const options = { ...f.options, async beforeCommit() { options.beforeCommit = async () => assert.fail('replacement fence'); } };
-  await recoverDependencyTransitionRollover(f.root, options); await assertComplete(f);
-}));
-
-test('relative owner root remains fixed while its fence changes process cwd', async () => using(async f => {
+test('recovery captures its relative root and fence before callback mutation', async () => using(async f => {
   const previous = process.cwd();
+  const options = { ...f.options, async beforeCommit() {
+    process.chdir(path.dirname(f.root)); options.beforeCommit = async () => assert.fail('replacement fence');
+  } };
   try {
     process.chdir(f.root);
-    await recoverDependencyTransitionRollover('.', { ...f.options, async beforeCommit() { process.chdir(path.dirname(f.root)); } });
+    await recoverDependencyTransitionRollover('.', options);
     await assertComplete(f);
   } finally { process.chdir(previous); }
 }));

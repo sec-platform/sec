@@ -172,17 +172,21 @@ test('a structural clone of a valid record is not admitted to effectful successi
   await assert.rejects(advanceDependencyTransition({ ...first }, { phase: 'complete' }, f.options), /owner-admitted/);
 }));
 
-for (const reason of [undefined, null, false, 0, '']) {
-  test(`failure ${String(reason)} can be recorded without a secondary description exception`, async () => using(async f => {
-    const first = await beginDependencyTransition(request(f));
-    const failure = transitionFailure(reason);
-    assert.equal(typeof failure.code, 'string'); assert.ok(failure.code.length > 0);
+test('falsy failure projections stay nonempty and reach the durable writer unchanged', async () => {
+  const failures = [undefined, null, false, 0, ''].map(reason => transitionFailure(reason));
+  for (const failure of failures) {
+    assert.equal(failure.code, 'UNKNOWN');
     assert.equal(typeof failure.message, 'string'); assert.ok(failure.message.length > 0);
-    const next = await markDependencyTransitionFailure(first, reason, f.options);
-    assert.deepEqual(next.failure, failure); assert.equal(next.durability, 'unknown');
+  }
+  // The writer unconditionally projects its reason before the common successor
+  // publication. Keep the input classes above and one real persistence route.
+  await using(async f => {
+    const first = await beginDependencyTransition(request(f));
+    const next = await markDependencyTransitionFailure(first, undefined, f.options);
+    assert.deepEqual(next.failure, failures[0]); assert.equal(next.durability, 'unknown');
     assert.deepEqual(await readDependencyTransition(f.root, f.options), next);
-  }));
-}
+  });
+});
 
 test('hostile failure objects cannot prevent the transition failure record from being produced', async () => using(async f => {
   const first = await beginDependencyTransition(request(f));

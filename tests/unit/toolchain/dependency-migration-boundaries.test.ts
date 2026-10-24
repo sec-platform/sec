@@ -34,9 +34,15 @@ function legacy(root: string, phase: 'complete' | 'prepared' = 'complete') {
   return { paths, recordsRoot, filename, bytes: readFileSync(filename) };
 }
 
-test('legacy terminal migration preserves source bytes and immutable readback across an idempotent retry', async () => fixture(async root => {
-  const source = legacy(root), options = control();
-  await migrateLegacyDependencyTransitionUnderLease(root, options);
+test('legacy migration captures root and fence and preserves source bytes across an idempotent retry', async () => fixture(async root => {
+  const source = legacy(root), cwd = process.cwd(); let calls = 0;
+  const options = { ...control(), async beforeCommit() {
+    calls++; process.chdir(tmpdir()); options.beforeCommit = async () => assert.fail('replacement callback');
+  } };
+  try {
+    process.chdir(root); await migrateLegacyDependencyTransitionUnderLease('.', options);
+    assert.ok(calls > 0);
+  } finally { process.chdir(cwd); }
   const namespace = inspectDependencyTransitionNamespace(root)!;
   const value = await readDependencyTransitionMigrationIntents(namespace, options);
   assert.equal(value.prepared!.phase, 'prepared'); assert.equal(value.complete!.phase, 'complete');
@@ -64,15 +70,6 @@ test('a nonterminal legacy source cannot create a new v2 namespace', async () =>
   const source = legacy(root, 'prepared');
   await assert.rejects(migrateLegacyDependencyTransitionUnderLease(root, control()), /terminal/);
   assert.equal(existsSync(source.paths.journalRoot), false); assert.deepEqual(readFileSync(source.filename), source.bytes);
-}));
-
-test('migration captures its root before a fence changes cwd and options', async () => fixture(async root => {
-  legacy(root); const cwd = process.cwd(); let calls = 0;
-  const options = { ...control(), async beforeCommit() { calls++; process.chdir(tmpdir()); options.beforeCommit = async () => assert.fail('replacement callback'); } };
-  try {
-    process.chdir(root); await migrateLegacyDependencyTransitionUnderLease('.', options);
-    assert.ok(calls > 0); assert.equal((await readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, control())).complete!.phase, 'complete');
-  } finally { process.chdir(cwd); }
 }));
 
 test('interrupted prepared migration resumes from its existing receipt without altering v1', async () => fixture(async root => {

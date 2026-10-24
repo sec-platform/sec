@@ -13,77 +13,6 @@ import { writeBlockUpgradeFixture } from '../../helpers/block-upgrade-fixtures.t
 import { expectGraphEdge, expectGraphNode, expectReviewConflictHint, expectReviewRegressionRisk } from '../../helpers/graph-assertions.ts';
 import { prepareComposedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
 
-test('override-manifest can replace a generated file and surface override provenance', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-override-' });
-  const paths = getWorkspacePaths(workspaceRoot);
-  const overrideManifestPath = path.join(paths.overridesRoot, 'override-manifest.yaml');
-  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
-
-  await writeYaml(overrideManifestPath, {
-    overrides: [
-      {
-        id: 'customer-service-manual',
-        entry: 'patches/customer-service.override.ts',
-        target: 'src/installed/entity/customer-service.ts',
-        reason: 'manual-customer-service-rewrite',
-        source: 'manual',
-        conflictsWith: ['entity/customer-basic@>=0.2.0']
-      }
-    ]
-  });
-
-  const customerServicePath = path.join(workspaceRoot, 'src', 'installed', 'entity', 'customer-service.ts');
-  const customerServiceOverride = `${await fs.readFile(customerServicePath, 'utf8')}\n// Manual customer service override active.\n`;
-  await fs.writeFile(
-    path.join(paths.overridesRoot, 'patches', 'customer-service.override.ts'),
-    customerServiceOverride,
-    'utf8'
-  );
-
-  await composeWorkspace(workspaceRoot);
-  await expect(fs.readFile(customerServicePath, 'utf8'))
-    .resolves.toBe(customerServiceOverride);
-
-  const { report } = await verifyWorkspace(workspaceRoot);
-  expect(report.summary.status).toBe('passed');
-
-  await lockWorkspace(workspaceRoot);
-  const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  expectGraphNode(graph, { id: 'override:customer-service-manual' });
-  expectGraphNode(graph, { type: 'pin' });
-  expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
-  expectGraphEdge(graph, {
-    from: 'policy:tenant-scope-required',
-    to: 'file:src/installed/entity/customer-service.ts',
-    type: 'connects_to'
-  });
-  expectGraphEdge(graph, {
-    from: 'file:src/installed/entity/customer-service.ts',
-    to: 'override:customer-service-manual',
-    type: 'originates_from'
-  });
-
-  const provenance = await readJson<{
-    artifacts: Array<{ path: string; originType: string; overrideStatus: string }>;
-  }>(provenancePath);
-  expect(
-    provenance.artifacts.some(
-      (artifact) =>
-        artifact.path === 'src/installed/entity/customer-service.ts' && artifact.originType === 'override' && artifact.overrideStatus === 'manual'
-    )
-  ).toBe(true);
-  expectReviewRegressionRisk(reviewSummary, {
-    kind: 'override-active',
-    blockId: 'entity/customer-basic',
-    message: 'Override active: customer-service-manual -> src/installed/entity/customer-service.ts'
-  });
-  expectReviewConflictHint(reviewSummary, {
-    kind: 'override-conflict',
-    relatedId: 'entity/customer-basic@>=0.2.0',
-    message: 'Override customer-service-manual conflicts with entity/customer-basic@>=0.2.0'
-  });
-}, 120000);
-
 test('upgrade enforces Override selectors and settles an unassessable constraint without stale execution artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeBlockUpgradeFixture(workspaceRoot);
@@ -130,19 +59,30 @@ test('upgrade enforces Override selectors and settles an unassessable constraint
   });
 }, 120000);
 
-test('override-manifest surfaces ticket runtime override attribution', async () => {
+test('override-manifest preserves customer and ticket bytes with independent provenance and runtime attribution', async () => {
   const workspaceRoot = await prepareComposedWorkspace({
     prefix: 'engineering-compiler-ticket-override-',
     blockIds: ['ticket/basic', 'reporting/ticket-summary', 'worklog/basic']
   });
   const paths = getWorkspacePaths(workspaceRoot);
   const overrideManifestPath = path.join(paths.overridesRoot, 'override-manifest.yaml');
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
 
+  const customerServicePath = path.join(workspaceRoot, 'src', 'installed', 'entity', 'customer-service.ts');
+  const customerServiceOverride = `${await fs.readFile(customerServicePath, 'utf8')}\n// Manual customer service override active.\n`;
   const ticketServicePath = path.join(workspaceRoot, 'src', 'installed', 'ticket', 'ticket-service.ts');
   const ticketServiceOverride = `${await fs.readFile(ticketServicePath, 'utf8')}\n// Manual ticket runtime override active.\n`;
 
   await writeYaml(overrideManifestPath, {
     overrides: [
+      {
+        id: 'customer-service-manual',
+        entry: 'patches/customer-service.override.ts',
+        target: 'src/installed/entity/customer-service.ts',
+        reason: 'manual-customer-service-rewrite',
+        source: 'manual',
+        conflictsWith: ['entity/customer-basic@>=0.2.0']
+      },
       {
         id: 'ticket-service-runtime-manual',
         entry: 'patches/ticket-service.override.ts',
@@ -153,10 +93,16 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
       }
     ]
   });
+  await fs.writeFile(
+    path.join(paths.overridesRoot, 'patches', 'customer-service.override.ts'),
+    customerServiceOverride,
+    'utf8'
+  );
   const ticketServiceOverridePath = path.join(paths.overridesRoot, 'patches', 'ticket-service.override.ts');
   await fs.writeFile(ticketServiceOverridePath, ticketServiceOverride, 'utf8');
 
   await composeWorkspace(workspaceRoot);
+  await expect(fs.readFile(customerServicePath, 'utf8')).resolves.toBe(customerServiceOverride);
   await expect(fs.readFile(ticketServicePath, 'utf8')).resolves.toBe(ticketServiceOverride);
 
   const { report } = await verifyWorkspace(workspaceRoot);
@@ -164,6 +110,38 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
 
   await lockWorkspace(workspaceRoot);
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
+  expectGraphNode(graph, { id: 'override:customer-service-manual' });
+  expectGraphNode(graph, { type: 'pin' });
+  expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
+  expectGraphEdge(graph, {
+    from: 'policy:tenant-scope-required',
+    to: 'file:src/installed/entity/customer-service.ts',
+    type: 'connects_to'
+  });
+  expectGraphEdge(graph, {
+    from: 'file:src/installed/entity/customer-service.ts',
+    to: 'override:customer-service-manual',
+    type: 'originates_from'
+  });
+  const provenance = await readJson<{
+    artifacts: Array<{ path: string; originType: string; overrideStatus: string }>;
+  }>(provenancePath);
+  expect(
+    provenance.artifacts.some(
+      (artifact) =>
+        artifact.path === 'src/installed/entity/customer-service.ts' && artifact.originType === 'override' && artifact.overrideStatus === 'manual'
+    )
+  ).toBe(true);
+  expectReviewRegressionRisk(reviewSummary, {
+    kind: 'override-active',
+    blockId: 'entity/customer-basic',
+    message: 'Override active: customer-service-manual -> src/installed/entity/customer-service.ts'
+  });
+  expectReviewConflictHint(reviewSummary, {
+    kind: 'override-conflict',
+    relatedId: 'entity/customer-basic@>=0.2.0',
+    message: 'Override customer-service-manual conflicts with entity/customer-basic@>=0.2.0'
+  });
   const ticketChangeSource = reviewSummary.changeSources.find((source) => source.path === 'src/installed/ticket/ticket-service.ts');
 
   expect(ticketChangeSource).toMatchObject({

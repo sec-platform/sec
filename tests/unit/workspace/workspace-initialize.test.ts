@@ -128,8 +128,17 @@ test('execution request contract binds complete bytes, modes and template and ow
     snapshotWorkspaceCreateRequest('minimal', { ...first.blueprint, files: first.blueprint.files.map(file => ({ ...file, creationMode: 0o700 })) })
   ]) expect(changed.intent.digest).not.toBe(first.intent.digest);
   expect(() => snapshotWorkspaceCreateRequest('minimal', first.blueprint, { ...first.intent, digest: 'caller-poison' })).toThrow();
-  expect(() => snapshotWorkspaceCreateRequest('minimal', { directories: [], files: [] }, first.intent)).toThrow();
-  expect(() => snapshotWorkspaceCreateRequest('minimal', { ...first.blueprint, directories: ['.sec/workspace-create.json/child'] })).toThrow();
-  expect(() => snapshotWorkspaceCreateRequest('minimal', { ...first.blueprint, files: [...first.blueprint.files,
-    { relativePath: '.sec/workspace-write-lease', bytes: Buffer.from('lease file') }] })).toThrow();
+  for (const [blueprint, diagnostic] of [
+    [{ directories: [], files: [] }, { code: 'WORKSPACE-INIT-003' }],
+    [{ ...first.blueprint, directories: ['.sec/workspace-create.json/child'] },
+      { code: 'WORKSPACE-INIT-003', details: { reason: 'invalid-template-path' } }],
+    [{ ...first.blueprint, files: [...first.blueprint.files,
+      { relativePath: '.sec/workspace-write-lease', bytes: Buffer.from('lease file') }] },
+      { code: 'WORKSPACE-INIT-003', details: { reason: 'invalid-template-path' } }]
+  ] as const) {
+    let failure: unknown;
+    try { snapshotWorkspaceCreateRequest('minimal', blueprint, first.intent); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject(diagnostic);
+  }
 });
