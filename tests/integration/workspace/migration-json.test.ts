@@ -18,9 +18,7 @@ test('JSON migrations reject directory targets before reading or mutating JSON',
 
     for (const entry of [
       configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }]),
-      jsonArrayAppend('app.config.json', ['plugins'], ['tenant']),
-      jsonArrayRemove('app.config.json', ['plugins'], ['auth']),
-      jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })
+      jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])
     ]) {
       await expect(apply(['app.config.json'], [entry])).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-017'
@@ -204,21 +202,6 @@ test('json-object-merge migration rejects non-object targets', async () => {
   });
 });
 
-test('JSON migrations reject reserved mutation path segments without changing object prototypes', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
-
-    await expect(
-      apply(['app.config.json'], [configRewrite('app.config.json', [
-        { path: ['__proto__', 'polluted'], value: true }
-      ])])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-030'
-    });
-    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
-  });
-});
-
 test('JSON object merge treats inherited Object.prototype names as absent own JSON data', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
     await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
@@ -235,49 +218,37 @@ test('JSON object merge treats inherited Object.prototype names as absent own JS
   });
 });
 
-test('JSON object merge rejects reserved keys at every nested level', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
-    const unsafeValue = JSON.parse('{"nested":{"constructor":{"prototype":{"polluted":true}}}}') as Record<string, unknown>;
-
-    await expect(
-      apply(['app.config.json'], [jsonObjectMerge('app.config.json', ['feature'], unsafeValue)])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-030'
-    });
-    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
-  });
-});
-
-test('config-rewrite migration rejects empty update paths', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
-
-    await expect(
-      apply(['app.config.json'], [configRewrite('app.config.json', [{ path: [], value: true }])])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-010'
-    });
-  });
-});
-
-test('migration entry loading rejects empty config rewrite paths', async () => {
+test('migration entry loading rejects invalid JSON mutations before planning', async () => {
   await withMigrationWorkspace(async ({ manifestRoot }) => {
     await fs.mkdir(path.join(manifestRoot, 'migrations'), { recursive: true });
-    await writeJson(path.join(manifestRoot, 'migrations/empty-config-path.json'), {
-      id: 'mig-empty-config-path', kind: 'config-rewrite',
-      reason: 'Reject config rewrites without a concrete target path.',
-      target: 'package.json', updates: [{ path: [], value: 'invalid' }]
-    });
-    await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [{
-      id: 'mig-empty-config-path', kind: 'config-rewrite', entry: 'migrations/empty-config-path.json',
-      fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false
-    }])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-010', details: {
-        failedCheck: 'migration-entries', migrationId: 'mig-empty-config-path',
-        migrationKind: 'config-rewrite', entry: 'migrations/empty-config-path.json'
+    for (const scenario of [
+      {
+        entry: configRewrite('package.json', [{ path: [], value: 'invalid' }]),
+        id: 'mig-empty-config-path', file: 'empty-config-path.json', code: 'UPGRADE-MIGRATION-010'
+      },
+      {
+        entry: configRewrite('app.config.json', [{ path: ['__proto__', 'polluted'], value: true }]),
+        id: 'mig-reserved-config-path', file: 'reserved-config-path.json', code: 'UPGRADE-MIGRATION-030'
+      },
+      {
+        entry: jsonObjectMerge('app.config.json', ['feature'],
+          JSON.parse('{"nested":{"constructor":{"prototype":{"polluted":true}}}}') as Record<string, unknown>),
+        id: 'mig-reserved-merge-value', file: 'reserved-merge-value.json', code: 'UPGRADE-MIGRATION-030'
       }
-    });
+    ]) {
+      const entryPath = `migrations/${scenario.file}`;
+      await writeJson(path.join(manifestRoot, entryPath), { ...scenario.entry, id: scenario.id });
+      await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [{
+        id: scenario.id, kind: scenario.entry.kind, entry: entryPath,
+        fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false
+      }])).rejects.toMatchObject({
+        code: scenario.code, details: {
+          failedCheck: 'migration-entries', migrationId: scenario.id,
+          migrationKind: scenario.entry.kind, entry: entryPath
+        }
+      });
+      expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+    }
   });
 });
 

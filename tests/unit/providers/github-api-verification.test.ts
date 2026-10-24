@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { withGitHubCredentialStore } from '../../../src/adapters/providers/github-api/credential-store.ts';
-import { inspectGitHubActionsVerificationCredentialIdentity } from '../../../src/adapters/providers/github-api/credential.ts';
 import { readArtifactMember } from '../../../src/adapters/providers/github-api/internal/artifact-member.ts';
 import { executeGitHubApiOperation, GitHubApiGraphqlResponseError } from '../../../src/adapters/providers/github-api/operation-session.ts';
 import { issueGitHubApiTestCapability, withGitHubApiTestSession, type GitHubApiTransport } from '../../../src/adapters/providers/github-api/test/operation-session.ts';
@@ -162,35 +161,7 @@ test('closed verification query and write contracts reject before network',async
   expect(calls).toBe(0);
 });
 
-test('workflow run history uses an unfiltered numeric workflow endpoint and rejects malformed selectors before transport', async () => {
-  const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
-  const cap = capability(async (target, init) => {
-    requests.push({ target: String(target), method: init?.method, body: init?.body });
-    return new Response('{"total_count":0,"workflow_runs":[]}');
-  });
-  await withGitHubApiTestSession({ capability: cap, operation: async () => {
-    expect(await executeGitHubApiOperation(cap, {
-      kind: 'verification-workflow-run-history', workflowId: '123', page: 2
-    })).toEqual({ total_count: 0, workflow_runs: [] });
-    expect(requests).toEqual([{
-      target: 'https://api.github.com/repos/sec-platform/sec/actions/workflows/123/runs?per_page=100&page=2',
-      method: 'GET', body: undefined
-    }]);
-    requests.length = 0;
-    for (const workflowId of ['0', '../runs', '123?status=success']) {
-      await expect(executeGitHubApiOperation(cap, {
-        kind: 'verification-workflow-run-history', workflowId, page: 1
-      })).rejects.toThrow();
-      expect(requests).toEqual([]);
-    }
-    await expect(executeGitHubApiOperation(cap, {
-      kind: 'verification-workflow-run-history', workflowId: '123', page: 0
-    })).rejects.toThrow();
-    expect(requests).toEqual([]);
-  } });
-});
-
-test('verification provenance reads exact numeric attempt, suite, workflow and job endpoints without selector injection', async () => {
+test('verification provenance reads exact numeric attempt, suite and workflow endpoints without selector injection', async () => {
   const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
   const cap = capability(async (target, init) => {
     requests.push({ target: String(target), method: init?.method, body: init?.body });
@@ -200,38 +171,24 @@ test('verification provenance reads exact numeric attempt, suite, workflow and j
     await executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '11', runAttempt: 2 });
     await executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: '12' });
     await executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: '13' });
-    await executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: '14' });
     expect(requests).toEqual([
       { target: 'https://api.github.com/repos/sec-platform/sec/actions/runs/11/attempts/2', method: 'GET', body: undefined },
       { target: 'https://api.github.com/repos/sec-platform/sec/check-suites/12', method: 'GET', body: undefined },
-      { target: 'https://api.github.com/repos/sec-platform/sec/actions/workflows/13', method: 'GET', body: undefined },
-      { target: 'https://api.github.com/repos/sec-platform/sec/actions/jobs/14', method: 'GET', body: undefined }
+      { target: 'https://api.github.com/repos/sec-platform/sec/actions/workflows/13', method: 'GET', body: undefined }
     ]);
     requests.length = 0;
-    // History owns the shared numeric-ID grammar; each provenance route retains its admission wire.
+    // Each live provenance route retains its admission wire; workflow owns the shared numeric-ID grammar.
     await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '0', runAttempt: 1 })).rejects.toThrow();
     expect(requests).toEqual([]);
     await expect(executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: '0' })).rejects.toThrow();
     expect(requests).toEqual([]);
-    await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: '0' })).rejects.toThrow();
-    expect(requests).toEqual([]);
-    await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: '0' })).rejects.toThrow();
-    expect(requests).toEqual([]);
+    for (const workflowId of ['0', '../runs', '123?status=success']) {
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId })).rejects.toThrow();
+      expect(requests).toEqual([]);
+    }
     await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '11', runAttempt: 0 })).rejects.toThrow();
     expect(requests).toEqual([]);
   } });
-});
-
-test('hosted verification credential identity rejects foreign workflow and revision',()=> {
-  const source={GITHUB_ACTIONS:'true',GITHUB_SERVER_URL:'https://github.com',GITHUB_API_URL:'https://api.github.com',
-    GITHUB_REPOSITORY:'sec-platform/sec',GITHUB_REF:'refs/heads/main',GITHUB_SHA:'a'.repeat(40),GITHUB_WORKFLOW_SHA:'a'.repeat(40),
-    GITHUB_RUN_ID:'42',GITHUB_RUN_ATTEMPT:'1',GH_TOKEN:'synthetic-hosted-token',GITHUB_EVENT_NAME:'repository_dispatch',
-    GITHUB_WORKFLOW_REF:'sec-platform/sec/.github/workflows/compiler-pr-validation.yml@refs/heads/main'};
-  expect(inspectGitHubActionsVerificationCredentialIdentity(source,'sec-platform/sec')).toMatchObject({runId:'42'});
-  for(const change of [{GITHUB_SHA:'b'.repeat(40)},{GITHUB_EVENT_NAME:'pull_request'},{GITHUB_REPOSITORY:'other/repo'},
-    {GITHUB_WORKFLOW_REF:'sec-platform/sec/untrusted.yml@refs/heads/main'},{GITHUB_RUN_ATTEMPT:'0'}]) {
-    expect(inspectGitHubActionsVerificationCredentialIdentity({...source,...change},'sec-platform/sec')).toBeNull();
-  }
 });
 
 

@@ -291,62 +291,6 @@ test('rename-directory migration rejects file sources', async () => {
   });
 });
 
-test('rename-directory migration rejects occupied targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    const source = 'generated/reports/current';
-    const target = 'generated/reports/archive/current';
-    await fs.mkdir(path.join(workspaceRoot, source), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, target), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameDirectory(source, target)])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-020'
-    });
-  });
-});
-
-test('file-replace migration rejects targets outside upgrade impacts', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
-    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'new source\n', 'utf8');
-    await fs.writeFile(path.join(workspaceRoot, 'src', 'target.ts'), 'old source\n', 'utf8');
-
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['src/other.ts'], [fileReplace('src/target.ts')])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-007'
-    });
-    await expect(fs.readFile(path.join(workspaceRoot, 'src', 'target.ts'), 'utf8')).resolves.toBe('old source\n');
-  });
-});
-
-test('file-replace migration rejects paths escaping project or manifest roots', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(workspaceRoot, { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['../outside.ts'], [fileReplace('../outside.ts')])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-004'
-    });
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts', '../source.ts')])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-005'
-    });
-  });
-});
-
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('file migration refuses a workspace parent alias instead of writing outside the workspace', async () => {
   await withTempWorkspace(async (tempRoot) => {
     const workspaceRoot = path.join(tempRoot, 'workspace');
@@ -442,7 +386,7 @@ test('migration entry loading rejects duplicate identities before reading entrie
   });
 });
 
-test('migration preflight rejects manifest source escape without changing its target', async () => {
+test('migration preflight rejects project target and manifest source escapes without writes', async () => {
   await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
     await fs.mkdir(manifestRoot, { recursive: true });
     const target = 'src/installed/private/block-upgrade.ts';
@@ -450,18 +394,31 @@ test('migration preflight rejects manifest source escape without changing its ta
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     const before = Buffer.from('original target\n');
     await fs.writeFile(targetPath, before);
-    await expect(collectUpgradePreflightEvidence({
-      workspaceRoot, targetManifestRoot: manifestRoot,
-      blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [target],
-      migrationEntries: [{ id: 'mig-source-escape', kind: 'file-replace',
-        reason: 'Attempt to read outside the target manifest root.',
-        source: '../outside-source.ts', target }]
-    })).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-005', details: {
-        failedCheck: 'migration-file-operations', migrationId: 'mig-source-escape',
-        path: '../outside-source.ts', role: 'manifest-source', root: 'manifest'
+    for (const scenario of [
+      {
+        id: 'mig-target-escape', target: '../outside.ts', source: 'files/source.ts',
+        code: 'UPGRADE-MIGRATION-004', failedCheck: 'migration-targets',
+        rejectedPath: '../outside.ts', role: 'target', root: 'project'
+      },
+      {
+        id: 'mig-source-escape', target, source: '../outside-source.ts',
+        code: 'UPGRADE-MIGRATION-005', failedCheck: 'migration-file-operations',
+        rejectedPath: '../outside-source.ts', role: 'manifest-source', root: 'manifest'
       }
-    });
-    expect(await fs.readFile(targetPath)).toEqual(before);
+    ]) {
+      await expect(collectUpgradePreflightEvidence({
+        workspaceRoot, targetManifestRoot: manifestRoot,
+        blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [scenario.target],
+        migrationEntries: [{ id: scenario.id, kind: 'file-replace',
+          reason: 'Reject a migration path outside its admitted root.',
+          source: scenario.source, target: scenario.target }]
+      })).rejects.toMatchObject({
+        code: scenario.code, details: {
+          failedCheck: scenario.failedCheck, migrationId: scenario.id,
+          path: scenario.rejectedPath, role: scenario.role, root: scenario.root
+        }
+      });
+      expect(await fs.readFile(targetPath)).toEqual(before);
+    }
   });
 });

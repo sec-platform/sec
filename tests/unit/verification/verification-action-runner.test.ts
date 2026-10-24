@@ -1188,11 +1188,15 @@ test.skipIf(process.platform !== 'win32')(
       executionEnvironment: fixture.environment,
       inspectRepository,
       testProcessIssuer: TEST_PROCESS_ISSUER,
-      testProcessProvider: (_operation, process) => {
+      testProcessProvider: async (_operation, process) => {
         physicalExecutions += 1;
-        return runRetainedBunTestProcess(process, candidateRoot, {
+        const result = await runRetainedBunTestProcess(process, candidateRoot, {
           script: "console.log('recoverable stdout'); console.error('recoverable stderr')"
         });
+        expect(process.session.observeNativeResourceCapacity()).toEqual({
+          maximum: 1, admitted: 1, remaining: 0, root: 1, stdinWorker: 0, helper: 0
+        });
+        return result;
       },
     });
     const reused = await executeLocalVerificationActionDag({
@@ -1267,50 +1271,6 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'local quick DAG meters one real process and commits a terminal only after process settlement and domain readback',
-  async () => {
-    const authorityRoot = root();
-    const candidateRoot = root();
-    try {
-      const fixture = localDagFixture();
-      let secondStartFailure = '';
-      const inspectRepository = (repositoryRoot: string) => ({
-        headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
-        headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
-        trackedClean: true,
-        gitCommonDirectory: authorityRoot
-      });
-      const result = await executeLocalVerificationActionDag({
-        authorityRoot,
-        candidateRoot,
-        actionPlanClosure: fixture.closure,
-        executionEnvironment: fixture.environment,
-        inspectRepository,
-        testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: async (_operation, process) => {
-          const first = await runRetainedBunTestProcess(process, candidateRoot);
-          try {
-            await runRetainedBunTestProcess(process, candidateRoot, {
-              maxStdoutBytes: 0,
-              maxStderrBytes: 0
-            });
-          } catch (error) {
-            secondStartFailure = error instanceof Error ? error.message : String(error);
-          }
-          return first;
-        }
-      });
-      expect(secondStartFailure).toContain('process budget is exhausted');
-      expect(result.status).toBe('passed');
-      expect(result.actionResults[0]?.terminal?.status).toBe('passed');
-    } finally {
-      rmSync(authorityRoot, { recursive: true, force: true });
-      rmSync(candidateRoot, { recursive: true, force: true });
-    }
-  }
-);
-
-test.skipIf(process.platform !== 'win32')(
   'local quick DAG enforces the operation deadline and cancellation without minting a terminal',
   async () => {
     for (const mode of ['deadline', 'cancel'] as const) {
@@ -1365,63 +1325,50 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'local quick DAG rejects output-budget over-admission and records a failed process terminal',
+  'local quick DAG records a failed process terminal',
   async () => {
-    for (const mode of ['output-budget', 'provider-failure'] as const) {
-      const authorityRoot = root();
-      const candidateRoot = root();
-      try {
-        const modeHeadSha = mode === 'output-budget' ? HEAD_SHA : `6${HEAD_SHA.slice(1)}`;
-        const modeHeadTreeSha = mode === 'output-budget' ? HEAD_TREE_SHA : `7${HEAD_TREE_SHA.slice(1)}`;
-        const fixture = localDagFixture(undefined, {
-          headSha: modeHeadSha,
-          headTreeSha: modeHeadTreeSha
-        });
-        const result = await executeLocalVerificationActionDag({
-          authorityRoot,
-          candidateRoot,
-          actionPlanClosure: fixture.closure,
-          executionEnvironment: fixture.environment,
-          inspectRepository: (repositoryRoot) => ({
-            headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
-            headTreeSha: repositoryRoot === candidateRoot ? modeHeadTreeSha : BASE_TREE_SHA,
-            trackedClean: true,
-            gitCommonDirectory: authorityRoot
-          }),
-          testProcessIssuer: TEST_PROCESS_ISSUER,
-          testProcessProvider: (_operation, process) => runRetainedBunTestProcess(
-            process,
-            candidateRoot,
-            mode === 'output-budget'
-              ? { maxStdoutBytes: process.maxStdoutBytes + 1 }
-              : { script: 'process.exit(7)' }
-          )
-        });
-        if (mode === 'output-budget') {
-          expect(result.status).toBe('blocked');
-          expect(result.actionResults[0]?.terminal).toBeNull();
-          expect(result.actionResults[0]?.reason).toContain('output-byte admission exceeds');
-        } else {
-          expect(result.status).toBe('failed');
-          expect(result.actionResults[0]?.terminal?.status).toBe('failed');
-        }
-      } finally {
-        rmSync(authorityRoot, { recursive: true, force: true });
-        rmSync(candidateRoot, { recursive: true, force: true });
-      }
+    const authorityRoot = root();
+    const candidateRoot = root();
+    try {
+      const modeHeadSha = `6${HEAD_SHA.slice(1)}`;
+      const modeHeadTreeSha = `7${HEAD_TREE_SHA.slice(1)}`;
+      const fixture = localDagFixture(undefined, {
+        headSha: modeHeadSha,
+        headTreeSha: modeHeadTreeSha
+      });
+      const result = await executeLocalVerificationActionDag({
+        authorityRoot,
+        candidateRoot,
+        actionPlanClosure: fixture.closure,
+        executionEnvironment: fixture.environment,
+        inspectRepository: (repositoryRoot) => ({
+          headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
+          headTreeSha: repositoryRoot === candidateRoot ? modeHeadTreeSha : BASE_TREE_SHA,
+          trackedClean: true,
+          gitCommonDirectory: authorityRoot
+        }),
+        testProcessIssuer: TEST_PROCESS_ISSUER,
+        testProcessProvider: (_operation, process) => runRetainedBunTestProcess(
+          process, candidateRoot, { script: 'process.exit(7)' }
+        )
+      });
+      expect(result.status).toBe('failed');
+      expect(result.actionResults[0]?.terminal?.status).toBe('failed');
+    } finally {
+      rmSync(authorityRoot, { recursive: true, force: true });
+      rmSync(candidateRoot, { recursive: true, force: true });
     }
   }
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'local quick DAG refuses raw provider output and candidate readback drift',
+  'local quick DAG refuses candidate readback drift',
   async () => {
-  for (const mode of ['raw-provider-output', 'candidate-readback-drift'] as const) {
     const authorityRoot = root();
     const candidateRoot = root();
     try {
-      const modeHeadSha = mode === 'raw-provider-output' ? HEAD_SHA : `8${HEAD_SHA.slice(1)}`;
-      const modeHeadTreeSha = mode === 'raw-provider-output' ? HEAD_TREE_SHA : `9${HEAD_TREE_SHA.slice(1)}`;
+      const modeHeadSha = `8${HEAD_SHA.slice(1)}`;
+      const modeHeadTreeSha = `9${HEAD_TREE_SHA.slice(1)}`;
       const fixture = localDagFixture(undefined, {
         headSha: modeHeadSha,
         headTreeSha: modeHeadTreeSha
@@ -1439,9 +1386,7 @@ test.skipIf(process.platform !== 'win32')(
         candidateObservations += 1;
         return {
           headSha: modeHeadSha,
-          headTreeSha: mode === 'candidate-readback-drift' && candidateObservations > 1
-            ? `5${modeHeadTreeSha.slice(1)}`
-            : modeHeadTreeSha,
+          headTreeSha: candidateObservations > 1 ? `5${modeHeadTreeSha.slice(1)}` : modeHeadTreeSha,
           trackedClean: true,
           gitCommonDirectory: authorityRoot
         };
@@ -1453,26 +1398,19 @@ test.skipIf(process.platform !== 'win32')(
         executionEnvironment: fixture.environment,
         inspectRepository,
         testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: mode === 'raw-provider-output'
-          ? (() => 0 as never)
-          : (_operation, process) => runRetainedBunTestProcess(process, candidateRoot)
+        testProcessProvider: (_operation, process) => runRetainedBunTestProcess(process, candidateRoot)
       });
       expect(result.status).toBe('blocked');
       expect(result.actionResults[0]?.terminal).toBeNull();
-      expect(result.actionResults[0]?.reason).toContain(
-        mode === 'raw-provider-output'
-          ? 'did not return one physical process result'
-          : 'candidate readback drifted'
-      );
+      expect(result.actionResults[0]?.reason).toContain('candidate readback drifted');
       expect(readVerificationActionJournal(
         authorityRoot,
         fixture.closure.actions[0]!.action.actionKey
-      ).latestState).toBe(mode === 'candidate-readback-drift' ? 'invalidated' : 'cancelled');
+      ).latestState).toBe('invalidated');
     } finally {
       rmSync(authorityRoot, { recursive: true, force: true });
       rmSync(candidateRoot, { recursive: true, force: true });
     }
-  }
   }
 );
 

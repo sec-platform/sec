@@ -46,6 +46,13 @@ test('auditor selection is explicit while local and verification credential sele
   expect(inspectGitHubActionsVerificationCredentialIdentity(HOSTED, REPOSITORY)).toBeNull();
   expect(inspectGitHubActionsVerificationCredentialIdentity({ ...HOSTED, GH_TOKEN: TOKEN }, REPOSITORY))
     .toMatchObject({ runId: '42' });
+  const verificationSource = { ...HOSTED, GH_TOKEN: TOKEN,
+    GITHUB_WORKFLOW_REF: `${REPOSITORY}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
+    GITHUB_EVENT_NAME: 'repository_dispatch' };
+  expect(inspectGitHubActionsVerificationCredentialIdentity(verificationSource, REPOSITORY))
+    .toMatchObject({ runId: '42' });
+  expect(inspectGitHubActionsVerificationCredentialIdentity({ ...verificationSource,
+    GITHUB_SHA: 'b'.repeat(40) }, REPOSITORY)).toBeNull();
   for (const change of [
     { SEC_GITHUB_RULESET_AUDITOR_TOKEN: undefined },
     { SEC_GITHUB_RULESET_AUDITOR_TOKEN: 'whitespace is forbidden' },
@@ -101,6 +108,8 @@ test('ruleset-read admits only fixed GET observations and rejects unrelated effe
     expect(() => currentGitHubApiCapability(REPOSITORY, 'verification-read')).toThrow('live owner-issued capability');
     await executeGitHubApiOperation(capability, { kind: 'effective-branch-rules', branch: 'main', page: 1 });
     await executeGitHubApiOperation(capability, { kind: 'ruleset', rulesetId: 7 });
+    await expect(executeGitHubApiOperation(capability, { kind: 'effective-branch-rules', branch: 'main', page: 0 }))
+      .rejects.toThrow();
     for (const operation of forbidden) {
       await expect(executeGitHubApiOperation(capability, operation)).rejects.toThrow('ruleset-read permits only');
     }
