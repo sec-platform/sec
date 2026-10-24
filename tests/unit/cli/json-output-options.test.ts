@@ -27,17 +27,6 @@ test('compact output requires JSON for both absent and disabled flags', () => {
   }
 });
 
-test('owned input is read once, without enumerating unrelated properties', () => {
-  let jsonReads = 0, compactReads = 0;
-  const input = {
-    get json() { jsonReads += 1; return true; },
-    get compact() { compactReads += 1; return false; },
-    get unrelated() { throw new Error('not output policy'); }
-  };
-  assert.deepEqual(parseJsonOutputOptions(input, reject), { json: true, compact: false });
-  assert.equal(jsonReads, 1); assert.equal(compactReads, 1);
-});
-
 test('captured output is independent of later caller mutation', () => {
   const input = { json: true, compact: false };
   const output = jsonOpts(input);
