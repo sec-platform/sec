@@ -29,6 +29,15 @@ test('compilation preserves canonical results across caller mutation and indepen
     generatorPlan: buildSemanticGeneratorPlan(snapshot, []),
     semanticViews: buildSemanticViewSet(snapshot)
   });
+  // A pipeline-to-pipeline equality checks wiring but could accept a
+  // shared omission. This externally specified input must issue one concrete
+  // app identity, no generator tasks, and exactly one architecture view.
+  expect(first.snapshot.ir.appId).toBe('app:first');
+  expect(first.snapshot.ir.entities.filter(entity => entity.kind === 'app').map(entity => entity.id))
+    .toEqual(['app:first']);
+  expect(first.generatorPlan.tasks).toEqual([]);
+  expect(first.semanticViews.views.map(view => [view.viewKind, view.subject ?? null]))
+    .toEqual([['architecture', null]]);
   expect(first).not.toBeInstanceOf(Promise);
   expect(Object.isFrozen(first)).toBe(true);
 
@@ -53,7 +62,7 @@ test('invalid captured input retains the existing compiler error instead of retu
   }];
 
   expect(() => compileSemanticInput({ engineeringIRInput: source }))
-    .toThrow('Manifest input references unresolved block "missing/block"');
+    .toThrow(expect.objectContaining({ code: 'IR-IDENTITY-002' }));
 });
 
 test('captured manifests supply all generators and roots alone select generation', () => {
