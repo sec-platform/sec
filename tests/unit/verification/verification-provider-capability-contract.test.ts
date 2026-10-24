@@ -225,9 +225,9 @@ test('verification provider capability ledger rejects oversized input and YAML a
     'schema: sec-external-capability-ledger-v4',
     'shared: &shared',
     '  value: 1',
-    'verification: *shared',
+    'catalog: *shared',
     ''
   ].join('\n');
   expect(() => parseExternalCapabilityLedger(aliased))
-    .toThrow();
+    .toThrow('not one valid strict YAML document');
 });

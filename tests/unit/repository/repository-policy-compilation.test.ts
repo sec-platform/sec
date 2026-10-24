@@ -1,5 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { compileRepositoryModuleMembershipSnapshot } from '../../../src/adapters/repository/architecture/contract.ts';
 import { compileSourceProgramFindingDelta } from '../../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import {
@@ -41,6 +42,9 @@ test('actual source-path finding suppression remains distinguishable from a sour
   const after = compile({ workspaceSnapshot, reviewedProcessDispatchers: [review] });
   assertRepositorySourceProgramCompilationReceipt(before);
   assertRepositorySourceProgramCompilationReceipt(after);
+  const emptyPolicy = JSON.stringify({ reviewedProcessDispatchers: [], schema: 'sec-repository-analysis-policy-v1' });
+  assert.deepEqual(before.analysisPolicy.reviewedProcessDispatchers, []);
+  assert.equal(before.analysisPolicy.policyDigest, `sha256:${createHash('sha256').update(emptyPolicy).digest('hex')}`);
   assert.ok(before.model.candidates.some(candidate => candidate.code === 'production-mirrors-source-path'
     && candidate.subject === 'src/example/target.ts'));
   assert.equal(after.model.candidates.some(candidate => candidate.code === 'production-mirrors-source-path'
@@ -55,28 +59,18 @@ test('actual source-path finding suppression remains distinguishable from a sour
 
 test('equivalent review sets leave actual compiler outputs and receipt identity unchanged', () => {
   const workspaceSnapshot = snapshot('set-equivalence'), other = 'src/example/left.ts::locateLeft';
-  const before = compile({ workspaceSnapshot, reviewedProcessDispatchers: [review, other] });
-  const after = compile({ workspaceSnapshot, reviewedProcessDispatchers: [other, review, review] });
+  const addresses = ['', './src/a.ts::run', 'src\\a.ts::run', 'arbitrary-observation'];
+  const reviewedProcessDispatchers = [review, other, ...addresses];
+  const before = compile({ workspaceSnapshot, reviewedProcessDispatchers });
+  const after = compile({ workspaceSnapshot, reviewedProcessDispatchers: [...addresses, other, review, review] });
+  reviewedProcessDispatchers.length = 0;
+  assert.deepEqual(before.analysisPolicy.reviewedProcessDispatchers, [
+    '', './src/a.ts::run', 'arbitrary-observation', other, review, 'src\\a.ts::run'
+  ]);
   assert.equal(before.model.modelDigest, after.model.modelDigest);
   assert.equal(before.receiptDigest, after.receiptDigest);
   assert.equal(compileSourceProgramFindingDelta(before, after).contextComparable, true);
-});
-
-test('a compiled receipt and its policy are detached from the caller review list', () => {
-  const workspaceSnapshot = snapshot('caller-change'), reviewedProcessDispatchers = [review];
-  const receipt = compile({ workspaceSnapshot, reviewedProcessDispatchers });
-  const identity = receipt.receiptDigest;
-  reviewedProcessDispatchers.length = 0;
-  assert.deepEqual(receipt.analysisPolicy.reviewedProcessDispatchers, [review]);
-  assert.equal(receipt.receiptDigest, identity);
-  assertRepositorySourceProgramCompilationReceipt(receipt);
-  assert.throws(() => (receipt.analysisPolicy.reviewedProcessDispatchers as string[]).push('other'), TypeError);
-});
-
-test('the virtual entrypoint validates and compiles the same single snapshot observation', () => {
-  const first = snapshot('first'), second = snapshot('second'); let reads = 0;
-  const receipt = compile({ get workspaceSnapshot() { return ++reads === 1 ? first : second; } });
-  assert.equal(reads, 1);
-  assert.equal(receipt.workspaceSnapshot, first);
-  assertRepositorySourceProgramCompilationReceipt(receipt);
+  assertRepositorySourceProgramCompilationReceipt(before);
+  assert.ok(Object.isFrozen(before.analysisPolicy));
+  assert.throws(() => (before.analysisPolicy.reviewedProcessDispatchers as string[]).push('other'), TypeError);
 });

@@ -131,12 +131,18 @@ test('baseline contract census requires two exact compiler generations', () => {
   }));
 });
 
-test('lightweight test observations bind aliased imports to signed production declarations', () => {
+test('lightweight test observations bind aliased and namespace imports to signed production declarations', () => {
   const projection = compileFixture({
     'tests/alias.test.ts': [
       "import { expect, test } from 'bun:test';",
       "import { execute as run } from '../src/example/operation.ts';",
       "test('alias', () => expect(run(1)).toBe(2));",
+      ''
+    ].join('\n'),
+    'tests/namespace.test.ts': [
+      "import { expect, test } from 'bun:test';",
+      "import * as operation from '../src/example/operation.ts';",
+      "test('namespace', () => expect(operation.execute(1)).toBe(2));",
       ''
     ].join('\n')
   });
@@ -149,7 +155,8 @@ test('lightweight test observations bind aliased imports to signed production de
     observationClass: 'derived',
     sourceRelation: 'declaration'
   }));
-  expect(projection.registrations).toEqual([
+  expect(projection.registrations).toHaveLength(2);
+  expect(projection.registrations.filter(({ path }) => path === 'tests/alias.test.ts')).toEqual([
     expect.objectContaining({
       path: 'tests/alias.test.ts',
       index: 0,
@@ -166,23 +173,8 @@ test('lightweight test observations bind aliased imports to signed production de
       })]
     })
   ]);
-  expect(projection.unknowns).not.toContainEqual(expect.objectContaining({
-    code: 'test-production-binding-unresolved'
-  }));
-  expect(projection.observationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
-
-test('lightweight test observations resolve namespace calls without a second TypeChecker', () => {
-  const projection = compileFixture({
-    'tests/namespace.test.ts': [
-      "import { expect, test } from 'bun:test';",
-      "import * as operation from '../src/example/operation.ts';",
-      "test('namespace', () => expect(operation.execute(1)).toBe(2));",
-      ''
-    ].join('\n')
-  });
-
   expect(projection.references).toContainEqual(expect.objectContaining({
+    path: 'tests/namespace.test.ts',
     kind: 'call',
     name: 'execute',
     targetPath: 'src/example/operation.ts',
@@ -192,6 +184,7 @@ test('lightweight test observations resolve namespace calls without a second Typ
   expect(projection.unknowns).not.toContainEqual(expect.objectContaining({
     code: 'test-production-binding-unresolved'
   }));
+  expect(projection.observationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
 test('lightweight test observations retain filesystem and repository-provider effects', () => {

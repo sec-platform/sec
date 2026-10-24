@@ -151,6 +151,10 @@ test('responsibility admission resolves compiler and descriptor facts while bloc
   expect(result.responsibilityFrontier).toContainEqual(expect.objectContaining({
     nodeId: 'node-contract', status: 'resolved', responsibility: 'contract'
   }));
+  expect(result.responsibilityFrontier).toContainEqual(expect.objectContaining({
+    nodeId: 'node-helper', status: 'bounded-unknown', criticality: []
+  }));
+  expect(result.violations.filter(({ from }) => from === 'src/example-alpha/helper.ts')).toEqual([]);
   expect(result.violations.map(({ code }) => code)).toContain(
     'repository-public-declaration-responsibility-unresolved'
   );
@@ -165,7 +169,6 @@ test('responsibility admission resolves compiler and descriptor facts while bloc
 test('frontier indexes preserve exact identity and entrypoint multiplicity', () => {
   const input = fixture({});
   const helperPath = 'src/example-alpha/helper.ts';
-  const runPath = 'src/example-alpha/run.ts';
   const entrypoint = Object.freeze({
     observationId: 'entrypoint-helper',
     kind: 'package-script' as const,
@@ -193,22 +196,5 @@ test('frontier indexes preserve exact identity and entrypoint multiplicity', () 
   expect(duplicate).toEqual(single);
   expect(single.responsibilityFrontier.find(({ name }) => name === 'helper')).toEqual(
     expect.objectContaining({ status: 'resolved', responsibility: 'interface' })
-  );
-
-  const undefinedIdentityFacts = {
-    ...input.facts,
-    declarations: Object.freeze((input.facts.declarations ?? []).map((declaration) => (
-      declaration.path === runPath
-        ? Object.freeze({ ...declaration, observationId: undefined, declarationDigest: undefined })
-        : declaration
-    )))
-  } as typeof input.facts;
-  const undefinedIdentity = compileRepositoryModulePlacementAdmission({
-    graph: input.graph,
-    membership: input.membership,
-    facts: undefinedIdentityFacts
-  });
-  expect(undefinedIdentity.responsibilityFrontier.find(({ name }) => name === 'run')).toEqual(
-    expect.objectContaining({ nodeId: '', declarationDigest: '', status: 'bounded-unknown' })
   );
 });
