@@ -17,7 +17,7 @@ import { isSecRepositoryTestModulePath } from '../../../src/contracts/repository
 
 const spellings = (file: string) => [file, `./${file}`, file.replaceAll('/', '\\'), `.\\${file.replaceAll('/', '\\')}`];
 const independent = 'tests/unit/development/command-runner.test.ts';
-const shared = 'tests/unit/runtime/windows-appcontainer-executor.test.ts';
+const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
 
 // These are data fixtures for the public pure budget projection, not issued
 // source receipts used to authorize an effect. No process/provider is mocked.

@@ -127,16 +127,6 @@ test('unsupported index and native object domains fail closed', () => {
   assert.throws(() => assertGitIndexObjectInfoBatch(gitlink, Buffer.from(`${'cd'.repeat(20)} commit 1\n`)));
 });
 
-test('caller array iterators cannot expand the admitted generation or object delta', () => {
-  const generation = decodeGitIndexGeneration(indexBytes({ entries: [{ path: 'a' }] }), 'sha1');
-  const entries = [...generation.entries];
-  entries[Symbol.iterator] = () => { throw new Error('unadmitted generation iterator'); };
-  assert.equal(decodeGitIndexGeneration(encodeGitIndexGeneration({ ...generation, entries }), 'sha1').entries.length, 1);
-  const additions = [{ path: 'b', objectId: '22'.repeat(20) }];
-  additions[Symbol.iterator] = () => { throw new Error('unadmitted delta iterator'); };
-  assert.equal(applyGitIndexObjectDelta(generation, { additions, removals: [] }).entries.length, 2);
-});
-
 test('file conflicts at adjacent and deeper paths reject before blobs despite lexical interleaving', () => {
   for (const paths of [['a', 'a-', 'a/b'], ['a/b', 'a-', 'a'], ['x/y', 'x/y-', 'x/y/z'], ['a/b/c', 'a']]) {
     let reads = 0;

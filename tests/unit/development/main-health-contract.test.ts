@@ -3,12 +3,10 @@ import { expect, test } from 'bun:test';
 import {
   createMainHealthLedger,
   createMainHealthRepairWorkPackagePath,
-  createMainHealthRevision,
   parseMainHealthLedger,
   resolveOrdinaryMainHealthLane,
   resolveRepairMainHealthLane,
-  type MainHealthLedgerInput,
-  type MainHealthSemanticInput
+  type MainHealthLedgerInput
 } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
 
 const SHA_A = '1'.repeat(40);
@@ -75,11 +73,6 @@ function degradedInput(overrides: Partial<MainHealthLedgerInput> = {}): MainHeal
 
 function lockedInput(overrides: Partial<MainHealthLedgerInput> = {}): MainHealthLedgerInput {
   return healthyInput({ status: 'locked', allowedLanes: [], ...overrides });
-}
-
-function semantic(input: MainHealthLedgerInput): MainHealthSemanticInput {
-  const { producer: _producer, observedAt: _observedAt, expiresAt: _expiresAt, ...value } = input;
-  return value;
 }
 
 test('healthy live exact-main ledger round-trips and exact expiry is allowed', () => {
@@ -257,26 +250,14 @@ test('MainHealth canonicalizes set ordering and rejects duplicate/unknown member
     .toThrow('invalid');
 });
 
-test('public MainHealth revision helper rejects states the ledger builder rejects', () => {
-  const invalid: readonly [string, MainHealthSemanticInput][] = [
-    ['unknown status', { ...semantic(healthyInput()), status: 'unknown' as never }],
-    ['duplicate fingerprints', { ...semantic(lockedInput()), failureFingerprints: [D_A, D_A] }],
-    ['unknown lane', { ...semantic(healthyInput()), allowedLanes: ['unknown' as never] }],
-    ['incoherent healthy state', { ...semantic(healthyInput()), failureFingerprints: [D_A] }],
-    ['incoherent degraded state', { ...semantic(degradedInput()), owner: null }],
-    ['incoherent locked state', { ...semantic(lockedInput()), allowedLanes: ['repair'] }]
-  ];
-  for (const [label, candidate] of invalid) {
-    expect(() => createMainHealthRevision(candidate), label).toThrow();
-  }
-});
-
 test('MainHealth rejects invalid producer provenance and status invariants', () => {
   const invalid: readonly [string, MainHealthLedgerInput][] = [
+    ['unknown status', healthyInput({ status: 'unknown' as never })],
     ['producer trust mismatch', healthyInput({ producer: { ...producer(), trustRevision: SHA_B } })],
     ['producer transport', healthyInput({ producer: { ...producer(), sourceTransport: 'unknown' as never } })],
     ['producer source digest', healthyInput({ producer: { ...producer(), sourceDigest: 'bad' as never } })],
     ['healthy failure', healthyInput({ failureFingerprints: [D_A] })],
+    ['degraded missing owner', { ...degradedInput(), owner: null }],
     ['degraded ordinary lane', degradedInput({ allowedLanes: ['ordinary'] })],
     ['degraded missing repair', degradedInput({ repairWorkPackage: null })],
     ['degraded noncanonical repair', degradedInput({ repairWorkPackage: 'config/repository/work-packages/repair-v1.md' })],

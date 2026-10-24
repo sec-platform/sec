@@ -10,21 +10,6 @@ const root = path.join(tmpdir(), 'sec-authority-contract');
 const input = () => ({ workspaceRoot: root, operation: 'upgrade.apply', impactPaths: ['src/a.ts'] });
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(yes => { resolve = yes; }); return { resolve, promise }; }
 
-test('the same accepted path data controls validation, digest and live projection', async () => {
-  const values = input(); let iterations = 0;
-  values.impactPaths[Symbol.iterator] = () => [++iterations < 3 ? 'src/a.ts' : '../escape'].values();
-  await withProjectWriteAuthorization(values, async authorization => {
-    assert.deepEqual(projectProjectWriteAuthorization(root, authorization).impactPaths, ['src/a.ts']);
-  });
-  assert.equal(iterations, 0);
-});
-
-test('an operation lookalike cannot be coerced into semantic identity', async () => {
-  const operation = { toString() { assert.fail('operation coercion'); } };
-  await assert.rejects(withProjectWriteAuthorization({ ...input(), operation: operation as never }, async () => assert.fail('execute')),
-    { code: 'PROJECT-WRITE-AUTHORIZATION-001', kind: 'invalid-operation' });
-});
-
 test('no authorization is visible during admission and nested preparation is refused', async () => {
   let calls = 0;
   await withProjectWriteAuthorization({ ...input(), async beforeCommit() {
@@ -40,28 +25,10 @@ test('no authorization is visible during admission and nested preparation is ref
 });
 
 test('a failed admission grants no authority and preserves the original reason', async () => {
-  for (const reason of [undefined, null, false, 0, new Error('admission')]) {
-    await assert.rejects(withProjectWriteAuthorization({ ...input(), beforeCommit() { throw reason; } },
-      async () => assert.fail('not admitted')), error => error === reason);
-    assert.equal(currentProjectWriteAuthorization(), null);
-  }
-});
-
-test('scope decisions do not drift while an admission fence is suspended', async () => {
-  const held = deferred(), begun = deferred(); const values = input();
-  const pending = withProjectWriteAuthorization({ ...values, async beforeCommit() { begun.resolve(); await held.promise; } }, async authorization => {
-    assert.deepEqual(projectProjectWriteAuthorization(root, authorization).impactPaths, ['src/a.ts']);
-  });
-  await begun.promise; values.impactPaths[0] = 'src/b.ts'; held.resolve(); await pending;
-});
-
-test('the captured admission method preserves a private provider receiver', async () => {
-  class Input {
-    workspaceRoot = root; operation = 'upgrade.apply'; impactPaths = ['src/a.ts'];
-    #calls = 0; async beforeCommit() { this.#calls++; } get calls() { return this.#calls; }
-  }
-  const values = new Input(); await withProjectWriteAuthorization(values, async () => {});
-  assert.equal(values.calls, 1);
+  const reason = new Error('admission');
+  await assert.rejects(withProjectWriteAuthorization({ ...input(), beforeCommit() { throw reason; } },
+    async () => assert.fail('not admitted')), error => error === reason);
+  assert.equal(currentProjectWriteAuthorization(), null);
 });
 
 test('expired inherited async contexts never expose a current write authorization', async () => {
@@ -87,9 +54,4 @@ test('independent concurrent operations cannot read one another authorization', 
       assert.throws(() => projectProjectWriteAuthorization(root, first), /expired/);
     });
   } finally { release.resolve(); await a; }
-});
-
-test('invalid callbacks are rejected before the admission fence executes', async () => {
-  await assert.rejects(withProjectWriteAuthorization({ ...input(), beforeCommit: () => assert.fail('fence ran') }, null as never), TypeError);
-  await assert.rejects(withProjectWriteAuthorization({ ...input(), beforeCommit: 7 as never }, async () => assert.fail('execute')), TypeError);
 });

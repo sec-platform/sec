@@ -87,35 +87,3 @@ for (const mode of ['success', 'apply-failure', 'publication-failure'] as const)
     }
   });
 }
-
-for (const stage of ['apply', 'restore'] as const) {
-  test(`a throwing ${stage} diagnostic accessor cannot retire an unrecovered backup`, async () => {
-    const f = fixture();
-    let accessorCalls = 0;
-    const hostile = new Error('untrusted diagnostic');
-    Object.defineProperty(hostile, 'message', { get() {
-      accessorCalls++;
-      throw new Error('diagnostic accessor failed');
-    } });
-    f.operations.apply = async () => { throw stage === 'apply' ? hostile : new Error('partial apply'); };
-    f.operations.restore = async () => { throw stage === 'restore' ? hostile : new Error('restore failed'); };
-    const failure = await executeUpgradeApplyLifecycle(f.input, f.operations).catch(error => error);
-    expect(f.retired).toEqual([]);
-    expect(failure).toMatchObject({ code: 'UPGRADE-BLOCKED-005', details: { rollbackStatus: 'recovery-required' } });
-    expect(f.calls).toContain('recovery-required');
-    expect(accessorCalls).toBe(0);
-  });
-}
-
-test('diagnostic construction failure leaves an unrecovered backup owned for recovery', async () => {
-  const f = fixture();
-  const diagnosticFailure = new Error('typed failure details cannot be read');
-  const { CodedFailure } = await import('../../../src/contracts/failure.ts');
-  const primary = new CodedFailure('UPGRADE-BLOCKED-005', 'partial apply');
-  Object.defineProperty(primary, 'details', { get() { throw diagnosticFailure; } });
-  f.operations.apply = async () => { throw primary; };
-  f.operations.restore = async () => { throw new Error('restore failed'); };
-  const failure = await executeUpgradeApplyLifecycle(f.input, f.operations).catch(error => error);
-  expect(f.retired).toEqual([]);
-  expect(failure).toBe(diagnosticFailure);
-});

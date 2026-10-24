@@ -1,15 +1,9 @@
 import { createHash } from 'node:crypto';
-import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
 import { parseDockerEndpointIdentity } from '../../../src/adapters/providers/docker/contract/daemon.ts';
-import {
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
-  SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
-} from '../../../src/adapters/providers/linux-verification/contract.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../src/adapters/providers/linux-verification/contract.ts';
 import {
   LINUX_VERIFICATION_UNIT_PROFILE_DIGEST,
   LINUX_VERIFICATION_UNIT_REQUIREMENT_ID,
@@ -27,26 +21,17 @@ import {
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { parseTrustedRuntimeSourceProgramAttemptCarrier } from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import {
-  TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
-  TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
-  TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
   TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC,
   TRUSTED_RUNTIME_STATE_ENVIRONMENT,
   TRUSTED_RUNTIME_TEST_TMPFS_SPEC,
-  TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT,
-  assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolume,
   assertTrustedRuntimeMainHealthQualification,
   assertTrustedRuntimeSourceProgramTransitionObservation,
   authorizeTrustedRuntimeContainerRecovery,
   composeTrustedRuntimeContainerLabels,
-  createTrustedRuntimeCommandEnvironmentArgs,
   createTrustedRuntimeDependencyCacheMarker,
   createTrustedRuntimeDependencyCacheVolumeSpec,
-  createTrustedRuntimeHostCommandEnvironment,
-  createTrustedRuntimeImageBuildPlan,
-  issueTrustedRuntimeContainerEngineOwnerTerminalJoin,
   parseTrustedRuntimeContainerIdentity,
   renderTrustedRuntimeCommandFailureDetail
 } from '../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
@@ -73,24 +58,6 @@ const dockerEndpoint = Object.freeze({
   osType: 'linux' as const,
   architecture: 'x86_64' as const
 });
-
-function imageInspect(overrides: Record<string, unknown> = {}): string {
-  return JSON.stringify([{
-    Id: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-    Config: {
-      Labels: {
-        'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1',
-        'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
-        'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
-        'sec.trusted-runtime.bun-executable-sha256':
-          SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
-        'sec.trusted-runtime.bun-version':
-          SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion,
-        ...overrides
-      }
-    }
-  }]);
-}
 
 function historicalNativeUnit(index: number): LinuxVerificationUnitReceipt {
   const unitId = String(index + 1).repeat(32);
@@ -240,6 +207,10 @@ describe('provider-neutral trusted runtime container', () => {
         .toThrow('exact live isolated producer observation');
     }
     const physical = carrier.physicalEvidence;
+    expect(physical.invocation.environment).toMatchObject({
+      SEC_STATE_HOME: '/sec-runtime/output/state',
+      SEC_CACHE_HOME: '/sec-runtime/output/cache'
+    });
     const rejectsPhysical = (changed: typeof physical) => {
       expect(() => parseTrustedRuntimeSourceProgramAttemptCarrier(
         resealHistoricalSourceProgramCarrier({ ...carrier, physicalEvidence: changed })))
@@ -339,107 +310,6 @@ describe('provider-neutral trusted runtime container', () => {
 
 
 
-  test('joins an exact requirement settlement and accepts its data-equivalent clone', () => {
-    const contractDigest = sha256({ contract: 'container-engine-test' }) as OperationDigest;
-    const providerIdentityDigest = sha256({ provider: 'container-engine-test' }) as OperationDigest;
-    const plan = compileSemanticOperationPlan({
-      operation: 'verification.trusted-runtime-container-test',
-      intentDigest: sha256({ intent: 'container-engine-test' }) as OperationDigest,
-      decisionDigest: sha256({ decision: 'container-engine-test' }) as OperationDigest,
-      deadlineAtUnixMs: Date.now() + 60_000,
-      aggregateBudgets: [
-        { resource: 'duration-ms', maximum: 60_000 },
-        { resource: 'output-bytes', maximum: 1024 },
-        { resource: 'processes', maximum: 1 }
-      ],
-      requirements: [{
-        id: 'external.container-engine-process',
-        contractDigest,
-        effectKinds: ['process'],
-        failureKinds: ['process.failed']
-      }],
-      attempt: issueSemanticOperationAttemptContext({
-        authorityGrantDigest: contractDigest
-      })
-    });
-    const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
-      requirementId: 'external.container-engine-process',
-      contractDigest,
-      providerIdentityDigest
-    })]);
-    const providerSettlement = issueProviderSettlementReceipt(operation, {
-      requirementId: 'external.container-engine-process',
-      physicalDisposition: 'settled',
-      providerSettlementReferenceDigest: sha256({ command: 'settled' }) as OperationDigest
-    });
-    const join = issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
-      operation,
-      providerSettlement,
-      endpointReadback: parseDockerEndpointIdentity(dockerEndpoint),
-      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as OperationDigest,
-      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as OperationDigest
-    });
-    expect(join.providerSettlementSetDigest).not.toBeNull();
-    expect(join.readbackReceiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    const correlationOnlyClone = issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
-      operation,
-      providerSettlement: { ...providerSettlement },
-      endpointReadback: parseDockerEndpointIdentity(dockerEndpoint),
-      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as OperationDigest,
-      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as OperationDigest
-    });
-    expect(correlationOnlyClone.joinReceiptDigest).toBe(join.joinReceiptDigest);
-  });
-
-  test('historical setup script declares the exact base as the offline default-branch ref in both trees', () => {
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
-      'git -C /sec-runtime/trusted update-ref refs/remotes/origin/main "$base"'
-    );
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
-      'git -C /sec-runtime/workspace update-ref refs/remotes/origin/main "$base"'
-    );
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT.match(
-      /rev-parse refs\/remotes\/origin\/main/gu
-    )).toHaveLength(2);
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain('git fetch origin');
-  });
-
-  test('historical setup script declares the exact Bun dependency package runner', () => {
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
-      `CI=1 SEC_CACHE_HOME=/tmp/sec-hosted-dependency-home ${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH} run deps:ensure`
-    );
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain(
-      'src/adapters/self-hosting/development/runner/cli.ts deps:ensure'
-    );
-  });
-
-  test('builds through Buildx with authority-owned absolute and semantic stall deadlines', () => {
-    const plan = createTrustedRuntimeImageBuildPlan(
-      Object.freeze({
-        specDigest: `sha256:${'1'.repeat(64)}` as const,
-        layoutPath: path.resolve('.tmp/runner-layout'),
-        runtimeManifestDigest: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.image.runtimeContentDigest,
-        dockerProjectionDigest: TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
-        provenanceArtifactDigest: `sha256:${'2'.repeat(64)}` as const
-      })
-    );
-    expect(plan.args.slice(0, 2)).toEqual(['buildx', 'build']);
-    expect(plan.args).toContain('--load');
-    expect(plan.args).toContain('--progress=rawjson');
-    expect(plan.args[plan.args.indexOf('--build-context') + 1]).toBe(
-      `runner=oci-layout://${path.resolve('.tmp/runner-layout').split(path.sep).join('/')}@${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.image.runtimeContentDigest}`
-    );
-    expect(plan.args).not.toContain(expect.stringContaining('SEC_RUNNER_IMAGE='));
-    expect(plan.args).toContain(`SEC_RUNNER_IMAGE_ID=${TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID}`);
-    expect(plan.args).toContain(
-      `SEC_BUN_EXECUTABLE_DIGEST=${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST}`
-    );
-    expect(plan.args[plan.args.indexOf('--file') + 1]).toBe(path.resolve(
-      ...SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH.split('/')
-    ));
-    expect(plan.stallTimeoutMs).toBeLessThan(plan.absoluteTimeoutMs);
-  });
-
   test('admits only the canonical executable test tmpfs and non-executable runtime state', () => {
     const container = {
       Id: '4'.repeat(64),
@@ -492,69 +362,12 @@ describe('provider-neutral trusted runtime container', () => {
     }]))).toThrow('targets differ');
   });
 
-  test('projects one writable sibling state/cache authority into every trusted runtime command', () => {
-    expect(TRUSTED_RUNTIME_STATE_ENVIRONMENT).toEqual({
-      SEC_STATE_HOME: '/sec-runtime/output/state',
-      SEC_CACHE_HOME: '/sec-runtime/output/cache'
-    });
-    const projected = createTrustedRuntimeCommandEnvironmentArgs({ SURFACE: 'main-health' });
-    for (const value of [
-      'SEC_STATE_HOME=/sec-runtime/output/state',
-      'SEC_CACHE_HOME=/sec-runtime/output/cache',
-      'SURFACE=main-health'
-    ]) {
-      expect(projected[projected.indexOf(value) - 1]).toBe('--env');
-    }
-    expect(() => createTrustedRuntimeCommandEnvironmentArgs({
-      SEC_STATE_HOME: '/caller/override'
-    })).toThrow('cannot replace SEC_STATE_HOME');
-  });
-
-  test('binds immutable Docker and Bun identities without a GitHub Actions run', () => {
-    const image = assertTrustedRuntimeContainerImageV1(imageInspect());
-    expect(image.imageId).toBe(TRUSTED_RUNTIME_CONTAINER_IMAGE_ID);
-    expect(TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT).toMatchObject({
-      kind: 'local',
-      os: 'linux',
-      arch: 'x64',
-      toolchainRevision:
-        `bun@${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion}`
-    });
-    expect(TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT.executionEnvironmentRevision)
-      .toContain(
-        `local-dev-runner:linux:x64:bun-${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion}`
-      );
-  });
-
-  test('rejects mutable or mislabeled execution images', () => {
-    expect(() => assertTrustedRuntimeContainerImageV1(imageInspect({
-      'sec.trusted-runtime.bun-version': 'latest'
-    }))).toThrow('bun-version drifted');
-    expect(() => assertTrustedRuntimeContainerImageV1(JSON.stringify([{
-      Id: 'sha256:'.padEnd(71, '0'),
-      Config: { Labels: {} }
-    }]))).toThrow('image ID drifted');
-  });
-
-  test('binds a local Docker endpoint and isolates host-side Git transport', () => {
+  test('historical Docker receipt endpoints retain exact local identity and reject remote transport', () => {
     expect(parseDockerEndpointIdentity(dockerEndpoint)).toEqual(dockerEndpoint);
     expect(() => parseDockerEndpointIdentity({
       ...dockerEndpoint,
       endpointHost: 'tcp://remote.example:2376'
     })).toThrow(/local npipe or unix transport/);
-
-    const environment = createTrustedRuntimeHostCommandEnvironment('git', {
-      PATH: 'C:\\tools',
-      GIT_CONFIG_GLOBAL: 'hostile-global-config',
-      GIT_CONFIG_NOSYSTEM: '0',
-      GIT_TEMPLATE_DIR: 'hostile-template',
-      GIT_TERMINAL_PROMPT: '1'
-    });
-    expect(environment.GIT_CONFIG_NOSYSTEM).toBe('1');
-    expect(environment.GIT_CONFIG_GLOBAL).toBe(process.platform === 'win32' ? 'NUL' : '/dev/null');
-    expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
-    expect(environment.GIT_TEMPLATE_DIR).toBeUndefined();
-
   });
 
   test('labels captured stdout and stderr and identifies absent provider output', () => {

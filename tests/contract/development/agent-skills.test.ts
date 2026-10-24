@@ -136,22 +136,7 @@ test('all tracked Markdown is explicitly classified and current document identit
   });
 });
 
-test('archived YAML remains non-Markdown repository content', () => {
-  for (const archivedYaml of [
-    'docs/archive/authority-v5/governance/external-capability-ledger.yaml',
-    'docs/archive/authority-v5/governance/nexus-absorption-ledger.yaml',
-    'docs/archive/authority-v5/work/current-state.yaml'
-  ]) {
-    expect(resolveMarkdownSkillCoverage(archivedYaml)).toBeNull();
-    expect(isRepositoryHeuristicSurface(archivedYaml)).toBeFalse();
-    expect(classifyRepositorySurface(archivedYaml)).toEqual({
-      kind: 'repository-content',
-      skills: []
-    });
-  }
-});
-
-test('GitHub collaboration Markdown remains non-authoritative repository content', () => {
+test('Markdown source categories preserve content, navigation, control and unknown boundaries', () => {
   expect(resolveMarkdownSkillCoverage('.github/PULL_REQUEST_TEMPLATE.md')).toEqual({
     kind: 'repository-content',
     skills: []
@@ -168,9 +153,24 @@ test('GitHub collaboration Markdown remains non-authoritative repository content
     kind: 'navigation',
     skills: []
   });
+  expect(resolveMarkdownSkillCoverage('notes/architecture.md')).toBeNull();
+  expect(resolveMarkdownSkillCoverage(
+    'config/repository/work-packages/docs-control-convergence.md'
+  )).toEqual({ kind: 'frozen-work-package', skills: [] });
+  for (const control of ['active-work-package', 'rolling-plan', 'work-selection']) {
+    expect(resolveMarkdownSkillCoverage(`config/repository/${control}.md`))
+      .toEqual({ kind: 'control-projection', skills: [] });
+  }
 });
 
 test('repository surface classification follows canonical source and test identities', () => {
+  const archivedYaml = 'docs/archive/authority-v5/governance/external-capability-ledger.yaml';
+  expect(resolveMarkdownSkillCoverage(archivedYaml)).toBeNull();
+  expect(isRepositoryHeuristicSurface(archivedYaml)).toBeFalse();
+  expect(classifyRepositorySurface(archivedYaml)).toEqual({
+    kind: 'repository-content',
+    skills: []
+  });
   expect(classifyRepositorySurface('src/compiler/compile.ts')).toEqual({
     kind: 'product-implementation',
     skills: []
@@ -190,36 +190,6 @@ test('repository surface classification follows canonical source and test identi
   }
 });
 
-test('registered heuristic runtime surfaces resolve at least one Skill', () => {
-  const files = trackedRepositoryFiles();
-  for (const file of files.filter(isRepositoryHeuristicSurface)) {
-    const skills = resolveRepositoryHeuristicSkills(file);
-    if (skills.length === 0) throw new Error(`Heuristic surface has no Skill owner: ${file}`);
-  }
-  for (const file of files) expect(classifyRepositorySurface(file)).toBeDefined();
-
-  const agentsCoverage = resolveMarkdownSkillCoverage('AGENTS.md');
-  expect(agentsCoverage).toEqual({
-    kind: 'agent-projection',
-    skills: [
-      'heuristic-governance',
-      'repository-audit',
-      'task-delegation'
-    ]
-  });
-  expect(resolveRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
-  expect(resolveRepositoryHeuristicSkills('.documentation/documents.json')).toEqual([
-    'heuristic-governance',
-    'repository-audit'
-  ]);
-  expect(resolveRepositoryHeuristicSkills(
-    'config/external-capabilities/ledger.yaml'
-  )).toEqual(['external-capability-governance', 'heuristic-governance']);
-  expect(resolveRepositoryHeuristicSkills('src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts')).toEqual([
-  ]);
-  expect(resolveRepositoryHeuristicSkills('package.json')).toEqual([
-  ]);
-});
 
 test('documentation and Agent trust-root kinds have focused governance ownership', () => {
   // Repository-wide selection remains owned by the canonical affected-selection
@@ -259,6 +229,27 @@ test('external capability ledger binds repository authority and keeps rejected s
 });
 
 test('current documentation tools and provider role instructions route to their existing heuristic owners', () => {
+  const agentsCoverage = resolveMarkdownSkillCoverage('AGENTS.md');
+  expect(agentsCoverage).toEqual({
+    kind: 'agent-projection',
+    skills: [
+      'heuristic-governance',
+      'repository-audit',
+      'task-delegation'
+    ]
+  });
+  expect(resolveRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
+  expect(resolveRepositoryHeuristicSkills('.documentation/documents.json')).toEqual([
+    'heuristic-governance',
+    'repository-audit'
+  ]);
+  expect(resolveRepositoryHeuristicSkills(
+    'config/external-capabilities/ledger.yaml'
+  )).toEqual(['external-capability-governance', 'heuristic-governance']);
+  expect(resolveRepositoryHeuristicSkills('src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts')).toEqual([
+  ]);
+  expect(resolveRepositoryHeuristicSkills('package.json')).toEqual([
+  ]);
   for (const tool of ['check_docs.py', 'check_design.py', 'source_inventory.py']) {
     expect(resolveRepositoryHeuristicSkills(`tools/documentation/${tool}`))
       .toEqual(['heuristic-governance', 'repository-audit']);

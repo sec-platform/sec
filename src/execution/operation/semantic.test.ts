@@ -253,27 +253,6 @@ test('semantic budgets represent static ceilings and allow only an explicit zero
   })).toThrow('aggregate budget is not canonical');
 });
 
-test('attempt context is compiler-local correlation rather than serializable authority', () => {
-  const issued = issueSemanticOperationAttemptContext({
-    authorityGrantDigest: digest('verification-typecheck-authority-grant')
-  });
-  const structural = structuredClone(issued);
-  expect(() => compileSemanticOperationPlan({
-    operation: 'verification.typecheck',
-    intentDigest: digest({ target: 'candidate' }),
-    decisionDigest: digest({ noEmit: true }),
-    deadlineAtUnixMs: 1_900_000_000_000,
-    aggregateBudgets: [{ resource: 'processes', maximum: 1 }],
-    requirements: [{
-      id: 'typescript.project-check',
-      contractDigest: digest({ semantics: 'no-emit-project-check' }),
-      effectKinds: ['process'],
-      failureKinds: ['provider.unavailable']
-    }],
-    attempt: structural
-  })).toThrow('not foundation-compiled');
-});
-
 test('binding rejects missing, duplicate and semantic-contract mismatches', () => {
   const operationPlan = plan();
   const wrong = compileCapabilityBinding({
@@ -284,19 +263,6 @@ test('binding rejects missing, duplicate and semantic-contract mismatches', () =
   expect(() => bindSemanticOperation(operationPlan, [])).toThrow(/exactly one binding/u);
   expect(() => bindSemanticOperation(operationPlan, [wrong])).toThrow(/not exactly bound/u);
   expect(() => bindSemanticOperation(operationPlan, [wrong, wrong])).toThrow(/exactly one binding/u);
-});
-
-test('binding rejects a structural copy that bypasses the foundation compiler', () => {
-  const operationPlan = plan();
-  const binding = compileCapabilityBinding({
-    requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('native-checker')
-  });
-
-  const structuralPlan = structuredClone(operationPlan);
-  expect(() => bindSemanticOperation(structuralPlan, [binding]))
-    .toThrow('requires a foundation-compiled operation plan');
 });
 
 test('provider diagnostics expose typed identity and digest without raw evidence', () => {

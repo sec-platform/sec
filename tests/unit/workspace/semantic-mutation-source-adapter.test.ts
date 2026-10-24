@@ -2,6 +2,7 @@ import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { YamlInputLimitError, YamlSyntaxError } from '../../../src/adapters/formats/yaml.ts';
 import { semanticMutationByteDigest } from '../../../src/compiler/semantic-mutation/canonical.ts';
 
 import { planSemanticMutationSourceEdit, renderSemanticMutationSourceEdit } from '../../../src/adapters/mutation/plan-source-edit.ts';
@@ -9,7 +10,7 @@ import {
   renderSemanticContractYamlEdit,
 } from '../../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
 import { readSemanticMutationSource } from '../../../src/adapters/mutation/source-path-boundary.ts';
-import { loadAuthoringSemanticContractSources } from "../../../src/adapters/workspace/sources/load-authoring-semantic-contracts.ts";
+import { AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES, loadAuthoringSemanticContractSources } from "../../../src/adapters/workspace/sources/load-authoring-semantic-contracts.ts";
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { semanticMutationAuthorizationRevision } from '../../../src/compiler/semantic-mutation/normalize-request.ts';
@@ -20,7 +21,7 @@ import type { LoadedSemanticContract } from '../../../src/semantics/definitions/
 import type { FactDeltaEndpointContext } from '../../../src/semantics/engineering-ir/delta-types.ts';
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest } from '../../../src/semantics/mutation/types.ts';
 import { buildSemanticContractSourceCandidate } from "../../../src/semantics/provenance/source-candidate.ts";
-import { AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH } from "../../../src/workspace/contract/authoring-index.ts";
+import { AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH, AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION } from "../../../src/workspace/contract/authoring-index.ts";
 import { modelRelativePath } from '../../../src/workspace/contract/types.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
@@ -480,41 +481,70 @@ test('authoring source candidate does not change canonical IR identity outside i
   expect(buildEngineeringIR(buildInput(source.loadedContract))).toEqual(before);
 });
 
-test('fixed authoring index is a real loader provenance seam and does not infer unlisted source/model mirrors', async () => {
+test('fixed authoring index admits only declared bounded sources and returns canonical provenance order', async () => {
   await withTempWorkspace(async (root) => {
     await mkdir(path.join(root, modelRelativePath), { recursive: true });
-    await writeFile(path.join(root, modelRelativePath, 'item.yaml'), sourceYaml());
-    expect(await loadAuthoringSemanticContractSources(root, new Set(['item/basic']))).toEqual([]);
+    const sourcePath = `${modelRelativePath}/item.yaml`;
+    const sourceBytes = sourceYaml();
+    await writeFile(path.join(root, sourcePath), sourceBytes);
+    const resolved = new Set(['item/basic']);
+    const load = () => loadAuthoringSemanticContractSources(root, resolved);
+    expect(await load()).toEqual([]);
 
     const indexPath = path.join(root, ...AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH.split('/'));
-    await writeFile(indexPath, [
-      'formatRevision: authoring-semantic-contract-index-v1',
-      'contracts: []',
-      'callerOwner: forged',
-      ''
-    ].join('\n'));
-    await expect(loadAuthoringSemanticContractSources(root, new Set(['item/basic']))).rejects.toMatchObject({
-      code: 'CONTRACT-SEMANTIC-019'
-    });
+    const writeIndex = (contracts: unknown[]) => writeFile(indexPath, JSON.stringify({
+      formatRevision: AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION, contracts
+    }));
+    await writeIndex([]);
+    expect(await load()).toEqual([]);
+    for (const raw of [null, {}, { formatRevision: 'other', contracts: [] },
+      { formatRevision: AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION, contracts: null },
+      { formatRevision: AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION, contracts: [], callerOwner: 'forged' }]) {
+      await writeFile(indexPath, JSON.stringify(raw));
+      await expect(load()).rejects.toMatchObject({ code: 'CONTRACT-SEMANTIC-019' });
+    }
+    for (const entry of [null, { blockId: 7, path: 'a' }, { blockId: 'item/basic', path: 7 },
+      { blockId: 'item/basic', path: 'a', extra: true }]) {
+      await writeIndex([entry]);
+      await expect(load()).rejects.toMatchObject({ code: 'CONTRACT-SEMANTIC-020' });
+    }
+    await writeIndex([{ blockId: 'block/unresolved', path: sourcePath }]);
+    await expect(load()).rejects.toMatchObject({ code: 'CONTRACT-SEMANTIC-020' });
+    for (const entryPath of ['../escape.yaml', 'src/a.yaml', `${modelRelativePath}/a.json`, AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH]) {
+      await writeIndex([{ blockId: 'item/basic', path: entryPath }]);
+      await expect(load()).rejects.toMatchObject({ code: 'CONTRACT-SEMANTIC-021' });
+    }
+    await writeIndex([{ blockId: 'item/basic', path: sourcePath }, { blockId: 'item/basic', path: sourcePath }]);
+    await expect(load()).rejects.toMatchObject({ code: 'CONTRACT-SEMANTIC-022' });
 
-    await writeFile(indexPath, [
-      'formatRevision: authoring-semantic-contract-index-v1',
-      'contracts:',
-      '  - blockId: item/basic',
-      '    path: model/item.yaml',
-      ''
-    ].join('\n'));
-    const sources = await loadAuthoringSemanticContractSources(root, new Set(['item/basic']));
-    expect(sources).toHaveLength(1);
+    await writeFile(indexPath, 'contracts: []\ncontracts: []\n');
+    await expect(load()).rejects.toBeInstanceOf(YamlSyntaxError);
+    await writeFile(indexPath, ' '.repeat(AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES + 1));
+    await expect(load()).rejects.toBeInstanceOf(YamlInputLimitError);
+    await writeFile(indexPath, Uint8Array.of(0xff));
+    await expect(load()).rejects.toThrow();
+
+    await writeIndex([{ blockId: 'item/basic', path: sourcePath }]);
+    await writeFile(path.join(root, sourcePath), Buffer.from(sourceBytes).toString('utf8').replace('id: item-core', 'id: !unknown item-core'));
+    await expect(load()).rejects.toBeInstanceOf(YamlSyntaxError);
+    await writeFile(path.join(root, sourcePath), sourceBytes);
+    const secondPath = `${modelRelativePath}/z-other.yaml`;
+    await writeFile(path.join(root, secondPath), JSON.stringify({ formatVersion: '1', id: 'other-core', namespace: 'other' }));
+    await writeIndex([{ blockId: 'item/basic', path: secondPath }, { blockId: 'item/basic', path: sourcePath }]);
+    const sources = await load();
+    expect(sources.map(source => source.loadedContract.contractPath)).toEqual([sourcePath, secondPath]);
+    expect(sources).toHaveLength(2);
     expect(sources[0]).toMatchObject({
       sourceKind: 'workspace-authoring',
       loadedContract: {
         blockId: 'item/basic',
-        contractPath: `${modelRelativePath}/item.yaml`,
+        contractPath: sourcePath,
         contract: { id: 'item-core', namespace: 'item' }
       }
     });
+    expect(sources[1]!.loadedContract.contract).toMatchObject({ id: 'other-core', namespace: 'other' });
     expect(sources[0]!.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(Object.isFrozen(sources[0])).toBe(true);
+    expect(Object.isFrozen(sources[0]!.loadedContract.contract)).toBe(true);
   });
 });

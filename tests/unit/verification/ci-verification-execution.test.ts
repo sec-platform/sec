@@ -552,7 +552,8 @@ function hostedProviderInputs(
   terminals: ReadonlyMap<number, Readonly<{
     status: Exclude<VerificationResultStatus, 'not-run'>;
     expired?: boolean;
-  }>>
+  }>>,
+  capturedRawResults?: Map<number, ReturnType<typeof hostedRawResult>>
 ): HostedProviderInputs {
   const observations: CodexDevelopmentHostedActionArtifactObservation[] = [];
   const startObservations: VerificationActionProviderStartObservation[] = [];
@@ -577,6 +578,7 @@ function hostedProviderInputs(
     }
     const resolution = hostedMemberResolution(envelope.actionPlanClosure, index);
     const rawResult = hostedRawResult(resolution, terminalSpec.status);
+    capturedRawResults?.set(index, rawResult);
     const artifact = CodexDevelopmentAssembleHostedActionTerminal({
       resolution,
       ticket: hostedTicket(resolution),
@@ -1962,10 +1964,29 @@ test('canonical terminals and hosted composition preserve physical states and re
   const envelope = hostedEnvelopeFixture(closure);
   let passedArtifact: ReturnType<typeof CodexDevelopmentAssembleHostedActionTerminal> | null = null;
   for (const status of ['passed', 'failed', 'unsupported', 'invalidated'] as const) {
-    const provider = hostedProviderInputs(envelope, new Map([[0, { status }]]));
+    const rawResults = new Map<number, ReturnType<typeof hostedRawResult>>();
+    const provider = hostedProviderInputs(envelope, new Map([[0, { status }]]), rawResults);
     const artifact = provider.observations[0]!.artifact!;
     expect(artifact.result.status).toBe(status);
-    if (status === 'passed') passedArtifact = artifact;
+    if (status === 'passed') {
+      passedArtifact = artifact;
+      const observation = rawResults.get(0)!;
+      expect(Object.keys(observation).sort()).toEqual([
+        'command', 'executionAuthorizationDigest', 'finishedAt', 'rawResultDigest',
+        'sandboxReceipt', 'schema', 'startedAt'
+      ]);
+      for (const forbidden of ['result', 'cleanup', 'status', 'normalizedOperation']) {
+        expect(forbidden in observation).toBe(false);
+      }
+      expect(artifact).toMatchObject({
+        result: { status: 'passed', disposition: 'executed' },
+        cleanup: { status: 'passed' },
+        executionProof: {
+          authorization: { actionKey: closure.actions[0]!.action.actionKey },
+          externalRawResultDigest: observation.rawResultDigest
+        }
+      });
+    }
     expect(artifact.producer).toEqual(hostedProducer);
     expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(artifact, {
       actionPlan: closure.actions[0]!,

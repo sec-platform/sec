@@ -347,9 +347,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     parallelSafe: true,
     prRiskBaseline: true
   }),
-  slowFileSuite('e2e-windows-appcontainer-executor', 'runtime/windows-appcontainer-executor', 'windows-appcontainer-native-e2e', 180_000, {
-    resourceClass: 'runtime-heavy'
-  }),
   slowFileSuite('e2e-workspace', 'cli/workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
 ]);
 

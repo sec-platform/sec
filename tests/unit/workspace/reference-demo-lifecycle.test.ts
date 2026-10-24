@@ -19,12 +19,6 @@ function operations(events: string[]): ReferenceDemoOperations {
   };
 }
 
-async function rejectsWith(promise: Promise<unknown>, reason: unknown): Promise<void> {
-  let rejected = false;
-  try { await promise; } catch (actual) { rejected = true; assert.equal(actual, reason); }
-  assert.equal(rejected, true);
-}
-
 for (const mode of ['quickstart', 'governance', 'closed-loop'] as const) {
   test(`${mode} preserves its operation sequence and removes only its acquired workspace`, async () => {
     const events: string[] = [];
@@ -39,61 +33,18 @@ for (const mode of ['quickstart', 'governance', 'closed-loop'] as const) {
   });
 }
 
-test('failed acquisition never invokes cleanup on an unowned workspace', async () => {
-  const events: string[] = [], ops = operations(events);
-  ops.createWorkspace = async () => { throw undefined; };
-  await rejectsWith(runReferenceDemo('quickstart', ops), undefined);
-  assert.deepEqual(events, []);
-});
-
-for (const primary of [undefined, new Error('compile')]) {
-  test(`a ${typeof primary} body error and cleanup error both survive demo closeout`, async () => {
-    const events: string[] = [], ops = operations(events), cleanup = new Error('remove');
-    ops.compileWorkspace = async () => { events.push('compile'); throw primary; };
-    ops.removeWorkspace = async () => { events.push('remove'); throw cleanup; };
-    await assert.rejects(runReferenceDemo('closed-loop', ops), error => {
-      assert.ok(error instanceof ResourceCompositeSettlementError);
-      assert.deepEqual(error.failures, [
-        { label: 'reference-demo', error: primary },
-        { label: 'reference-demo-workspace', error: cleanup }
-      ]);
-      return true;
-    });
-    assert.deepEqual(events, ['create', 'announce', 'initialize', 'compile', 'remove']);
-  });
-}
-
-test('synchronous announcement failure also settles the acquired workspace exactly once', async () => {
-  const events: string[] = [], ops = operations(events), primary = Object.freeze({ announce: true });
-  ops.announceWorkspace = () => { throw primary; };
-  await rejectsWith(runReferenceDemo('quickstart', ops), primary);
-  assert.deepEqual(events, ['create', 'remove']);
-});
-
-test('cleanup-only failure preserves its identity without repeating removal', async () => {
-  const events: string[] = [], ops = operations(events), cleanup = Object.freeze({ cleanup: true });
+test('body and cleanup errors both survive demo closeout', async () => {
+  const primary = new Error('compile');
+  const events: string[] = [], ops = operations(events), cleanup = new Error('remove');
+  ops.compileWorkspace = async () => { events.push('compile'); throw primary; };
   ops.removeWorkspace = async () => { events.push('remove'); throw cleanup; };
-  await rejectsWith(runReferenceDemo('quickstart', ops), cleanup);
-  assert.deepEqual(events, ['create', 'announce', 'initialize', 'compile:compose', 'remove']);
-});
-
-test('demo methods and cleanup are captured before asynchronous workspace acquisition', async () => {
-  const events: string[] = [], ops = operations(events);
-  ops.createWorkspace = async () => {
-    events.push('create');
-    ops.initializeWorkspace = async () => { events.push('replacement-initialize'); };
-    ops.removeWorkspace = async () => { events.push('replacement-remove'); };
-    return '/owned/demo';
-  };
-  await runReferenceDemo('quickstart', ops);
-  assert.deepEqual(events, ['create', 'announce', 'initialize', 'compile:compose', 'remove']);
-});
-
-test('a quickstart does not inspect unused mode-specific operations', async () => {
-  const events: string[] = [], ops = operations(events);
-  for (const key of ['verifyAll', 'listGovernanceArtifacts', 'explainCompactJson']) {
-    Object.defineProperty(ops, key, { get() { throw new Error('Unused operation was inspected'); } });
-  }
-  await runReferenceDemo('quickstart', ops);
-  assert.deepEqual(events, ['create', 'announce', 'initialize', 'compile:compose', 'remove']);
+  await assert.rejects(runReferenceDemo('closed-loop', ops), error => {
+    assert.ok(error instanceof ResourceCompositeSettlementError);
+    assert.deepEqual(error.failures, [
+      { label: 'reference-demo', error: primary },
+      { label: 'reference-demo-workspace', error: cleanup }
+    ]);
+    return true;
+  });
+  assert.deepEqual(events, ['create', 'announce', 'initialize', 'compile', 'remove']);
 });

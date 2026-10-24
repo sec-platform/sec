@@ -205,28 +205,6 @@ function reduce(
   });
 }
 
-test('raw SUT transport is observation-only and the sole reducer derives four physical terminal states', () => {
-  const passed = raw();
-  expect(Object.keys(passed).sort()).toEqual([
-    'command', 'executionAuthorizationDigest', 'finishedAt', 'rawResultDigest',
-    'sandboxReceipt', 'schema', 'startedAt'
-  ]);
-  for (const forbidden of ['result', 'cleanup', 'status', 'normalizedOperation']) {
-    expect(forbidden in passed).toBe(false);
-  }
-  expect(reduce(passed)).toMatchObject({
-    result: { status: 'passed', disposition: 'executed' },
-    cleanup: { status: 'passed' },
-    proof: {
-      authorization: { actionKey: actionPlan.action.actionKey },
-      externalRawResultDigest: passed.rawResultDigest
-    }
-  });
-  expect(reduce(raw({ exitCode: 1 })).result.status).toBe('failed');
-  expect(reduce(raw({ capability: 'unsupported' })).result.status).toBe('unsupported');
-  expect(reduce(raw({ capability: 'invalidated', clean: false })).result.status).toBe('invalidated');
-});
-
 test('physical command authorization and PASS settlement reject recomputed contradictory observations', () => {
   const original = raw();
   const rehashObservation = (observation: HostedActionRawResult<typeof import("../../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>): void => {

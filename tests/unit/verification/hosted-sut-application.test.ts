@@ -78,23 +78,18 @@ function fixture(options: Readonly<{ executionFailure?: Readonly<{ error: unknow
   return { ports, calls, members };
 }
 
-test('TrustedBootstrap application publishes the original fixed evidence and joins execute/teardown before retirement', async () => {
+test('TrustedBootstrap captures its subject, awaits preparation and publishes complete evidence before retirement', async () => {
+  const mutable = { ...input };
   const observed = fixture();
-  expect(await executeTrustedBootstrapSut(input, observed.ports)).toEqual({ status: 'passed', bootstrapDigest: digest, receiptDigest: digest });
-  expect(observed.calls).toEqual(['capability-self-test', 'teardown', 'evidence-root', 'prepare', 'bootstrap-execute', 'teardown', 'close', 'retire']);
-  expect([...observed.members.keys()].sort()).toEqual([
-    'tcb-lock-pre.json', 'imports.log', 'docs-doctor.log', 'typecheck.log',
-    'diff-check.log', 'focused-tests.log', 'repository-audit.json', 'affected-plan.json',
-    'affected-tests.log', 'tcb-lock-post.json', 'SHA256SUMS', 'sut-receipt.json'
-  ].sort());
-});
-
-test('TrustedBootstrap waits for asynchronous physical preparation before execution or retirement', async () => {
-  const observed = fixture();
+  const originalRun = observed.ports.run;
+  observed.ports.run = async (plan, archive) => {
+    mutable.headSha = 'e'.repeat(40);
+    return originalRun(plan, archive);
+  };
   const original = observed.ports.prepareBootstrap;
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  const running = executeTrustedBootstrapSut(input, { ...observed.ports, prepareBootstrap: async source => {
+  const running = executeTrustedBootstrapSut(mutable, { ...observed.ports, prepareBootstrap: async source => {
     const prepared = original(source);
     await gate;
     return prepared;
@@ -102,8 +97,14 @@ test('TrustedBootstrap waits for asynchronous physical preparation before execut
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(observed.calls).toEqual(['capability-self-test', 'teardown', 'evidence-root', 'prepare']);
   release();
-  expect((await running).status).toBe('passed');
-  expect(observed.calls.slice(-4)).toEqual(['bootstrap-execute', 'teardown', 'close', 'retire']);
+  expect(await running).toEqual({ status: 'passed', bootstrapDigest: digest, receiptDigest: digest });
+  expect(observed.calls).toEqual(['capability-self-test', 'teardown', 'evidence-root', 'prepare', 'bootstrap-execute', 'teardown', 'close', 'retire']);
+  expect([...observed.members.keys()].sort()).toEqual([
+    'tcb-lock-pre.json', 'imports.log', 'docs-doctor.log', 'typecheck.log',
+    'diff-check.log', 'focused-tests.log', 'repository-audit.json', 'affected-plan.json',
+    'affected-tests.log', 'tcb-lock-post.json', 'SHA256SUMS', 'sut-receipt.json'
+  ].sort());
+  expect(JSON.parse(observed.members.get('sut-receipt.json') as string).headSha).toBe(input.headSha);
 });
 
 test('TrustedBootstrap cannot report passed when any required evidence observation is missing or duplicated', async () => {
@@ -177,18 +178,6 @@ test('TrustedBootstrap partial preparation still retires the owned transport', a
   expect(caught).toBeNull();
   expect(observed.calls.slice(-2)).toEqual(['prepare', 'retire']);
   expect(observed.calls).not.toContain('close');
-});
-
-test('TrustedBootstrap captures one pure subject before the first process await', async () => {
-  const mutable = { ...input };
-  const observed = fixture();
-  const originalRun = observed.ports.run;
-  observed.ports.run = async (plan, archive) => {
-    mutable.headSha = 'e'.repeat(40);
-    return originalRun(plan, archive);
-  };
-  await executeTrustedBootstrapSut(mutable, observed.ports);
-  expect(JSON.parse(observed.members.get('sut-receipt.json') as string).headSha).toBe(input.headSha);
 });
 
 test('TrustedBootstrap rejects malformed identity before probe or evidence allocation', async () => {

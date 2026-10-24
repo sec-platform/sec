@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { buildErrorProtocol } from '../../../src/application/error-protocol.ts';
+import type { ErrorProtocolContract } from '../../../src/application/error-protocol-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliVariants } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
@@ -82,7 +83,7 @@ test('public error codes retain their independent recovery contract', () => {
 
 test('error-contract CLI exposes the stable protocol boundary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliVariants(workspaceRoot, ['contract', 'errors'], {
+    const { json, compactJson } = await expectCliVariants<ErrorProtocolContract, ErrorProtocolContract>(workspaceRoot, ['contract', 'errors'], {
       text: [
         'Error protocol active',
         'Example usage-error; code=CLI-USAGE-001',
@@ -95,5 +96,19 @@ test('error-contract CLI exposes the stable protocol boundary', async () => {
         issueTypes: ['composition', 'kernel', 'spec', 'usage']
       }
     });
+    for (const contract of [json, compactJson]) {
+      const rollback = contract.examples.find((example) => example.id === 'upgrade-rollback-error')!;
+      const expectedDetails = {
+        migrationId: 'mig-customer-normalizer-file',
+        migrationKind: 'file-replace',
+        rollbackStatus: 'restored'
+      };
+      expect(rollback.input.details).toMatchObject(expectedDetails);
+      expect(rollback.output.details).toMatchObject(expectedDetails);
+      expect(rollback.output.details).toEqual(rollback.input.details);
+      const unexpected = contract.examples.find((example) => example.id === 'unexpected-error')!;
+      expect(unexpected.input).not.toHaveProperty('code');
+      expect(unexpected.input).not.toHaveProperty('details');
+    }
   });
 });

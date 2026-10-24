@@ -5,11 +5,8 @@ import type { GitHubCheckObservation } from '../../../src/execution/verification
 import { createMainHealthLedger } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   createObservedMainHealthInput,
-  createObservedMainHealthInputWithPolicy,
   createRegisteredHostedMainHealthInputs,
-  createTrustedRuntimeMainHealthCheckProviderPolicyV1,
   createTrustedRuntimeMainHealthInput,
-  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
   trustedRuntimeMainHealthReceiptReference,
   type TrustedRuntimeMainHealthReceipt
 } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
@@ -18,12 +15,6 @@ import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../
 const MAIN = '1'.repeat(40);
 const MAIN_TREE = '2'.repeat(40);
 const APP = Object.freeze({ id: 900001, nodeId: 'A_sec_integrator', slug: 'sec-integrator' });
-const RUNTIME_REF = `src/adapters/self-hosting/control/integration/merge-gate.ts@${MAIN}`;
-
-const policy = createTrustedRuntimeMainHealthCheckProviderPolicyV1({
-  policyRevision: 'sec-main-health-trusted-runtime-v1',
-  app: APP
-});
 
 function check(overrides: Partial<GitHubCheckObservation> = {}): GitHubCheckObservation {
   return {
@@ -79,21 +70,6 @@ function compileHosted(checks: readonly GitHubCheckObservation[]) {
   });
 }
 
-function observe(checks: readonly GitHubCheckObservation[], sourceRunId = '77') {
-  return createObservedMainHealthInputWithPolicy({
-    repository: 'sec-platform/sec',
-    mainSha: MAIN,
-    mainTreeSha: MAIN_TREE,
-    trustRevision: MAIN,
-    observedAt: '2026-08-19T00:00:00.000Z',
-    expiresAt: '2026-08-19T01:00:00.000Z',
-    sourceRunId,
-    sourceRef: RUNTIME_REF,
-    checks,
-    policy
-  });
-}
-
 test('trusted runtime live receipt compiles the same healthy semantic revision as hosted MainHealth', () => {
   const observedAt = '2026-09-29T00:00:00.000Z';
   const expiresAt = '2026-09-29T00:10:00.000Z';
@@ -108,17 +84,14 @@ test('trusted runtime live receipt compiles the same healthy semantic revision a
     observedAt,
     expiresAt
   }));
-  const hosted = createMainHealthLedger(createObservedMainHealthInputWithPolicy({
+  const hosted = createMainHealthLedger(createObservedMainHealthInput({
     repository: 'sec-platform/sec',
     mainSha: MAIN,
     mainTreeSha: MAIN_TREE,
     trustRevision: MAIN,
     observedAt,
     expiresAt,
-    sourceRunId: '77',
-    sourceRef: RUNTIME_REF,
-    checks: [check()],
-    policy
+    checks: [actionsCheck()]
   }));
   expect(local.status).toBe('healthy');
   expect(local.allowedLanes).toEqual(['ordinary']);
@@ -189,47 +162,6 @@ test('trusted runtime projection binds current receipt identity and rejects reti
     .toThrow('receipt digest is invalid');
 });
 
-test('dedicated Integration App can produce healthy MainHealth without GitHub Actions workflow provenance', () => {
-  const ledger = observe([check()]);
-  expect(ledger.status).toBe('healthy');
-  expect(ledger.allowedLanes).toEqual(['ordinary']);
-  expect(ledger.producer).toMatchObject({
-    sourceTransport: 'github-api',
-    sourceRunId: '77',
-    sourceRef: RUNTIME_REF,
-    trustRevision: MAIN
-  });
-});
-
-test('direct App MainHealth requires exact app identity and exact main subject', () => {
-  expect(observe([check({ appId: APP.id + 1 })]).status).toBe('locked');
-  expect(observe([check({ appNodeId: 'A_wrong' })]).status).toBe('locked');
-  expect(observe([check({ appSlug: 'wrong-integrator' })]).status).toBe('locked');
-  expect(observe([check({ headSha: '3'.repeat(40) })]).status).toBe('locked');
-});
-
-test('direct App MainHealth cannot be impersonated by a workflow-backed check', () => {
-  const workflowBacked = check({
-    workflowPath: '.github/workflows/compiler-pr-validation.yml',
-    workflowRef: `.github/workflows/compiler-pr-validation.yml@${MAIN}`,
-    eventName: 'repository_dispatch',
-    workflowRunId: '123',
-    workflowRunDisplayTitle: `SEC main health ${MAIN} operation sha256:${'a'.repeat(64)}`
-  });
-  expect(observe([workflowBacked]).status).toBe('locked');
-});
-
-test('duplicate direct App MainHealth checks remain ambiguous and locked', () => {
-  expect(observe([check(), check({ id: 78 })])).toMatchObject({
-    status: 'locked',
-    allowedLanes: []
-  });
-});
-
-test('direct App sourceRunId must bind the exact observed GitHub check id', () => {
-  expect(() => observe([check()], '78')).toThrow('sourceRunId must equal the exact observed check or workflow run id');
-});
-
 test('hosted registry accepts the exact Actions principal and ignores an unregistered same-name App', () => {
   expect(compileHosted([check()])).toEqual([]);
   expect(compileHosted([actionsCheck()])).toMatchObject([{
@@ -273,26 +205,13 @@ test('direct Actions MainHealth derives producer identity independently of the o
   }
 });
 
-test('Actions sourceRunId must bind the exact observed workflow run id', () => {
-  expect(() => createObservedMainHealthInputWithPolicy({
-    repository: 'sec-platform/sec',
-    mainSha: MAIN,
-    mainTreeSha: MAIN_TREE,
-    trustRevision: MAIN,
-    observedAt: '2026-08-19T00:00:00.000Z',
-    expiresAt: '2026-08-19T01:00:00.000Z',
-    sourceRunId: '124',
-    sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
-    checks: [actionsCheck()],
-    policy: GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
-  })).toThrow('sourceRunId must equal the exact observed check or workflow run id');
-});
-
 test('hosted registry does not enroll same-App near matches before producer provenance matches', () => {
   const skipped = { status: 'completed', conclusion: 'skipped' } as const;
   const operationId = createCiMainHealthRequestOperationId(MAIN);
   expect(compileHosted([actionsCheck({ ...skipped, headSha: '3'.repeat(40) })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, appId: CI_MAIN_HEALTH_POLICY.app.id + 1 })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, appNodeId: 'A_wrong' })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, appSlug: 'wrong-integrator' })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, eventName: 'pull_request' })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, workflowPath: '.github/workflows/other.yml' })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${'4'.repeat(40)}` })])).toEqual([]);
@@ -305,7 +224,7 @@ test('hosted registry does not enroll same-App near matches before producer prov
 });
 
 test('terminal non-success remains degraded and routes only to repair', () => {
-  const ledger = observe([check({ conclusion: 'failure' })]);
+  const ledger = compileHosted([actionsCheck({ conclusion: 'failure' })])[0]!;
   expect(ledger.status).toBe('degraded');
   expect(ledger.allowedLanes).toEqual(['repair']);
   expect(ledger.failureFingerprints).toHaveLength(1);

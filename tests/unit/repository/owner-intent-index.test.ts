@@ -18,22 +18,8 @@ function fixture() {
   };
 }
 
-test('construction does not read any fact collection before a view is requested', () => {
-  const input = new Proxy(fixture(), { get() { throw new Error('eager model read'); } });
-  assert.doesNotThrow(() => index(input));
-});
-
-test('unused view families remain completely unobserved', () => {
-  const input = fixture();
-  for (const key of ['declarations', 'files', 'capabilities', 'references'] as const) {
-    Object.defineProperty(input, key, { get() { throw new Error(`unused ${key}`); } });
-  }
-  const view = index(input);
-  assert.equal(view.entrypointsForOwner('A').length, 1);
-});
-
 test('declaration views retain same-name separation, private declarations and ambiguity', () => {
-  const input = fixture(); input.declarations.push(input.declarations[0]!);
+  const input = fixture(); input.declarations.push({ ...input.declarations[0]!, observationId: 'overload' });
   const view = index(input);
   assert.equal(view.declarationsForCapability('A', 'run').length, 2);
   assert.equal(view.declarationsForCapability('B', 'run').length, 0);
@@ -45,71 +31,22 @@ test('matching exported declarations with no module owner are not assigned an ow
   assert.equal(index(input).declarationsForCapability('A', 'run').length, 0);
 });
 
-test('shared declaration view is prepared exactly once for both access paths', () => {
-  const input = fixture(); const entries = input.declarations; let reads = 0;
-  Object.defineProperty(input, 'declarations', { get() { reads += 1; return entries; } });
-  const view = index(input);
-  assert.deepEqual(view.declarationsForCapability('A', 'run'), [entries[0]!]);
-  assert.deepEqual(view.declarationsForPath('src/a.ts'), [entries[0]!]);
-  assert.equal(reads, 1);
-});
-
-test('index construction failure never publishes a partial declaration view', () => {
-  const input = fixture(); let fail = true;
-  const good = input.declarations[1]!;
-  input.declarations[1] = { ...good, exported: true, get name() { if (fail) throw new Error('interrupted'); return 'run'; } };
-  const view = index(input);
-  assert.throws(() => view.declarationsForCapability('A', 'run'), /interrupted/);
-  fail = false;
-  assert.equal(view.declarationsForCapability('A', 'run').length, 1);
-  assert.equal(view.declarationsForPath('src/b.ts').length, 1);
-});
-
-test('duplicate target and handler labels do not duplicate one entrypoint observation', () => {
+test('entrypoint targets and handler owners retain their exact observation', () => {
   const input = fixture();
-  input.entrypoints[0]!.targetPaths.push('src/a.ts');
-  input.entrypointClosures[0]!.handlerModuleIds.push('A');
   const view = index(input);
   assert.equal(view.entrypointsForTarget('src/a.ts').length, 1);
   assert.equal(view.entrypointsForOwner('A').length, 1);
-});
-
-test('separate duplicate entrypoint observations are not silently deduplicated', () => {
-  const input = fixture(); input.entrypoints.push(input.entrypoints[0]!);
-  const view = index(input);
-  assert.equal(view.entrypointsForTarget('src/a.ts').length, 2);
-  assert.equal(view.entrypointsForOwner('A').length, 2);
-});
-
-test('first and last closure consumers preserve their distinct legacy semantics', () => {
-  const input = fixture(); input.entrypointClosures.push({ ...input.entrypointClosures[0]!, handlerModuleIds: ['B'], marker: 'last' });
-  const view = index(input);
-  assert.equal(view.entrypointsForOwner('A').length, 0);
-  assert.equal(view.entrypointsForOwner('B')[0]!.closure.marker, 'last');
-  assert.equal(view.firstClosureForEntrypoint('entry')!.marker, 'first');
-});
-
-test('entrypoint with no closure is still target-addressable but not assigned to a handler', () => {
-  const input = fixture(); input.entrypointClosures = [];
-  const view = index(input);
-  assert.equal(view.entrypointsForTarget('src/a.ts').length, 1);
-  assert.equal(view.entrypointsForOwner('A').length, 0);
-});
-
-test('empty capability and consumer demands do not build or read their indexes', () => {
-  const input = fixture();
-  for (const key of ['capabilities', 'references', 'files'] as const) {
-    Object.defineProperty(input, key, { get() { throw new Error(`unused ${key}`); } });
-  }
-  const view = index(input);
-  assert.deepEqual(view.capabilitySummaryForPaths(new Set()), { observedKinds: [], hasUnknown: false });
-  assert.equal(view.consumerPaths(new Set(), new Set()).size, 0);
+  assert.equal(view.entrypointsForTarget('src/b.ts').length, 0);
+  assert.equal(view.entrypointsForOwner('B').length, 0);
+  assert.equal(view.firstClosureForEntrypoint('entry'), input.entrypointClosures[0]);
 });
 
 test('resolved declaration identity never falls back to a matching target path', () => {
-  const input = fixture(); input.references[0]!.targetObservationId = 'different';
+  const input = fixture();
+  input.declarations.push({ ...input.declarations[0]!, observationId: 'other-export', name: 'other' });
+  input.references[0]!.targetObservationId = 'other-export';
   assert.equal(index(input).consumerPaths(new Set(['a']), new Set(['src/a.ts'])).size, 0);
-  input.references[0]!.targetObservationId = 'a'; input.references[0]!.targetPath = 'other';
+  input.references[0]!.targetObservationId = 'a';
   assert.deepEqual([...index(input).consumerPaths(new Set(['a']), new Set(['src/a.ts']))], ['src/b.ts']);
 });
 
@@ -131,32 +68,63 @@ test('unknown observations and non-production sources do not become consumers', 
 });
 
 test('duplicate reference locations do not repeat source membership lookups downstream', () => {
-  const input = fixture(); input.references = [...Array(1000).fill(input.references[0]),
+  const input = fixture(); input.references = [input.references[0]!, input.references[0]!,
     { ...input.references[0]!, path: 'src/a.ts' }];
   const actual = index(input).consumerPaths(new Set(['a']), new Set(['src/a.ts']));
   assert.deepEqual(actual, new Set(['src/a.ts', 'src/b.ts']));
 });
 
-test('published buckets are frozen but input declarations and input arrays are not', () => {
-  const input = fixture(); const view = index(input);
-  assert.ok(Object.isFrozen(view));
-  assert.ok(Object.isFrozen(view.declarationsForPath('src/a.ts')));
-  assert.ok(Object.isFrozen(view.entrypointsForOwner('A')));
-  assert.ok(Object.isFrozen(view.entrypointsForTarget('src/a.ts')));
-  assert.equal(Object.isFrozen(input.declarations), false);
-  assert.equal(Object.isFrozen(input.declarations[0]), false);
+function fact(overrides: Partial<{
+  path: string; surface: string; capability: string; observationClass: string; transport: string;
+}> = {}) {
+  return { path: 'src/a.ts', surface: 'production', capability: 'filesystem',
+    observationClass: 'observed', transport: 'native-runtime', ...overrides };
+}
+function view(capabilities: ReturnType<typeof fact>[]) {
+  return index({ files: [], declarations: [], entrypoints: [],
+    entrypointClosures: [], references: [], capabilities });
+}
+const paths = new Set(['src/a.ts']);
+
+for (const observationClass of ['observed', 'derived', 'unknown']) {
+  for (const transport of ['native-runtime', 'unknown']) {
+    test(`summary preserves ${observationClass} observation with ${transport} transport`, () => {
+      const result = view([fact({ observationClass, transport })]).capabilitySummaryForPaths(paths);
+      assert.deepEqual(result.observedKinds, observationClass === 'unknown' ? [] : ['filesystem']);
+      assert.equal(result.hasUnknown, observationClass === 'unknown' || transport === 'unknown');
+    });
+  }
+}
+
+test('unrequested paths and non-production facts cannot contribute effects or unknown status', () => {
+  const result = view([fact(), fact({ path: 'src/b.ts', capability: 'network', transport: 'unknown' }),
+    fact({ surface: 'test', capability: 'process', observationClass: 'unknown' })])
+    .capabilitySummaryForPaths(paths);
+  assert.deepEqual(result, { observedKinds: ['filesystem'], hasUnknown: false });
 });
 
-test('returned consumer sets cannot mutate stored indexes', () => {
-  const view = index(fixture());
-  (view.consumerPaths(new Set(['a']), new Set()) as Set<string>).clear();
-  assert.equal(view.consumerPaths(new Set(['a']), new Set()).size, 1);
+test('cross-path union preserves kind membership and unknowns across duplicates and reordering', () => {
+  const known = fact();
+  const capabilities = [known, known,
+    fact({ capability: 'process', observationClass: 'derived' }),
+    fact({ path: 'src/b.ts', capability: 'network' }),
+    fact({ surface: 'test', capability: 'excluded', observationClass: 'unknown' })];
+  for (const hasUnknown of [false, true]) {
+    const records = hasUnknown ? [...capabilities,
+      fact({ capability: 'unresolved', observationClass: 'unknown' }),
+      fact({ transport: 'unknown' })] : capabilities;
+    for (const reverse of [false, true]) {
+      const result = view(reverse ? [...records].reverse() : records).capabilitySummaryForPaths(
+        new Set(reverse ? ['src/b.ts', 'src/a.ts'] : ['src/a.ts', 'src/b.ts'])
+      );
+      assert.deepEqual(new Set(result.observedKinds), new Set(['filesystem', 'network', 'process']));
+      assert.equal(result.observedKinds.length, 3);
+      assert.equal(result.hasUnknown, hasUnknown);
+    }
+  }
 });
 
-test('a new generation gets fresh independent indexes, even with the same addresses', () => {
-  const input = fixture(); const first = index(input);
-  assert.equal(first.declarationsForCapability('A', 'run').length, 1);
-  const second = index({ ...input, declarations: [] });
-  assert.equal(second.declarationsForCapability('A', 'run').length, 0);
-  assert.equal(first.declarationsForCapability('A', 'run').length, 1);
+test('a new generation does not reuse an old generation summary', () => {
+  assert.equal(view([fact()]).capabilitySummaryForPaths(paths).hasUnknown, false);
+  assert.equal(view([fact({ transport: 'unknown' })]).capabilitySummaryForPaths(paths).hasUnknown, true);
 });

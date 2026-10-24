@@ -62,17 +62,31 @@ async function withIssuedResidueReceipt<T>(
   try {
     return await operation({
       endpointPath,
-      observe: (providerEvidence) => observeRuntimeEndpointResidueCandidatesForTests({
-        admittedGenerationRoots: [
-          inspectNoFollowDirectoryChain(parentPath, 'Docker admitted generation root').target
-        ],
-        providerIdentityDigest: residueProviderIdentityDigest,
-        providerEvidence,
-        roots: [retained],
-        probe: ({ candidatePath }) => runtimeEndpointAccessFailureObservationForTests({
-          candidatePath
-        })
-      })
+      observe: (providerEvidence) => {
+        const receipt = observeRuntimeEndpointResidueCandidatesForTests({
+          admittedGenerationRoots: [
+            inspectNoFollowDirectoryChain(parentPath, 'Docker admitted generation root').target
+          ],
+          providerIdentityDigest: residueProviderIdentityDigest,
+          providerEvidence,
+          roots: [retained],
+          probe: ({ candidatePath }) => runtimeEndpointAccessFailureObservationForTests({
+            candidatePath
+          })
+        });
+        expect(receipt).not.toBeNull();
+        expect(receipt!.entry.path).toBe(endpointPath);
+        expect(receipt!.entry.objectId).not.toBe('');
+        expect(receipt!.root.objectId).toBe(retained.root.objectId);
+        expect(receipt!.generationRoot.path).toBe(parentPath);
+        expect(receipt!.providerIdentityDigest).toBe(residueProviderIdentityDigest);
+        expect(receipt!.nativeFailure).toEqual({
+          namespace: 'win32',
+          code: 1_920,
+          failureClass: 'access-unavailable'
+        });
+        return receipt;
+      }
     });
   } finally {
     retained.close();

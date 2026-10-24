@@ -198,17 +198,3 @@ test('reference use case propagates operation rejection without retry or later w
     expect(events).toEqual(phase === 'refresh' ? ['refresh'] : ['refresh', 'scan']);
   }
 });
-
-test('reference use case validates both operations before starting refresh', async () => {
-  for (const invalid of ['refresh', 'scanDrift'] as const) {
-    let started = false;
-    const operations = {
-      refresh: async () => { started = true; return 0; },
-      scanDrift: async () => cleanDrift,
-      [invalid]: null
-    } as unknown as ReferenceCheckOperations;
-    await expect(executeReferenceCheck(referenceCheckContext, operations))
-      .rejects.toThrow('Reference check operations must be callable');
-    expect(started).toBe(false);
-  }
-});

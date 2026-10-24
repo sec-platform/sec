@@ -117,7 +117,14 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
 
 test('Source Program binds validated semantic intent to one exact exported declaration', () => {
   const sourcePath = 'src/example/run.ts';
-  const source = 'export function run(): string { return \'ok\'; }\n';
+  const source = [
+    'export function run(): string { return \'ok\'; }',
+    'function hidden(): string { return \'private\'; }',
+    'export function ambiguous(value: string): string;',
+    'export function ambiguous(value: number): number;',
+    'export function ambiguous(value: string | number): string | number { return value; }',
+    ''
+  ].join('\n');
   const descriptorPath = 'src/example/module.json';
   const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [sourcePath, descriptorPath],
@@ -213,6 +220,24 @@ test('Source Program binds validated semantic intent to one exact exported decla
       reason: 'exported-declaration-missing'
     })
   ]);
+
+  for (const [declarationPath, exportName, reason] of [
+    [sourcePath, 'hidden', 'exported-declaration-missing'],
+    [sourcePath, 'ambiguous', 'exported-declaration-ambiguous'],
+    ['src/example/other.ts', 'run', 'exported-declaration-missing']
+  ] as const) {
+    const unmatchedContract = structuredClone(semanticContract);
+    unmatchedContract.contract.responsibilities[0]!.bindings![0]!.declaration.path = declarationPath;
+    unmatchedContract.contract.responsibilities[0]!.bindings![0]!.declaration.exportName = exportName;
+    const unmatchedSnapshot = buildValidatedEngineeringIR(engineeringInput(unmatchedContract));
+    expect(compileSourceProgramResponsibilityEvidence(model, unmatchedSnapshot)).toEqual([
+      expect.objectContaining({
+        declaration: expect.objectContaining({ path: declarationPath, exportName }),
+        observationClass: 'unknown',
+        reason
+      })
+    ]);
+  }
 
   const conflictingContract = structuredClone(semanticContract);
   conflictingContract.contract.responsibilities.push({

@@ -695,7 +695,6 @@ test('fast process resource classes uniquely derive limits and isolate productio
   }
 
   const productionHostAndRuntimeLifecycleFiles = [
-    'tests/unit/runtime/windows-appcontainer-executor.test.ts',
     'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts'
   ];
   for (const file of productionHostAndRuntimeLifecycleFiles) {

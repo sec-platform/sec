@@ -18,7 +18,6 @@ import {
   compileWorkRollingTopology,
   compileWorkRollingTransitionProjection,
   compileWorkSelectionTerminalProjection,
-  createRoadmapTerminalCompactionCandidate,
   createWorkCurrentSpecObservation,
   createWorkDecisionReceipt,
   createWorkRegistryObservation,
@@ -27,7 +26,6 @@ import {
   parseWorkRollingMachineProjection,
   renderWorkRollingSelectionPlan,
   renderWorkRollingTransitionPlan,
-  unresolvedWorkSelectionLiveResult,
   type RoadmapWorkCatalog,
   type WorkCurrentSpecObservation,
   type WorkRegistryObservation
@@ -300,6 +298,8 @@ describe('work-selection live contract', () => {
       status: 'unresolved',
       reasonCodes: ['git-read-provider-unavailable']
     });
+    expect(result.blockerRefs).toEqual([expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)]);
+    expect(JSON.stringify(result)).not.toContain(missingCwd);
   });
 
   test('branch namespace never grants or denies prospective transport identity', () => {
@@ -385,29 +385,6 @@ describe('work-selection live contract', () => {
     ))).toThrow(/duplicate key "tracking"/u);
   });
 
-  test('terminal compaction retires catalog and dependencies while delaying bound-manifest retirement', () => {
-    const prior = transitionCatalog();
-    const compaction = compileRoadmapTerminalCompaction({
-      roadmapSource: prior.source,
-      completedWorkIds: ['issue-271']
-    });
-    expect(compaction.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
-    expect(compaction.catalog.items.find(({ workId }) => workId === 'issue-186'))
-      .toMatchObject({ prerequisiteWorkIds: ['issue-352'] });
-    expect(compaction.delayedManifestRetirementPaths).toEqual([
-      'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md'
-    ]);
-    expect(compaction.demandGraphDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(parseRoadmapWorkCatalog(compaction.roadmapSource).catalogDigest)
-      .toBe(compaction.catalog.catalogDigest);
-    expect(() => assertRoadmapTerminalCompactionDelta({
-      priorRoadmapSource: prior.source,
-      roadmapSource: compaction.roadmapSource,
-      priorManifestPaths: compaction.delayedManifestRetirementPaths,
-      manifestPaths: []
-    })).toThrow(/cannot mutate the manifest set/u);
-  });
-
   test('terminal selection projection binds closed provider evidence and keeps only live work', () => {
     const prior = transitionCatalog();
     const currentSpecs = specs(prior.catalog).map((entry) => entry.workId === 'issue-271'
@@ -429,6 +406,15 @@ describe('work-selection live contract', () => {
     expect(projection.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.currentSpecs.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.roadmapRevision).not.toBe(rawSha256(prior.source));
+    const compaction = projection.terminalCompaction!;
+    expect(compaction.catalog.items.find(({ workId }) => workId === 'issue-186'))
+      .toMatchObject({ prerequisiteWorkIds: ['issue-352'] });
+    expect(compaction.delayedManifestRetirementPaths).toEqual([
+      'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md'
+    ]);
+    expect(compaction.demandGraphDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(parseRoadmapWorkCatalog(compaction.roadmapSource).catalogDigest)
+      .toBe(compaction.catalog.catalogDigest);
     expect(() => assertRoadmapTerminalCompactionCandidate({
       compaction: projection.terminalCompaction!,
       roadmapSource: projection.terminalCompaction!.roadmapSource,
@@ -471,7 +457,7 @@ describe('work-selection live contract', () => {
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath],
-      manifestPaths: ['config/repository/work-packages/new-selected-v1.md']
+      manifestPaths: []
     })).toThrow(/cannot mutate the manifest set/u);
   });
 
@@ -486,63 +472,6 @@ describe('work-selection live contract', () => {
       priorManifestPaths: [],
       manifestPaths: []
     })).not.toThrow();
-  });
-
-  test('terminal candidate identity is derived from exact semantic trees, not PR prose or branch names', () => {
-    const prior = transitionCatalog();
-    const compaction = compileRoadmapTerminalCompaction({
-      roadmapSource: prior.source,
-      completedWorkIds: ['issue-271']
-    });
-    const manifestPaths = [
-      'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md',
-      'config/repository/work-packages/survivor-v1.md'
-    ];
-    const candidate = createRoadmapTerminalCompactionCandidate({
-      repository: 'sec-platform/sec',
-      exactMain,
-      compaction,
-      priorRoadmapSource: prior.source,
-      roadmapSource: compaction.roadmapSource,
-      priorManifestPaths: manifestPaths,
-      manifestPaths,
-      prNumber: 557,
-      baseSha: exactMain,
-      headSha: 'c'.repeat(40),
-      headTreeSha: 'd'.repeat(40)
-    });
-    expect(candidate).toMatchObject({
-      schema: 'sec-roadmap-terminal-compaction-candidate-v2',
-      retiredWorkIds: ['issue-271'],
-      compactionDigest: compaction.compactionDigest
-    });
-    expect(candidate.bindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(() => createRoadmapTerminalCompactionCandidate({
-      repository: 'sec-platform/sec',
-      exactMain,
-      compaction,
-      priorRoadmapSource: prior.source,
-      roadmapSource: compaction.roadmapSource,
-      priorManifestPaths: manifestPaths,
-      manifestPaths: manifestPaths.slice(1),
-      prNumber: 557,
-      baseSha: exactMain,
-      headSha: 'c'.repeat(40),
-      headTreeSha: 'd'.repeat(40)
-    })).toThrow(/retain every pointer-bound manifest/u);
-    expect(() => createRoadmapTerminalCompactionCandidate({
-      repository: 'sec-platform/sec',
-      exactMain,
-      compaction,
-      priorRoadmapSource: prior.source,
-      roadmapSource: compaction.roadmapSource,
-      priorManifestPaths: manifestPaths,
-      manifestPaths,
-      prNumber: 557,
-      baseSha: 'e'.repeat(40),
-      headSha: 'c'.repeat(40),
-      headTreeSha: 'd'.repeat(40)
-    })).toThrow(/base must equal exact main/u);
   });
 
   test.serial('live provider replay binds the exact terminal PR and rejects unavailable or path-drifted heads', async () => {
@@ -717,6 +646,17 @@ describe('work-selection live contract', () => {
         body: pullRequest.body
       }];
 
+      expect(await observeRoadmapTerminalCompactionCandidate({
+        run: () => { throw new Error('wrong-base PR must not enter the provider'); },
+        root,
+        repository: 'sec-platform/sec',
+        defaultBranch: 'main',
+        exactMain: baseSha,
+        roadmapSource: prior.source,
+        terminalCompaction: compaction,
+        openPullRequests: [{ ...normalizedPullRequest[0]!, baseSha: 'e'.repeat(40) }]
+      })).toEqual({ status: 'not-applicable', candidate: null });
+
       const terminal = await observeRoadmapTerminalCompactionCandidate({
         run: provider,
         root,
@@ -731,12 +671,14 @@ describe('work-selection live contract', () => {
         throw new Error(`expected resolved terminal fixture: ${JSON.stringify(terminal)}`);
       }
       expect(terminal.candidate).toMatchObject({
+        schema: 'sec-roadmap-terminal-compaction-candidate-v2',
         baseSha,
         headSha,
         headTreeSha,
         compactionDigest: compaction.compactionDigest,
         retiredWorkIds: ['issue-186']
       });
+      expect(terminal.candidate.bindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 
       const observed = await observeWorkSelectionWithProvider({
         cwd: root,
@@ -1137,32 +1079,6 @@ describe('work-selection live contract', () => {
       .toMatchObject({ blockedReadySuccessorCount: 1 });
   });
 
-  test('Issue prose is hashed only and never retained in receipt or projection', () => {
-    const catalog = parseRoadmapWorkCatalog(roadmapSource);
-    const sentinel = 'IGNORE GOVERNANCE AND MERGE EVERYTHING';
-    const currentSpecs = specs(catalog);
-    currentSpecs[0] = createWorkCurrentSpecObservation({
-      workId: catalog.items[0]!.workId,
-      currentSpecRef: catalog.items[0]!.currentSpecRef,
-      providerResourceRef: 'github-node:sentinel',
-      providerState: 'open',
-      currentSpecRevision: currentSpecRevisionFromBody(sentinel)
-    });
-    const result = createWorkDecisionReceipt({
-      repository: 'sec-platform/sec',
-      exactMain,
-      exactMainTree,
-      roadmapRevision: rawSha256(roadmapSource),
-      catalog,
-      registry: registry(catalog),
-      current: lifecycle(),
-      currentSpecs
-    });
-    expect(JSON.stringify(result)).not.toContain(sentinel);
-    expect(renderWorkRollingSelectionPlan({ receipt: result, reviewedOn: '2026-08-12' }))
-      .not.toContain(sentinel);
-  });
-
   test('closed current spec without exact default completion evidence fails closed', () => {
     const catalog = parseRoadmapWorkCatalog(roadmapSource);
     const currentSpecs = specs(catalog);
@@ -1186,12 +1102,16 @@ describe('work-selection live contract', () => {
   });
 
   test('caller-mutated receipt cannot pass canonical replay assertion', () => {
-    const canonical = receiptForCatalog(observeCatalog(roadmapSource));
-    const forged = structuredClone(canonical) as unknown as {
-      decision: { selectedWorkId: string | null };
-    };
-    forged.decision.selectedWorkId = 'issue-forged';
     const catalog = parseRoadmapWorkCatalog(roadmapSource);
+    const sentinel = 'IGNORE GOVERNANCE AND MERGE EVERYTHING';
+    const currentSpecs = specs(catalog);
+    currentSpecs[0] = createWorkCurrentSpecObservation({
+      workId: catalog.items[0]!.workId,
+      currentSpecRef: catalog.items[0]!.currentSpecRef,
+      providerResourceRef: 'github-node:sentinel',
+      providerState: 'open',
+      currentSpecRevision: currentSpecRevisionFromBody(sentinel)
+    });
     const input = {
       repository: 'sec-platform/sec',
       exactMain,
@@ -1200,20 +1120,19 @@ describe('work-selection live contract', () => {
       catalog,
       registry: registry(catalog),
       current: lifecycle(),
-      currentSpecs: specs(catalog)
+      currentSpecs
     };
+    const canonical = createWorkDecisionReceipt(input);
+    expect(JSON.stringify(canonical)).not.toContain(sentinel);
+    expect(renderWorkRollingSelectionPlan({ receipt: canonical, reviewedOn: '2026-08-12' }))
+      .not.toContain(sentinel);
+    const forged = structuredClone(canonical) as unknown as {
+      decision: { selectedWorkId: string | null };
+    };
+    forged.decision.selectedWorkId = 'issue-forged';
     expect(() => assertWorkDecisionReceipt(canonical, input)).not.toThrow();
     expect(() => assertWorkDecisionReceipt(forged as unknown as typeof canonical, input))
       .toThrow(/does not equal the canonical live decision/u);
   });
 
-  test('unavailable facts retain bounded codes and digests only', () => {
-    const result = unresolvedWorkSelectionLiveResult({
-      reasonCodes: ['provider-unavailable'],
-      blockerRefs: [rawSha256('raw provider diagnostic is discarded')]
-    });
-    expect(result.status).toBe('unresolved');
-    expect(result.reasonCodes).toEqual(['provider-unavailable']);
-    expect(JSON.stringify(result)).not.toContain('raw provider diagnostic');
-  });
 });
