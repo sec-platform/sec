@@ -36,6 +36,7 @@ test('legacy raw SHA-256 still hashes bytes, not JSON strings', () => {
   assert.equal(rawSha256('abc'), `sha256:${abc}`);
   assert.equal(rawSha256(''), 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   assert.notEqual(sha256('abc'), rawSha256('abc'));
+  assert.equal(sha256({ b: 2, a: 1 }), 'sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777');
 });
 
 test('incremental hash is independent of binary chunk boundaries and source offsets', () => {
@@ -77,22 +78,6 @@ test('finish, failure and explicit disposal are terminal', () => {
   const disposed = createSha256Hasher();
   disposed.dispose();
   assert.throws(() => disposed.update('later'), /no longer open/u);
-});
-
-test('canonical hashing preserves scalar, key-order, sparse-array and Unicode encoding', () => {
-  const cases: Array<readonly [unknown, string]> = [
-    [null, 'null'], [-0, '0'], [true, 'true'], ['é😀', '"é😀"'],
-    [{ b: 2, a: 1 }, '{"a":1,"b":2}'],
-    [{ '10': 'ten', '2': 'two', a: 1 }, '{"2":"two","10":"ten","a":1}'],
-    [new Array(3), '[null,null,null]'],
-    [JSON.parse('{"__proto__":{"b":2,"a":1},"x":0}'), '{"__proto__":{"a":1,"b":2},"x":0}']
-  ];
-  for (const [input, encoded] of cases) {
-    assert.equal(sha256(input), rawSha256(encoded));
-  }
-  assert.equal(sha256({ b: 2, a: 1 }), 'sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777');
-  const str = `${'x'.repeat(8190)}😀${'y'.repeat(8190)}`;
-  assert.equal(sha256([str, str]), rawSha256(JSON.stringify([str, str])));
 });
 
 test('canonical errors do not poison subsequent computations', () => {

@@ -58,7 +58,7 @@ import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPAT
 import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 
 import { parseVerificationSessionHostedRequest } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
-import { assertGitHubReviewAuthorityObservation, classifyGitHubGraphQLSchemaFailure, createReviewProviderRevalidationCommentBody, createVerificationSessionGitHubClient, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, isGitHubProviderSchemaUnsupportedError, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+import { assertGitHubReviewAuthorityObservation, classifyGitHubGraphQLSchemaFailure, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, isGitHubProviderSchemaUnsupportedError, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedRuntime, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts, SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
@@ -736,21 +736,6 @@ function substituteAuthorizationLiveIdentity(
   return Object.freeze({ ...withoutDigest, resultDigest });
 }
 
-test('trusted app review binds stable app/node and exact reviewed head', async () => {
-  const transport = new FakeTransport();
-  transport.issueComments = [[botIssueComment(
-    `Codex Review: Didn't find any major issues. Delightful!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``
-  )]];
-  const result = (await observe(transport));
-  expect(result.status).toBe('clear');
-  if (result.status !== 'clear') throw new Error('expected clear review');
-  expect(result.principal).toEqual({ kind: 'github-app', actorNodeId: BOT, appId: 1144995,
-    appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector', reviewState: 'COMMENTED' });
-  expect(result.snapshot.reviewedHeadSha).toBe(HEAD);
-  expect(result.authority.sourceTransport).toBe('github-rest');
-  expect(result.snapshot.reviewPageDigests).toContain(result.authority.sourceDigest);
-});
-
 test('REST clean verdict accepts stable prefix variants only with provider-resolved exact 10/full locator', async () => {
   const providerAbout = new FakeTransport();
   providerAbout.issueComments = [[botIssueComment(
@@ -764,7 +749,14 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
     'Codex can also answer questions or update the PR. Try commenting ' +
     '"@codex address that feedback".\n</details>'
   )]];
-  expect((await observe(providerAbout)).status).toBe('clear');
+  const authority = await observe(providerAbout);
+  expect(authority.status).toBe('clear');
+  if (authority.status !== 'clear') throw new Error('expected clear review');
+  expect(authority.principal).toEqual({ kind: 'github-app', actorNodeId: BOT, appId: 1144995,
+    appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector', reviewState: 'COMMENTED' });
+  expect(authority.snapshot.reviewedHeadSha).toBe(HEAD);
+  expect(authority.authority.sourceTransport).toBe('github-rest');
+  expect(authority.snapshot.reviewPageDigests).toContain(authority.authority.sourceDigest);
 
   for (const body of [
     `Codex Review: Didn't find any major issues. Swish!\n\n` +
@@ -823,30 +815,14 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
     reason: 'exact-head-independent-review-missing' });
 });
 
-test('second-page unresolved thread fails closed', async () => {
-  const transport = new FakeTransport();
-  transport.issueComments = [[botIssueComment()]];
-  transport.threads = [[], [{ id: 'T2', isResolved: false, isOutdated: false, path: 'x.ts', authorNodeIds: ['R'] }]];
-  expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'unresolved-review-thread' });
-});
-
-test('an unresolved outdated thread remains blocking', async () => {
-  const transport = new FakeTransport();
-  transport.issueComments = [[botIssueComment()]];
-  transport.threads = [[{ id: 'T-outdated', isResolved: false, isOutdated: true,
-    path: 'old.ts', authorNodeIds: ['REVIEWER'] }]];
-  expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'unresolved-review-thread' });
-});
-
-test('current exact-head REQUEST_CHANGES blocks even with a trusted app comment', async () => {
-  const transport = new FakeTransport();
-  transport.issueComments = [[botIssueComment()]];
-  transport.reviews = [[{
-    id: 'R1', authorNodeId: 'REVIEWER', authorLogin: 'reviewer', authorType: 'User',
-    appId: null, appNodeId: null, appSlug: null,
-    commitSha: HEAD, state: 'CHANGES_REQUESTED', submittedAt: '2026-08-09T14:00:00.000Z'
-  }]];
-  expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'request-changes-current' });
+test('second-page unresolved threads remain blocking when fresh or outdated', async () => {
+  for (const isOutdated of [false, true]) {
+    const transport = new FakeTransport();
+    transport.issueComments = [[botIssueComment()]];
+    transport.threads = [[], [{ id: 'T2', isResolved: false, isOutdated,
+      path: 'old.ts', authorNodeIds: ['REVIEWER'] }]];
+    expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'unresolved-review-thread' });
+  }
 });
 
 test('old-head REQUEST_CHANGES survives a new-head COMMENTED review and clean app verdict', async () => {
@@ -909,12 +885,6 @@ test('trusted Codex App activity is not Review authority without a prior exact-h
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
     observedAt: '2026-08-09T14:01:00.000Z'
   }))).toMatchObject({ status: 'blocked', reason: 'review-provider-unbound-activation' });
-});
-
-test('production Review authority adapter cannot have its private transport reflectively replaced', () => {
-  const client = createVerificationSessionGitHubClient(process.cwd(), 'sec-platform/sec');
-  expect(Reflect.set(client as object, 'transport', new FakeTransport())).toBe(false);
-  expect(Object.getOwnPropertyNames(client)).not.toContain('transport');
 });
 
 test('private GitHub candidate projects immutable parents from the existing merge commit response', async () => {

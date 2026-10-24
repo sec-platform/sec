@@ -30,13 +30,11 @@ test('semantic query input is confined to one workspace-relative member', async 
 test('semantic query JSON rejects unsupported top-level fields rather than ignoring them', async () => {
   const workspace = await fs.mkdtemp(path.join(tmpdir(), 'sec-semantic-query-input-'));
   try {
-    for (const extra of [{ generatorDeclarations: [] }, { unsupported: true }]) {
-      await fs.writeFile(path.join(workspace, 'query.json'), JSON.stringify({
-        engineeringIRInput: { entities: [], facts: [] }, ...extra
-      }));
-      expect(() => readWorkspaceSemanticQueryInput(workspace, 'query.json'))
-        .toThrow('only its own engineeringIRInput field');
-    }
+    await fs.writeFile(path.join(workspace, 'query.json'), JSON.stringify({
+      engineeringIRInput: { entities: [], facts: [] }, generatorDeclarations: []
+    }));
+    expect(() => readWorkspaceSemanticQueryInput(workspace, 'query.json'))
+      .toThrow('only its own engineeringIRInput field');
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
   }

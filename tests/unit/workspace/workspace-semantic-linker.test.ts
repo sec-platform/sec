@@ -181,17 +181,7 @@ test('explicit imports link cross-Block responsibility, data, operation, and pol
   }));
 });
 
-test('workspace linking is deterministic across contract enumeration order', () => {
-  const first = buildEngineeringIR(input());
-  const second = buildEngineeringIR(input([consumerContract(), providerContract()]));
-
-  expect(second.entities).toEqual(first.entities);
-  expect(second.facts).toEqual(first.facts);
-  expect(second.semanticRevision).toBe(first.semanticRevision);
-  expect(second.inputRevision).toBe(first.inputRevision);
-});
-
-test('exact duplicate contracts are idempotent and import declaration order is canonical', () => {
+test('contract and import enumeration order is canonical and exact duplicate contracts are idempotent', () => {
   const provider = providerContract();
   const consumer = consumerContract();
   consumer.contract.imports!.push({

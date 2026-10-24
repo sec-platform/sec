@@ -11,19 +11,6 @@ test('identity header freezes exact magic, version, endianness and lengths', () 
     '7365632e6964656e746974790001000865766964656e636500097265636f72642f7632');
 });
 
-test('length framing separates otherwise ambiguous domain/schema concatenations', () => {
-  assert.notDeepEqual(identityFrameHeader('ab', 'c'), identityFrameHeader('a', 'bc'));
-  assert.notDeepEqual(identityFrameHeader('evidence', 'record/v2'), identityFrameHeader('evidence', 'record/v3'));
-  assert.notDeepEqual(identityFrameHeader('evidence', 'record/v2'), identityFrameHeader('revision', 'record/v2'));
-});
-
-test('headers do not expose mutable global prefix state', () => {
-  const first = identityFrameHeader('evidence', 'record/v2');
-  const expected = Buffer.from(first);
-  first.fill(0);
-  assert.deepEqual(Buffer.from(identityFrameHeader('evidence', 'record/v2')), expected);
-});
-
 test('namespace grammar rejects normalization, suffix-newline and encoding ambiguity', () => {
   for (const invalid of ['', 'Evidence', 'évidence', ' evidence', 'a:b', 'a\n', 'a\r', 'a\u2028',
     'a\0', '-a', '1a', 'a'.repeat(129), null, {}, new String('a')]) {

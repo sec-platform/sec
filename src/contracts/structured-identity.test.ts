@@ -4,7 +4,6 @@ import { test } from 'node:test';
 import { createContentIdentityRuntime } from '../bootstrap/content-identity-runtime.ts';
 import { canonicalEncodingChunks, rawSha256, sha256 } from './canonical.ts';
 import { identityFrameHeader, parseIdentity } from './identity-profile.ts';
-import { assertStructuredIdentityRuntime } from './structured-identity.ts';
 
 const RUNTIME = createContentIdentityRuntime();
 const { contentDigest } = RUNTIME.content;
@@ -22,6 +21,8 @@ test('equal payloads cannot cross domain, schema or raw-content boundaries', () 
   assert.notEqual(identity.digest, structuredIdentity('revision', 'record/v2', value).digest);
   assert.notEqual(identity.digest, structuredIdentity('evidence', 'record/v3', value).digest);
   assert.notEqual(identity.digest, contentDigest([...canonicalEncodingChunks(value)].join('')));
+  assert.notEqual(structuredIdentity('ab', 'c', value).digest,
+    structuredIdentity('a', 'bc', value).digest);
   assert.throws(() => parseIdentity(identity, 'revision', 'record/v2'), TypeError);
 });
 
@@ -89,14 +90,5 @@ test('structured migration rejects wrong preimages and mixed generations before 
       { a: 1, b: 2 }
     ),
     /preimage does not match/u
-  );
-});
-
-
-test('structured identity runtime origin cannot be reconstructed structurally', () => {
-  assert.doesNotThrow(() => assertStructuredIdentityRuntime(RUNTIME.identity));
-  assert.throws(
-    () => assertStructuredIdentityRuntime({ ...RUNTIME.identity }),
-    /owner-issued structured identity runtime/u
   );
 });

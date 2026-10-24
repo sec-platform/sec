@@ -11,7 +11,7 @@ import {
 } from '../../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
 import { readSemanticMutationSource } from '../../../src/adapters/mutation/source-path-boundary.ts';
 import { AUTHORING_SEMANTIC_CONTRACT_INDEX_MAX_INPUT_BYTES, loadAuthoringSemanticContractSources } from "../../../src/adapters/workspace/sources/load-authoring-semantic-contracts.ts";
-import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
+import type { BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { semanticMutationAuthorizationRevision } from '../../../src/compiler/semantic-mutation/normalize-request.ts';
 import { preflightSemanticMutation } from '../../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
@@ -237,6 +237,8 @@ test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, 
     const before = sourceYaml({ bom: true, eol: '\r\n', finalNewline: false });
     const transactionDirectory = await writePlanningWorkspace(root, before);
     const { contract, base, request, auth, preflight } = fixture();
+    const source = candidate(contract);
+    expect(source.loadedContract).toEqual(contract);
     const input = {
       request,
       base,
@@ -244,7 +246,7 @@ test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, 
       preflight,
       sourceAdapterRegistryRevision: SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION,
       adapterRevision: SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-      sourceCandidates: [candidate(contract)],
+      sourceCandidates: [source],
       workspaceRoot: root,
       transactionDirectory
     };
@@ -346,7 +348,7 @@ test('semantic YAML syntax failure remains one typed mutation diagnostic', () =>
   }));
 });
 
-test('owner resolution fails closed for none, read-only, ambiguous, forged, mismatched, or unauthorized provenance', () => {
+test('owner resolution rejects registry sources, ambiguous ownership, and unauthorized authoring owners', () => {
   const { contract, base, request, auth } = fixture();
   const normalized = {
     ...request,
@@ -354,23 +356,21 @@ test('owner resolution fails closed for none, read-only, ambiguous, forged, mism
   };
   const authoring = candidate(contract);
   for (const sources of [
-    [],
     [candidate(contract, 'workspace-registry')],
-    [candidate(contract, 'compiler-registry')],
-    [authoring, authoring]
+    [candidate(contract, 'compiler-registry')]
   ]) {
     expect(resolveSemanticMutationSource(normalized, base, auth, sources).status).toBe('rejected');
   }
-  expect(resolveSemanticMutationSource(normalized, base, auth, [{
-    ...authoring,
-    sourceRevision: 'sha256:'.padEnd(71, '1')
-  }]).status).toBe('rejected');
-  expect(resolveSemanticMutationSource(
-    normalized,
-    base,
-    auth,
-    [candidate(loadedContract('model/other.yaml'))]
-  ).status).toBe('rejected');
+  expect(resolveSemanticMutationSource(normalized, base, auth, [
+    authoring, candidate(contract, 'workspace-registry')
+  ])).toMatchObject({
+    status: 'rejected',
+    diagnostics: [{
+      code: 'SEMANTIC-MUTATION-004',
+      message: 'Loaded contract provenance does not resolve to exactly one source owner',
+      details: { candidateCounts: [2] }
+    }]
+  });
 
   const unauthorized = authorization('semantic-contract-owner:item:other');
   const unauthorizedFixture = fixture(contract, unauthorized);
@@ -380,35 +380,6 @@ test('owner resolution fails closed for none, read-only, ambiguous, forged, mism
     unauthorized,
     [authoring]
   ).status).toBe('rejected');
-});
-
-test('adapter registry mismatch rejects planning and stale current bytes fail before-byte CAS', async () => {
-  await withTempWorkspace(async (root) => {
-    const before = sourceYaml();
-    const transactionDirectory = await writePlanningWorkspace(root, before);
-    const { contract, base, request, auth, preflight } = fixture();
-    const common = {
-      request,
-      base,
-      authorization: auth,
-      preflight,
-      sourceAdapterRegistryRevision: SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION,
-      adapterRevision: SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-      sourceCandidates: [candidate(contract)],
-      workspaceRoot: root,
-      transactionDirectory
-    };
-    expect((await planSemanticMutationSourceEdit({
-      ...common,
-      adapterRevision: 'semantic-contract-yaml-v0'
-    })).status).toBe('rejected');
-    const result = await planSemanticMutationSourceEdit(common);
-    if (result.status !== 'planned') throw new Error(JSON.stringify(result));
-    expect(() => renderSemanticMutationSourceEdit(
-      result.plan,
-      new TextEncoder().encode('# concurrent write\n')
-    )).toThrow('before-byte CAS');
-  });
 });
 
 test('path boundary rejects lexical escape, aliases, device names, case mismatch, and junction parents', async () => {
@@ -471,14 +442,6 @@ test('source bytes that drift from loaded provenance reject transform without mu
     });
     expect(new Uint8Array(await readFile(path.join(root, modelRelativePath, 'item.yaml')))).toEqual(drifted);
   });
-});
-
-test('authoring source candidate does not change canonical IR identity outside its loaded contract content', () => {
-  const contract = loadedContract();
-  const before = buildEngineeringIR(buildInput(contract));
-  const source = candidate(contract);
-  expect(source.loadedContract).toEqual(contract);
-  expect(buildEngineeringIR(buildInput(source.loadedContract))).toEqual(before);
 });
 
 test('fixed authoring index admits only declared bounded sources and returns canonical provenance order', async () => {

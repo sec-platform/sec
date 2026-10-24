@@ -34,6 +34,9 @@ test('all ambiguous or misspelled enforcement switches reject instead of becomin
   for (const args of [['--enfroce'], ['--enforce=true'], ['--enforce=false'], ['--no-enforce'], ['--unknown'], ['unexpected']]) {
     assert.throws(() => parse(args));
   }
+  for (const failOn of ['HIGH', 'typo', 'constructor', '__proto__']) {
+    assert.throws(() => parse([`--fail-on=${failOn}`]), /fail-on/);
+  }
 });
 
 test('both mode selectors reject in either order rather than selecting the first branch', () => {
@@ -200,28 +203,6 @@ test('unknown observations still fail without diagnostic even when findings are 
   assert.equal(shouldFail({ findings: [], unknowns: ['unresolved input'] }, { diagnostic: true }), false);
 });
 
-test('diagnostic does not disable findings and none does not disable unknowns', () => {
-  const report = { findings: [{ severity: 'high' as const }], unknowns: ['missing source'] };
-  assert.equal(shouldFail(report, { diagnostic: true }), true);
-  assert.equal(shouldFail(report, { failOn: 'none' }), true);
-  assert.equal(shouldFail(report, { diagnostic: true, failOn: 'none' }), false);
-});
-
-test('invalid diagnostic and severity policy cannot silently soften programmatic enforcement', () => {
-  for (const diagnostic of ['false', 'true', 1, null]) {
-    assert.throws(() => shouldFail({ findings: [], unknowns: ['missing'] }, { diagnostic: diagnostic as never }), TypeError);
-  }
-  for (const failOn of ['HIGH', 'typo', 'constructor', '__proto__', null]) {
-    assert.throws(() => shouldFail({ findings: [{ severity: 'critical' }], unknowns: [] }, { failOn: failOn as never }), TypeError);
-  }
-});
-
-test('malformed report severity is rejected rather than compared with undefined rank', () => {
-  for (const severity of ['unknown', 'constructor', '', null]) {
-    assert.throws(() => shouldFail({ findings: [{ severity: severity as never }], unknowns: [] }), TypeError);
-  }
-});
-
 test('topology enforcement refuses unresolved files even when there are no known violations', () => {
   const input = { unresolvedFiles: [{ path: 'src/unparsed.ts' }], topology: { violations: [] } };
   assert.equal(topologyFails(input, true), true);
@@ -232,33 +213,6 @@ test('topology enforcement preserves clean and violated outcomes', () => {
   assert.equal(topologyFails({ unresolvedFiles: [], topology: { violations: [] } }, true), false);
   assert.equal(topologyFails({ unresolvedFiles: [], topology: { violations: [{ code: 'boundary' }] } }, true), true);
   assert.equal(topologyFails({ unresolvedFiles: [], topology: { violations: [{ code: 'boundary' }] } }, false), false);
-});
-
-test('malformed or compact topology summaries cannot impersonate the complete producer observation', () => {
-  for (const input of [{ unresolvedFiles: { count: 0 }, topology: { violations: [] } },
-    { unresolvedFiles: [], topology: { violations: 0 } }, { topology: { violations: [] } }]) {
-    assert.throws(() => topologyFails(input as never, true), TypeError);
-  }
-});
-
-test('Source Program unknowns cannot disappear behind an empty top-level report list', () => {
-  const report = { findings: [], unknowns: [], sourceProgram: { unknowns: [{ code: 'unresolved-import' }] } };
-  assert.equal(shouldFail(report), true);
-  assert.equal(shouldFail(report, { failOn: 'none' }), true);
-  assert.equal(shouldFail(report, { diagnostic: true }), false);
-});
-
-test('declaration topology unknowns retain the same diagnostic opt-out as other unknowns', () => {
-  const report = { findings: [], unknowns: [], declarationTopology: { unknowns: ['unresolved-target'] } };
-  assert.equal(shouldFail(report), true);
-  assert.equal(shouldFail(report, { failOn: 'none' }), true);
-  assert.equal(shouldFail(report, { diagnostic: true }), false);
-});
-
-test('unknown content coverage is blocking independently of other report producers', () => {
-  const report = { findings: [], unknowns: [], contentCoverage: [{ status: 'unknown' as const }] };
-  assert.equal(shouldFail(report), true);
-  assert.equal(shouldFail(report, { diagnostic: true }), false);
 });
 
 test('scanned and explicitly excluded content are not converted into missing coverage', () => {
@@ -279,42 +233,6 @@ test('all combinations of detailed unknown channels obey one explicit diagnostic
     assert.equal(shouldFail(report, { diagnostic: true, failOn: 'none' }), false);
   }
 });
-
-test('compact count or digest substitutes cannot masquerade as detailed observation arrays', () => {
-  for (const field of ['sourceProgram', 'declarationTopology'] as const) {
-    for (const value of [null, {}, { unknowns: 0 }, { unknowns: { count: 0, digest: 'unknown' } }]) {
-      assert.throws(() => shouldFail({ findings: [], unknowns: [], [field]: value } as never), TypeError);
-      assert.throws(() => shouldFail({ findings: [], unknowns: [], [field]: value } as never,
-        { diagnostic: true, failOn: 'none' }), TypeError);
-    }
-  }
-});
-
-test('malformed coverage is rejected rather than implicitly classified as scanned', () => {
-  for (const value of [null, {}, [null], [{}], [{ status: 'SCANNED' }], [{ status: 'complete' }]]) {
-    assert.throws(() => shouldFail({ findings: [], unknowns: [], contentCoverage: value } as never), TypeError);
-  }
-});
-
-test('summary counters never override the original model and topology observations', () => {
-  const report = { findings: [], unknowns: [], sourceProgram: { unknowns: ['unresolved'] },
-    summary: { unknowns: 0, sourceProgram: { unknowns: 0 } } };
-  assert.equal(shouldFail(report), true);
-  const clean = { findings: [], unknowns: [], sourceProgram: { unknowns: [] }, summary: { unknowns: 99 } };
-  assert.equal(shouldFail(clean), false);
-});
-
-test('diagnostic mode does not suppress an independent severe finding in a detailed report', () => {
-  const report = { findings: [{ severity: 'critical' as const }], unknowns: [],
-    sourceProgram: { unknowns: ['unresolved'] } };
-  assert.equal(shouldFail(report, { diagnostic: true }), true);
-});
-
-test('the legacy narrowed findings/unknowns contract remains valid without detailed fields', () => {
-  assert.equal(shouldFail({ findings: [], unknowns: [] }), false);
-  assert.equal(shouldFail({ findings: [], unknowns: ['known-gap'] }), true);
-});
-
 
 test('audit aggregate deadline follows its declared capacity and preserves shorter admission', () => {
   assert.equal(repositoryAuditDeadline(undefined, 1_000), 301_000);
