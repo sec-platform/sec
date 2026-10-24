@@ -42,8 +42,7 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
     const linkedPostMerge = path.join(linkedRoot, '.githooks', 'post-merge');
     await writeFile(linkedPostMerge, `${managedHookSource('post-merge')}# linked-branch-hook\n`, 'utf8');
     await chmod(linkedPostMerge, 0o755);
-    git(linkedRoot, ['add', '.githooks/post-merge']);
-    git(linkedRoot, ['update-index', '--chmod=+x', '.githooks/post-merge']);
+    git(linkedRoot, ['add', '--chmod=+x', '.githooks/post-merge']);
 
     expect(await installGitHooks({ repoRoot: linkedRoot })).toMatchObject({ status: 'installed' });
 

@@ -18,8 +18,7 @@ test('hook marker remains bound to raw index bytes when deployment bytes normali
     expect(normalized).not.toBe(original);
     await writeFile(sourcePath, normalized, 'utf8');
     await chmod(sourcePath, 0o755);
-    git(repoRoot, ['add', '.githooks/post-merge']);
-    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/post-merge']);
+    git(repoRoot, ['add', '--chmod=+x', '.githooks/post-merge']);
 
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const rebound = configuredManagedHooksPath(repoRoot);

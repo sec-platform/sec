@@ -24,8 +24,7 @@ test('a prepared publication with a changed source is retained and blocks guesse
     const updatedSource = (await readFile(sourcePath, 'utf8')).replace('set -eu', 'set -ux');
     await writeFile(sourcePath, updatedSource, 'utf8');
     await chmod(sourcePath, 0o755);
-    git(repoRoot, ['add', '.githooks/pre-commit']);
-    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/pre-commit']);
+    git(repoRoot, ['add', '--chmod=+x', '.githooks/pre-commit']);
 
     expect(await installGitHooks({ repoRoot, lifecycle: true }))
       .toMatchObject({ status: 'conflict' });

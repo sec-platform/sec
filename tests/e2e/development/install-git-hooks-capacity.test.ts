@@ -43,8 +43,7 @@ test('linked hook installation reserves only a missing generation when bootstrap
       const linkedPostMerge = path.join(linkedRoot, '.githooks', 'post-merge');
       await writeFile(linkedPostMerge, `${managedHookSource('post-merge')}# linked-capacity\n`, 'utf8');
       await chmod(linkedPostMerge, 0o755);
-      git(linkedRoot, ['add', '.githooks/post-merge']);
-      git(linkedRoot, ['update-index', '--chmod=+x', '.githooks/post-merge']);
+      git(linkedRoot, ['add', '--chmod=+x', '.githooks/post-merge']);
       expect(installGitHooksInIsolatedProcess(repoRoot)).toMatchObject({ status: 'installed' });
       const bootstrapGeneration = configuredBootstrapHooksPath(repoRoot);
       const commonRoot = path.join(path.resolve(git(repoRoot, [

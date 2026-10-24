@@ -28,8 +28,7 @@ test('hook installer never treats same-size same-mtime source mutation as curren
 
     await writeFile(sourcePath, mutated, 'utf8');
     await chmod(sourcePath, 0o755);
-    git(repoRoot, ['add', '.githooks/pre-commit']);
-    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/pre-commit']);
+    git(repoRoot, ['add', '--chmod=+x', '.githooks/pre-commit']);
     await utimes(sourcePath, originalStat.atime, originalMtime);
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const reboundGeneration = configuredManagedHooksPath(repoRoot);
