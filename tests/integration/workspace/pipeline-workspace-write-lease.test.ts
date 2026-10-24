@@ -153,7 +153,8 @@ test('the pipeline lease monitor aborts pending work when the staging token is l
     const parkedLeasePath = path.join(leaseRoot, 'active-owner.parked-monitor-test');
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
     const ownerPath = await activeOwnerPath(leaseRoot);
-    let childStarted = false;
+    let signalChildStarted!: () => void;
+    const childStarted = new Promise<void>(resolve => { signalChildStarted = resolve; });
     let childAborted = false;
 
     const monitored = withMonitoredWorkspaceWriteLease(
@@ -161,7 +162,7 @@ test('the pipeline lease monitor aborts pending work when the staging token is l
       lease.token,
       (signal) =>
         new Promise<void>((resolve) => {
-          childStarted = true;
+          signalChildStarted();
           const onAbort = (): void => {
             childAborted = true;
             resolve();
@@ -170,7 +171,9 @@ test('the pipeline lease monitor aborts pending work when the staging token is l
           else signal.addEventListener('abort', onAbort, { once: true });
         })
     );
-    while (!childStarted) await Bun.sleep(1);
+    // The worker signals its own entry. A timed poll introduces an
+    // unnecessary scheduling assumption and can burn the full test budget.
+    await childStarted;
     await fs.rename(ownerPath, parkedLeasePath);
     try {
       await expect(monitored).rejects.toBeInstanceOf(WorkspaceWriteLeaseError);
