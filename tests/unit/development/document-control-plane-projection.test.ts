@@ -14,7 +14,7 @@ import {
   projectStatusContinuation,
   promoteRollingPlan,
   renderActivePointer,
-  requiresCommittedCandidateProjectionRefresh
+  requiresCommittedCandidateProjectionRefresh,
   assertInitiallyAbsentEntryTransition,
   classifyFreezeConvergence,
   classifyInitiallyAbsentEntryTuple,
