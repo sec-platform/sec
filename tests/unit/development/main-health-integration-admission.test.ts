@@ -3,6 +3,8 @@ import { createMainHealthLedger } from '../../../src/adapters/self-hosting/contr
 import { assertIntegrationMainHealthProducer, type TrustedRuntimeMainHealthPublicationAdmission } from '../../../src/adapters/self-hosting/control/main-health/live-admission.ts';
 import { createObservedMainHealthInput, createTrustedRuntimeMainHealthInput } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
+import type { GitHubCheckObservation } from '../../../src/adapters/providers/github-api/contract.ts';
+import { compilePostMainIssueDispositionHealthReadback } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -60,4 +62,57 @@ test('a hosted observation cannot carry an out-of-band local admission to anothe
   expect(() => assertIntegrationMainHealthProducer({ ...subject, ledger: hosted,
     localAdmission: {} as TrustedRuntimeMainHealthPublicationAdmission }))
     .toThrow('fresh MainHealth producer provenance is not bound');
+});
+
+// Independent canonical provider fixture for the MainHealth consumer boundary.
+function mainHealthCheck(overrides: Partial<GitHubCheckObservation> = {}): GitHubCheckObservation {
+  const eventName = overrides.eventName ?? CI_MAIN_HEALTH_POLICY.producer.eventNames[0];
+  const workflowRunDisplayTitle = CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
+    .replace('<exact-main-sha>', MAIN)
+    .replace('<request-operation-id>', createCiMainHealthRequestOperationId(MAIN));
+  return {
+    id: 7, name: CI_MAIN_HEALTH_POLICY.context, status: 'completed', conclusion: 'success',
+    headSha: MAIN, detailsUrl: 'https://github.example/actions/runs/7', appId: CI_MAIN_HEALTH_POLICY.app.id,
+    appNodeId: CI_MAIN_HEALTH_POLICY.app.nodeId, appSlug: CI_MAIN_HEALTH_POLICY.app.slug,
+    workflowPath: CI_MAIN_HEALTH_POLICY.producer.workflowPath,
+    workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${MAIN}`,
+    eventName,
+    workflowRunId: '7',
+    workflowRunDisplayTitle,
+    ...overrides
+  };
+}
+
+test('IssueDisposition post-main readback consumes the canonical exact MainHealth decision', () => {
+  const common = {
+    repository: 'sec-platform/sec', newMainSha: MAIN, newMainTreeSha: TREE,
+    observedAt: '2026-08-09T14:00:00.000Z'
+  };
+  const dispatched = mainHealthCheck({ id: 8 });
+  const single = compilePostMainIssueDispositionHealthReadback({ ...common, checks: [dispatched] });
+  expect(single).toMatchObject({
+    repository: common.repository, mainSha: common.newMainSha, mainTreeSha: common.newMainTreeSha,
+    trustRevision: common.newMainSha, status: 'healthy', allowedLanes: ['ordinary'],
+    producer: { sourceRunId: '7', sourceRef: `github-check-runs:${common.repository}@${MAIN}` }
+  });
+  for (const checks of [
+    [mainHealthCheck({ appId: 1 })],
+    [mainHealthCheck({ appNodeId: 'forged-app-node' })],
+    [mainHealthCheck({ workflowPath: '.github/workflows/forged.yml' })],
+    [mainHealthCheck({ workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${TREE}` })],
+    [mainHealthCheck({ eventName: 'workflow_run' })],
+    [mainHealthCheck({
+      eventName: 'repository_dispatch',
+      workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
+        .replace('<exact-main-sha>', MAIN)
+        .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
+    })],
+    [dispatched, mainHealthCheck({ id: 9 })],
+    [mainHealthCheck({ conclusion: 'forged-terminal' })],
+    [mainHealthCheck({ status: 'forged-status', conclusion: 'success' })],
+    [mainHealthCheck({ eventName: 'push' })]
+  ]) {
+    expect(() => compilePostMainIssueDispositionHealthReadback({ ...common, checks }))
+      .toThrow('canonical fresh healthy ordinary-only MainHealth');
+  }
 });

@@ -45,7 +45,7 @@ import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/ve
 
 import { parseVerificationSessionHostedRequest } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import { assertGitHubReviewAuthorityObservation, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
-import { assertTrustedMergedRequestRuntimeReachability, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+import { assertTrustedMergedRequestRuntimeReachability, classifyVerificationSessionArtifactReuse, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
@@ -1294,47 +1294,6 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
       eventName: 'repository_dispatch', actorNodeId: BOT, actorPermission: 'write', expired: false })
   })))()).rejects.toThrow(/hydration differs from its selected summary identity/i);
 });
-
-test('IssueDisposition post-main readback consumes the canonical exact MainHealth decision', () => {
-  const common = {
-    repository: 'sec-platform/sec', newMainSha: BASE, newMainTreeSha: HEAD,
-    observedAt: '2026-08-09T14:00:00.000Z'
-  };
-  const dispatched = mainHealthCheck({ id: 8 });
-  const single = compilePostMainIssueDispositionHealthReadback({ ...common, checks: [dispatched] });
-  expect(single).toMatchObject({
-    repository: common.repository, mainSha: common.newMainSha, mainTreeSha: common.newMainTreeSha,
-    trustRevision: common.newMainSha, status: 'healthy', allowedLanes: ['ordinary'],
-    producer: { sourceRunId: '7', sourceRef: `github-check-runs:${common.repository}@${BASE}` }
-  });
-  for (const checks of [
-    [mainHealthCheck({ appId: 1 })],
-    [mainHealthCheck({ appNodeId: 'forged-app-node' })],
-    [mainHealthCheck({ workflowPath: '.github/workflows/forged.yml' })],
-    [mainHealthCheck({ workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${HEAD}` })],
-    [mainHealthCheck({ eventName: 'workflow_run' })],
-    [mainHealthCheck({
-      eventName: 'repository_dispatch',
-      workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
-        .replace('<exact-main-sha>', BASE)
-        .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
-    })],
-    [dispatched, mainHealthCheck({ id: 9 })],
-    [mainHealthCheck({ conclusion: 'forged-terminal' })],
-    [mainHealthCheck({ status: 'forged-status', conclusion: 'success' })],
-    [mainHealthCheck({ eventName: 'push' })]
-  ]) {
-    expect(() => compilePostMainIssueDispositionHealthReadback({ ...common, checks }))
-      .toThrow('canonical fresh healthy ordinary-only MainHealth');
-  }
-});
-
-
-
-
-
-
-
 
 
 test('local preparation request cannot enter any hosted consumer or runtime state', () => {
