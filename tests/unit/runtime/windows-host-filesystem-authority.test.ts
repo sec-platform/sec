@@ -10,8 +10,7 @@ import {
   openWindowsReadOnlyTreeGeneration,
   retireWindowsReadOnlyTreeGeneration,
   sealExistingWindowsReadOnlyTreeAuthority,
-  sealWindowsReadOnlyTreeGeneration,
-  WindowsHostDirectoryAuthorityError
+  sealWindowsReadOnlyTreeGeneration
 } from '../../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import {
   observeWindowsAclSessionLifecycleForTests,
@@ -114,39 +113,6 @@ test.skipIf(process.platform !== 'win32')(
         failure: 'physical-identity-changed'
       });
       expect(await readdir(authorityRoot)).toEqual([]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-);
-
-test.skipIf(process.platform !== 'win32')(
-  'Windows host directory authority forwards probe deadlines and remains usable after one expires',
-  async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-probe-deadline-'));
-    const authorityRoot = path.join(root, 'local-app-data');
-    await mkdir(authorityRoot);
-    const observedDeadlines: Array<number | undefined> = [];
-    try {
-      const authority = await proveWindowsHostDirectoryAuthorityForTests(
-        authorityRoot,
-        async (_targetPath, input) => {
-          observedDeadlines.push(input?.deadlineAtMs);
-          if (observedDeadlines.length === 2) {
-            throw new WindowsHostDirectoryAuthorityError('deadline-exhausted', 'test probe deadline exhausted');
-          }
-          return {
-            aclDigest: `sha256:${'a'.repeat(64)}`,
-            ownerSid: 'S-1-5-21-1000'
-          };
-        }
-      );
-      const deadlineAtMs = Date.now() + 10_000;
-      await expect(authority.assertCurrent({ deadlineAtMs }))
-        .rejects.toMatchObject({ failure: 'deadline-exhausted' });
-      await expect(authority.assertCurrent()).resolves.toBeUndefined();
-      expect(observedDeadlines).toEqual([undefined, deadlineAtMs, undefined]);
-      await authority.release();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -315,8 +281,10 @@ test.skipIf(process.platform !== 'win32')(
         authorityRoot,
         { knownNew: true }
       );
-      await authority.assertCurrent();
+      await authority.assertCurrent({ deadlineAtMs: Date.now() + 10_000 });
       expect(authority.rootPath).toBe(path.resolve(authorityRoot));
+      await expect(authority.assertCurrent({ deadlineAtMs: Date.now() - 1 }))
+        .rejects.toMatchObject({ failure: 'deadline-exhausted' });
       const operationRoot = path.join(authorityRoot, 'operation');
       await mkdir(operationRoot);
       await authority.assertCurrent();

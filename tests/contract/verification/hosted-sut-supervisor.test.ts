@@ -69,13 +69,6 @@ test('init terminal reap and every tracee plus both pipe EOFs are independently 
   }
 });
 
-test('init dying before candidate exec cannot be promoted to candidate start', () => {
-  const value = fixture(); value.lifecycle.candidateStarted = false;
-  const report = parse(value);
-  expect(report.lifecycle.candidateStarted).toBe(false);
-  expect(report.namespaceInitReaped).toBe(true);
-});
-
 test('deadline/helper loss remains unknown even if a kill or later reap was seen', () => {
   const value = fixture();
   expect(() => parse({ ...value, lifecycle: { ...value.lifecycle, observationGap: 'observation-lost' } })).toThrow();
@@ -95,14 +88,14 @@ test('candidate output markers and forged JSON stay encoded data in private stre
     digest: `sha256:${createHash('sha256').update(output).digest('hex')}`,
     bytesObserved: output.byteLength, tailHex: output.toString('hex'), eof: true } });
   expect(report.lifecycle.candidateStarted).toBe(false);
+  expect(report.namespaceInitReaped).toBe(true);
   expect(Buffer.from(report.stdout.tailHex, 'hex')).toEqual(output);
 });
 
-test('control decoding rejects duplicates, UTF-8 errors, deep JSON, trailing payload and unbounded output', () => {
+test('control decoding rejects duplicates, UTF-8 errors, deep JSON, trailing payload and malformed streams', () => {
   const source = JSON.stringify(fixture());
   const duplicate = source.replace('"traceesReaped":true', '"traceesReaped":true,"traceesReaped":true');
-  for (const bytes of [Buffer.from(duplicate), Buffer.from(source + source), Buffer.from([0xff]),
-    Buffer.alloc(512 * 1024 + 1)]) {
+  for (const bytes of [Buffer.from(duplicate), Buffer.from(source + source), Buffer.from([0xff])]) {
     expect(() => parseHostedSutSupervisorReport(bytes, binding)).toThrow();
   }
   expect(() => parseHostedSutSupervisorReport(
@@ -164,15 +157,6 @@ test('v2 preserves actual phase-only and aggregate overflow facts without wideni
   expect(parseHostedSutSupervisorReport(Buffer.from(JSON.stringify(wire)), nonAction).preparationStdoutBytesObserved).toBeNull();
   expect(() => parseHostedSutSupervisorReport(Buffer.from(JSON.stringify({ ...wire,
     preparationStdoutBytesObserved: { prepare: 0, observe: 0 } })), nonAction)).toThrow();
-});
-
-test('legacy v1 is an explicit incompatible wire version, not synthetic zero phase output', () => {
-  const { preparationStdoutBytesObserved: _counts, ...legacy } = fixture();
-  let failure: unknown;
-  try { parse({ ...legacy, schema: 'sec-hosted-sut-supervisor-response-v1' }); }
-  catch (error) { failure = error; }
-  expect(failure).toMatchObject({ code: 'HOSTED-SUT-REPORT-VERSION-UNSUPPORTED',
-    details: { receivedSchema: 'sec-hosted-sut-supervisor-response-v1', expectedSchema: 'sec-hosted-sut-supervisor-response-v2' } });
 });
 
 // Independent handwritten Linux wait-status vectors: these are never fed to

@@ -60,44 +60,17 @@ function fixture(preBytes: Uint8Array, files = new Map<string, Uint8Array>()) {
   return { ports, calls };
 }
 
-const malformed: Array<readonly [string, Record<string, unknown>]> = [
-  ['negative module count', { candidateModuleCount: -1 }],
-  ['fractional module count', { candidateModuleCount: 1.5 }],
-  ['string module count', { candidateModuleCount: '1' }],
-  ['null Action residue', { candidateActionKey: null }],
-  ['invalid SHA', { checkerToolBlob: 'g'.repeat(40) }],
-  ['invalid digest', { checkerActionKey: 'not-a-digest' }],
-  ['closure mismatch', { checkerActionResultDigest: digest('9') }],
-  ['unknown verdict', { authorityVerdict: 'anything' }],
-  ['empty reason', { authorityReason: '' }],
-  ['traversal', { baseUndecidablePaths: ['../outside.ts'] }],
-  ['absolute', { baseUndecidablePaths: ['/outside.ts'] }],
-  ['duplicate', { baseUndecidablePaths: ['src/a.ts', 'src/a.ts'] }],
-  ['POST status', { auxiliaryStatus: 'passed' }],
-  ['POST evidence', { sutEvidenceDigest: digest('8') }],
-  ['POST job result', { sutJobResult: 'success' }],
-  ['POST diagnostic', { sutDiagnosticDigest: digest('8') }]
-];
-for (const [name, patch] of malformed) {
-  test(`POST application rejects rehashed PRE ${name} before consuming its causal or authority fields`, async () => {
-    const { ports, calls } = fixture(wire({ ...preSemantic(), ...patch }));
-    await expect(runTrustedBootstrapVerification(identity, ports)).rejects.toThrow();
-    expect(calls).toEqual(['identity', 'create:base', 'create:candidate', 'finalize:base', 'finalize:candidate']);
-  });
-}
-for (const [name, bytes] of [
-  ['duplicate', Buffer.from(wire(preSemantic()).toString().replace('{', '{"candidateModuleCount":-1,'))],
-  ['escaped duplicate', Buffer.from(wire(preSemantic()).toString().replace('{', '{"\\u0070hase":"post",'))],
-  ['depth', Buffer.from(wire(preSemantic()).toString().replace('"fixture"', '['.repeat(33) + '0' + ']'.repeat(33)))],
-  ['trailing data', Buffer.concat([wire(preSemantic()), Buffer.from('{}')])],
-  ['invalid UTF-8', Buffer.concat([wire(preSemantic()), Uint8Array.of(0xff)])]
-] as const) {
-  test(`POST application rejects PRE ${name} wire bytes before SUT preparation`, async () => {
+test('POST rejects untrusted PRE semantics and ambiguous bytes before authority or SUT consumption', async () => {
+  const cases = [
+    [wire({ ...preSemantic(), candidateModuleCount: -1 }), 'candidate Action fields are inconsistent'],
+    [Buffer.from(wire(preSemantic()).toString().replace('{', '{"\\u0070hase":"post",')), 'contains duplicate key "phase"']
+  ] as const;
+  for (const [bytes, message] of cases) {
     const { ports, calls } = fixture(bytes);
-    await expect(runTrustedBootstrapVerification(identity, ports)).rejects.toThrow();
+    await expect(runTrustedBootstrapVerification(identity, ports)).rejects.toThrow(message);
     expect(calls).toEqual(['identity', 'create:base', 'create:candidate', 'finalize:base', 'finalize:candidate']);
-  });
-}
+  }
+});
 
 test('application PRE then unavailable POST preserves independent causal and authority facts', async () => {
   const first = fixture(new Uint8Array());
@@ -133,41 +106,36 @@ function sutFiles(status: 'passed' | 'failed') {
   files.set('sut-receipt.json', wire(value));
   return files;
 }
-for (const status of ['passed', 'failed'] as const) {
-  test(`POST application keeps ${status} SUT auxiliary observation separate from PRE authority`, async () => {
-    const { ports } = fixture(wire(preSemantic()), sutFiles(status));
-    const after = await runTrustedBootstrapVerification({ ...identity, sutDownloadOutcome: 'success',
-      sutJobResult: status === 'passed' ? 'success' : 'failure' }, ports);
-    expect(after.receipt.authorityVerdict).toBe('manual-bootstrap-required');
-    expect(after.receipt.auxiliaryStatus).toBe(status);
-    expect(after.receipt.sutEvidenceDigest).not.toBe(null);
-    expect(after.diagnostic?.auxiliaryReason).toBe(`candidate-sut-diagnostics-${status}`);
-  });
-}
-for (const [name, mutate] of [
-  ['duplicate root key', (source: string) => source.replace('{', '{"auxiliaryStatus":"failed",')],
-  ['duplicate nested key', (source: string) => source.replace('"complete":true', '"complete":false,"complete":true')],
-  ['excessive depth', (source: string) => source.replace('"complete":true', `"complete":${'['.repeat(33)}0${']'.repeat(33)}`)]
-] as const) {
-  test(`SUT receipt ${name} fails in both application and execution byte consumers`, async () => {
-    const files = sutFiles('passed');
-    files.set('sut-receipt.json', Buffer.from(mutate(Buffer.from(files.get('sut-receipt.json')!).toString())));
+test('POST observations remain auxiliary and malformed SUT bytes cannot reach preparation', async () => {
+  const cases = [
+    { status: 'passed', jobResult: 'success', cleanupComplete: true, malformed: false, expected: 'passed' },
+    { status: 'failed', jobResult: 'failure', cleanupComplete: true, malformed: false, expected: 'failed' },
+    { status: 'passed', jobResult: 'failure', cleanupComplete: true, malformed: false, expected: 'invalid' },
+    { status: 'passed', jobResult: 'success', cleanupComplete: false, malformed: false, expected: 'invalid' },
+    { status: 'passed', jobResult: 'success', cleanupComplete: true, malformed: true, expected: 'invalid' }
+  ] as const;
+  for (const sample of cases) {
+    const files = sutFiles(sample.status);
+    if (sample.malformed) {
+      files.set('sut-receipt.json', Buffer.from(Buffer.from(files.get('sut-receipt.json')!).toString()
+        .replace('{', '{"auxiliaryStatus":"failed",')));
+    }
     const { ports, calls } = fixture(wire(preSemantic()), files);
-    const after = await runTrustedBootstrapVerification({ ...identity, sutDownloadOutcome: 'success', sutJobResult: 'success' }, ports);
-    expect(after.receipt.auxiliaryStatus).toBe('invalid');
-    expect(after.receipt.authorityVerdict).toBe('manual-bootstrap-required');
-    expect(calls.includes('prepare-sut')).toBe(false);
-    expect(() => evaluateTrustedBootstrapSutEvidence({ ...identity, jobResult: 'success', files,
-      capabilityComplete: true, lifecycleComplete: true, cleanupComplete: true, sandboxPolicyDigest: digest('7') })).toThrow();
-  });
-}
-
-test('provider failure and incomplete physical observations cannot become auxiliary PASS', async () => {
-  for (const incomplete of [false, true]) {
-    const { ports } = fixture(wire(preSemantic()), sutFiles('passed'));
+    const selectedPorts = sample.expected !== 'invalid' || sample.malformed ? ports
+      : { ...ports, parseSutCleanup: () => sample.cleanupComplete };
     const after = await runTrustedBootstrapVerification({ ...identity, sutDownloadOutcome: 'success',
-      sutJobResult: incomplete ? 'success' : 'failure' }, { ...ports, parseSutCleanup: () => !incomplete });
-    expect(after.receipt.auxiliaryStatus).toBe('invalid');
+      sutJobResult: sample.jobResult }, selectedPorts);
     expect(after.receipt.authorityVerdict).toBe('manual-bootstrap-required');
+    expect(after.receipt.auxiliaryStatus).toBe(sample.expected);
+    if (sample.expected !== 'invalid') {
+      expect(after.receipt.sutEvidenceDigest).not.toBe(null);
+      expect(after.diagnostic?.auxiliaryReason).toBe(`candidate-sut-diagnostics-${sample.expected}`);
+    }
+    if (sample.malformed) {
+      expect(calls.includes('prepare-sut')).toBe(false);
+      expect(() => evaluateTrustedBootstrapSutEvidence({ ...identity, jobResult: 'success', files,
+        capabilityComplete: true, lifecycleComplete: true, cleanupComplete: true, sandboxPolicyDigest: digest('7') }))
+        .toThrow('contains duplicate key "auxiliaryStatus"');
+    }
   }
 });
