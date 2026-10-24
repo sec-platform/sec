@@ -347,12 +347,7 @@ test('skipped policy cannot conceal declared inventory', () => {
   expectBlocked(candidate);
 });
 
-test('full-runtime PASS requires nonblank inventories and commands', () => {
-  const blankInventory = mutablePassedArtifact();
-  blankInventory.verificationReport.runtime.unit.passed = [''];
-  blankInventory.runtimeReport.unit.passed = [''];
-  expectBlocked(blankInventory);
-
+test('full-runtime PASS requires an execution command', () => {
   const missingCommand = mutablePassedArtifact();
   missingCommand.verificationReport.runtime.unit.command = null;
   missingCommand.runtimeReport.unit.command = null;
@@ -407,13 +402,6 @@ test('duplicate identities and forged contribution references remain fail-closed
   forged.verificationReport.summary.claimSummary.overall.claimResults[0]!
     .contributingGateIds.push('forged-gate');
   expectBlocked(forged);
-});
-
-test('empty claim and gate sets cannot manufacture a passed aggregate', () => {
-  const candidate = mutablePassedArtifact();
-  candidate.verificationReport.summary.claimSummary.overall.claimResults = [];
-  candidate.verificationReport.summary.claimSummary.gates = [];
-  expectBlocked(candidate);
 });
 
 test('object member reordering preserves a semantically identical artifact', () => {

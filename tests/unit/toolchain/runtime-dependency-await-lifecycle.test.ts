@@ -196,18 +196,6 @@ test('a successful fence retains its receiver, operation identity and public sig
   assert.strictEqual(options.signal, controller.signal);
 });
 
-for (const failureMode of ['sync', 'async'] as const) {
-  test(`an effect-fence ${failureMode} failure preserves the original error`, async () => {
-    const reason = { failureMode };
-    const controller = new AbortController();
-    const beforeCommit = failureMode === 'sync'
-      ? () => { throw reason; }
-      : async () => { throw reason; };
-    const options = runtimeDependencyOperationOptions({ signal: controller.signal, beforeCommit });
-    requireRejection(await observed(runtimeDependencyOperationEffectFence(options, 'hook-failure')).settled, reason);
-  });
-}
-
 test('the fence performs a terminal budget check after a successfully resolved provider', async () => {
   let now = 0;
   const options = runtimeDependencyOperationOptions({

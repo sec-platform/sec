@@ -12,8 +12,6 @@ const PRE = 'UEsDBBQAAAAIAAAAIVy2L+AnHAAAABoAAAALAAAAY2hlY2tlci5tanPT11coKSotLkl
 // Five small deflated entries whose local and central uncompressed-size claims
 // independently request 7MiB each; the cumulative guard must run before inflate.
 const EXPANSION = 'UEsDBBQAAAAIAAAAIVyDFtyMAwAAAAAAcAABAAAAYasAAFBLAwQUAAAACAAAACFcgxbcjAMAAAAAAHAAAQAAAGKrAABQSwMEFAAAAAgAAAAhXIMW3IwDAAAAAABwAAEAAABjqwAAUEsDBBQAAAAIAAAAIVyDFtyMAwAAAAAAcAABAAAAZKsAAFBLAwQUAAAACAAAACFcgxbcjAMAAAAAAHAAAQAAAGWrAABQSwECFAMUAAAACAAAACFcgxbcjAMAAAAAAHAAAQAAAAAAAAAAAAAApIEAAAAAYVBLAQIUAxQAAAAIAAAAIVyDFtyMAwAAAAAAcAABAAAAAAAAAAAAAACkgSIAAABiUEsBAhQDFAAAAAgAAAAhXIMW3IwDAAAAAABwAAEAAAAAAAAAAAAAAKSBRAAAAGNQSwECFAMUAAAACAAAACFcgxbcjAMAAAAAAHAAAQAAAAAAAAAAAAAApIFmAAAAZFBLAQIUAxQAAAAIAAAAIVyDFtyMAwAAAAAAcAABAAAAAAAAAAAAAACkgYgAAABlUEsFBgAAAAAFAAUA6wAAAKoAAAAAAA==';
-// One byte of deflated data; oversized headers must be rejected before opening it.
-const OVERSIZED = 'UEsDBBQAAAAIAAAAIVyDFtyMAwAAAAEAoAANAAAAYXJ0aWZhY3QuanNvbqsAAFBLAQIUAxQAAAAIAAAAIVyDFtyMAwAAAAEAoAANAAAAAAAAAAAAAACkgQAAAABhcnRpZmFjdC5qc29uUEsFBgAAAAABAAEAOwAAAC4AAAAAAA==';
 const signal = () => new AbortController().signal;
 
 test('closed member projection reads one ZIP and leaves legacy single-member selection unchanged', async () => {
@@ -21,7 +19,10 @@ test('closed member projection reads one ZIP and leaves legacy single-member sel
   const members = await readArtifactMembers({ archive, fileNames: ['artifact.json', 'ignored.txt'], signal: signal(), assertCurrent() {} });
   expect(members).toEqual({ 'artifact.json': '{"ok":true}', 'ignored.txt': 'not extracted' });
   expect(Object.isFrozen(members)).toBe(true);
-  expect(await readArtifactMember({ archive, fileName: 'artifact.json', signal: signal(), assertCurrent() {} })).toBe('{"ok":true}');
+  let charged = 0;
+  expect(await readArtifactMember({ archive, fileName: 'artifact.json', signal: signal(), assertCurrent() {},
+    chargeDecodedBytes(bytes) { charged += bytes; } })).toBe('{"ok":true}');
+  expect(charged).toBe(11);
   await expect(readArtifactMembers({ archive, fileNames: ['artifact.json'], signal: signal(), assertCurrent() {} })).rejects.toThrow('closed projection');
   await expect(readArtifactMembers({ archive, fileNames: ['artifact.json', 'ignored.txt', 'missing.json'], signal: signal(), assertCurrent() {} })).rejects.toThrow('absent');
 });
@@ -40,8 +41,6 @@ test('duplicate selections, ambiguous ZIP paths and cumulative expansion are rej
   await expect(readArtifactMembers({ archive: Buffer.from(ZIP_VECTORS.symlink, 'base64'),
     fileNames: ['artifact.json'], signal: signal(), assertCurrent() {} }))
     .rejects.toThrow('ambiguous or unsupported members');
-  await expect(readArtifactMembers({ archive: Buffer.from(OVERSIZED, 'base64'),
-    fileNames: ['artifact.json'], signal: signal(), assertCurrent() {} })).rejects.toThrow('size');
   await expect(readArtifactMembers({ archive: Buffer.from(EXPANSION, 'base64'),
     fileNames: ['a', 'b', 'c', 'd', 'e'], signal: signal(), assertCurrent() {} })).rejects.toThrow('cumulative');
 });

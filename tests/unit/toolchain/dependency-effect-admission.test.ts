@@ -39,7 +39,7 @@ for(const callback of [null,false,7,'not callable']){
 
 test('arbitrary provider rejection retains its identity',async()=>{
   const controls=runtimeDependencyOperationControls({lockTimeoutMs:1000,monotonicNowMs:()=>0});
-  for(const reason of [undefined,null,false,0,new Error('failed')]){
-    await assert.rejects(runtimeDependencyOperationEffectFence({...controls,beforeCommit:async()=>{throw reason;}},'failed'),e=>e===reason);
-  }
+  // The coordinator's method-binding keeper retains all five payload classes;
+  // this unwrapped route separately preserves an async undefined rejection.
+  await assert.rejects(runtimeDependencyOperationEffectFence({...controls,beforeCommit:async()=>{throw undefined;}},'failed'),e=>e===undefined);
 });

@@ -121,8 +121,8 @@ test('canonical binary owner follows one trusted redirect without forwarding cre
   expect(observed[2]!.credentials).toBe('omit');
 });
 
-for (const location of ['https://evil.invalid/a?sig=SECRET_QUERY','http://fixture.blob.core.windows.net/a',
-  'https://user:password@fixture.blob.core.windows.net/a','https://fixture.blob.core.windows.net.evil.invalid/a']) {
+for (const location of ['http://fixture.blob.core.windows.net/a',
+  'https://user:password@fixture.blob.core.windows.net/a','https://fixture.blob.core.windows.net.evil.invalid/a?sig=SECRET_QUERY']) {
   test('artifact redirect rejects untrusted destination before unauthenticated fetch: '+location.split('?')[0],async () => {
     const observed: RequestInit[] = [],cap = capability(artifactTransport({location,observed}));
     const error = await withGitHubApiTestSession({capability:cap,operation:async()=>await executeGitHubApiOperation(cap,selected)}).then(()=>null,error=>error);
@@ -136,9 +136,11 @@ test('archive digest drift fails before member parsing',async () => {
   await expect(withGitHubApiTestSession({capability:cap,operation:async()=>await executeGitHubApiOperation(cap,selected)})).rejects.toThrow('archive identity');
 });
 
-for (const kind of ['duplicate','symlink','traversal','oversized','unsupported'] as const) test(`mature ZIP reader rejects ${kind}`,async () => {
-  await expect(readArtifactMember({archive:Buffer.from(ZIP_VECTORS[kind],'base64'),fileName:'artifact.json',signal:new AbortController().signal,
-    assertCurrent() {}})).rejects.toThrow();
+for (const kind of ['duplicate','traversal','oversized','unsupported'] as const) test(`mature ZIP reader rejects ${kind}`,async () => {
+  const reading = readArtifactMember({archive:Buffer.from(ZIP_VECTORS[kind],'base64'),fileName:'artifact.json',signal:new AbortController().signal,
+    assertCurrent() {}});
+  if (kind === 'oversized') await expect(reading).rejects.toThrow('size');
+  else await expect(reading).rejects.toThrow();
 });
 
 test('ZIP rejects output size mismatch and pre-aborted admission',async () => {
@@ -289,15 +291,6 @@ for (const errors of [[{message:"Cannot query field 'unknown' on type 'PullReque
   });
 }
 
-
-test('artifact member charges its decoded bytes to the borrowing operation budget', async () => {
-  let charged = 0;
-  const value = await readArtifactMember({ archive: Buffer.from(ZIP_VECTORS.good, 'base64'),
-    fileName: 'artifact.json', signal: new AbortController().signal, assertCurrent() {},
-    chargeDecodedBytes(bytes) { charged += bytes; } });
-  expect(value).toBe('{"ok":true}');
-  expect(charged).toBe(Buffer.byteLength(value, 'utf8'));
-});
 
 test('decoded-byte budget rejection stops artifact reading without returning partial data', async () => {
   let charged = 0;

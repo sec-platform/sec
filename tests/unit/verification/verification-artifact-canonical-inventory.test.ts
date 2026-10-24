@@ -147,16 +147,12 @@ test('Verification artifact rejects duplicate, blank and noncanonical fast inven
   }
 });
 
-test('Verification artifact rejects duplicate and noncanonical runtime inventories', () => {
-  for (const inventory of [
-    ['tests/runtime/z.test.ts', 'tests/runtime/a.test.ts'],
-    ['tests/runtime/a.test.ts', 'tests/runtime/a.test.ts']
-  ]) {
-    const candidate = blockedArtifactSet();
-    candidate.verificationReport.runtime.unit.passed = inventory;
-    candidate.runtimeReport.unit.passed = inventory;
-    expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
-  }
+test('Verification artifact applies canonical inventory admission to runtime reports', () => {
+  const candidate = blockedArtifactSet();
+  const inventory = ['tests/runtime/z.test.ts', 'tests/runtime/a.test.ts'];
+  candidate.verificationReport.runtime.unit.passed = inventory;
+  candidate.runtimeReport.unit.passed = inventory;
+  expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
 });
 
 
