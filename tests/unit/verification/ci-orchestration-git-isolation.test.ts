@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import {
   GitReadAuthorityError,
@@ -39,14 +39,42 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
+// A common empty native Git repository is the only shared preparation.
+// Every scenario copies its physical index, config and refs before writing
+// scenario-specific history; observed GitRead work is never shared.
+let emptyGitOrchestrationBase: string | undefined;
+afterAll(() => {
+  if (emptyGitOrchestrationBase !== undefined) {
+    rmSync(emptyGitOrchestrationBase, { recursive: true, force: true });
+    emptyGitOrchestrationBase = undefined;
+  }
+});
+
+function prepareGitOrchestrationRepository(repositoryRoot: string): void {
+  if (emptyGitOrchestrationBase === undefined) {
+    const base = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-empty-base-'));
+    try {
+      git(base, ['init', '--quiet', '--initial-branch=main']);
+      git(base, ['config', 'user.name', 'SEC Test']);
+      git(base, ['config', 'user.email', 'sec-test@example.invalid']);
+      emptyGitOrchestrationBase = base;
+    } catch (error) {
+      try { rmSync(base, { recursive: true, force: true }); }
+      catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'CI Git empty-base setup and cleanup failed');
+      }
+      throw error;
+    }
+  }
+  cpSync(emptyGitOrchestrationBase, repositoryRoot, { recursive: true });
+}
+
 test.serial('CI orchestration Git observations ignore ambient repository redirection', async () => {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-isolation-'));
   const previousGitDir = process.env.GIT_DIR;
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
-    git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
+    prepareGitOrchestrationRepository(repositoryRoot);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'base\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'removed.txt'), 'removed\n', 'utf8');
     git(repositoryRoot, ['add', 'fixture.txt', 'removed.txt']);
@@ -91,9 +119,7 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-operation-'));
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
-    git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
+    prepareGitOrchestrationRepository(repositoryRoot);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'fixture\n', 'utf8');
     git(repositoryRoot, ['add', 'fixture.txt']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
@@ -258,9 +284,7 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-candidate-impact-'));
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
-    git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
+    prepareGitOrchestrationRepository(repositoryRoot);
     writeFileSync(path.join(repositoryRoot, 'README.md'), 'base\n', 'utf8');
     git(repositoryRoot, ['add', 'README.md']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);

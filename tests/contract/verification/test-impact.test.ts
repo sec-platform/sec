@@ -1,6 +1,6 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -21,12 +21,39 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-function sourceProvider(sources: Readonly<Record<string, string>>) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
+// Actual source graphs, Git commits and compiler projections remain
+// independent per observation. Only an empty native Git identity is copied.
+let testImpactEmptyGit: string | undefined;
+
+afterAll(() => {
+  if (testImpactEmptyGit !== undefined) {
+    rmSync(testImpactEmptyGit, { recursive: true, force: true });
+    testImpactEmptyGit = undefined;
+  }
+});
+
+function emptyGitTestImpactBase(): string {
+  if (testImpactEmptyGit !== undefined) return testImpactEmptyGit;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-base-'));
   try {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'test-impact@sec.invalid']);
     git(root, ['config', 'user.name', 'SEC Test Impact']);
+    testImpactEmptyGit = root;
+    return root;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'TestImpact base setup and cleanup failed');
+    }
+    throw error;
+  }
+}
+
+function sourceProvider(sources: Readonly<Record<string, string>>) {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
+  try {
+    cpSync(emptyGitTestImpactBase(), root, { recursive: true });
     const fixtureSources = {
       ...sources,
       ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
