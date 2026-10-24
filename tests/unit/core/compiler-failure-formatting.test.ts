@@ -78,14 +78,14 @@ test('fallback formats the captured details rather than replacement carrier meta
   assert.doesNotMatch(output, /\bwrong\b/u);
 });
 
-test('a throwing Error stack accessor cannot escape the diagnostic boundary', () => {
-  const error = new Error('primary unreadable stack');
-  Object.defineProperty(error, 'stack', { get() { throw new Error('stack unavailable'); } });
-  assert.equal(typeof formatFailure(error), 'string');
-});
+test('invalid native Error stack observations preserve a string diagnostic', () => {
+  // A throwing getter and a present but non-string stack differ as malformed
+  // inputs, but share the same synchronous formatter fallback/qualification.
+  const throwing = new Error('primary unreadable stack');
+  Object.defineProperty(throwing, 'stack', { get() { throw new Error('stack unavailable'); } });
+  assert.equal(typeof formatFailure(throwing), 'string');
 
-test('malformed runtime Error fields cannot change the formatter return type', () => {
-  const error = new Error('runtime field');
-  Object.defineProperty(error, 'stack', { value: 7 });
-  assert.equal(typeof formatFailure(error), 'string');
+  const malformed = new Error('runtime field');
+  Object.defineProperty(malformed, 'stack', { value: 7 });
+  assert.equal(typeof formatFailure(malformed), 'string');
 });

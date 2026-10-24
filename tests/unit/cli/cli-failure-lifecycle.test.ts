@@ -38,9 +38,9 @@ test('falsy details preserve the existing no-extra-line presentation', () => {
   for (const details of [undefined, null, false, 0, '']) assert.equal(render(protocol(details)).length, 2);
 });
 
-test('circular and bigint details cannot replace primary diagnostics with a JSON error', () => {
+test('non-JSON details cannot replace primary diagnostics with a serialization failure', () => {
   const cycle: { self?: unknown } = {}; cycle.self = cycle;
-  for (const details of [cycle, { value: 1n }, 1n]) {
+  for (const details of [cycle, { value: 1n }, 1n, Symbol('detail'), () => undefined]) {
     const lines = render(buildErrorProtocol({ code: 'REPAIR-BLOCKED-001', message: 'repair failed', details }));
     assert.equal(lines.length, 3);
     assert.equal(lines[0], 'error:REPAIR-BLOCKED-001 repair failed');
@@ -138,10 +138,3 @@ test('even a secondary failure and a broken diagnostic sink cannot change the or
   } finally { console.error = previous; }
 });
 
-test('unrepresentable truthy details fall back to inspection instead of emitting undefined', () => {
-  for (const details of [Symbol('detail'), () => undefined]) {
-    const lines = render(buildErrorProtocol({ code: 'REPAIR-BLOCKED-001', message: 'repair failed', details }));
-    assert.equal(lines.length, 3);
-    assert.match(lines[2]!, /Details could not be rendered as JSON/);
-  }
-});
