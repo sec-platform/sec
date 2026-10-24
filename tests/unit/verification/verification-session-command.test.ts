@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { assertHostedSquashMergeCompletion, parseHostedSynchronousSquashMergeResponse, parseVerificationSessionCommand, planHostedIntegrationEffects, routeHostedIntegration, verificationSessionCli, verificationSessionExecutionPlacement } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import { assertHostedSquashMergeCompletion, classifyDurableVerificationSessionProjection, parseHostedSynchronousSquashMergeResponse, parseVerificationSessionCommand, planHostedIntegrationEffects, routeHostedIntegration, verificationSessionCli, verificationSessionExecutionPlacement } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA, parseVerificationSessionHostedRequest } from '../../../src/adapters/verification/platform/ci/contract/session-request.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../../src/adapters/verification/platform/review/contract/stability.ts';
 import { executeHostedSessionCompilerCommand } from '../../../src/bootstrap/development/closeout/verification-session-hosted.ts';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
@@ -271,4 +272,44 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
   expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, mergeCommitMessage: 'other' },
     expectedHeadSha: HEAD_SHA, expectedHeadTreeSha: HEAD_SHA, ...closure,
     providerMergeCommitSha: provider.sha })).toThrow(/authorization markers/i);
+});
+
+test('durable remote projection blocks closed PR and OPEN candidate identity drift', () => {
+  // The original slow case supplied the HEAD tree as its expected BASE tree,
+  // so even its unchanged OPEN input was blocked. Require a valid baseline.
+  const candidate: GitHubCandidateObservation = {
+    repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
+    isCrossRepository: false, authorNodeId: 'AUTHOR',
+    baseBranch: 'main', baseSha: BASE_SHA, baseTreeSha: BASE_SHA,
+    headBranch: 'feat/example', headSha: HEAD_SHA, headTreeSha: HEAD_SHA,
+    title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
+    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null,
+    mergeCommitParentShas: null
+  };
+  const request = parseVerificationSessionHostedRequest(JSON.stringify({
+    schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 42,
+    expectedBaseSha: BASE_SHA, expectedBaseTreeSha: BASE_SHA,
+    expectedHeadSha: HEAD_SHA, expectedHeadTreeSha: HEAD_SHA,
+    manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
+    manifestDigest: `sha256:${'1'.repeat(64)}`, profile: 'quick',
+    expectedScopeProposalDigest: `sha256:${'2'.repeat(64)}`,
+    expectedActionPlanDigest: `sha256:${'7'.repeat(64)}`,
+    expectedSessionRevision: JOIN_SESSION_DIGEST,
+    reviewPolicyDigest: `sha256:${'3'.repeat(64)}`,
+    requestOperationId: `sha256:${'4'.repeat(64)}`
+  }));
+  const classify = (observed: GitHubCandidateObservation) =>
+    classifyDurableVerificationSessionProjection({
+      repository: 'sec-platform/sec', request, candidate: observed, publications: []
+    });
+  expect(classify(candidate)).toBeNull();
+  for (const changed of [
+    { state: 'CLOSED' as const },
+    { baseSha: 'f'.repeat(40) },
+    { baseTreeSha: 'f'.repeat(40) },
+    { headSha: 'e'.repeat(40) },
+    { headTreeSha: 'e'.repeat(40) }
+  ]) {
+    expect(classify({ ...candidate, ...changed })).toMatchObject({ status: 'BLOCKED' });
+  }
 });

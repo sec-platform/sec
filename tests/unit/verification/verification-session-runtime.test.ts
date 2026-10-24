@@ -1327,35 +1327,6 @@ test('local preparation request cannot enter any hosted consumer or runtime stat
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('durable remote projection blocks closed PR and OPEN candidate identity drift', () => {
-  for (const candidate of [
-    { ...new ReducerTransport().candidate(), state: 'CLOSED' as const },
-    { ...new ReducerTransport().candidate(), baseSha: 'f'.repeat(40) },
-    { ...new ReducerTransport().candidate(), baseTreeSha: 'f'.repeat(40) },
-    { ...new ReducerTransport().candidate(), headSha: 'e'.repeat(40) },
-    { ...new ReducerTransport().candidate(), headTreeSha: 'e'.repeat(40) }
-  ]) {
-    expect(classifyDurableVerificationSessionProjection({ repository: 'sec-platform/sec',
-      request: JOIN_REQUEST, candidate, publications: [] })).toMatchObject({ status: 'BLOCKED' });
-  }
-});
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 test('incomplete GitHub pagination fails closed before Review can clear', async () => {
   class IncompletePaginationTransport extends FakeTransport {
     override reviewPage(): GitHubPage<GitHubReviewObservation> {
