@@ -29,7 +29,7 @@ function canonicalBytes(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-async function legacyFixture() {
+async function registrationFixture() {
   const hostRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-generated-registration-migration-'));
   roots.push(hostRoot);
   const repositoryRoot = path.join(hostRoot, 'repository');
@@ -52,7 +52,7 @@ async function legacyFixture() {
     'v1',
     'registrations-v3'
   );
-  await mkdir(registrationsRoot, { recursive: true });
+  await mkdir(path.dirname(registrationsRoot), { recursive: true });
   const workspace = inspectNoFollowDirectoryChain(repositoryRoot, 'fixture workspace').target;
   const generated = inspectNoFollowDirectoryChain(generatedRoot, 'fixture generation').target;
   const rule = generatedStateRuleForPath(relativePath);
@@ -78,6 +78,20 @@ async function legacyFixture() {
     root: identity(generated),
     operationId: 'registration-migration-historical'
   }, { clock: () => new Date('2026-08-29T00:00:00.000Z') });
+  return {
+    environment,
+    repositoryRoot,
+    registrationsRoot,
+    registrationsV2Root,
+    current,
+    historical
+  } as const;
+}
+
+async function legacyFixture() {
+  const fixture = await registrationFixture();
+  const { registrationsRoot, current, historical } = fixture;
+  await mkdir(registrationsRoot);
   const currentBytes = canonicalBytes(current);
   const historicalBytes = canonicalBytes(historical);
   await writeFile(
@@ -93,14 +107,7 @@ async function legacyFixture() {
     relativePath
   })).slice('sha256:'.length);
   await writeFile(path.join(registrationsRoot, `${pointerKey}.json`), currentBytes);
-  return {
-    environment,
-    repositoryRoot,
-    registrationsRoot,
-    registrationsV2Root,
-    current,
-    historical
-  } as const;
+  return fixture;
 }
 
 test('legacy registrations migrate once without inventing a historical ledger chain', async () => {
@@ -206,8 +213,7 @@ test('current chain preserves migration source and rejects any pointer or genera
 
 /** Independent old-format fixture. No production writer is used to create v2 bytes. */
 async function rawV2Fixture(kind: 'current' | 'one-hop' | 'disposed' | 'gap' | 'foreign' | 'fork' | 'missing-predecessor') {
-  const fixture = await legacyFixture();
-  await rm(fixture.registrationsRoot, { recursive: true });
+  const fixture = await registrationFixture();
   const source = path.join(path.dirname(fixture.registrationsRoot), 'registrations-v2');
   await mkdir(source);
   const pointerKey = generatedStateDigest({ schema: 'sec-generated-state-registration-key-v1', relativePath }).slice(7);
@@ -350,8 +356,7 @@ test('an invalid existing v3 namespace never falls back to a valid old source', 
 });
 
 test('a workspace state root without any registration namespace observes an empty ledger', async () => {
-  const fixture = await rawV2Fixture('current');
-  await rm(fixture.source, { recursive: true });
+  const fixture = await registrationFixture();
   const hooks = generatedStateProducerHooks({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
   expect(await hooks.observeRetirement(relativePath)).toMatchObject({ status: 'mismatch', registrationDigest: null });
   await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -382,8 +387,7 @@ test('completed migration retains historical physical preimage across a legitima
 });
 
 test('one migration settles every identity across 128 independent old chains', async () => {
-  const fixture = await legacyFixture();
-  await rm(fixture.registrationsRoot, { recursive: true });
+  const fixture = await registrationFixture();
   const source = path.join(path.dirname(fixture.registrationsRoot), 'registrations-v2');
   await mkdir(source);
   const workspace = inspectNoFollowDirectoryChain(fixture.repositoryRoot, 'scale workspace').target;

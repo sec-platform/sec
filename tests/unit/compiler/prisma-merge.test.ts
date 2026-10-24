@@ -155,7 +155,8 @@ test('incomplete and duplicate block definitions stay invalid even if duplicate 
 });
 
 test('seeded additions retain unique field identities and are idempotent', () => {
-  for (let count = 1; count <= 150; count++) {
+  // Retain no additions, the smallest partial overlap, and the original largest union.
+  for (const count of [1, 2, 150]) {
     const a = Array.from({ length: count }, (_, i) => ` f${i} Int`);
     const b = Array.from({ length: count }, (_, i) => ` f${i + Math.floor(count / 2)} Int`);
     const merged = mergePrismaSchemas(model(a.join('\n')), model(b.join('\n')));

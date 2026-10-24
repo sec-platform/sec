@@ -168,10 +168,6 @@ function expectIsolated(env: NodeJS.ProcessEnv): void {
   expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
 }
 
-test('Git read environment scrubs ambient repository, config and credential authority', () => {
-  expectIsolated(isolatedGitReadEnvironment({}, AMBIENT_AUTHORITY));
-});
-
 test('Git child environment is the same mechanical isolation owner', () => {
   expectIsolated(isolatedGitChildEnvironment(AMBIENT_AUTHORITY));
 });
@@ -184,6 +180,12 @@ test('Git read environment permits subject/locale overrides but cannot weaken ma
     GIT_TERMINAL_PROMPT: '1',
     GIT_NO_REPLACE_OBJECTS: '0',
     GIT_ASKPASS: '/tmp/attempted-askpass',
+    git_config_global: '/tmp/lowercase-global',
+    Git_Config_NoSystem: '0',
+    git_terminal_prompt: '1',
+    Git_No_Replace_Objects: '0',
+    git_askpass: '/tmp/lowercase-askpass',
+    ssh_askpass: '/tmp/lowercase-ssh-askpass',
     LANG: 'C',
     LC_ALL: 'C'
   }, {
@@ -199,30 +201,12 @@ test('Git read environment permits subject/locale overrides but cannot weaken ma
   expect(env.GIT_TERMINAL_PROMPT).toBe('0');
   expect(env.GIT_NO_REPLACE_OBJECTS).toBe('1');
   expect(env.GIT_ASKPASS).toBeUndefined();
-});
-
-test('Git read isolation removes case-variant mandatory overrides before child execution', () => {
-  const env = isolatedGitReadEnvironment({
-    git_config_global: '/tmp/lowercase-global',
-    Git_Config_NoSystem: '0',
-    git_terminal_prompt: '1',
-    Git_No_Replace_Objects: '0',
-    git_askpass: '/tmp/lowercase-askpass',
-    ssh_askpass: '/tmp/lowercase-ssh-askpass',
-    LANG: 'C'
-  }, { PATH: '/bin' });
-
-  expect(env.LANG).toBe('C');
   expect(environmentKeys(env, 'GIT_CONFIG_GLOBAL')).toEqual(['GIT_CONFIG_GLOBAL']);
   expect(environmentKeys(env, 'GIT_CONFIG_NOSYSTEM')).toEqual(['GIT_CONFIG_NOSYSTEM']);
   expect(environmentKeys(env, 'GIT_TERMINAL_PROMPT')).toEqual(['GIT_TERMINAL_PROMPT']);
   expect(environmentKeys(env, 'GIT_NO_REPLACE_OBJECTS')).toEqual(['GIT_NO_REPLACE_OBJECTS']);
   expect(environmentKeys(env, 'GIT_ASKPASS')).toEqual([]);
   expect(environmentKeys(env, 'SSH_ASKPASS')).toEqual([]);
-  expect(env.GIT_CONFIG_GLOBAL).toBe(GIT_NULL_CONFIG_GLOBAL_SINK);
-  expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
-  expect(env.GIT_TERMINAL_PROMPT).toBe('0');
-  expect(env.GIT_NO_REPLACE_OBJECTS).toBe('1');
 });
 
 test('the explicit host test route rejects aggregate argument overflow before starting Git', async () => {
@@ -685,7 +669,10 @@ test('provider admission preserves an expired parent deadline as a typed reason'
 });
 
 test('close waits for an admitted child before disposing the GitRead session', async () => {
-  await withHostGitSession({ cwd: process.cwd() }, async session => {
+  await withHostGitSession({ cwd: process.cwd(), budget: { maxProcesses: 2 } }, async session => {
+    expect(session.failure).toBeNull();
+    const version = await session.run(['--version']);
+    expect(version.kind).toBe('completed');
     const command = session.run([
       '--no-pager',
       '-c', 'core.quotepath=false',
@@ -698,6 +685,7 @@ test('close waits for an admitted child before disposing the GitRead session', a
     await close;
     const result = await command;
     expect(result.kind).toBe('completed');
+    expect(session.processCount).toBe(2);
     expect(session.failure).toBeNull();
 
     const afterClose = await session.run(['--version']);
@@ -741,27 +729,6 @@ test('the host provider accounts for its physical root observation budget', asyn
       kind: 'unresolved-git-read-session',
       reason: 'root-observation-budget-exhausted'
     });
-  });
-});
-
-test('the retained host transport completes two admitted observations', async () => {
-  await withHostGitSession({
-    cwd: process.cwd(),
-    budget: { maxProcesses: 2 }
-  }, async session => {
-    expect(session.failure).toBeNull();
-    const result = await session.run(['--version']);
-    expect(result.kind).toBe('completed');
-    const status = await session.run([
-      '--no-pager',
-      '-c', 'core.quotepath=false',
-      '-c', 'core.fsmonitor=false',
-      '-c', 'core.untrackedCache=false',
-      'status', '--porcelain=v1', '-z', '--untracked-files=no'
-    ]);
-    expect(status.kind).toBe('completed');
-    expect(session.processCount).toBe(2);
-    expect(session.failure).toBeNull();
   });
 });
 

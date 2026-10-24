@@ -16,13 +16,14 @@ function compileTestRetirementFixture(
   productionSource = "export const value = 'ok';\n",
   currentTestSource?: string,
   currentTestPath = 'tests/obsolete.test.ts',
-  ownerRewrite = false
+  ownerRewrite = false,
+  preparedCurrent?: ReturnType<typeof compileSupersessionFixture>
 ) {
   const baseline = compileSupersessionFixture({
     'src/example/operation.ts': productionSource,
     'tests/obsolete.test.ts': baselineTestSource
   });
-  const current = compileSupersessionFixture({
+  const current = preparedCurrent ?? compileSupersessionFixture({
     'src/example/operation.ts': productionSource,
     ...(currentTestSource === undefined ? {} : { [currentTestPath]: currentTestSource })
   });
@@ -246,8 +247,14 @@ test('test retirement derives DELETE only from one compiler-issued consumer-zero
 });
 
 test('test retirement blocks real consumers, path contracts, dynamic imports, and parse unknowns', () => {
+  const current = compileSupersessionFixture({
+    'src/example/operation.ts': "export const value = 'ok';\n"
+  });
+  const withUnchangedCurrent = (source: string) => compileTestRetirementFixture(
+    source, undefined, undefined, undefined, false, current
+  );
   const fixtures = [
-    compileTestRetirementFixture(
+    withUnchangedCurrent(
       "import { value } from '../src/example/operation.ts';\nvoid value;\n"
     ),
     compileTestRetirementFixture(
@@ -258,10 +265,10 @@ test('test retirement blocks real consumers, path contracts, dynamic imports, an
       '// test path is consumed through a relative production literal\n',
       "export const retiredPath = '../../tests/obsolete.test.ts';\n"
     ),
-    compileTestRetirementFixture(
+    withUnchangedCurrent(
       "const target = '../src/example/operation.ts';\nvoid import(target);\n"
     ),
-    compileTestRetirementFixture('export const malformed = ;\n')
+    withUnchangedCurrent('export const malformed = ;\n')
   ];
 
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.status))
@@ -287,21 +294,27 @@ test('test retirement blocks real consumers, path contracts, dynamic imports, an
 });
 
 test('test retirement preserves behavior, Effect, durable, failure, and algorithm observations', () => {
+  const current = compileSupersessionFixture({
+    'src/example/operation.ts': "export const value = 'ok';\n"
+  });
+  const withUnchangedCurrent = (source: string) => compileTestRetirementFixture(
+    source, undefined, undefined, undefined, false, current
+  );
   const fixtures = [
     compileTestRetirementFixture(
       "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('behavior', () => expect(execute()).toBe('ok'));\n",
       "export function execute(): string { return 'ok'; }\n"
     ),
-    compileTestRetirementFixture(
+    withUnchangedCurrent(
       "import { test } from 'bun:test';\nimport { readFile } from 'node:fs/promises';\ntest('effect', async () => { await readFile('state'); });\n"
     ),
-    compileTestRetirementFixture(
+    withUnchangedCurrent(
       "import { expect, test } from 'bun:test';\nimport { readFile, writeFile } from 'node:fs/promises';\ntest('durable', async () => { await writeFile('state', 'x'); expect(await readFile('state', 'utf8')).toBe('x'); });\n"
     ),
-    compileTestRetirementFixture(
+    withUnchangedCurrent(
       "import { expect, test } from 'bun:test';\ntest('failure', () => expect(() => { throw new Error('failure'); }).toThrow());\n"
     ),
-    compileTestRetirementFixture(
+    withUnchangedCurrent(
       "import { expect, test } from 'bun:test';\ntest('property', () => { for (const value of [1, 2]) expect(value).toBeGreaterThan(0); });\n"
     )
   ];

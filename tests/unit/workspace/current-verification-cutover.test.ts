@@ -69,18 +69,6 @@ test('Lock publication keeps its checked input when the caller mutates an alias 
   });
 });
 
-test('current fast and all-lane failed Verification remain usable for Repair with a pending display projection', async () => {
-  for (const lane of ['fast', 'all'] as const) await workspace(async root => {
-    const lock = buildCurrentVerificationLock({ passStatus: { verify: 'pending' } });
-    await saveLock(root, lock);
-    await writeCurrentVerificationFixture(root, lock, { failed: true, lane });
-    const result = await repairWorkspace(root, { dryRun: true });
-    expect(result.repairPlan.status).toBe('blocked');
-    expect(result.lock.app.name).toBe('customer-admin');
-    await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
-  });
-});
-
 test('Repair rejects stale and cross-artifact-inconsistent retained evidence before publication', async () => {
   await workspace(async root => {
     const lock = buildCurrentVerificationLock();
@@ -97,42 +85,31 @@ test('Repair rejects stale and cross-artifact-inconsistent retained evidence bef
   });
 });
 
-for (const [label, mutate] of [
+const reportFaults = [
   ['passed summary over failed fast evidence', (report) => { report.summary.status = 'passed'; }],
   ['unknown summary status', (report) => { Object.assign(report.summary, { status: 'unknown' }); }],
   ['omitted failed lane', (report) => { report.summary.failedLanes = []; }],
   ['inconsistent fast projection', (report) => { report.unit.status = 'passed'; }],
   ['inconsistent claim result', (report) => { report.summary.claimSummary!.overall.overallStatus = 'passed'; }],
   ['unknown requested lane', (report) => { Object.assign(report.summary, { requestedLane: 'unknown' }); }]
-] satisfies Array<[string, (report: Awaited<ReturnType<typeof writeCurrentVerificationFixture>>['verificationReport']) => void]>) {
-  test(`Repair rejects partial-lane ${label} before a no-op or publication`, async () => {
-    await workspace(async root => {
-      const lock = buildCurrentVerificationLock({ passStatus: { verify: 'pending' } });
-      await saveLock(root, lock);
-      const { verificationReport } = await writeCurrentVerificationFixture(root, lock, { failed: true, lane: 'fast' });
-      mutate(verificationReport);
-      // Mutate retained bytes after the producer fixture has validated its
-      // original tuple, so the consumer must independently reject the forgery.
-      await writeFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport), JSON.stringify(verificationReport));
-      await expect(repairWorkspace(root, { dryRun: true })).rejects.toThrow('profile-aware canonical schema');
-      await expect(repairWorkspace(root)).rejects.toThrow('profile-aware canonical schema');
-      await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
-    });
-  });
-}
-
-test('Repair preserves legitimate passing fast and all-lane no-ops with a pending display projection', async () => {
-  for (const lane of ['fast', 'all'] as const) await workspace(async root => {
+] satisfies Array<[string, (report: Awaited<ReturnType<typeof writeCurrentVerificationFixture>>['verificationReport']) => void]>;
+test('Repair rejects every partial-lane forgery before a no-op or publication', async () => {
+  await workspace(async root => {
     const lock = buildCurrentVerificationLock({ passStatus: { verify: 'pending' } });
     await saveLock(root, lock);
-    await writeCurrentVerificationFixture(root, lock, { lane });
-    const { repairPlan } = await repairWorkspace(root, { dryRun: true });
-    expect(repairPlan.status).toBe('skipped');
-    expect(repairPlan.sourceVerificationStatus).toBe('passed');
-    await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
+    const original = await writeCurrentVerificationFixture(root, lock, { failed: true, lane: 'fast' });
+    for (const [label, mutate] of reportFaults) {
+      const verificationReport = structuredClone(original.verificationReport);
+      mutate(verificationReport);
+      // Every consumer reopens the retained bytes. Replace the complete report
+      // from the valid baseline so no earlier forgery can mask this fault.
+      await writeFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport), JSON.stringify(verificationReport));
+      await expect(repairWorkspace(root, { dryRun: true }), label).rejects.toThrow('profile-aware canonical schema');
+      await expect(repairWorkspace(root), label).rejects.toThrow('profile-aware canonical schema');
+      await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
+    }
   });
 });
-
 
 for (const mode of ['partial', 'failed-all'] as const) {
   test(`current ${mode} evidence cannot authorize Lock publication through a succeeded display flag`, async () => {
@@ -150,11 +127,12 @@ for (const mode of ['partial', 'failed-all'] as const) {
   });
 }
 
-for (const fault of ['missing', 'duplicate', 'foreign-gate', 'foreign-subject', 'foreign-input'] as const) {
-  test(`current-subject gate binding rejects ${fault} instead of accepting partial agreement`, async () => {
-    await workspace(async root => {
-      const lock = buildCurrentVerificationLock();
-      const { verificationReport, acceptanceCoverage } = await writeCurrentVerificationFixture(root, lock);
+test('current-subject gate binding rejects missing, duplicate and foreign bindings', async () => {
+  await workspace(async root => {
+    const lock = buildCurrentVerificationLock();
+    const original = await writeCurrentVerificationFixture(root, lock);
+    for (const fault of ['missing', 'duplicate', 'foreign-gate', 'foreign-subject', 'foreign-input'] as const) {
+      const { verificationReport, acceptanceCoverage } = structuredClone(original);
       const gates = [...verificationReport.summary.claimSummary!.gates];
       Object.assign(verificationReport.summary.claimSummary!, { gates });
       if (fault === 'missing') gates.pop();
@@ -162,11 +140,11 @@ for (const fault of ['missing', 'duplicate', 'foreign-gate', 'foreign-subject', 
       else if (fault === 'foreign-gate') Object.assign(gates[0]!, { gateId: 'foreign-gate' });
       else if (fault === 'foreign-subject') Object.assign(gates[0]!, { subjectRevision: 'sha256:' + 'e'.repeat(64) });
       else Object.assign(gates[0]!, { inputDigest: 'sha256:' + 'f'.repeat(64) });
-      expect(() => assertProductVerificationArtifactSubject(lock, { verificationReport, acceptanceCoverage }))
+      expect(() => assertProductVerificationArtifactSubject(lock, { verificationReport, acceptanceCoverage }), fault)
         .toThrow(expect.objectContaining({ code: 'VERIFY-SUBJECT-002' }));
-    });
+    }
   });
-}
+});
 
 for (const lane of ['fast', 'all'] as const) {
   for (const failed of [false, true]) {
@@ -175,6 +153,13 @@ for (const lane of ['fast', 'all'] as const) {
         const lock = buildCurrentVerificationLock({ passStatus: { verify: 'pending' } });
         await saveLock(root, lock);
         await writeCurrentVerificationFixture(root, lock, { lane, failed });
+        // Preview must remain read-only even when the same current evidence
+        // can subsequently authorize this separate publication invocation.
+        const preview = await repairWorkspace(root, { dryRun: true });
+        expect(preview.repairPlan.status).toBe(failed ? 'blocked' : 'skipped');
+        if (failed) expect(preview.lock.app.name).toBe('customer-admin');
+        else expect(preview.repairPlan.sourceVerificationStatus).toBe('passed');
+        await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
         if (failed) {
           await expect(repairWorkspace(root)).rejects.toMatchObject({ code: 'REPAIR-BLOCKED-001' });
         } else {
