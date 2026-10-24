@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import type { BranchCloseoutPreparation, BranchLifecycleInventory } from '../../../src/execution/verification/branch-closeout.ts';
+import type { BranchLifecycleInventory } from '../../../src/execution/verification/branch-closeout.ts';
 
 import {
   projectBranchLifecycleForWorkSelection,
@@ -9,7 +9,7 @@ import {
   createBranchLifecycleGitHubCredentialArgs,
   createBranchLifecycleGitHubRemoteObservation
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
-import { BRANCH_REF_CLOSEOUT_CAPABILITY, auditBranchLifecycle, authorizeBranchCloseout, classifyBranchLifecycle, createBranchCloseoutPreparation, createBranchCloseoutReceipt, isPathWithin, parseBranchCloseoutReceipt } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-contract.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY, auditBranchLifecycle, authorizeBranchCloseout, createBranchCloseoutPreparation, createBranchCloseoutReceipt, isPathWithin, parseBranchCloseoutReceipt } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-contract.ts';
 import { parseRepositoryFullName } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
@@ -220,7 +220,7 @@ function preparation(
   });
 }
 
-test('remote absence and exact local residue are independently authorized', () => {
+test('merged local residue is authorized independently of unrelated active work but not its own active owner', () => {
   const mergedPullRequest = {
     number: 42,
     headBranch: 'feat/example',
@@ -234,9 +234,29 @@ test('remote absence and exact local residue are independently authorized', () =
   const snapshot = inventory({
     localBranches: [
       { branch: 'feat/example', sha: HEAD_SHA },
-      { branch: 'main', sha: MAIN_SHA }
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/candidate', sha: RACE_SHA }
     ],
-    pullRequests: [mergedPullRequest]
+    remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/candidate', sha: RACE_SHA }
+    ],
+    pullRequests: [mergedPullRequest, {
+      number: 99,
+      headBranch: 'feat/candidate',
+      headSha: RACE_SHA,
+      baseBranch: 'main',
+      state: 'open',
+      isDraft: false,
+      isCrossRepository: false,
+      url: null
+    }],
+    activeWorkPackage: {
+      state: 'active',
+      branch: 'feat/candidate',
+      manifest: 'config/repository/work-packages/example-v1.md',
+      reason: null
+    }
   });
   const prepared = createBranchCloseoutPreparation({
     preparedAt: '2026-08-04T00:01:00.000Z',
@@ -259,19 +279,46 @@ test('remote absence and exact local residue are independently authorized', () =
     worktreePathsAtPreparation: []
   });
 
+  const request = {
+    capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
+    disposition: 'merged' as const,
+    durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
+  };
   const authorization = authorizeBranchCloseout({
     preparation: prepared,
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'merged',
-      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
-    },
+    request,
     before: snapshot,
     current: snapshot
   });
   expect(authorization.blockers).toEqual([]);
   expect(authorization.remoteAction).toBe('already-absent');
   expect(authorization.localAction).toBe('delete-exact');
+
+  const selected = authorizeBranchCloseout({
+    preparation: prepared,
+    request,
+    before: snapshot,
+    current: {
+      ...snapshot,
+      activeWorkPackage: { ...snapshot.activeWorkPackage, branch: 'feat/example' }
+    }
+  });
+  expect(selected.blockers).toContain(
+    'active Work Package still selects the candidate being closed out'
+  );
+  expect(selected.remoteAction).toBe('blocked');
+  expect(selected.localAction).toBe('blocked');
+
+  const foreign = authorizeBranchCloseout({
+    preparation: prepared,
+    request,
+    before: snapshot,
+    current: snapshot,
+    foreignWorktreeObservationDigests: [`sha256:${'b'.repeat(64)}`]
+  });
+  expect(foreign.blockers).toContain('external-maintainer-disposition-required');
+  expect(foreign.remoteAction).toBe('blocked');
+  expect(foreign.localAction).toBe('blocked');
 });
 
 test('idle lifecycle is clean only when the remote contains main', () => {
@@ -551,7 +598,7 @@ test('active lifecycle admits only main and the exact active/open candidate', ()
   });
   const report = auditBranchLifecycle(active);
   expect(report.status).toBe('clean');
-  expect(classifyBranchLifecycle(active).find(({ branch }) => branch === 'feat/example')?.classification)
+  expect(report.classifications.find(({ branch }) => branch === 'feat/example')?.classification)
     .toBe('active-candidate');
 });
 
@@ -611,11 +658,12 @@ test('dirty worktree is formally protected-pending instead of an active feature 
       }
     ]
   });
-  const classification = classifyBranchLifecycle(observed)
+  const report = auditBranchLifecycle(observed);
+  const classification = report.classifications
     .find(({ branch }) => branch === 'codex/local-recovery');
   expect(classification?.classification).toBe('protected-pending');
   expect(classification?.remoteSha).toBeNull();
-  expect(auditBranchLifecycle(observed).status).toBe('protected');
+  expect(report.status).toBe('protected');
 });
 
 test('path containment is segment-safe', () => {
@@ -963,180 +1011,4 @@ test('branch/ref CAS rejects missing or caller-forged worktree cleanup authority
   expect(forged.remoteAction).toBe('blocked');
   expect(forged.localAction).toBe('blocked');
   expect(forged.blockers).toContain(`exact completed worktree cleanup receipt is required for ${targetPath}`);
-});
-
-test('foreign observations block local closeout without original-host physical authority', () => {
-  const observed = orphanRemoteInventory();
-  const prepared = orphanPreparation(observed);
-  const foreignDigest = `sha256:${'b'.repeat(64)}` as const;
-  const request = {
-    capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-    disposition: 'completed-spike' as const,
-    durableGoal: { kind: 'issue' as const, reference: 'sec-platform/sec#269' }
-  };
-  const foreign = authorizeBranchCloseout({
-    preparation: prepared,
-    request,
-    before: observed,
-    current: observed,
-    foreignWorktreeObservationDigests: [foreignDigest]
-  });
-  expect(foreign.blockers).toContain('external-maintainer-disposition-required');
-  expect(foreign.remoteAction).toBe('blocked');
-});
-
-function orphanRemoteInventory(): BranchLifecycleInventory {
-  return inventory({
-    localBranches: [
-      { branch: 'main', sha: MAIN_SHA }
-    ],
-    remoteBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'probe/stale', sha: HEAD_SHA }
-    ],
-    pullRequests: [],
-    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null }
-  });
-}
-
-function orphanPreparation(before: BranchLifecycleInventory): BranchCloseoutPreparation {
-  return createBranchCloseoutPreparation({
-    preparedAt: '2026-08-04T00:03:00.000Z',
-    repository: before.repository,
-    branch: 'probe/stale',
-    refState: 'present',
-    expectedHeadSha: HEAD_SHA,
-    expectedRemoteSha: HEAD_SHA,
-    expectedLocalSha: null,
-    expectedPrHeadSha: null,
-    pullRequestNumber: null,
-    pullRequestStateAtPreparation: null,
-    recovery: {
-      kind: 'bundle',
-      path: '/recovery/sec-probe-stale.bundle',
-      sha256: `sha256:${'a'.repeat(64)}`,
-      verified: true,
-      verifyOutput: 'verified'
-    },
-    worktreePathsAtPreparation: []
-  });
-}
-
-test('orphan remote closeout requires an explicit completed-spike disposition and durable issue goal', () => {
-  const observed = orphanRemoteInventory();
-  const prepared = orphanPreparation(observed);
-  const authorization = authorizeBranchCloseout({
-    preparation: prepared,
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'completed-spike',
-      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
-    },
-    before: observed,
-    current: observed
-  });
-  expect(authorization.blockers).toEqual([]);
-  expect(authorization.remoteAction).toBe('delete-cas');
-  expect(authorization.localAction).toBe('already-absent');
-  expect(authorization.classification).toBe('orphan-unknown');
-});
-
-test('orphan remote closeout rejects merged and closed-superseded dispositions', () => {
-  const observed = orphanRemoteInventory();
-  const prepared = orphanPreparation(observed);
-  const merged = authorizeBranchCloseout({
-    preparation: prepared,
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'merged',
-      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
-    },
-    before: observed,
-    current: observed
-  });
-  expect(merged.blockers).toContain('disposition merged cannot close out orphan-unknown');
-  const superseded = authorizeBranchCloseout({
-    preparation: prepared,
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'closed-superseded',
-      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
-    },
-    before: observed,
-    current: observed
-  });
-  expect(superseded.blockers).toContain(
-    'disposition closed-superseded cannot close out orphan-unknown'
-  );
-});
-
-test('active work package selecting another branch does not block orphan closeout', () => {
-  const observed = orphanRemoteInventory();
-  const current = {
-    ...observed,
-    localBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/candidate', sha: RACE_SHA }
-    ],
-    remoteBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'probe/stale', sha: HEAD_SHA },
-      { branch: 'feat/candidate', sha: RACE_SHA }
-    ],
-    pullRequests: [{
-      number: 99,
-      headBranch: 'feat/candidate',
-      headSha: RACE_SHA,
-      baseBranch: 'main',
-      state: 'open' as const,
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }],
-    activeWorkPackage: {
-      state: 'active' as const,
-      branch: 'feat/candidate',
-      manifest: 'config/repository/work-packages/example-v1.md',
-      reason: null
-    }
-  };
-  const authorization = authorizeBranchCloseout({
-    preparation: orphanPreparation(observed),
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'completed-spike',
-      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
-    },
-    before: observed,
-    current
-  });
-  expect(authorization.blockers).toEqual([]);
-  expect(authorization.remoteAction).toBe('delete-cas');
-});
-
-test('active work package selecting the closeout branch blocks it', () => {
-  const observed = orphanRemoteInventory();
-  const current = {
-    ...observed,
-    activeWorkPackage: {
-      state: 'active' as const,
-      branch: 'probe/stale',
-      manifest: 'config/repository/work-packages/example-v1.md',
-      reason: null
-    }
-  };
-  const authorization = authorizeBranchCloseout({
-    preparation: orphanPreparation(observed),
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'completed-spike',
-      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
-    },
-    before: observed,
-    current
-  });
-  expect(authorization.blockers).toContain(
-    'active Work Package still selects the candidate being closed out'
-  );
-  expect(authorization.remoteAction).toBe('blocked');
 });

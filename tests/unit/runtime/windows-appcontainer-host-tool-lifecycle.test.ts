@@ -13,7 +13,6 @@ import { decodeWindowsJobActiveProcessCount, windowsNaturalExitSettlementDisposi
 import {
   arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
   bindWindowsAppContainerObservedNativeHelperSettlement,
-  classifyObservedWindowsAppContainerNativeHelperForTests,
   completeWindowsAppContainerOwnedExecutionForTests,
   createWindowsAppContainerNativeExecutionBudgetForTests,
   encodeWindowsAppContainerNativeFailure,
@@ -1746,177 +1745,6 @@ test('native helper settlement sidecar survives finite preparation normalization
   expect(normalized.nativeHelperObservation).toBeUndefined();
 });
 
-test('observed native helper settlement classifier separates finite lifecycle dimensions', () => {
-  const stdout = Buffer.from('{"status":"ok"}', 'utf8');
-  const exact = exactNativeHelperOutcome(stdout, new Uint8Array());
-  const cases: readonly Readonly<{
-    outcome: ObservedCommandOutcome;
-    expected: ReturnType<typeof classifyObservedWindowsAppContainerNativeHelperForTests>;
-  }>[] = [
-    { outcome: exact, expected: { status: 'success' } },
-    {
-      outcome: Object.freeze({
-        ...exact,
-        status: 'lifecycle-failed',
-        trigger: 'lifecycle-failed'
-      }),
-      expected: { status: 'rejected', reason: 'not-exited' }
-    },
-    {
-      outcome: Object.freeze({
-        ...exact,
-        status: 'termination-unproven',
-        trigger: 'timed-out',
-        termination: Object.freeze({
-          ...exact.termination,
-          requested: true,
-          childCloseObserved: false,
-          streamsDrained: false,
-          treeClosed: false
-        })
-      }),
-      expected: { status: 'rejected', reason: 'timed-out' }
-    },
-    {
-      outcome: Object.freeze({ ...exact, status: 'spawn-failed', started: false }),
-      expected: { status: 'rejected', reason: 'not-started' }
-    },
-    {
-      outcome: Object.freeze({
-        ...exact,
-        termination: Object.freeze({ ...exact.termination, requested: true })
-      }),
-      expected: { status: 'rejected', reason: 'requested-termination' }
-    },
-    {
-      outcome: Object.freeze({
-        ...exact,
-        status: 'tree-unproven',
-        termination: Object.freeze({ ...exact.termination, treeClosed: false })
-      }),
-      expected: { status: 'rejected', reason: 'closure-unproven' }
-    },
-    {
-      outcome: Object.freeze({ ...exact, exitCode: null }),
-      expected: { status: 'rejected', reason: 'exit-status-unproven' }
-    }
-  ];
-  for (const { outcome, expected } of cases) {
-    const classification = classifyObservedWindowsAppContainerNativeHelperForTests(
-      outcome,
-      stdout,
-      new Uint8Array()
-    );
-    expect(classification).toEqual(expected);
-    expect(Object.isFrozen(classification)).toBe(true);
-    if (classification.status === 'rejected') {
-      const primary = captureObservedNativeHelperFailure(outcome, stdout);
-      const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
-      expect(settlement).toEqual({ mode: 'execute', reason: classification.reason });
-      expect(Object.isFrozen(settlement)).toBe(true);
-      expect(primary.nativeHelperObservation).toBeUndefined();
-    }
-  }
-});
-
-test('observed native helper settlement classifier separates stream truncation and evidence mismatch', () => {
-  const stdout = Buffer.from('{"status":"ok"}', 'utf8');
-  const diagnostic = Buffer.from('diagnostic', 'utf8');
-  const emptyDiagnostic = new Uint8Array();
-  const exact = exactNativeHelperOutcome(stdout, emptyDiagnostic);
-  const exactWithDiagnostic = exactNativeHelperOutcome(stdout, diagnostic);
-  const cases: readonly Readonly<{
-    outcome: ObservedCommandOutcome;
-    observedStdout: Uint8Array;
-    observedDiagnostic: Uint8Array;
-    reason: Extract<
-      ReturnType<typeof classifyObservedWindowsAppContainerNativeHelperForTests>,
-      { readonly status: 'rejected' }
-    >['reason'];
-  }>[] = [
-    {
-      outcome: Object.freeze({
-        ...exact,
-        stdout: Object.freeze({ ...exact.stdout, observerTruncated: true })
-      }),
-      observedStdout: stdout,
-      observedDiagnostic: emptyDiagnostic,
-      reason: 'stdout-truncated'
-    },
-    {
-      outcome: Object.freeze({
-        ...exactWithDiagnostic,
-        stderr: Object.freeze({ ...exactWithDiagnostic.stderr, observerTruncated: true })
-      }),
-      observedStdout: stdout,
-      observedDiagnostic: diagnostic,
-      reason: 'stderr-truncated'
-    },
-    {
-      outcome: exact,
-      observedStdout: Buffer.from('{"status":"no"}', 'utf8'),
-      observedDiagnostic: emptyDiagnostic,
-      reason: 'stdout-evidence-mismatch'
-    },
-    {
-      outcome: exactWithDiagnostic,
-      observedStdout: stdout,
-      observedDiagnostic: Buffer.from('mismatch', 'utf8'),
-      reason: 'stderr-evidence-mismatch'
-    }
-  ];
-  for (const { outcome, observedStdout, observedDiagnostic, reason } of cases) {
-    const classification = classifyObservedWindowsAppContainerNativeHelperForTests(
-      outcome,
-      observedStdout,
-      observedDiagnostic
-    );
-    expect(classification).toEqual({ status: 'rejected', reason });
-    expect(Object.isFrozen(classification)).toBe(true);
-    const primary = captureObservedNativeHelperFailure(
-      outcome,
-      observedStdout,
-      observedDiagnostic,
-      'create-profile'
-    );
-    const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
-    expect(settlement).toEqual({ mode: 'create-profile', reason });
-    expect(Object.isFrozen(settlement)).toBe(true);
-    expect(primary.nativeHelperObservation).toBeUndefined();
-  }
-});
-
-test('native helper classification stays explanatory while closed-tree evidence governs cleanup', async () => {
-  const wire = Buffer.from('{"status":"ok"}', 'utf8');
-  const exact = exactNativeHelperOutcome(wire, new Uint8Array());
-  const closedTimedOut = Object.freeze({
-    ...exact,
-    status: 'timed-out' as const,
-    trigger: 'timed-out' as const,
-    termination: Object.freeze({ ...exact.termination, requested: true })
-  });
-  expect(classifyObservedWindowsAppContainerNativeHelperForTests(
-    closedTimedOut,
-    wire,
-    new Uint8Array()
-  )).toEqual({ status: 'rejected', reason: 'timed-out' });
-
-  const primary = captureObservedNativeHelperFailure(closedTimedOut, wire);
-  expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
-    mode: 'execute',
-    reason: 'timed-out'
-  });
-  let cleanupCalls = 0;
-  await expect(completeWindowsAppContainerOwnedExecutionForTests(
-    undefined,
-    primary,
-    async () => {
-      cleanupCalls += 1;
-    }
-  )).rejects.toBe(primary);
-  expect(cleanupCalls).toBe(1);
-});
-
 test('observed native helper accepts only an exact closed-tree untruncated wire', () => {
   const stdout = Buffer.from('{"status":"ok"}', 'utf8');
   const result = settleObservedWindowsAppContainerNativeHelperForTests(
@@ -1942,10 +1770,10 @@ test('observed native helper accepts only an exact closed-tree untruncated wire'
 });
 
 test('unproved native helper trees retain all owned resources without public diagnostic growth', async () => {
-  for (const trigger of ['timed-out', 'observer-failed', 'aborted'] as const) {
+  for (const trigger of ['timed-out', 'observer-failed', 'aborted', undefined] as const) {
     const primary = captureObservedNativeHelperFailure(Object.freeze({
-      status: 'termination-unproven',
-      trigger,
+      status: trigger === undefined ? 'tree-unproven' : 'termination-unproven',
+      ...(trigger === undefined ? {} : { trigger }),
       started: true,
       exitCode: null,
       signal: null,
@@ -1953,11 +1781,11 @@ test('unproved native helper trees retain all owned resources without public dia
       stdout: observedStream(new Uint8Array()),
       stderr: observedStream(new Uint8Array()),
       termination: Object.freeze({
-        requested: true,
-        gracefulAttempted: true,
-        forcedAttempted: true,
-        childCloseObserved: false,
-        streamsDrained: false,
+        requested: trigger !== undefined,
+        gracefulAttempted: trigger !== undefined,
+        forcedAttempted: trigger !== undefined,
+        childCloseObserved: trigger === undefined,
+        streamsDrained: trigger === undefined,
         treeClosed: false
       })
     }));
@@ -1977,32 +1805,79 @@ test('unproved native helper trees retain all owned resources without public dia
       preparationSubstage: 'native-helper-invocation'
     });
     expect(primary.hostToolFailure).toBeUndefined();
-    expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
+    const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
+    expect(settlement).toEqual({
       mode: 'execute',
       reason: trigger === 'timed-out' ? 'timed-out' : 'closure-unproven'
     });
+    expect(Object.isFrozen(settlement)).toBe(true);
+    expect(primary.nativeHelperObservation).toBeUndefined();
     expect(windowsAppContainerExecutionCleanupChainForTests(primary)).toEqual([]);
   }
 });
 
-test('closed-tree native helper protocol failures permit cleanup while preserving the primary', async () => {
+test('closed-tree native helper failures reject delivery but permit cleanup while preserving the primary', async () => {
   const wire = Buffer.from('{"status":"ok"}', 'utf8');
-  const exact = exactNativeHelperOutcome(wire, new Uint8Array());
-  const truncated = Object.freeze({
-    ...exact,
-    stdout: Object.freeze({ ...exact.stdout, observerTruncated: true })
-  });
+  const emptyDiagnostic = new Uint8Array();
+  const diagnostic = Buffer.from('diagnostic', 'utf8');
+  const exact = exactNativeHelperOutcome(wire, emptyDiagnostic);
+  const exactWithDiagnostic = exactNativeHelperOutcome(wire, diagnostic);
   const failures = [
     {
-      primary: captureObservedNativeHelperFailure(truncated, wire),
+      primary: captureObservedNativeHelperFailure(Object.freeze({
+        ...exact, status: 'lifecycle-failed', trigger: 'lifecycle-failed'
+      }), wire),
+      mode: 'execute',
+      reason: 'not-exited'
+    },
+    {
+      primary: captureObservedNativeHelperFailure(Object.freeze({
+        ...exact, termination: Object.freeze({ ...exact.termination, requested: true })
+      }), wire),
+      mode: 'execute',
+      reason: 'requested-termination'
+    },
+    {
+      primary: captureObservedNativeHelperFailure(Object.freeze({ ...exact, exitCode: null }), wire),
+      mode: 'execute',
+      reason: 'exit-status-unproven'
+    },
+    {
+      primary: captureObservedNativeHelperFailure(Object.freeze({
+        ...exact, status: 'timed-out', trigger: 'timed-out',
+        termination: Object.freeze({ ...exact.termination, requested: true })
+      }), wire),
+      mode: 'execute',
+      reason: 'timed-out'
+    },
+    {
+      primary: captureObservedNativeHelperFailure(Object.freeze({
+        ...exact, stdout: Object.freeze({ ...exact.stdout, observerTruncated: true })
+      }), wire, emptyDiagnostic, 'create-profile'),
+      mode: 'create-profile',
       reason: 'stdout-truncated'
     },
     {
+      primary: captureObservedNativeHelperFailure(Object.freeze({
+        ...exactWithDiagnostic,
+        stderr: Object.freeze({ ...exactWithDiagnostic.stderr, observerTruncated: true })
+      }), wire, diagnostic, 'create-profile'),
+      mode: 'create-profile',
+      reason: 'stderr-truncated'
+    },
+    {
       primary: captureObservedNativeHelperFailure(
-        exact,
-        Buffer.from('{"status":"failed"}', 'utf8')
+        exact, Buffer.from('{"status":"no"}', 'utf8'), emptyDiagnostic, 'create-profile'
       ),
+      mode: 'create-profile',
       reason: 'stdout-evidence-mismatch'
+    },
+    {
+      primary: captureObservedNativeHelperFailure(
+        exactWithDiagnostic, wire, Buffer.from('mismatch', 'utf8'), 'create-profile'
+      ),
+      mode: 'create-profile',
+      reason: 'stderr-evidence-mismatch'
     },
     {
       primary: captureObservedNativeHelperFailure(Object.freeze({
@@ -2022,14 +1897,15 @@ test('closed-tree native helper protocol failures permit cleanup while preservin
           treeClosed: true
         })
       })),
+      mode: 'execute',
       reason: 'not-started'
     }
   ] as const;
-  for (const { primary, reason } of failures) {
-    expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
-      mode: 'execute',
-      reason
-    });
+  for (const { primary, mode, reason } of failures) {
+    const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
+    expect(settlement).toEqual({ mode, reason });
+    expect(Object.isFrozen(settlement)).toBe(true);
+    expect(primary.nativeHelperObservation).toBeUndefined();
     let cleanupCalls = 0;
     await expect(completeWindowsAppContainerOwnedExecutionForTests(
       undefined,

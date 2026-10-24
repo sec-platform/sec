@@ -8,6 +8,8 @@ import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   type SemanticMutationIsolatedVerificationArtifactSet
 } from '../../../src/assurance/verification/semantic-mutation/isolated-classification.ts';
+import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
+import { POLICY_SOURCE_PATHS } from '../../../src/workspace/contract/policy-source-paths.ts';
 import { productVerificationObservationsFixture } from '../../helpers/verification-fixtures.ts';
 
 const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
@@ -27,9 +29,11 @@ interface RuntimeStep {
 
 interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerificationArtifactSet {
   verificationReport: {
+    acceptance: { status: PolicyStatus; passed: string[]; failed: string[] };
     build: { status: PolicyStatus };
     policy: { status: PolicyStatus; violations: unknown[] };
     fast: {
+      acceptance: { status: PolicyStatus; passed: string[]; failed: string[] };
       status: PolicyStatus;
       build: { status: PolicyStatus };
       policy: { status: PolicyStatus; violations: unknown[] };
@@ -75,7 +79,7 @@ interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerific
   };
 }
 
-function policyReport(status: 'passed' | 'skipped' = 'passed') {
+function policyReport(status: 'passed' | 'skipped' = 'passed'): PolicyReport {
   const hasPolicy = status === 'passed';
   return {
     status,
@@ -108,6 +112,45 @@ function policyReport(status: 'passed' | 'skipped' = 'passed') {
         unsupportedSemanticPredicates: []
       }
     } : {})
+  };
+}
+
+function shadowedPolicyReport(
+  targets: string[] = ['src/customer.ts'],
+  assurance: 'source-structure' | 'semantic' = 'semantic'
+): PolicyReport {
+  return {
+    status: targets.length === 0 ? 'skipped' : 'passed',
+    official: {
+      policies: ['tenant-policy'],
+      sources: [
+        { path: 'catalog/policies/official/a.yaml', policyIds: ['tenant-policy'] },
+        { path: 'catalog/policies/official/b.yaml', policyIds: ['tenant-policy'] }
+      ],
+      violations: []
+    },
+    project: {
+      policies: ['tenant-policy'],
+      sources: [{ path: `${POLICY_SOURCE_PATHS.project}/c.yaml`, policyIds: ['tenant-policy'] }],
+      violations: []
+    },
+    merged: {
+      policies: [{
+        id: 'tenant-policy',
+        sourceScope: 'project',
+        sourcePath: `${POLICY_SOURCE_PATHS.project}/c.yaml`,
+        targets
+      }]
+    },
+    violations: [],
+    diagnostics: [],
+    evaluation: {
+      providerId: assurance === 'semantic' ? 'fixture-semantic-policy-provider' : 'fixture-source-structure-provider',
+      providerRevision: '1',
+      assurance,
+      requiredSemanticPredicates: ['FLOWS_TO'],
+      unsupportedSemanticPredicates: assurance === 'semantic' ? [] : ['FLOWS_TO']
+    }
   };
 }
 
@@ -156,8 +199,10 @@ function semanticBundle() {
   };
 }
 
-function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerificationArtifactSet {
-  const policy = policyReport();
+function artifactSet(
+  status: 'passed' | 'failed',
+  policy: PolicyReport = policyReport()
+): SemanticMutationIsolatedVerificationArtifactSet {
   const fastLogs = { stdout: 'fast-verification', stderr: '' };
   const runtimeLogs = status === 'passed'
     ? { stdout: 'runtime-verification', stderr: '' }
@@ -171,7 +216,7 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
       passed: ['tests/acceptance/current-writer.test.ts'],
       failed: []
     },
-    policy: { status: 'passed' as const, violations: [] },
+    policy: { status: policy.status, violations: policy.violations },
     policyReport: policy,
     logs: fastLogs
   };
@@ -238,8 +283,8 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
   };
 }
 
-function mutablePassedArtifact(): MutableClaimSummaryArtifactSet {
-  return structuredClone(artifactSet('passed')) as MutableClaimSummaryArtifactSet;
+function mutablePassedArtifact(policy?: PolicyReport): MutableClaimSummaryArtifactSet {
+  return structuredClone(artifactSet('passed', policy)) as MutableClaimSummaryArtifactSet;
 }
 
 function invalidateCoverage(candidate: MutableClaimSummaryArtifactSet): void {
@@ -256,10 +301,27 @@ function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSe
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
 }
 
-test('canonical artifact contract accepts complete current-writer failure inventories', () => {
+test('canonical artifacts preserve failed, semantic-policy and not-applicable outcomes', () => {
   const failed = artifactSet('failed');
   expect(isCanonicalVerificationArtifactSet(failed)).toBe(true);
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(failed)).toBe('failed');
+
+  const semantic = mutablePassedArtifact(shadowedPolicyReport());
+  expect(semantic.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
+    .toMatchObject({ status: 'passed', supportedClaims: [PRODUCT_POLICY_CLAIM_ID] });
+  expect(isCanonicalVerificationArtifactSet(semantic)).toBe(true);
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(semantic)).toBe('passed');
+
+  for (const policy of [policyReport('skipped'), shadowedPolicyReport([])]) {
+    const notApplicable = mutablePassedArtifact(policy);
+    const summary = notApplicable.verificationReport.summary.claimSummary;
+    expect(summary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
+      .toMatchObject({ status: 'not-run', reasonCode: 'not-applicable' });
+    expect(summary.overall.claimResults.map(claim => claim.claimId)).not.toContain(PRODUCT_POLICY_CLAIM_ID);
+    expect(summary.overall.overallStatus).toBe('passed');
+    expect(isCanonicalVerificationArtifactSet(notApplicable)).toBe(true);
+    expect(classifySemanticMutationIsolatedVerificationArtifactSet(notApplicable)).toBe('passed');
+  }
 });
 
 test('current production artifacts cannot delete claimSummary and fall back to legacy PASS', () => {
@@ -315,6 +377,26 @@ test('passed required gates must explicitly support their claim', () => {
 });
 
 test('contradictory lane observations and invalid policy status cannot retain a green artifact', () => {
+  const wrongWinner = shadowedPolicyReport();
+  wrongWinner.merged.policies[0]!.sourceScope = 'official';
+  wrongWinner.merged.policies[0]!.sourcePath = 'catalog/policies/official/b.yaml';
+  expectBlocked(mutablePassedArtifact(wrongWinner));
+
+  const foreignRoot = shadowedPolicyReport();
+  foreignRoot.project.sources[0]!.path = 'project/policies/c.yaml';
+  foreignRoot.merged.policies[0]!.sourcePath = 'project/policies/c.yaml';
+  expectBlocked(mutablePassedArtifact(foreignRoot));
+
+  const advisory = mutablePassedArtifact(shadowedPolicyReport(['src/customer.ts'], 'source-structure'));
+  expect(advisory.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
+    .toMatchObject({ status: 'unsupported', reasonCode: 'capability-unsupported', supportedClaims: [] });
+  expectBlocked(advisory);
+
+  const acceptanceDrift = mutablePassedArtifact();
+  acceptanceDrift.verificationReport.fast.acceptance.failed = ['tests/acceptance/failed.test.ts'];
+  acceptanceDrift.verificationReport.acceptance.failed = ['tests/acceptance/failed.test.ts'];
+  expectBlocked(acceptanceDrift);
+
   const fastDrift = mutablePassedArtifact();
   fastDrift.verificationReport.fast.build.status = 'skipped';
   fastDrift.verificationReport.build.status = 'skipped';
@@ -347,11 +429,16 @@ test('skipped policy cannot conceal declared inventory', () => {
   expectBlocked(candidate);
 });
 
-test('full-runtime PASS requires an execution command', () => {
+test('full-runtime PASS requires a nonempty executed unit inventory and command', () => {
   const missingCommand = mutablePassedArtifact();
   missingCommand.verificationReport.runtime.unit.command = null;
   missingCommand.runtimeReport.unit.command = null;
   expectBlocked(missingCommand);
+
+  const emptyUnit = mutablePassedArtifact();
+  emptyUnit.verificationReport.runtime.unit.passed = [];
+  emptyUnit.runtimeReport.unit.passed = [];
+  expectBlocked(emptyUnit);
 });
 
 test('green full-runtime coverage requires both passed observations and no uncovered blocks', () => {
