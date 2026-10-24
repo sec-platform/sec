@@ -507,7 +507,17 @@ test('SM-3 rejected terminals are immutable, ordered, non-destructive, and proje
     );
 
     expect(terminal.terminalSequence).toBe(1);
-    expect(await readRejectedSemanticMutationTerminal(transactionRoot)).toEqual(terminal);
+    const events: SemanticMutationTerminalIoObservation[] = [];
+    expect(await querySemanticMutationRequestRecord(workspaceRoot, identity, {
+      observeIo: (event) => events.push(event)
+    })).toEqual(terminal);
+    expect(events.filter(({ kind }) => kind === 'terminal-order-scan')).toHaveLength(0);
+    expect(events.filter(({ kind }) => kind === 'completion-probe')).toEqual([{
+      kind: 'completion-probe',
+      reason: 'exact',
+      terminalSequence: 1,
+      status: 'valid'
+    }]);
     expect(await writeRejectedSemanticMutationTerminal(
       transactionRoot,
       requestIdentityDigest,
@@ -570,6 +580,27 @@ test('SM-3 rejected terminals are immutable, ordered, non-destructive, and proje
     expect(() => assertSemanticMutationRejectedTerminalRecordInvariant(
       forged as unknown as typeof terminal
     )).toThrow();
+
+    await rm(path.join(
+      workspaceRoot,
+      '.sec',
+      'semantic-mutation',
+      'v1',
+      'terminal-order',
+      '000000000001.json'
+    ));
+    events.length = 0;
+    await expect(readRejectedSemanticMutationTerminal(transactionRoot))
+      .rejects.toThrow('completion receipt');
+    await expect(querySemanticMutationRequestRecord(workspaceRoot, identity, {
+      observeIo: (event) => events.push(event)
+    }))
+      .rejects.toThrow('completion receipt');
+    await expect(pruneSemanticMutationTerminalRecords(workspaceRoot, allowCommit, {
+      observeIo: (event) => events.push(event)
+    }))
+      .rejects.toThrow('completion receipt');
+    expect(events.filter(({ kind }) => kind === 'terminal-order-scan')).toHaveLength(0);
   }, 'engineering-compiler-sm3-rejected-terminal-');
 });
 
@@ -651,28 +682,6 @@ test('SM-3 terminal allocator requires and advances one durable constant-I/O hea
       allowCommit
     )).rejects.toThrow('terminal completion sequence is exhausted');
   }, 'engineering-compiler-sm3-terminal-order-exhausted-');
-
-  await withTempWorkspace(async (workspaceRoot) => {
-    const events: SemanticMutationTerminalIoObservation[] = [];
-    const testHooks = { observeIo: (event: SemanticMutationTerminalIoObservation) => events.push(event) };
-    await writeRejected(workspaceRoot, 'indexed-zero', testHooks);
-    events.length = 0;
-    for (let index = 1; index <= 8; index += 1) {
-      await writeRejected(workspaceRoot, `indexed-${index}`, testHooks);
-    }
-    expect(events.filter(({ kind }) => kind === 'terminal-order-scan')).toHaveLength(0);
-    expect(events.filter(({ kind }) => kind === 'completion-probe')).toEqual(
-      Array.from({ length: 8 }, (_, index) => ({
-        kind: 'completion-probe',
-        reason: 'head-catch-up',
-        terminalSequence: index + 2,
-        status: 'missing'
-      }))
-    );
-    expect(events.filter(({ kind }) => kind === 'sequence-head-read')).toHaveLength(8);
-    expect(events.filter(({ kind }) => kind === 'sequence-head-write')).toHaveLength(8);
-    expect(events.filter(({ kind }) => kind === 'completion-publish')).toHaveLength(8);
-  }, 'engineering-compiler-sm3-terminal-order-indexed-');
 
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRejected(workspaceRoot, 'head-create');
@@ -764,59 +773,6 @@ test('SM-3 terminal allocator requires and advances one durable constant-I/O hea
   }, 'engineering-compiler-sm3-terminal-order-collision-');
 });
 
-test('SM-3 query and pruning require the terminal record completion receipt', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const draft = recoveryDraft('request:receipt-binding');
-    const result = rejectedResult(draft);
-    if (result.status !== 'rejected') throw new Error('Expected rejected result');
-    const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
-    await writeRejectedSemanticMutationTerminal(
-      transactionRoot,
-      draft.requestIdentityDigest,
-      result.requestRevision,
-      result.planRevision,
-      result,
-      allowCommit
-    );
-    const identity = {
-      graphId: draft.request.graphId,
-      appId: draft.request.appId,
-      requestId: draft.request.requestId
-    } as const;
-    const events: SemanticMutationTerminalIoObservation[] = [];
-    expect(await querySemanticMutationRequestRecord(workspaceRoot, identity, {
-      observeIo: (event) => events.push(event)
-    })).not.toBeNull();
-    expect(events.filter(({ kind }) => kind === 'terminal-order-scan')).toHaveLength(0);
-    expect(events.filter(({ kind }) => kind === 'completion-probe')).toEqual([{
-      kind: 'completion-probe',
-      reason: 'exact',
-      terminalSequence: 1,
-      status: 'valid'
-    }]);
-    await rm(path.join(
-      workspaceRoot,
-      '.sec',
-      'semantic-mutation',
-      'v1',
-      'terminal-order',
-      '000000000001.json'
-    ));
-    events.length = 0;
-    await expect(readRejectedSemanticMutationTerminal(transactionRoot))
-      .rejects.toThrow('completion receipt');
-    await expect(querySemanticMutationRequestRecord(workspaceRoot, identity, {
-      observeIo: (event) => events.push(event)
-    }))
-      .rejects.toThrow('completion receipt');
-    await expect(pruneSemanticMutationTerminalRecords(workspaceRoot, allowCommit, {
-      observeIo: (event) => events.push(event)
-    }))
-      .rejects.toThrow('completion receipt');
-    expect(events.filter(({ kind }) => kind === 'terminal-order-scan')).toHaveLength(0);
-  }, 'engineering-compiler-sm3-terminal-receipt-binding-');
-});
-
 test('SM-3 public workspace recovery redacts its durable recovery-required record', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const draft = recoveryDraft();
@@ -891,6 +847,7 @@ test('SM-3 retention uses durable completion sequence across all retained termin
       allowCommit,
       terminalTestHooks
     );
+    const initialTerminalEventCount = terminalEvents.length;
 
     const oldestDraft = recoveryDraft('request:oldest-verified');
     const oldestVerifiedRoot = semanticMutationTransactionRoot(workspaceRoot, oldestDraft.requestIdentityDigest);
@@ -993,9 +950,20 @@ test('SM-3 retention uses durable completion sequence across all retained termin
     expect(terminalEvents.filter(({ kind }) => kind === 'sequence-head-write'))
       .toHaveLength(SEMANTIC_MUTATION_TERMINAL_RETENTION + 2);
     const constructionProbes = terminalEvents.filter(({ kind }) => kind === 'completion-probe');
-    expect(constructionProbes).toHaveLength(SEMANTIC_MUTATION_TERMINAL_RETENTION + 2);
-    expect(constructionProbes.every((event) => event.kind === 'completion-probe' &&
-      event.reason === 'head-catch-up' && event.status === 'missing')).toBe(true);
+    expect(constructionProbes).toEqual(
+      Array.from({ length: SEMANTIC_MUTATION_TERMINAL_RETENTION + 2 }, (_, index) => ({
+        kind: 'completion-probe',
+        reason: 'head-catch-up',
+        terminalSequence: index + 1,
+        status: 'missing'
+      }))
+    );
+    const steadyStateEvents = terminalEvents.slice(initialTerminalEventCount);
+    expect(steadyStateEvents.filter(({ kind }) => kind === 'terminal-order-scan')).toHaveLength(0);
+    for (const kind of ['sequence-head-read', 'sequence-head-write', 'completion-publish']) {
+      expect(steadyStateEvents.filter((event) => event.kind === kind))
+        .toHaveLength(SEMANTIC_MUTATION_TERMINAL_RETENTION + 1);
+    }
     const beforePrune = terminalEvents.length;
 
     await pruneSemanticMutationTerminalRecords(workspaceRoot, allowCommit, terminalTestHooks);

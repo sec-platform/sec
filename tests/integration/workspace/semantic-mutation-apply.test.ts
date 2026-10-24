@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -45,7 +45,7 @@ import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '
 import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../../src/semantics/mutation/types.ts';
 import { installPrivateBannerBlock } from '../../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../../helpers/semantic-mutation-verification-report.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { copyWorkspaceFixture, withTempWorkspace } from '../../testkit/workspace.ts';
 
 const FAILURE_MATRIX_ISOLATION_CAPABILITY_PROBE = () =>
   Object.freeze({ status: 'available' as const });
@@ -203,10 +203,7 @@ async function liveWorkspaceByteSnapshot(workspaceRoot: string): Promise<readonl
   return snapshot;
 }
 
-async function coordinatorFailureFixture(
-  workspaceRoot: string,
-  requestId: string
-): Promise<CoordinatorFailureFixture> {
+async function prepareCoordinatorWorkspace(workspaceRoot: string): Promise<void> {
   await mkdir(workspaceRoot, { recursive: true });
   await initWorkspace(workspaceRoot);
   await installPrivateBannerBlock(workspaceRoot);
@@ -243,7 +240,29 @@ async function coordinatorFailureFixture(
     'unchanged\n',
     'utf8'
   );
+}
 
+async function coordinatorFailureFixture(
+  workspaceRoot: string,
+  requestId: string,
+  templateRoot?: string
+): Promise<CoordinatorFailureFixture> {
+  if (templateRoot === undefined) {
+    await prepareCoordinatorWorkspace(workspaceRoot);
+  } else {
+    await copyWorkspaceFixture(templateRoot, workspaceRoot);
+    // The fixture copier recreates selected .sec snapshots with writeFile;
+    // retain the native canonical files' modes as well as their bytes.
+    for (const source of [
+      await resolveWorkspaceLockPath(templateRoot),
+      path.join(templateRoot, '.sec', 'pipeline-journal.json')
+    ]) {
+      await chmod(path.join(workspaceRoot, path.relative(templateRoot, source)), (await lstat(source)).mode & 0o777);
+    }
+  }
+  // Mint every request, plan and physical source proof in this independent
+  // workspace. No mutation transaction or writer authority is reused.
+  const sourcePath = path.join(workspaceRoot, 'model', 'item.yaml');
   const beforeBundle = await buildWorkspaceSemanticBundle(workspaceRoot);
   const base = endpoint(beforeBundle.snapshot, `tx:failure-matrix-base:${requestId}`);
   const operation = {
@@ -528,13 +547,15 @@ test('SM-3 public dry-run blocks on unfinished recovery authority without publis
 
 test('SM-3 coordinator pre-publish failure matrix preserves every live byte and stops later producers', async () => {
   await withTempWorkspace(async (root) => {
+    const templateRoot = path.join(root, 'template');
+    await prepareCoordinatorWorkspace(templateRoot);
     const createCase = async (label: string): Promise<{
       readonly workspaceRoot: string;
       readonly fixture: CoordinatorFailureFixture;
       readonly before: readonly WorkspaceByteEntry[];
     }> => {
       const workspaceRoot = path.join(root, label);
-      const fixture = await coordinatorFailureFixture(workspaceRoot, `request:${label}`);
+      const fixture = await coordinatorFailureFixture(workspaceRoot, `request:${label}`, templateRoot);
       const before = await liveWorkspaceByteSnapshot(workspaceRoot);
       const paths = before.map(({ relativePath }) => relativePath);
       expect((await lstat(await resolveWorkspaceLockPath(workspaceRoot))).isFile()).toBe(true);
@@ -754,9 +775,11 @@ test('SM-3 coordinator pre-publish failure matrix preserves every live byte and 
 
 test('SM-3 coordinator post-publish restore and journal failures become durable recovery-required', async () => {
   await withTempWorkspace(async (root) => {
+    const templateRoot = path.join(root, 'template');
+    await prepareCoordinatorWorkspace(templateRoot);
     const createCase = async (label: string) => {
       const workspaceRoot = path.join(root, label);
-      const fixture = await coordinatorFailureFixture(workspaceRoot, `request:${label}`);
+      const fixture = await coordinatorFailureFixture(workspaceRoot, `request:${label}`, templateRoot);
       return {
         workspaceRoot,
         fixture,

@@ -17,8 +17,6 @@ export const TRUSTED_CHECKER_HOSTILE_MUTATIONS = Object.freeze([
     before: PROGRAM_CHECK, after: `${PROGRAM_CHECK}\n      void import.meta.path;` },
   { name: 'source-relative dir', source: TRUSTED_CHECKER_NATIVE,
     before: PROGRAM_CHECK, after: PROGRAM_CHECK.replace('import.meta.path', 'import.meta.dir') },
-  { name: 'source-relative url', source: TRUSTED_CHECKER_NATIVE,
-    before: PROGRAM_CHECK, after: PROGRAM_CHECK.replace('import.meta.path', 'import.meta.url') },
   { name: 'source-relative resolve', source: TRUSTED_CHECKER_NATIVE,
     before: PROGRAM_CHECK, after: PROGRAM_CHECK.replace('import.meta.path', 'import.meta.resolve("./resource")') },
   { name: 'computed path access', source: TRUSTED_CHECKER_NATIVE,

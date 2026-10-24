@@ -405,7 +405,6 @@ const incrementalScenarios: readonly Readonly<{
   { name: 'unchanged global dependency', before: { 'src/example/global.ts': 'export {}; declare global { const GLOBAL: number; }\n', 'src/example/helper.ts': 'export const value = GLOBAL;\n' }, after: { 'src/example/helper.ts': 'export const value = GLOBAL + 1;\n' }, mode: 'full' },
   { name: 'unchanged global augmentation', before: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
   { name: 'unchanged triple-slash reference', before: { 'src/example/library.ts': '/// <reference lib="es2022" />\nexport const library = true;\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
-  { name: 'package change', after: { 'package.json': JSON.stringify({ type: 'module', private: true, version: '2' }) }, mode: 'full' },
   { name: 'tsconfig change', after: { 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: false }, include: ['src/example/**/*.ts', 'tests/**/*.ts'] }) }, mode: 'full' },
   { name: 'unchanged unknown frontier', before: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'full' },
   { name: 'unknown dynamic frontier', after: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, mode: 'full' },
@@ -446,7 +445,7 @@ test('a rejected live baseline cannot fall through to a persistent predecessor',
   const baselineInput = incrementalFixture(incrementalFixtureBase, 'guard:before');
   const baseline = compileVirtualRepositorySourceProgramCompilation(baselineInput);
   const changedInput = incrementalFixture({ ...incrementalFixtureBase,
-    'package.json': JSON.stringify({ type: 'module', version: 'changed' }) }, 'guard:after');
+    'package.json': JSON.stringify({ type: 'module', private: true, version: '2' }) }, 'guard:after');
   const sameInput = incrementalFixture({ ...incrementalFixtureBase, 'tests/added.test.ts': addedTestSource }, 'guard:clone');
   for (const [currentInput, previousCompilation] of [
     [changedInput, baseline],
@@ -464,7 +463,13 @@ test('a rejected live baseline cannot fall through to a persistent predecessor',
       previousCompilation, cacheProvider, cacheAccess: 'read-only' });
     expect(result.typeScriptCompilation.mode).toBe('full');
     expect(predecessorReads).toBe(0);
-    expect(result.model).toEqual(compileVirtualRepositorySourceProgramCompilation(currentInput).model);
+    const full = compileVirtualRepositorySourceProgramCompilation(currentInput);
+    expect(result.typeScriptCompilation.model).toEqual(full.typeScriptCompilation.model);
+    expect(result.testObservations).toEqual(full.testObservations);
+    expect(result.model).toEqual(full.model);
+    expect(result.receiptDigest).toBe(full.receiptDigest);
+    expect(sourceProgramCurrentExactReturnProvenances(result.typeScriptCompilation.model))
+      .toEqual(sourceProgramCurrentExactReturnProvenances(full.typeScriptCompilation.model));
   }
 });
 

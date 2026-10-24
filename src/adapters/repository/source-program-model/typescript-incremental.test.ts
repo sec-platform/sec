@@ -18,126 +18,109 @@ import {
 import { moduleMembership, sourceInput } from './test/typescript-model-input.ts';
 
 test('incremental source facts invalidate the reverse consumer closure and remain byte-equivalent to full compilation', () => {
-  const moduleMembership = Object.freeze({
-    descriptors: Object.freeze([]),
-    graphRoots: Object.freeze([]),
-    moduleRoots: Object.freeze([]),
-    moduleForPath: () => null
-  });
-  const sourceInput = (sources: Readonly<Record<string, string>>) => {
-    const files = Object.entries(sources)
-      .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
-      .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
-    return Object.freeze({
-      sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-      files,
-      moduleMembership
-    });
-  };
-  const initialInput = sourceInput({
-    'src/example/contract.ts': 'export const VALUE = 1;\n',
-    'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
-    'src/example/leaf.ts': 'export const LEAF = 1;\n'
-  });
-  const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
-  expect(initial.mode).toBe('full');
-
-  const changedBytesWithStaleDeclaredDigest = Object.freeze({
-    ...initialInput,
-    files: Object.freeze(initialInput.files.map((file) => file.path === 'src/example/contract.ts'
-      ? Object.freeze({ ...file, source: 'export const VALUE = 3;\n' })
-      : file))
-  });
-  const changedBytes = compileTypeScriptSourceProgramModelIncremental(
-    changedBytesWithStaleDeclaredDigest,
-    initial.state
-  );
-  expect(changedBytes.mode).toBe('incremental');
-  expect(changedBytes.invalidatedPaths).toEqual([
-    'src/example/consumer.ts',
-    'src/example/contract.ts'
-  ]);
-  expect(changedBytes.model).toEqual(
-    compileTypeScriptSourceProgramModel(changedBytesWithStaleDeclaredDigest)
-  );
-
-  const exact = compileTypeScriptSourceProgramModelIncremental(initialInput, initial.state);
-  expect(exact.mode).toBe('exact');
-  expect(exact.invalidatedPaths).toEqual([]);
-  expect(exact.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
-
-  const foreignProviderState = Object.freeze({
-    ...exact.state,
-    providerRevision: sha256('foreign-typescript-workspace-generation')
-  });
-  const providerChanged = compileTypeScriptSourceProgramModelIncremental(
-    initialInput,
-    foreignProviderState
-  );
-  expect(providerChanged.mode).toBe('full');
-  expect(providerChanged.invalidatedPaths).toEqual([
-    'src/example/consumer.ts',
-    'src/example/contract.ts',
-    'src/example/leaf.ts'
-  ]);
-  expect(providerChanged.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
-
-  const leafInput = sourceInput({
-    'src/example/contract.ts': 'export const VALUE = 1;\n',
-    'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
-    'src/example/leaf.ts': 'export const LEAF = 2;\n'
-  });
-  const leaf = compileTypeScriptSourceProgramModelIncremental(leafInput, initial.state);
-  expect(leaf.mode).toBe('incremental');
-  expect(leaf.invalidatedPaths).toEqual(['src/example/leaf.ts']);
-  expect(leaf.model).toEqual(compileTypeScriptSourceProgramModel(leafInput));
-
-  const contractInput = sourceInput({
-    'src/example/contract.ts': 'export const VALUE = 2;\n',
-    'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
-    'src/example/leaf.ts': 'export const LEAF = 2;\n'
-  });
-  const contract = compileTypeScriptSourceProgramModelIncremental(contractInput, leaf.state);
-  expect(contract.mode).toBe('incremental');
-  expect(contract.invalidatedPaths).toEqual([
-    'src/example/consumer.ts',
-    'src/example/contract.ts'
-  ]);
-  expect(contract.model).toEqual(compileTypeScriptSourceProgramModel(contractInput));
-});
-
-test('TypeScript fact shards reuse unchanged semantic facts and remain clean-compile equivalent', () => {
   try {
+    const moduleMembership = Object.freeze({
+      descriptors: Object.freeze([]),
+      graphRoots: Object.freeze([]),
+      moduleRoots: Object.freeze([]),
+      moduleForPath: () => null
+    });
+    const sourceInput = (sources: Readonly<Record<string, string>>) => {
+      const files = Object.entries(sources)
+        .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
+        .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
+      return Object.freeze({
+        sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+        files,
+        moduleMembership
+      });
+    };
     const initialInput = sourceInput({
       'src/example/contract.ts': 'export const VALUE = 1;\n',
       'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
       'src/example/leaf.ts': 'export const LEAF = 1;\n'
     });
     const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
-    const changedInput = sourceInput({
+    expect(initial.mode).toBe('full');
+
+    const changedBytesWithStaleDeclaredDigest = Object.freeze({
+      ...initialInput,
+      files: Object.freeze(initialInput.files.map((file) => file.path === 'src/example/contract.ts'
+        ? Object.freeze({ ...file, source: 'export const VALUE = 3;\n' })
+        : file))
+    });
+    const changedBytes = compileTypeScriptSourceProgramModelIncremental(
+      changedBytesWithStaleDeclaredDigest,
+      initial.state
+    );
+    expect(changedBytes.mode).toBe('incremental');
+    expect(changedBytes.invalidatedPaths).toEqual([
+      'src/example/consumer.ts',
+      'src/example/contract.ts'
+    ]);
+    expect(changedBytes.model).toEqual(
+      compileTypeScriptSourceProgramModel(changedBytesWithStaleDeclaredDigest)
+    );
+
+    const exact = compileTypeScriptSourceProgramModelIncremental(initialInput, initial.state);
+    expect(exact.mode).toBe('exact');
+    expect(exact.invalidatedPaths).toEqual([]);
+    expect(exact.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+
+    const foreignProviderState = Object.freeze({
+      ...exact.state,
+      providerRevision: sha256('foreign-typescript-workspace-generation')
+    });
+    const providerChanged = compileTypeScriptSourceProgramModelIncremental(
+      initialInput,
+      foreignProviderState
+    );
+    expect(providerChanged.mode).toBe('full');
+    expect(providerChanged.invalidatedPaths).toEqual([
+      'src/example/consumer.ts',
+      'src/example/contract.ts',
+      'src/example/leaf.ts'
+    ]);
+    expect(providerChanged.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+
+    const leafInput = sourceInput({
+      'src/example/contract.ts': 'export const VALUE = 1;\n',
+      'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
+      'src/example/leaf.ts': 'export const LEAF = 2;\n'
+    });
+    const leaf = compileTypeScriptSourceProgramModelIncremental(leafInput, initial.state);
+    expect(leaf.mode).toBe('incremental');
+    expect(leaf.invalidatedPaths).toEqual(['src/example/leaf.ts']);
+    expect(leaf.model).toEqual(compileTypeScriptSourceProgramModel(leafInput));
+
+    const contractInput = sourceInput({
       'src/example/contract.ts': 'export const VALUE = 2;\n',
       'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
-      'src/example/leaf.ts': 'export const LEAF = 1;\n'
+      'src/example/leaf.ts': 'export const LEAF = 2;\n'
     });
-    const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
-    const initialByPath = new Map(initial.state.factShards.map((shard) => [shard.path, shard] as const));
-    const changedByPath = new Map(changed.state.factShards.map((shard) => [shard.path, shard] as const));
+    const contract = compileTypeScriptSourceProgramModelIncremental(contractInput, leaf.state);
+    expect(contract.mode).toBe('incremental');
+    expect(contract.invalidatedPaths).toEqual([
+      'src/example/consumer.ts',
+      'src/example/contract.ts'
+    ]);
+    expect(contract.model).toEqual(compileTypeScriptSourceProgramModel(contractInput));
+    const initialByPath = new Map(leaf.state.factShards.map((shard) => [shard.path, shard] as const));
+    const changedByPath = new Map(contract.state.factShards.map((shard) => [shard.path, shard] as const));
 
-    expect(changed.mode).toBe('incremental');
-    expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
     expect(changedByPath.get('src/example/leaf.ts')).toBe(initialByPath.get('src/example/leaf.ts'));
     expect(changedByPath.get('src/example/contract.ts')).not.toBe(initialByPath.get('src/example/contract.ts'));
-    expect(changed.state.factShards.every(({ schemaDigest }) =>
+    expect(contract.state.factShards.every(({ schemaDigest }) =>
       schemaDigest === SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST)).toBe(true);
-    expect(changed.model.modelDigest).not.toBe(initial.model.modelDigest);
+    expect(contract.model.modelDigest).not.toBe(leaf.model.modelDigest);
     const nextRevision = compileTypeScriptSourceProgramModelIncremental(Object.freeze({
-      ...changedInput,
-      sourceRevision: sha256({ parent: changedInput.sourceRevision, unrelatedRepositoryChange: true })
-    }), changed.state);
+      ...contractInput,
+      sourceRevision: sha256({ parent: contractInput.sourceRevision, unrelatedRepositoryChange: true })
+    }), contract.state);
     expect(nextRevision.mode).toBe('exact');
     expect(nextRevision.state.factShards.every((shard, index) =>
-      shard === changed.state.factShards[index])).toBe(true);
-    expect(nextRevision.model.modelDigest).not.toBe(changed.model.modelDigest);
+      shard === contract.state.factShards[index])).toBe(true);
+    expect(nextRevision.model.modelDigest).not.toBe(contract.model.modelDigest);
   } finally {
     releaseTypeScriptSourceProgramWorkspace();
   }

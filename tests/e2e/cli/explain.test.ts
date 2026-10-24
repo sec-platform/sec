@@ -1,11 +1,38 @@
 import { expect, test } from 'bun:test';
 
-import { expectCliJson, expectCliText, expectCliVariants } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
 test('CLI emits explain JSON for CI consumers', async () => {
   await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
-    const { json: payload } = await expectCliVariants<{
+    await expectCliText(workspaceRoot, ['explain'], [
+      'Explain graph',
+      'Node types:',
+      'block=',
+      'policy=',
+      'Edge types:',
+      'depends_on=',
+      'Coverage: 3 blocks;',
+      'uncovered blocks=0',
+      'Coverage detail: passed;',
+      'covered blocks: 3/3',
+      'Provenance origins:',
+      'block=',
+      'Provenance detail: artifacts:',
+      'registry:',
+      'unverified:',
+      'Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;',
+      'runtime entries: 0; targets: 8',
+      'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
+      'Chain: attention; stages: 3/4; attention: 1; failed: 0',
+      'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
+      'E2E coverage: passed; blocks=3/3; evidence=blocks=3/3',
+      'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
+      'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
+      'Impacted: 3 blocks,',
+      'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
+    ]);
+    const payload = await expectCliJson<{
       graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
       e2eMatrix: {
         status: string;
@@ -82,45 +109,8 @@ test('CLI emits explain JSON for CI consumers', async () => {
         impactedBlocks: string[];
         failurePoints: unknown[];
       };
-    }>(workspaceRoot, ['explain'], {
-      text: [
-        'Explain graph',
-        'Node types:',
-        'block=',
-        'policy=',
-        'Edge types:',
-        'depends_on=',
-        'Coverage: 3 blocks;',
-        'uncovered blocks=0',
-        'Coverage detail: passed;',
-        'covered blocks: 3/3',
-        'Provenance origins:',
-        'block=',
-        'Provenance detail: artifacts:',
-        'registry:',
-        'unverified:',
-        'Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;',
-        'runtime entries: 0; targets: 7',
-        'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
-        'Chain: attention; stages: 3/4; attention: 1; failed: 0',
-        'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
-        'E2E coverage: passed; blocks=3/3; evidence=blocks=3/3',
-        'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
-        'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
-        'Impacted: 3 blocks,',
-        'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
-      ],
-      compactJson: {
-        e2eMatrix: {
-          status: 'attention',
-          rowCount: 4
-        },
-        reviewSummary: {
-          formatVersion: '2',
-          chainSummary: { stageCount: 4 }
-        }
-      }
-    });
+    }>(workspaceRoot, ['explain', '--json', '--compact'], undefined, { compact: true });
+    expect(payload.reviewSummary.formatVersion).toBe('2');
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
     expect(payload.graph.edges.length).toBeGreaterThan(0);
     expect(payload.e2eMatrix).toMatchObject({
@@ -234,7 +224,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
       blockCount: 3,
       actionKinds: ['copy', 'merge-prisma'],
       runtimeEntryCount: 0,
-      targetPathCount: 7,
+      targetPathCount: 8,
       groupSummaries: expect.arrayContaining([
         expect.objectContaining({
           vertical: 'customer',
@@ -256,6 +246,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
           targetPaths: expect.arrayContaining([
             'src/installed/auth/session.ts',
             'src/installed/tenant/context.ts',
+            'tests/acceptance/auth-flow.test.ts',
             'tests/shared/tenant-runtime-fixture.ts'
           ])
         })
