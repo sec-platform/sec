@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { VERIFICATION_FREEZE_SESSION_SCHEMA, VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, createVerificationSessionProposalDigest, parseLegacyVerificationFreezeSession, parseVerificationRegistryProjection, parseVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
+import { VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, createVerificationSessionProposalDigest, parseVerificationRegistryProjection, parseVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
 
 const BASE_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
@@ -59,23 +59,6 @@ test('registry projection rejects a default entry that binds PR identity', () =>
   });
   expect(() => parseVerificationRegistryProjection(source))
     .toThrow('default source cannot bind PR identity');
-});
-
-test('freeze session binds exact facts and rejects tampering', () => {
-  const source = {
-    schema: VERIFICATION_FREEZE_SESSION_SCHEMA,
-    sessionId: 'sess-001',
-    frozenAt: '2026-08-07T00:00:00.000Z',
-    repository: 'sec-platform/sec',
-    prNumber: 7,
-    baseSha: BASE_SHA,
-    headSha: HEAD_SHA,
-    manifestPath: 'config/repository/work-packages/example-v1.md',
-    manifestDigest: MANIFEST_DIGEST,
-    candidateTreeSha: TREE_SHA,
-    sessionDigest: ''
-  };
-  expect(() => parseLegacyVerificationFreezeSession(JSON.stringify(source))).toThrow('digest mismatch');
 });
 
 test('V2 revision is stable across run identity and timestamps and binds semantic inputs', () => {

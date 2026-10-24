@@ -8,12 +8,17 @@ import {
   CI_ARTIFACT_MISSING_REASON,
   type CiArtifactManifest
 } from '../../../src/assurance/verification/ci-artifacts/contract/types.ts';
-import { expectCliJson, expectCliSuccess, expectCliVariants } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliSuccess, expectCliText } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
 test('provenance is readable before explain and artifact inventory diagnoses missing governance', async () => {
   await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
-    const { json: provenance } = await expectCliVariants<{
+    await expectCliText(workspaceRoot, ['provenance', 'registry'], [
+      'Provenance registry; artifacts=',
+      'Origins: block=',
+      'Registry sources: official='
+    ]);
+    const provenance = await expectCliJson<{
       formatVersion: string;
       artifacts: Array<{
         path: string;
@@ -22,17 +27,10 @@ test('provenance is readable before explain and artifact inventory diagnoses mis
         verifiedBy: string[];
         overrideStatus: string;
       }>;
-    }>(workspaceRoot, ['provenance', 'registry'], {
-      text: [
-        'Provenance registry; artifacts=',
-        'Origins: block=',
-        'Registry sources: official='
-      ],
-      compactJson: {
-        formatVersion: '1',
-        artifacts: expect.any(Array)
-      }
-    });
+    }>(workspaceRoot, ['provenance', 'registry', '--json', '--compact'], {
+      formatVersion: '1',
+      artifacts: expect.any(Array)
+    }, { compact: true });
     expect(provenance.artifacts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

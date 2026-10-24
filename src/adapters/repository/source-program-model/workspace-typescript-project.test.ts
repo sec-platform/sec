@@ -73,7 +73,7 @@ test('ProjectInput signs one exact execution-config containment receipt', () => 
   expect(changedClosure.input.projectInputDigest).not.toBe(first.input.projectInputDigest);
 });
 
-test('ProjectInput rejects every configuration escape before execution materialization', () => {
+test('ProjectInput rejects configuration and source escapes before execution materialization', () => {
   const escapedConfigurations = Object.freeze([
     Object.freeze({ extends: './base.json', include: Object.freeze(['src/**/*.ts']) }),
     Object.freeze({ references: Object.freeze([]), include: Object.freeze(['src/**/*.ts']) }),
@@ -96,6 +96,12 @@ test('ProjectInput rejects every configuration escape before execution materiali
 
   for (const config of escapedConfigurations) {
     expect(() => projectInput(config)).toThrow(/TypeScript ProjectInput/u);
+  }
+  for (const [source, message] of [
+    ["import '/foreign.ts'; export const value = 1;\n", 'absolute or invalid import'],
+    ["import '../../../foreign'; export const value = 1;\n", 'import escapes its snapshot']
+  ] as const) {
+    expect(() => projectInput({ include: ['src/**/*.ts'] }, source)).toThrow(message);
   }
 });
 

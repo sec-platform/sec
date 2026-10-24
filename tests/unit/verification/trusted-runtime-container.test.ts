@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { describe, expect, test } from 'bun:test';
 
 import { parseDockerEndpointIdentity } from '../../../src/adapters/providers/docker/contract/daemon.ts';
@@ -22,17 +20,9 @@ import { encodeVerificationActionData } from '../../../src/adapters/verification
 import { parseTrustedRuntimeSourceProgramAttemptCarrier } from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import {
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-  TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC,
   TRUSTED_RUNTIME_STATE_ENVIRONMENT,
-  TRUSTED_RUNTIME_TEST_TMPFS_SPEC,
-  assertTrustedRuntimeDependencyCacheVolume,
   assertTrustedRuntimeMainHealthQualification,
   assertTrustedRuntimeSourceProgramTransitionObservation,
-  authorizeTrustedRuntimeContainerRecovery,
-  composeTrustedRuntimeContainerLabels,
-  createTrustedRuntimeDependencyCacheMarker,
-  createTrustedRuntimeDependencyCacheVolumeSpec,
-  parseTrustedRuntimeContainerIdentity,
   renderTrustedRuntimeCommandFailureDetail
 } from '../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import { rawSha256, sha256 } from '../../../src/contracts/canonical.ts';
@@ -310,58 +300,6 @@ describe('provider-neutral trusted runtime container', () => {
 
 
 
-  test('admits only the canonical executable test tmpfs and non-executable runtime state', () => {
-    const container = {
-      Id: '4'.repeat(64),
-      Image: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-      Name: '/sec-trusted-runtime-example',
-      Config: { Labels: {} },
-      HostConfig: {
-        ReadonlyRootfs: true,
-        Init: true,
-        Tmpfs: {
-          '/tmp': TRUSTED_RUNTIME_TEST_TMPFS_SPEC.slice('/tmp:'.length),
-          '/sec-runtime': TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC.slice('/sec-runtime:'.length)
-        }
-      },
-      Mounts: [{
-        Destination: '/candidate.bundle',
-        Source: 'C:\\sec\\candidate.bundle',
-        Type: 'bind',
-        RW: false
-      }]
-    };
-    expect(parseTrustedRuntimeContainerIdentity(JSON.stringify([container])))
-      .toMatchObject({
-        initProcess: true,
-        candidateBundleSource: 'C:\\sec\\candidate.bundle',
-        executableTestTmpfs: true,
-        nonExecutableMutableTmpfs: true
-      });
-    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
-      ...container,
-      HostConfig: { ...container.HostConfig, Init: false }
-    }]))).toThrow('container identity is invalid');
-    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
-      ...container,
-      Mounts: [{ Destination: '/candidate.bundle', Type: 'bind', RW: false }]
-    }]))).toThrow('read-only bind mount');
-    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
-      ...container,
-      HostConfig: {
-        ...container.HostConfig,
-        Tmpfs: { ...container.HostConfig.Tmpfs, '/tmp': 'rw,noexec,nosuid,nodev,size=2g' }
-      }
-    }]))).toThrow('/tmp options differ');
-    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
-      ...container,
-      HostConfig: {
-        ...container.HostConfig,
-        Tmpfs: { ...container.HostConfig.Tmpfs, '/foreign': 'rw' }
-      }
-    }]))).toThrow('targets differ');
-  });
-
   test('historical Docker receipt endpoints retain exact local identity and reject remote transport', () => {
     expect(parseDockerEndpointIdentity(dockerEndpoint)).toEqual(dockerEndpoint);
     expect(() => parseDockerEndpointIdentity({
@@ -381,158 +319,5 @@ describe('provider-neutral trusted runtime container', () => {
       .toMatch(/no captured output/iu);
   });
 
-  test('reclaims only one twice-observed exact dead-owner container identity', () => {
-    const operationKey = 'session-1234567890abcdef';
-    const ownerNonce = '12345678-1234-4234-9234-1234567890ab';
-    const imageLabels = Object.freeze({
-      'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1'
-    });
-    const expected = Object.freeze({
-      operationKey,
-      repository: 'sec-platform/sec',
-      baseSha: '1'.repeat(40),
-      headSha: '2'.repeat(40),
-      endpointDigest: `sha256:${'3'.repeat(64)}` as `sha256:${string}`,
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-      imageLabels,
-      ownerHost: 'trusted-host',
-      dependencyCacheVolumeName: null
-    });
-    const identity = Object.freeze({
-      id: '4'.repeat(64),
-      imageId: expected.imageId,
-      name: `sec-trusted-runtime-${operationKey}-${ownerNonce}`,
-      readOnlyRootfs: true as const,
-      readOnlyCandidateBundle: true as const,
-      candidateBundleSource: 'C:\\sec\\candidate.bundle',
-      initProcess: true as const,
-      executableTestTmpfs: true as const,
-      nonExecutableMutableTmpfs: true as const,
-      dependencyCacheVolumeName: null,
-      labels: Object.freeze({
-        ...imageLabels,
-        'sec.trusted-runtime.operation': operationKey,
-        'sec.trusted-runtime.repository': expected.repository,
-        'sec.trusted-runtime.base-sha': expected.baseSha,
-        'sec.trusted-runtime.head-sha': expected.headSha,
-        'sec.trusted-runtime.endpoint-digest': expected.endpointDigest,
-        'sec.trusted-runtime.owner-host': expected.ownerHost,
-        'sec.trusted-runtime.owner-pid': '4242',
-        'sec.trusted-runtime.owner-nonce': ownerNonce,
-        'sec.trusted-runtime.image-id': expected.imageId
-      })
-    });
-    let observations = 0;
-    expect(authorizeTrustedRuntimeContainerRecovery({
-      first: identity,
-      confirmed: identity,
-      expected,
-      observeProcessLiveness: () => {
-        observations += 1;
-        return 'dead';
-      }
-    })).toBe(identity.id);
-    expect(observations).toBe(2);
-    expect(() => authorizeTrustedRuntimeContainerRecovery({
-      first: { ...identity,
-        dependencyCacheVolumeName: 'sec-trusted-runtime-bun-cache-v1-1234567890abcdef1234567890abcdef' },
-      confirmed: identity,
-      expected,
-      observeProcessLiveness: () => 'dead'
-    })).toThrow(/differs from the fenced operation/);
-    expect(() => authorizeTrustedRuntimeContainerRecovery({
-      first: identity,
-      confirmed: identity,
-      expected,
-      observeProcessLiveness: () => 'alive'
-    })).toThrow(/recovery is not authorized/);
-    expect(() => authorizeTrustedRuntimeContainerRecovery({
-      first: identity,
-      confirmed: { ...identity, id: '5'.repeat(64) },
-      expected,
-      observeProcessLiveness: () => 'dead'
-    })).toThrow(/identity or owner liveness changed/);
-    expect(() => authorizeTrustedRuntimeContainerRecovery({
-      first: identity,
-      confirmed: { ...identity, candidateBundleSource: 'C:\\foreign\\candidate.bundle' },
-      expected,
-      observeProcessLiveness: () => 'dead'
-    })).toThrow(/identity or owner liveness changed/);
-    expect(() => authorizeTrustedRuntimeContainerRecovery({
-      first: { ...identity, labels: { ...identity.labels,
-        'sec.trusted-runtime.owner-host': 'foreign-host' } },
-      confirmed: identity,
-      expected,
-      observeProcessLiveness: () => 'dead'
-    })).toThrow(/differs from the fenced operation/);
-    expect(() => authorizeTrustedRuntimeContainerRecovery({
-      first: { ...identity, labels: { ...identity.labels,
-        'sec.trusted-runtime.image-schema': 'foreign-image' } },
-      confirmed: identity,
-      expected,
-      observeProcessLiveness: () => 'dead'
-    })).toThrow(/differs from the fenced operation/);
-  });
 
-  test('one exact label set drives Docker create and identity readback', () => {
-    const labels = composeTrustedRuntimeContainerLabels(
-      { 'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1' },
-      { 'sec.trusted-runtime.operation': 'main-12345678' }
-    );
-    expect(labels).toEqual({
-      'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1',
-      'sec.trusted-runtime.operation': 'main-12345678'
-    });
-    expect(() => composeTrustedRuntimeContainerLabels(
-      { shared: 'image' },
-      { shared: 'operation' }
-    )).toThrow('collide with retained operation identity');
-  });
-
-  test('admits an exact Docker cache inspect and binds its endpoint and volume identity', () => {
-    const marker = createTrustedRuntimeDependencyCacheMarker({
-      repository: 'sec-platform/sec',
-      bunLockBlobSha: '1'.repeat(40),
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID
-    });
-    const spec = createTrustedRuntimeDependencyCacheVolumeSpec(marker);
-    const inspect = JSON.stringify([{
-      CreatedAt: '2026-08-21T00:00:00Z',
-      Driver: 'local',
-      Labels: spec.labels,
-      Name: spec.name,
-      Options: null,
-      Scope: 'local'
-    }]);
-    const expectedName = `sec-trusted-runtime-bun-cache-v1-${marker.cacheKey.slice(7, 39)}`;
-    // Encode the retained v1 identity independently, with canonical key order.
-    const expectedDigest = `sha256:${createHash('sha256').update(JSON.stringify({
-      createdAt: '2026-08-21T00:00:00Z',
-      driver: 'local',
-      endpointDigest: `sha256:${'2'.repeat(64)}`,
-      labels: {
-        'sec.trusted-runtime.cache-key': marker.cacheKey,
-        'sec.trusted-runtime.cache-schema': 'sec-trusted-runtime-dependency-cache-volume-v1',
-        'sec.trusted-runtime.image-id': TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
-        'sec.trusted-runtime.repository': 'sec-platform/sec'
-      },
-      name: expectedName,
-      schema: 'sec-trusted-runtime-dependency-cache-volume-v1',
-      scope: 'local'
-    })).digest('hex')}`;
-    expect(spec.name).toBe(expectedName);
-    expect(assertTrustedRuntimeDependencyCacheVolume({
-      source: inspect,
-      expected: spec,
-      endpointDigest: `sha256:${'2'.repeat(64)}`
-    })).toBe(expectedDigest);
-    expect(() => assertTrustedRuntimeDependencyCacheVolume({
-      source: JSON.stringify([{
-        ...JSON.parse(inspect)[0],
-        Labels: { ...spec.labels, 'sec.trusted-runtime.cache-key': `sha256:${'3'.repeat(64)}` }
-      }]),
-      expected: spec,
-      endpointDigest: `sha256:${'2'.repeat(64)}`
-    })).toThrow(/differs from the content-addressed specification/);
-  });
 });

@@ -115,10 +115,10 @@ test('exact paired artifacts pass while unknown fields, stale revisions, digest 
       { ...plan.operations[0]!, operationId: 'operation:a', from: 'closed', to: 'open' }
     ]
   } as never))).toThrow('digest');
-  expect(() => assertSemanticMutationSourceEditPlanInvariant({
+  expect(() => assertSemanticMutationSourceEditPlanInvariant(rebindPlanDigest({
     ...plan,
     pathEvidence: { ...plan.pathEvidence, targetIdentityDigest: sha256('forged-target') }
-  })).toThrow('digest');
+  }))).toThrow('digest');
   const mismatchedManifestWithoutRevision = {
     ...manifest,
     stagedByteDigest: sha256('other-staged')

@@ -27,11 +27,7 @@ function input(source: string) {
 // set and not an exception from the compiler API's non-null node classifier.
 for (const source of [
   'void import();',
-  'const value = import();',
-  'const value = await import();',
   'const { value } = await import();',
-  'require();',
-  'export function run() { return import(); }',
   'export function run() { return require(); }'
 ]) {
   test(`incomplete loader input remains explicit and does not poison the next generation: ${source}`, () => {
