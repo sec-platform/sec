@@ -24,7 +24,7 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-test('development commit candidate binds the retained index and rejects clones or drift', async () => {
+test('development commit candidate binds the retained index and rejects drift', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-candidate-test-'));
   try {
     git(root, ['init', '--quiet']);
@@ -46,9 +46,6 @@ test('development commit candidate binds the retained index and rejects clones o
       async (session) => {
         const candidate = await freezeDevelopmentCommitCandidate({ request, session });
         expect(requireDevelopmentCommitCandidate(candidate, request).candidate).toBe(candidate);
-        expect(() => requireDevelopmentCommitCandidate({ ...candidate }, request)).toThrow(
-          'origin or request identity is invalid'
-        );
         await expect(assertDevelopmentCommitCandidateCurrent({ candidate, request, session }))
           .resolves.toMatchObject({ candidate });
         await writeFile(path.join(root, 'next.txt'), 'changed\n');

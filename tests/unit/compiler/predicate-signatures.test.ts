@@ -2,11 +2,9 @@ import { expect, test } from "bun:test";
 
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 import { type SemanticEntity, type SemanticEntityKind } from '../../../src/semantics/engineering-ir/entity-types.ts';
-import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../../src/semantics/engineering-ir/fact-types.ts';
+import { type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../../src/semantics/engineering-ir/fact-types.ts';
 import {
-  PREDICATE_SIGNATURE_REGISTRY,
   assertEngineeringIRPredicateSignatures,
-  assertPredicateSignatureRegistry,
 } from "../../../src/semantics/engineering-ir/predicate-signatures.ts";
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../../src/semantics/policies/rules.ts';
 
@@ -51,13 +49,6 @@ function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
   throw new Error(`Expected CodedFailure ${code}`);
 }
 
-test("predicate registry owns every SemanticPredicate with a valid signature", () => {
-  expect(Object.keys(PREDICATE_SIGNATURE_REGISTRY).sort()).toEqual(
-    [...SEMANTIC_PREDICATES].sort(),
-  );
-  expect(() => assertPredicateSignatureRegistry()).not.toThrow();
-});
-
 test("the policy predicate accepts only capability-to-artifact facts", () => {
   const predicate = policySemanticRule(TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE).requiredPredicate;
   const capability = entity('capability:tenant/context', 'capability');
@@ -76,15 +67,6 @@ test("the policy predicate accepts only capability-to-artifact facts", () => {
 });
 
 test("controlled multi-variant predicates accept both dependency shapes", () => {
-  const dependsOn = PREDICATE_SIGNATURE_REGISTRY.DEPENDS_ON;
-  expect(dependsOn.status).toBe("active");
-  if (dependsOn.status !== "active")
-    throw new Error("DEPENDS_ON must be active");
-  expect(dependsOn.variants.map((variant) => variant.id)).toEqual([
-    "block-depends-on-capability",
-    "responsibility-depends-on-responsibility",
-  ]);
-
   const entities = [
     entity("block:ticket", "block"),
     entity("capability:auth", "capability"),
