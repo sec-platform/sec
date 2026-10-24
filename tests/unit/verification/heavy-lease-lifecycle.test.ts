@@ -24,16 +24,19 @@ test('typed contention retries despite changed wording and ignores wall-clock ju
   const original = Date.now; let count = 0, released = 0;
   const lease = Object.freeze({ release() { released++; } });
   const callbackResult = Object.freeze({ completed: true });
-  try {
+  const result = await waitForHeavyVerificationGateLease(async () => {
+    // The hostile wall clock exists only for the synchronous acquisition
+    // callback. Never leave a process-global override installed over an await.
     Date.now = () => count % 2 ? 0 : Number.MAX_SAFE_INTEGER;
-    const result = await waitForHeavyVerificationGateLease(async () => {
-      count++; if (count === 1) throw new HeavyVerificationGateBusyError('active', 'different words');
+    try {
+      count++;
+      if (count === 1) throw new HeavyVerificationGateBusyError('active', 'different words');
       return lease;
-    }, 1000);
-    assert.equal(count, 2);
-    assert.equal(await withAcquiredHeavyVerificationGateLease(result, () => callbackResult), callbackResult);
-    assert.equal(released, 1);
-  } finally { Date.now = original; }
+    } finally { Date.now = original; }
+  }, 1000);
+  assert.equal(count, 2);
+  assert.equal(await withAcquiredHeavyVerificationGateLease(result, () => callbackResult), callbackResult);
+  assert.equal(released, 1);
 });
 
 test('a matching error message is not retry authority', async () => {

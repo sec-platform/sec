@@ -72,18 +72,21 @@ const legacyModes = [
 for (const [command, mode] of legacyModes) {
   test(`${command} ${mode} preserves default routing for its available result`, async () => {
     await withTempWorkspace(async root => {
-      // Output options are admitted first; missing reports reject in read() before view/render.
-      const outputModes = command === 'demo' ? [[], ['--json'], ['--json', '--compact']] : [[]];
-      for (const options of outputModes) {
-        const implicit = await runCliInProcess(root, [command, ...options]);
-        const explicit = await runCliInProcess(root, [command, mode, ...options]);
-        expect(explicit).toEqual(implicit);
-        if (command === 'demo') expect(explicit.code).toBe(0);
-        else {
-          expect(explicit.code).toBe(1);
-          expect(explicit.stderr).toContain('not found');
-          expect(explicit.stderr).not.toContain('commander.');
+      // Missing artifact is independently observed for each reader. The
+      // alias itself is verified on available data below: repeating the same
+      // missing-file failure through both routes does not add a new oracle.
+      if (command === 'demo') {
+        for (const options of [[], ['--json'], ['--json', '--compact']]) {
+          const implicit = await runCliInProcess(root, [command, ...options]);
+          const explicit = await runCliInProcess(root, [command, mode, ...options]);
+          expect(explicit).toEqual(implicit);
+          expect(explicit.code).toBe(0);
         }
+      } else {
+        const missing = await runCliInProcess(root, [command]);
+        expect(missing.code).toBe(1);
+        expect(missing.stderr).toContain('not found');
+        expect(missing.stderr).not.toContain('commander.');
       }
       if (command !== 'demo') {
         const { key, contents, witness } = availableReports[command];
