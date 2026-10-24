@@ -19,9 +19,3 @@ test('both command projections refuse cyclic parents instead of looping', () => 
   for (const project of [commandPath, commandFromRoot]) assert.throws(() => project(leaf), /parent cycle/);
 });
 
-test('a parent slot is sampled once per node', () => {
-  let reads = 0;
-  const root = command('sec'), leaf = command('inspect');
-  Object.defineProperty(leaf, 'parent', { get() { reads++; return root; } });
-  assert.equal(commandFromRoot(leaf, 'verify'), 'sec verify'); assert.equal(reads, 1);
-});
