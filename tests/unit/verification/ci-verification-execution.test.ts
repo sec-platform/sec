@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -27,7 +28,7 @@ import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } fro
 import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessObservation, HostedSutSandboxReceipt, VerificationSessionHostedRequest } from "../../../src/execution/verification/hosted.ts";
 import type { VerificationEvidence } from '../../../src/execution/verification/session.ts';
 
-import { expect, spyOn, test } from 'bun:test';
+import { afterAll, expect, spyOn, test } from 'bun:test';
 import * as physicalNoFollow from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, createCiVerificationNativeHostedExecutionEnvironment, createCiVerificationNativeLocalExecutionEnvironment, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
 
@@ -2259,11 +2260,28 @@ test('candidate readonly preparation follows the original normalized Action and 
   }
 });
 
-function privateActionArchiveFixture() {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-private-action-archive-'));
+// Only the trusted source commit is shared. Its physical bytes are copied
+// before each test creates a fresh native Git linked worktree, candidate commit,
+// dependency tree and archive. Git worktree absolute admin paths are never copied.
+type PrivateActionArchiveBase = Readonly<{
+  root: string;
+  baseSha: string;
+  baseTreeSha: string;
+  sources: Readonly<Record<string, string>>;
+}>;
+let privateActionArchiveBase: PrivateActionArchiveBase | undefined;
+
+afterAll(() => {
+  if (privateActionArchiveBase !== undefined) {
+    rmSync(privateActionArchiveBase.root, { recursive: true, force: true });
+    privateActionArchiveBase = undefined;
+  }
+});
+
+function trustedPrivateArchiveBase(): PrivateActionArchiveBase {
+  if (privateActionArchiveBase !== undefined) return privateActionArchiveBase;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-private-archive-base-'));
   const baseRoot = path.join(root, 'base');
-  const candidateRoot = path.join(root, 'candidate');
-  const outputDirectory = path.join(root, 'output');
   try {
     mkdirSync(baseRoot);
     const sources: Record<string, string> = {
@@ -2281,6 +2299,29 @@ function privateActionArchiveFixture() {
     gitFixture(baseRoot, ['add', '.']); gitFixture(baseRoot, ['commit', '--quiet', '-m', 'base']);
     const baseSha = gitFixture(baseRoot, ['rev-parse', 'HEAD']);
     const baseTreeSha = gitFixture(baseRoot, ['rev-parse', 'HEAD^{tree}']);
+    privateActionArchiveBase = Object.freeze({
+      root, baseSha, baseTreeSha, sources: Object.freeze({ ...sources })
+    });
+    return privateActionArchiveBase;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Hosted archive base setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+function privateActionArchiveFixture() {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-private-action-archive-'));
+  const baseRoot = path.join(root, 'base');
+  const candidateRoot = path.join(root, 'candidate');
+  const outputDirectory = path.join(root, 'output');
+  try {
+    const base = trustedPrivateArchiveBase();
+    cpSync(path.join(base.root, 'base'), baseRoot, { recursive: true });
+    const { baseSha, baseTreeSha } = base;
+    const sources: Record<string, string> = { ...base.sources };
     gitFixture(baseRoot, ['worktree', 'add', '--quiet', '--detach', candidateRoot, baseSha]);
     sources['input.txt'] = 'candidate input\n';
     writeFileSync(path.join(candidateRoot, 'input.txt'), sources['input.txt']);
@@ -2307,7 +2348,13 @@ function privateActionArchiveFixture() {
       artifactInput, executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT });
     const resolution = Object.freeze({ ...core, resolutionDigest: CodexDevelopmentVerificationDigest(core) as VerificationActionKeyDigest });
     return Object.freeze({ root, baseRoot, candidateRoot, outputDirectory, baseSha, headSha, resolution });
-  } catch (error) { rmSync(root, { recursive: true, force: true }); throw error; }
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Hosted action archive fixture and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 async function preparePrivateActionArchive(fixture: ReturnType<typeof privateActionArchiveFixture>) {
