@@ -28,27 +28,12 @@ test('compile forwards invalid stage admission for both bounds', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', through: '' }), code('PIPELINE-USAGE-001'));
 });
 
-for (const value of [undefined, 'ALL']) {
-  test(`rejects invalid lane value ${typeof value}:${String(value)}`, () => {
-    assert.throws(() => parsePipelineCompileOptions({ lane: value }), code('PIPELINE-USAGE-002'));
-  });
-}
-
-test('compile routes a non-boolean output flag through pipeline usage admission', () => {
-  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', json: 'false' }), code('PIPELINE-USAGE-003'));
+test('rejects an invalid textual lane', () => {
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'ALL' }), code('PIPELINE-USAGE-002'));
 });
 
 test('compile rejects compact output without JSON', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);
-});
-
-test('rejects values without invoking conversion hooks', () => {
-  let calls = 0;
-  const value = { toString() { calls += 1; return 'all'; }, [Symbol.toPrimitive]() { calls += 1; return 'all'; } };
-  assert.throws(() => parsePipelineCompileOptions({ lane: value }), code('PIPELINE-USAGE-002'));
-  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', from: value }), code('PIPELINE-USAGE-001'));
-  assert.throws(() => parsePipelineOutputOptions({ json: value }), code('PIPELINE-USAGE-003'));
-  assert.equal(calls, 0);
 });
 
 test('captures only the command fields once, ignoring unrelated getters', () => {

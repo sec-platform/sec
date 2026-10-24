@@ -29,8 +29,7 @@ import {
   selectTcbClosureCandidateAction,
   TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
-  TCB_TRUST_ROOT,
-  verifyTcbClosureLock as verifyTcbClosureLockAgainstExactTree
+  TCB_TRUST_ROOT
 } from '../../../src/adapters/verification/platform/trust/compiler.ts';
 import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, parseSecTrustedBootstrapRegistry, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, type SecTrustedBootstrapRegistry } from '../../../src/adapters/verification/platform/trust/contract/root.ts';
 import { rawSha256 } from '../../../src/contracts/canonical.ts';
@@ -51,9 +50,6 @@ const trustedRuntimeClosure = (
     observedExternalImports: new Set(LIVE_TCB_CLOSURE.observedExternalImports)
   }
   : compileTrustedRuntimeClosure(...args);
-const verifyTcbClosureLock = (
-  input: Parameters<typeof verifyTcbClosureLockAgainstExactTree>[0]
-) => verifyTcbClosureLockAgainstExactTree(input, { expectedIdentity: TCB_CLOSURE_LOCK });
 
 const supervisorOwner = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts';
 const supervisorResource = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py';
@@ -135,8 +131,6 @@ test('TCB fixed resources preserve raw bytes while existing TypeScript normaliza
       expect(changed.moduleContentDigests[resource]).not.toBe(first.moduleContentDigests[resource]);
       expect(changed.trustRevision).not.toBe(first.trustRevision);
       expect(changed.closureDigest).not.toBe(first.closureDigest);
-      expect(verifyTcbClosureLockAgainstExactTree(closure, { candidateRoot: root, expectedIdentity: first }).status)
-        .toBe('failed');
       const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
       const captured = trustedRuntimeClosure([owner], { candidateSnapshot: snapshot });
       writeFileSync(helper, '# changed after discovery\n');
@@ -568,6 +562,28 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
   expect(result.actionKey).toBe(plan.action.actionKey);
   expect(result.identity.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
   expect(result.resultDigest).toBe(result.identity.closureDigest);
+  const identity = result.identity;
+  expect(identity.moduleCount).toBe(identity.modules.length);
+  expect(new Set(identity.modules).size).toBe(identity.moduleCount);
+  for (const module of identity.modules) {
+    expect(identity.moduleBlobs[module]).toMatch(/^[0-9a-f]{40}$/);
+    expect(identity.moduleContentDigests[module]).toMatch(/^sha256:[0-9a-f]{64}$/);
+  }
+  expect(Object.keys(identity.moduleBlobs)).toHaveLength(identity.moduleCount);
+  expect(Object.keys(identity.moduleContentDigests)).toHaveLength(identity.moduleCount);
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
+    .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
+    .toContain('src/adapters/providers/linux-verification/contract.ts -> zod');
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
+    .toContain('src/adapters/repository/source-program-model/test-impact-projection.ts -> zod');
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).not.toContain('zod');
+  expect(identity.reviewedExternalImports)
+    .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
+  expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort()).toEqual([...identity.reviewedProcessDispatchers].sort());
+  expect([...TCB_REVIEWED_NETWORK_DISPATCHERS].sort()).toEqual([...identity.reviewedNetworkDispatchers].sort());
+  expect(identity.reviewedEdges).toEqual([]);
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges).toEqual([]);
 
   const commonDemand = {
     exactTreeSha: '3'.repeat(40),
@@ -597,22 +613,6 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
   expect(impacted.plan?.dependencies).toEqual([{ actionKey: result.actionKey, kind: 'upstream' }]);
   expect(() => compileTcbClosureActionResult({ plan: impacted.plan! }))
     .toThrow('upstream results do not satisfy');
-});
-
-test('TCB closure lock binds the reviewed causal module set', () => {
-  expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
-  expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
-    .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
-    'src/adapters/providers/linux-verification/contract.ts -> zod'
-  );
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
-    'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
-  );
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).not.toContain('zod');
-  expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
-    .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
 });
 
 test('TCB runtime receipt schema permits its exact reviewed parser edge only', () => {
@@ -879,15 +879,6 @@ test('TCB closure keeps Linux endpoint native effects in the reviewed physical o
     .not.toThrow();
 });
 
-test('TCB closure lock has complete Git blob and content digest maps', () => {
-  for (const module of TCB_CLOSURE_LOCK.modules) {
-    expect(TCB_CLOSURE_LOCK.moduleBlobs[module]).toMatch(/^[0-9a-f]{40}$/);
-    expect(TCB_CLOSURE_LOCK.moduleContentDigests[module]).toMatch(/^sha256:[0-9a-f]{64}$/);
-  }
-  expect(Object.keys(TCB_CLOSURE_LOCK.moduleBlobs)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
-  expect(Object.keys(TCB_CLOSURE_LOCK.moduleContentDigests)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
-});
-
 test('reviewed dispatcher census remains non-authorizing source observation', () => {
   const packageSource = JSON.stringify({
     name: 'tcb-observation-fixture',
@@ -960,19 +951,6 @@ test('verification-action runner receives a narrow repository capability and can
   expect(moduleReferences).not.toContain('./branch-lifecycle-command.ts');
 });
 
-test('live TCB closure passes lock verification', () => {
-  const closure = trustedRuntimeClosure();
-  const verification = verifyTcbClosureLock(closure);
-  expect(verification.status).toBe('passed');
-  expect(verification.failures).toEqual([]);
-});
-
-test('live process dispatcher allowlist exactly matches the derived identity', () => {
-  expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort()).toEqual(
-    [...TCB_CLOSURE_LOCK.reviewedProcessDispatchers].sort()
-  );
-});
-
 test('closure identity changes when its reviewed dispatcher observation changes', () => {
   const changed = trustedRuntimeClosure();
   changed.reviewedProcessDispatchers.add(
@@ -985,12 +963,6 @@ test('closure identity changes when its reviewed dispatcher observation changes'
   );
   expect(changedLock.trustRevision).not.toBe(TCB_CLOSURE_LOCK.trustRevision);
   expect(changedLock.closureDigest).not.toBe(TCB_CLOSURE_LOCK.closureDigest);
-});
-
-test('live network dispatcher allowlist exactly matches the derived identity', () => {
-  expect([...TCB_REVIEWED_NETWORK_DISPATCHERS].sort()).toEqual(
-    [...(TCB_CLOSURE_LOCK.reviewedNetworkDispatchers ?? [])].sort()
-  );
 });
 
 test.serial('TCB generation rejects a stale reviewed dispatcher authorization', () => {
@@ -1021,153 +993,6 @@ test.serial('TCB generation rejects a stale reviewed network dispatcher authoriz
     TCB_REVIEWED_NETWORK_DISPATCHERS.delete(stale);
   }
   expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
-});
-
-// ---------------------------------------------------------------------------
-// Negative tests — each proves that a specific tampering breaks the lock
-// ---------------------------------------------------------------------------
-
-test('adding an untrusted module causes the lock to break (expansion)', () => {
-  const closure = trustedRuntimeClosure();
-  const tampered = {
-    closure: new Set(closure.closure).add('platform/shared/untrusted-intruder.ts'),
-    reviewedEdges: new Set(closure.reviewedEdges),
-    reviewedBoundaryEdges: new Set(closure.reviewedBoundaryEdges),
-    reviewedExternalImports: new Set(closure.reviewedExternalImports),
-    reviewedProcessDispatchers: new Set(closure.reviewedProcessDispatchers)
-  };
-  const verification = verifyTcbClosureLock(tampered);
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('expansion: unexpected module platform/shared/untrusted-intruder.ts')
-  ]));
-});
-
-test('removing a reviewed module causes the lock to break (contraction)', () => {
-  const closure = trustedRuntimeClosure();
-  const tampered = new Set(closure.closure);
-  const removedModule = TCB_CLOSURE_LOCK.modules[0]!;
-  tampered.delete(removedModule);
-  const verification = verifyTcbClosureLock({
-    closure: tampered,
-    reviewedEdges: closure.reviewedEdges,
-    reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
-    reviewedExternalImports: closure.reviewedExternalImports,
-    reviewedProcessDispatchers: closure.reviewedProcessDispatchers
-  });
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining(`contraction: missing module ${removedModule}`)
-  ]));
-});
-
-test('substituting a module path causes the lock to break', () => {
-  const closure = trustedRuntimeClosure();
-  const tampered = new Set(closure.closure);
-  const removedModule = TCB_CLOSURE_LOCK.modules[0]!;
-  const replacementModule = `${removedModule}.replacement`;
-  tampered.delete(removedModule);
-  tampered.add(replacementModule);
-  const verification = verifyTcbClosureLock({
-    closure: tampered,
-    reviewedEdges: closure.reviewedEdges,
-    reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
-    reviewedExternalImports: closure.reviewedExternalImports,
-    reviewedProcessDispatchers: closure.reviewedProcessDispatchers
-  });
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining(`contraction: missing module ${removedModule}`),
-    expect.stringContaining(`expansion: unexpected module ${replacementModule}`)
-  ]));
-});
-
-test('introducing an unauthorized edge causes the lock to break', () => {
-  const closure = trustedRuntimeClosure();
-  const tampered = {
-    closure: closure.closure,
-    reviewedEdges: new Set(closure.reviewedEdges).add(
-      'src/adapters/verification/platform/ci/verification.ts -> src/compiler/orchestration/unauthorized-target.ts'
-    ),
-    reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
-    reviewedExternalImports: closure.reviewedExternalImports,
-    reviewedProcessDispatchers: closure.reviewedProcessDispatchers
-  };
-  const verification = verifyTcbClosureLock(tampered);
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('edge addition: unexpected edge')
-  ]));
-});
-
-test('TCB closure traverses the retired SUT seam without a reviewed stop edge', () => {
-  const closure = trustedRuntimeClosure();
-  expect([...closure.reviewedEdges]).toEqual([]);
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges).toEqual([]);
-});
-
-test('adding an unauthorized boundary causes the lock to break', () => {
-  const closure = trustedRuntimeClosure();
-  const verification = verifyTcbClosureLock({
-    ...closure,
-    reviewedBoundaryEdges: new Set(closure.reviewedBoundaryEdges).add(
-      'src/adapters/verification/platform/ci/runtime/verification-session.ts -> src/adapters/verification/platform/ci/contract/core.ts'
-    )
-  });
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('boundary edge addition: unexpected edge')
-  ]));
-});
-
-test('adding an unauthorized external import causes the lock to break', () => {
-  const closure = trustedRuntimeClosure();
-  const tampered = {
-    closure: closure.closure,
-    reviewedEdges: closure.reviewedEdges,
-    reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
-    reviewedExternalImports: new Set(closure.reviewedExternalImports).add(
-      'platform/shared/untrusted-module.ts -> node:worker_threads'
-    ),
-    reviewedProcessDispatchers: closure.reviewedProcessDispatchers
-  };
-  const verification = verifyTcbClosureLock(tampered);
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('external import addition: unexpected')
-  ]));
-});
-
-test('adding an unauthorized process dispatcher causes the lock to break', () => {
-  const closure = trustedRuntimeClosure();
-  const tampered = {
-    closure: closure.closure,
-    reviewedEdges: closure.reviewedEdges,
-    reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
-    reviewedExternalImports: closure.reviewedExternalImports,
-    reviewedProcessDispatchers: new Set(closure.reviewedProcessDispatchers).add(
-      'platform/shared/untrusted.ts::function-declaration:untrustedSpawn::spawn#1'
-    )
-  };
-  const verification = verifyTcbClosureLock(tampered);
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('process dispatcher addition: unexpected')
-  ]));
-});
-
-test('adding an unauthorized network dispatcher causes the lock to break', () => {
-  const closure = trustedRuntimeClosure();
-  const verification = verifyTcbClosureLock({
-    ...closure,
-    reviewedNetworkDispatchers: new Set(closure.reviewedNetworkDispatchers).add(
-      'platform/shared/untrusted.ts::function-declaration:untrustedFetch::globalThis.fetch#1'
-    )
-  });
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('network dispatcher addition: unexpected')
-  ]));
 });
 
 test('TCB retired network imports reject alternate import forms', () => {

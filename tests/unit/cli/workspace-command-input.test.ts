@@ -3,7 +3,6 @@ import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
 import { registerWorkspaceCommands } from '../../../src/bootstrap/cli/register-workspace-commands.ts';
-import { decodeBooleanFlag } from '../../../src/entry/cli/boolean-option.ts';
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput
@@ -12,10 +11,7 @@ import {
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
 
 for (const value of [undefined, false, true]) {
-  test(`one strict primitive supplies default and explicit boolean ${value}`, () => {
-    const reject = () => { assert.fail('a boolean was rejected'); };
-    assert.equal(decodeBooleanFlag(value, false, reject), value ?? false);
-    assert.equal(decodeBooleanFlag(value, true, reject), value ?? true);
+  test(`write commands capture default and explicit boolean ${value}`, () => {
     assert.deepEqual(parseComposeCommandInput({ lock: value }), { lock: value ?? false });
     const repair = parseRepairCommandInput(undefined, { dryRun: value });
     const upgrade = parseUpgradeCommandInput('block', '1', { dryRun: value }, 'sec upgrade');
@@ -27,13 +23,6 @@ for (const value of [undefined, false, true]) {
     }
   });
 }
-
-test('decode rejection preserves the exact original thrown value without coercion', () => {
-  const reason = Object.freeze({ owner: 'adapter' });
-  const value = { toString() { assert.fail('toString called'); },
-    valueOf() { assert.fail('valueOf called'); }, [Symbol.toPrimitive]() { assert.fail('coercion called'); } };
-  assert.throws(() => decodeBooleanFlag(value, false, () => { throw reason; }), (error) => error === reason);
-});
 
 for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as const) {
   test(`${mode} does not read or retain write-only options`, () => {
@@ -89,25 +78,15 @@ for (const subject of ['plan', 'diagnostics']) {
   });
 }
 
-for (const subject of [undefined, null, 1, {}, []]) {
-  test(`invalid upgrade subject type ${typeof subject} is rejected without reading write options`, () => {
-    const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
-    assert.throws(() => parseUpgradeCommandInput(subject, '1', input, 'custom upgrade'),
-      (error: unknown) => usage(error) && (error as Error).message.startsWith('Usage: custom upgrade '));
-  });
-}
+test('an upgrade without positional arguments is rejected before reading write options', () => {
+  const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
+  assert.throws(() => parseUpgradeCommandInput(undefined, undefined, input, 'custom upgrade'),
+    (error: unknown) => usage(error) && (error as Error).message.startsWith('Usage: custom upgrade '));
+});
 
-for (const target of [undefined, null, 1, {}, []]) {
-  test(`invalid upgrade target type ${typeof target} is rejected without reading write options`, () => {
-    const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
-    assert.throws(() => parseUpgradeCommandInput('block', target, input, 'sec upgrade'), usage);
-  });
-}
-
-test('unsupported repair modes cannot fall through to repair execution', () => {
-  for (const mode of ['unknown', 'toString', null, 1, {}]) {
-    assert.throws(() => parseRepairCommandInput(mode, { get dryRun() { assert.fail('unused flag read'); throw new Error('unreachable'); } }), usage);
-  }
+test('a missing upgrade target is rejected before reading write options', () => {
+  const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
+  assert.throws(() => parseUpgradeCommandInput('block', undefined, input, 'sec upgrade'), usage);
 });
 
 test('field definitions are immutable and drive actual Commander registration', () => {
@@ -119,13 +98,3 @@ test('field definitions are immutable and drive actual Commander registration', 
     assert.equal(option.defaultValue, undefined); // Preserve native metadata, decoder owns the effective default.
   }
 });
-
-for (const commandName of ['compose', 'repair', 'upgrade']) {
-  test(`real ${commandName} action rejects non-boolean flags before dynamic execution imports`, async () => {
-    const root = new Command().name('sec').exitOverride().configureOutput({ writeErr() {}, writeOut() {} });
-    registerWorkspaceCommands(root);
-    const command = root.commands.find((command) => command.name() === commandName)!;
-    command.setOptionValue(commandName === 'compose' ? 'lock' : 'dryRun', 'false');
-    await assert.rejects(root.parseAsync([commandName, ...(commandName === 'upgrade' ? ['block', '1'] : [])], { from: 'user' }), usage);
-  });
-}

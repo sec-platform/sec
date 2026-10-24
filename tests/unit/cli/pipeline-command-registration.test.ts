@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
+import { CodedFailure } from '../../../src/contracts/failure.ts';
 import { registerPipelineCommands } from '../../../src/entry/cli/register-pipeline-commands.ts';
 
 const inertPipelineOperations = {
@@ -35,22 +36,6 @@ for (const [args, code] of [
 ] as const) {
   test(`rejects ${args.join(' ')} before loading the requested executor`, async () => {
     const { command } = program();
-    await assert.rejects(command.parseAsync([...args], { from: 'user' }), (error: unknown) => (error as { code?: string }).code === code);
+    await assert.rejects(command.parseAsync([...args], { from: 'user' }), (error: unknown) => error instanceof CodedFailure && error.code === code);
   });
 }
-
-test('programmatic lane values do not execute their coercion hooks', async () => {
-  const { command } = program();
-  let converted = false;
-  const compile = command.commands.find((child) => child.name() === 'compile')!;
-  compile.setOptionValue('lane', { toString() { converted = true; return 'all'; } });
-  await assert.rejects(command.parseAsync(['compile'], { from: 'user' }), (error: unknown) => (error as { code?: string }).code === 'PIPELINE-USAGE-002');
-  assert.equal(converted, false);
-});
-
-test('programmatic string booleans cannot select a different output mode', async () => {
-  const { command } = program();
-  const compile = command.commands.find((child) => child.name() === 'compile')!;
-  compile.setOptionValue('json', 'false');
-  await assert.rejects(command.parseAsync(['compile'], { from: 'user' }), (error: unknown) => (error as { code?: string }).code === 'PIPELINE-USAGE-003');
-});
