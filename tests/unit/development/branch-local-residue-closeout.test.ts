@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -82,11 +82,23 @@ function writeDevelopmentCommitJournal(repositoryRoot: string, target: string,
   return journalPath;
 }
 
-function createEffectFixture(label: string) {
-  const root = mkdtempSync(path.join(tmpdir(), `sec-local-residue-${label}-`));
+// A fixed original Git graph is copied into each independent physical
+// repository. Tests still exercise their own native Git effects and recovery.
+type EffectTemplate = Readonly<{ root: string; headSha: string; mainSha: string }>;
+let immutableEffectTemplate: EffectTemplate | undefined;
+
+afterAll(() => {
+  if (immutableEffectTemplate !== undefined) {
+    rmSync(immutableEffectTemplate.root, { recursive: true, force: true });
+    immutableEffectTemplate = undefined;
+  }
+});
+
+function effectTemplate(): EffectTemplate {
+  if (immutableEffectTemplate !== undefined) return immutableEffectTemplate;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-local-residue-base-'));
   try {
     const repositoryRoot = path.join(root, 'repository');
-    const recoveryRoot = path.join(root, 'recovery');
     mkdirSync(repositoryRoot);
     git(repositoryRoot, ['init', '-b', 'main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
@@ -106,6 +118,25 @@ function createEffectFixture(label: string) {
     git(repositoryRoot, ['branch', 'release', 'main']);
     git(repositoryRoot, ['update-ref', 'refs/remotes/origin/release', mainSha]);
     git(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release']);
+    immutableEffectTemplate = Object.freeze({ root, headSha, mainSha });
+    return immutableEffectTemplate;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Git base fixture setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+function createEffectFixture(label: string) {
+  const root = mkdtempSync(path.join(tmpdir(), `sec-local-residue-${label}-`));
+  try {
+    const base = effectTemplate();
+    const repositoryRoot = path.join(root, 'repository');
+    const recoveryRoot = path.join(root, 'recovery');
+    cpSync(path.join(base.root, 'repository'), repositoryRoot, { recursive: true });
+    const { headSha, mainSha } = base;
     const calls: string[][] = [];
     const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
       calls.push([command, ...args]);
@@ -173,7 +204,10 @@ function createEffectFixture(label: string) {
       dispose: () => rmSync(root, { recursive: true, force: true })
     };
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Git fixture copy and cleanup both failed');
+    }
     throw error;
   }
 }
@@ -336,7 +370,10 @@ function createSuccessorFixture(label: string) {
       retainedTargets: [{ branch: 'codex/source', expectedHeadSha: sourceSha,
         successor: { ref: 'refs/heads/codex/successor', expectedHeadSha: successorSha } }] };
   } catch (error) {
-    fixture.dispose();
+    try { fixture.dispose(); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Git successor fixture setup and cleanup both failed');
+    }
     throw error;
   }
 }
