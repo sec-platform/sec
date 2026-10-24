@@ -192,11 +192,18 @@ async function prepareManagedHookSource(repoRoot: string, commitMessage: string)
   git(repoRoot, ['config', 'user.email', 'tests@example.com']);
   git(repoRoot, ['config', 'user.name', 'SEC Tests']);
   await mkdir(path.join(repoRoot, '.githooks'));
-  await Promise.all(managedHookNames.map(async hook => {
+  // All native hook writers finish before Git publication or fixture
+  // retirement, including a failed chmod/write in a concurrent peer.
+  const writes = await Promise.allSettled(managedHookNames.map(async hook => {
     const hookPath = path.join(repoRoot, '.githooks', hook);
     await writeFile(hookPath, managedHookSource(hook), 'utf8');
     await chmod(hookPath, 0o755);
   }));
+  const failures = writes.flatMap(value => value.status === 'rejected' ? [value.reason] : []);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Managed hook source preparation failed');
+  }
   // Native Git stages the executable bit for every hook in one bounded command.
   // chmod above retains the actual worktree permission independently.
   git(repoRoot, ['add', '--chmod=+x', '.githooks']);
