@@ -123,7 +123,7 @@ for (const stage of ['lower', 'runtime', 'baseline', 'saved'] as const) {
           }
           return result;
         } }));
-        const { composeProject } = await import(path.join(repo, 'src/adapters/compilation/compose/compose-project.ts'));
+        const { composeProject } = await import(path.join(repo, 'src/bootstrap/engineering/project-composition.ts'));
         const options = { signal: controller.signal, opaqueModuleMaterializationMode: 'workspace-link' };
         if (stage === 'saved') {
           const { composeWorkspace } = await import(path.join(repo, 'src/bootstrap/engineering/compose-orchestrator.ts'));

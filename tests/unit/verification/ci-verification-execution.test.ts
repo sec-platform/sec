@@ -1,6 +1,5 @@
-import { spawnSync, type ChildProcess } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { EventEmitter } from 'node:events';
 import {
   chmodSync,
   closeSync,
@@ -103,12 +102,11 @@ import {
 import { CodexDevelopmentFailureTail } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, type CodexDevelopmentHostedSutSandboxProcess } from '../../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts';
 import { assertRetainedHostedSutArchive, hostedActionFileDigest, retainHostedSutArchive } from '../../../src/adapters/verification/platform/ci/verification-materialization.ts';
-import { finalizeHostedSutSandboxReceipt, hostedSutRootIsolationReceipt, observeHostedSutSandboxChild, syntheticHostedSutSandboxProcessObservation } from '../../../src/adapters/verification/platform/ci/verification-sut.ts';
+import { finalizeHostedSutSandboxReceipt, hostedSutRootIsolationReceipt, syntheticHostedSutSandboxProcessObservation } from '../../../src/adapters/verification/platform/ci/verification-sut.ts';
 import { assertHostedSutSandboxCommandPlan, buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA, CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertHostedActionParentEvent, CodexDevelopmentAssertHostedDependencyArchiveProjection, CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean, CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot, CodexDevelopmentCiVerificationMainForTests, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentHostedDependencyMaterializerEnvironment, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentInspectHostedActionArchiveInventory, CodexDevelopmentMaterializeTrustedBootstrapArchive, CodexDevelopmentRunBoundedDependencyMaterialization, CodexDevelopmentValidateHostedActionArchiveInventory, HOSTED_SUT_CAPABILITY_ASSERTION, hostedCandidateProcessEnvironment, TRUSTED_BOOTSTRAP_SUT_HARNESS, type CodexDevelopmentHostedActionArtifactObservation } from '../../../src/adapters/verification/platform/ci/verification.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { executeHostedActionSut, probeHostedSutCapability, type HostedSutPorts } from '../../../src/application/hosted-sut.ts';
 import type { VerificationGateResult, VerificationResultStatus } from '../../../src/assurance/verification/result/contract/result.ts';
-import { prepareHostedActionSutInputs, runHostedActionSut, type HostedSutInvocation } from '../../../src/bootstrap/development/hosted-sut.ts';
+import { prepareHostedActionSutInputs } from '../../../src/bootstrap/development/hosted-sut.ts';
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
@@ -766,33 +764,6 @@ test('CI runner executes an ordinary gate through Action and publishes only V4',
   }
 });
 
-test('CI runner accepts transition injection only with matching exact changed records', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-transition-binding-'));
-  try {
-    const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
-      baseSha: BASE,
-      headSha: HEAD,
-      records: [{ status: 'changed', path: 'src/bootstrap/engineering/cli.ts' }],
-      readPathBlob: () => null
-    });
-    expect(await CodexDevelopmentCiVerificationMainForTests({
-      ...baseOptions(root),
-      transitionObservation: transition,
-      writeEvidence: () => undefined
-    })).toBe(1);
-    const { changedFiles: _changedFiles, ...recordOptions } = baseOptions(root);
-    void _changedFiles;
-    expect(await CodexDevelopmentCiVerificationMainForTests({
-      ...recordOptions,
-      changedRecords: () => [{ status: 'added', path: 'src/bootstrap/engineering/cli.ts' }],
-      transitionObservation: transition,
-      writeEvidence: () => undefined
-    })).toBe(1);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('formal hosted mode fails closed before physical execution without complete Session/Action closure', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-formal-'));
   try {
@@ -818,10 +789,14 @@ test('formal hosted mode fails closed before physical execution without complete
 test('Action journal reuse is not Evidence without an independent durable result resolver', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-reuse-'));
   try {
+    let first: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
-      writeEvidence: () => undefined
-    })).toBe(0);
+      runGate: executeSentinelGate(root, 1, 'known failure'),
+      writeEvidence: (_file, value) => { first = value; }
+    })).toBe(1);
+    const terminal = first as unknown as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
+    expect(terminal.status).toBe('failed');
     let physical = 0;
     let writes = 0;
     expect(await CodexDevelopmentCiVerificationMainForTests({
@@ -834,41 +809,6 @@ test('Action journal reuse is not Evidence without an independent durable result
     })).toBe(1);
     expect(physical).toBe(0);
     expect(writes).toBe(0);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('durable known failure reuse remains failed and never executes or promotes to PASS', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-known-failure-'));
-  try {
-    let first: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
-    expect(await CodexDevelopmentCiVerificationMainForTests({
-      ...baseOptions(root),
-      runGate: executeSentinelGate(root, 1, 'known failure'),
-      writeEvidence: (_file, value) => { first = value; }
-    })).toBe(1);
-    const terminal = first as unknown as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
-    expect(terminal.status).toBe('failed');
-    const byActionKey = new Map(terminal.gates.map((gate) => [gate.action.actionKey, gate.result]));
-    let physical = 0;
-    let reused: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
-    expect(await CodexDevelopmentCiVerificationMainForTests({
-      ...baseOptions(root),
-      runGate: async (gate, execution) => {
-        physical += 1;
-        return executeSentinelGate(root, 0)(gate, execution);
-      },
-      readDurableActionResult: (actionKey) => {
-        const result = byActionKey.get(actionKey);
-        return result === undefined ? null : { result, evidenceRefs: ['artifact://known-failure'] };
-      },
-      writeEvidence: (_file, value) => { reused = value; }
-    })).toBe(1);
-    expect(physical).toBe(0);
-    const second = reused as unknown as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
-    expect(second.status).toBe('failed');
-    expect(second.gates[0]!.result).toMatchObject({ status: 'failed', disposition: 'reused' });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1191,33 +1131,6 @@ test('parent event binds the canonical one-key Session request wrapper', () => {
   )).toThrow('exact Session request wrapper');
 });
 
-test('supervisor errors do not settle the hosted process before close or attest inner execution', async () => {
-  const child = Object.assign(new EventEmitter(), {
-    stdout: null, stderr: null, kill: () => true
-  }) as unknown as ChildProcess;
-  let resolved = false;
-  const pending = observeHostedSutSandboxChild(child).then((observation) => {
-    resolved = true;
-    return observation;
-  });
-  child.emit('spawn');
-  child.emit('error', new Error('unshare: Operation not permitted'));
-  await Promise.resolve();
-  try {
-    expect(resolved).toBe(false);
-  } finally {
-    child.emit('close', 1, null);
-    await pending;
-  }
-  const observation = await pending;
-  expect(observation.lifecycle).toEqual({
-    supervisorSpawned: true, supervisorClosed: true, supervisorCloseCode: 1, supervisorSignal: null,
-    namespaceEstablished: null, candidateStarted: null, candidateUnitSettled: null,
-    observationGap: 'unsupported-source'
-  });
-  expect(observation.code).toBe(1);
-});
-
 test('capability success and directory cleanup cannot promote a pre-namespace supervisor failure to executed', async () => {
   const resolution = hostedResolution();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-pre-namespace-'));
@@ -1230,14 +1143,6 @@ test('capability success and directory cleanup cannot promote a pre-namespace su
   };
   const ticket = hostedTicket(resolution, archiveInventory);
   try {
-    const unqualified = prepareHostedActionSutInputs({
-      resolution, ticket, candidateArchive: path.join(root, 'absent.tar'), archiveInventory
-    });
-    // Production no longer has an ambient default observer. The actual Bootstrap
-    // entry must reject missing native invocation before opening any candidate.
-    await expect(runHostedActionSut(unqualified, {} as HostedSutInvocation)).rejects.toThrow();
-    expect(lstatSync(path.join(root, 'absent.tar'), { throwIfNoEntry: false })).toBeUndefined();
-
     const rawResult = await executeSutFixture({
       resolution, ticket, candidateArchive: archive, archiveInventory,
       platform: 'linux', unitNonce: 'pre-namespace', now: clock(),

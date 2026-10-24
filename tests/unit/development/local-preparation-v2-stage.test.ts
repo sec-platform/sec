@@ -19,18 +19,6 @@ async function scenario(name: string) {
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }
 
-test('public V2 prepare emits input while main health and native execution remain entirely uncalled', async () => {
-  const observed = await scenario('prepare');
-  expect(observed.failure).toBeNull();
-  expect(observed.result).toMatchObject({ status: 'LOCAL_PREPARED', stage: 'preparation-only',
-    qualification: 'not-run', unresolvedRequirements: ['native-runtime-content-not-accepted'],
-    sourceQualification: 'not-run', integrationAuthorization: 'not-issued' });
-  expect(observed.result.request.schema).toBe('sec-verification-session-local-preparation-v2');
-  expect(observed.result.sessionRevision).toBeUndefined();
-  expect(observed.counters).toMatchObject({ source: 0, native: 0, healthObservation: 0 });
-  expect(observed.stateCreated).toBe(false); expect(observed.cacheCreated).toBe(false);
-});
-
 test('V2 explicit execution reports missing frozen native content without creating state or trying another backend', async () => {
   const observed = await scenario('verify-unresolved');
   expect(observed.failure).toBeNull();
@@ -51,7 +39,16 @@ for (const name of ['actor-drift', 'metadata-drift', 'forged-content', 'cancelle
 }
 
 test('real CLI status/resume accept V2 read-only and explicit hosted readers reject it before state', async () => {
-  const request = (await scenario('prepare')).result.request;
+  const observed = await scenario('prepare');
+  expect(observed.failure).toBeNull();
+  expect(observed.result).toMatchObject({ status: 'LOCAL_PREPARED', stage: 'preparation-only',
+    qualification: 'not-run', unresolvedRequirements: ['native-runtime-content-not-accepted'],
+    sourceQualification: 'not-run', integrationAuthorization: 'not-issued' });
+  expect(observed.result.request.schema).toBe('sec-verification-session-local-preparation-v2');
+  expect(observed.result.sessionRevision).toBeUndefined();
+  expect(observed.counters).toMatchObject({ source: 0, native: 0, healthObservation: 0 });
+  expect(observed.stateCreated).toBe(false); expect(observed.cacheCreated).toBe(false);
+  const request = observed.result.request;
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-v2-cli-'));
   const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
   mkdirSync(root);
@@ -62,7 +59,9 @@ test('real CLI status/resume accept V2 read-only and explicit hosted readers rej
       const read = await runRetainedBunTestCommand([CLI, command, '--request', file], { cwd: root, env, envMode: 'replace',
         timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
       expect(read.code).toBe(0);
-      expect(JSON.parse(read.stdout)).toMatchObject({ stage: 'read-only-projection', sessionRevision: null,
+      expect(JSON.parse(read.stdout)).toMatchObject({ status: 'LOCAL_REQUEST_OBSERVED',
+        stage: 'read-only-projection', sessionRevision: null, verificationStatus: 'not-observed',
+        preparationInputMatched: false, sourceQualification: 'not-revalidated',
         currentSubject: 'not-observed', executionStarted: false });
       const hosted = await runRetainedBunTestCommand([CLI, command, '--execution', 'hosted', '--request', file],
         { cwd: root, env, envMode: 'replace', timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });

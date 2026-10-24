@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolveSecRuntimeStateForRepository } from '../../../src/adapters/runtime-state/workspace-state/paths.ts';
@@ -72,17 +72,6 @@ function stateFixture(operation: (input: { root: string; state: string; cache: s
   }
 }
 
-test('V2 read-only status has no invented Session and creates no runtime roots', () => {
-  stateFixture(({ root, state, cache }) => {
-    const status = readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot: root,
-      repository: 'sec-platform/sec', request: preparation() });
-    expect(status).toMatchObject({ status: 'LOCAL_REQUEST_OBSERVED', stage: 'read-only-projection',
-      sessionRevision: null, verificationStatus: 'not-observed', preparationInputMatched: false,
-      sourceQualification: 'not-revalidated', executionStarted: false });
-    expect(existsSync(state)).toBe(false); expect(existsSync(cache)).toBe(false);
-  });
-});
-
 test('copied preparation input alone never revives live qualification or creates a Session', () => {
   stateFixture(({ root, records }) => {
     mkdirSync(records, { recursive: true });
@@ -91,20 +80,11 @@ test('copied preparation input alone never revives live qualification or creates
       repository: 'sec-platform/sec', request: preparation() });
     expect(status).toMatchObject({ preparationInputMatched: true, sessionRevision: null,
       evidenceRecord: 'not-observed', sourceQualification: 'not-revalidated', integrationAuthorization: 'not-evaluated' });
-  });
-});
-
-test('V2 status rejects absent or different original preparation before accepting prior computation', () => {
-  stateFixture(({ root, records }) => {
-    mkdirSync(records, { recursive: true });
-    writeFileSync(path.join(records, 'verification-action.json'), '{}');
-    const read = () => readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot: root,
-      repository: 'sec-platform/sec', request: preparation() });
-    expect(read).toThrow('no exact stored preparation');
     const { requestDigest: _digest, requestOperationId: _operation, ...body } = preparation().request;
     const other = createVerificationSessionLocalPreparationRequestV2({ ...body, actorNodeId: 'OTHER' });
     writeFileSync(path.join(records, 'local-preparation-request.json'), `${encodeVerificationActionData(other)}\n`);
-    expect(read).toThrow();
+    expect(() => readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot: root,
+      repository: 'sec-platform/sec', request: preparation() })).toThrow('differs from current exact source');
   });
 });
 

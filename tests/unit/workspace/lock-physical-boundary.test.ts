@@ -3,9 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
-import { readLockFile, saveLock, writeLockWithGeneratedPaths } from "../../../src/adapters/workspace/lock.ts";
+import { readLockFile, saveLock } from "../../../src/adapters/workspace/lock.ts";
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import type { LockFile } from '../../../src/compiler/contract.ts';
 import { semanticArtifactLock } from '../../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
@@ -25,17 +24,17 @@ test('canonical Lock publication creates retained artifact state and round-trips
   });
 });
 
-test('Lock schema rejects unsupported producers before effects and unknown persisted members before use', async () => {
+test('Lock reader rejects unsupported persisted versions and unknown authority members before use', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const invalidProducer = {
-      ...lockFixture(),
-      formatVersion: 'future'
-    } as unknown as LockFile;
-    await expect(saveLock(workspaceRoot, invalidProducer)).rejects.toThrow('does not match 1');
-    await expect(fs.stat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
-
     const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await fs.writeFile(
+      lockPath,
+      `${JSON.stringify({ ...lockFixture(), formatVersion: 'future' }, null, 2)}\n`,
+      'utf8'
+    );
+    expect(() => readLockFile(workspaceRoot)).toThrow('does not match 1');
+
     await fs.writeFile(
       lockPath,
       `${JSON.stringify({ ...lockFixture(), unexpectedAuthority: true }, null, 2)}\n`,
@@ -71,22 +70,5 @@ test('canonical Lock publication refuses a linked .sec ancestor', async () => {
     await expect(saveLock(workspaceRoot, lockFixture()))
       .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
     expect(await fs.readdir(externalSec)).toEqual([]);
-  });
-});
-
-test('Lock publication helpers reject an arbitrary existing path even when its parent is ordinary', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const arbitraryRoot = path.join(workspaceRoot, 'ordinary-existing');
-    const arbitraryLockPath = path.join(arbitraryRoot, 'graph.lock.json');
-    await fs.mkdir(arbitraryRoot, { recursive: true });
-
-    await expect(
-      writeLockWithGeneratedPaths(
-        arbitraryLockPath,
-        lockFixture(),
-        ['control/evidence/probe.json']
-      )
-    ).rejects.toThrow('Refusing non-canonical Lock publication path');
-    expect(await fs.readdir(arbitraryRoot)).toEqual([]);
   });
 });

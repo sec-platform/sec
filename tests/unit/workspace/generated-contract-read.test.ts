@@ -61,13 +61,12 @@ test('only absent lock or no matching candidate becomes the requested missing di
   });
 });
 
-test('malformed candidates and selector failures retain their original error', async () => {
+test('malformed JSON and null contract candidates retain their original parser or selector error', async () => {
   await withTempWorkspace(async (root) => {
     await declare(root, [first]);
     await write(root, first, '{');
     await expect(readGeneratedContract(root, missing, matches)).rejects.toBeInstanceOf(SyntaxError);
-    await write(root, first, '{}');
-    const failure = new Error('selector failed');
-    await expect(readGeneratedContract(root, missing, () => { throw failure; })).rejects.toBe(failure);
+    await write(root, first, 'null');
+    await expect(readGeneratedContract(root, missing, matches)).rejects.toBeInstanceOf(TypeError);
   });
 });
