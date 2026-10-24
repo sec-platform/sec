@@ -28,7 +28,8 @@ test('invalid logical identities never acquire a new physical key', () => {
     'a:b/c',
     'A/b',
     'con/value',
-    'single'
+    'single',
+    'ticket//basic'
   ]) {
     expect(isCanonicalBlockId(invalid)).toBe(false);
     expect(() => encodeCanonicalBlockPhysicalKey(invalid)).toThrow();

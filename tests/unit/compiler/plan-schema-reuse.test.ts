@@ -41,7 +41,7 @@ test('null scalar defaults remain distinct from null containers', () => {
     registry: { sources: [{ id: 'custom', kind: null, location: null, path: null }] } });
   assert.equal(plan.app.packageManager, 'pnpm'); assert.equal(plan.app.mode, 'single-tenant');
   assert.equal(plan.registry.sources[0]?.kind, 'private'); assert.equal(plan.registry.sources[0]?.location, 'workspace');
-  for (const invalid of [{ app: null }, { registry: null }, { registry: { sources: null } }, { blocks: null }, { acceptance: null }]) {
+  for (const invalid of [{ app: null }, { registry: null }, { registry: { sources: null } }, { registry: { sources: [null] } }, { blocks: null }, { acceptance: null }]) {
     assert.throws(() => normalize({ ...input(), ...invalid }));
   }
 });
@@ -75,4 +75,6 @@ test('schema validity does not replace path, source permission or uniqueness rul
   ];
   for (const sources of values) assert.throws(() => validatePlan(normalize({ ...input(), registry: { sources } })));
   assert.throws(() => validatePlan(normalize({ ...input(), blocks: [{ id: 'block/a' }, { id: 'block/a' }] })), code('PLAN-VALIDATION-005'));
+  assert.throws(() => validatePlan(normalize({ ...input(), blocks: [{ id: '..\\escape/block' }] })), code('PLAN-VALIDATION-004'));
+  assert.throws(() => validatePlan(normalize({ ...input(), blocks: [{ id: 'ticket/basic', version: '../1.0.0' }] })), code('PLAN-VALIDATION-019'));
 });

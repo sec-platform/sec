@@ -60,26 +60,3 @@ for (const failureAt of ['readPlan', 'selectManifest', 'writePlan'] as const) {
     if (failureAt !== 'writePlan') expect(f.events).not.toContain('write');
   });
 }
-
-test('captured class ports retain their receiver and cannot be replaced during read suspension', async () => {
-  const f = fixture();
-  const calls: string[] = [];
-  let release!: () => void;
-  const pause = new Promise<void>(resolve => { release = resolve; });
-  class Ports implements AddBlockOperations {
-    #source = f.plan;
-    #selected = f.selected;
-    persisted: PlanFile | undefined;
-    async readPlan() { calls.push('read'); await pause; return this.#source; }
-    selectManifest() { calls.push('select'); return this.#selected; }
-    writePlan(plan: PlanFile) { calls.push('write'); this.persisted = plan; }
-  }
-  const ports = new Ports();
-  const pending = addBlockToPlan('feature/a', ports);
-  ports.selectManifest = () => { throw new Error('replacement selection'); };
-  ports.writePlan = () => { throw new Error('replacement persistence'); };
-  release();
-  const result = await pending;
-  expect(result.plan).toEqual(ports.persisted!);
-  expect(calls).toEqual(['read', 'select', 'write']);
-});

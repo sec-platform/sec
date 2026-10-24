@@ -1,41 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { loadManifestById, resolveRegistrySources } from '../../../src/adapters/workspace/sources/load-manifest.ts';
-import type { PlanFile } from '../../../src/compiler/contract.ts';
-import { SUPPORTED_STACK } from '../../../src/compiler/contract.ts';
-import { normalizePlan, validatePlan } from '../../../src/compiler/contract/plan-validation.ts';
-import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../../src/semantics/identity/block.ts';
-const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
-  officialPath: 'catalog/registry/official',
-  privatePath: 'model/blocks/private'
-});
-
-test('canonical block identity is cross-platform path-safe and injective', () => {
-  for (const value of [
-    'ticket/basic',
-    'auth/basic-session',
-    'agent/executor',
-    'namespace/deep_block-v2'
-  ]) {
-    expect(isCanonicalBlockId(value)).toBe(true);
-  }
-
-  for (const value of [
-    '',
-    'single',
-    '../escape',
-    '..\\escape/block',
-    'ticket/../escape',
-    'Ticket/basic',
-    'ticket/Basic',
-    'ticket/basic.v2',
-    'ticket//basic',
-    'con/basic',
-    'namespace/con'
-  ]) {
-    expect(isCanonicalBlockId(value)).toBe(false);
-  }
-});
+import { isCanonicalRegistryVersion } from '../../../src/semantics/identity/block.ts';
 
 test('canonical registry version is one exact lowercase SemVer path segment', () => {
   for (const value of ['0.1.0', '1.2.3', '1.2.3-rc.1', '1.2.3+build.7', '1.2.3-alpha.0+build.01']) {
@@ -79,44 +45,4 @@ test('direct registry source callers cannot bypass Plan enum and path validation
     location: 'workspace',
     path: '../escape'
   }])).toThrow();
-});
-
-test('Plan raw-shape normalization fails closed before array/property operations', () => {
-  expect(() => normalizePlan({
-    registry: { sources: { id: 'not-an-array' } }
-  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS)).toThrow();
-  expect(() => normalizePlan({
-    registry: { sources: [null] }
-  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS)).toThrow();
-  expect(() => normalizePlan({
-    blocks: { id: 'ticket/basic' }
-  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS)).toThrow();
-});
-
-test('Plan runtime validation rejects values TypeScript unions cannot protect after YAML parsing', () => {
-  const base = {
-    app: {
-      id: 'app',
-      name: 'App',
-      stack: SUPPORTED_STACK,
-      packageManager: 'npm',
-      mode: 'single-tenant'
-    },
-    registry: { sources: [] },
-    blocks: [{ id: 'ticket/basic', version: '1.0.0' }],
-    acceptance: []
-  } satisfies PlanFile;
-
-  expect(() => validatePlan({
-    ...base,
-    app: { ...base.app, packageManager: 'unknown' }
-  } as unknown as PlanFile)).toThrow();
-  expect(() => validatePlan({
-    ...base,
-    blocks: [{ id: '..\\escape/block' }]
-  } as unknown as PlanFile)).toThrow();
-  expect(() => validatePlan({
-    ...base,
-    blocks: [{ id: 'ticket/basic', version: '../1.0.0' }]
-  } as unknown as PlanFile)).toThrow();
 });
