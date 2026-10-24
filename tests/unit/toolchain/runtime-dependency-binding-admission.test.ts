@@ -17,14 +17,19 @@ function symbolOf(value: object) { return Object.getOwnPropertySymbols(value)[0]
 
 for (const change of ['extended-deadline', 'removed-cancellation', 'changed-clock', 'changed-identity'] as const) {
   test(`shape-compatible ledger forgery is rejected: ${change}`, async () => {
-    const original = parent();
+    const original = bind({ lockTimeoutMs: 100, monotonicNowMs: () => 0,
+      signal: new AbortController().signal });
     const fake = { ...context(original) };
     if (change === 'extended-deadline') fake.deadlineAtMonotonicMs += 1_000_000;
     if (change === 'removed-cancellation') fake.signal = undefined;
     if (change === 'changed-clock') fake.monotonicNowMs = () => assert.fail('forged clock called');
     if (change === 'changed-identity') fake.operationId = 'borrowed-identity';
     const candidate = { ...original, [symbolOf(original)]: Object.freeze(fake) };
-    for (const consume of [bind, install, context, (x: typeof candidate) => remaining(x, 'remaining'),
+    assert.throws(() => context(candidate), rejected);
+    // Field variants exercise issuance here; each consumer independently checks
+    // its routing with a forged clock that must never execute.
+    if (change !== 'changed-clock') return;
+    for (const consume of [bind, install, (x: typeof candidate) => remaining(x, 'remaining'),
       (x: typeof candidate) => deadline(x, 'deadline'), readRuntimeDependencyOperationTelemetry,
       (x: typeof candidate) => measureRuntimeDependencyOperationPhase(x, 'install', () => assert.fail('action ran'))]) {
       assert.throws(() => consume(candidate), rejected);

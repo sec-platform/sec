@@ -167,8 +167,13 @@ for (const lockTimeoutMs of [undefined, 1, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS])
 for (const lockTimeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS + 1]) {
   test(`invalid budget ${lockTimeoutMs} cannot reach the environment clock`, () => {
     const input = { lockTimeoutMs, monotonicNowMs: () => { assert.fail('clock ran before admission'); } };
-    for (const bind of [runtimeDependencyOperationControls, runtimeDependencyOperationOptions]) {
-      assert.throws(() => bind(input), (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003');
+    assert.throws(() => runtimeDependencyOperationControls(input),
+      (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003');
+    // The coordinator delegates this grammar to controls; retain its own
+    // rejection-before-clock observation without repeating every input class.
+    if (lockTimeoutMs === 0) {
+      assert.throws(() => runtimeDependencyOperationOptions(input),
+        (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003');
     }
   });
 }

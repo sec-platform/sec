@@ -32,7 +32,6 @@ import {
   type ActivePointer,
   type DocumentControlRecoveryTargetKey,
   type InitiallyAbsentTuple,
-  type InitiallyAbsentTupleByteClass,
   type InitiallyAbsentTupleEdge,
   type InitiallyAbsentTupleEntry,
   type InitiallyAbsentTuplePlatform,
@@ -224,18 +223,12 @@ const CURRENT_ACTIVE_PATH = `config/repository/work-packages/${CURRENT_ACTIVE_ID
 const FREEZE_TARGET_ID = 'freeze-target-v1';
 const FREEZE_TARGET_PATH = `config/repository/work-packages/${FREEZE_TARGET_ID}.md`;
 
-test('initially-absent pure T/N/R contract exhaustively owns classification and its five edges', () => {
-  const byteClasses: readonly InitiallyAbsentTupleByteClass[] = [
-    'absent', 'exact-next', 'unknown'
-  ];
-  const identities = [null, '', 'A', 'B'] as const;
-  const entries = byteClasses.flatMap((byteClass) => identities.map((identity) => Object.freeze({
-    byteClass,
-    identity
-  }) as InitiallyAbsentTupleEntry));
+test('initially-absent T/N/R contract covers normalized tuples, malformed entries and its five edges', () => {
   const absent = Object.freeze({ byteClass: 'absent' as const, identity: null });
   const exactA = Object.freeze({ byteClass: 'exact-next' as const, identity: 'A' });
   const exactB = Object.freeze({ byteClass: 'exact-next' as const, identity: 'B' });
+  const unknown = Object.freeze({ byteClass: 'unknown' as const, identity: 'A' });
+  const entries = [absent, exactA, exactB, unknown] as const;
   const tuple = (
     target: InitiallyAbsentTupleEntry = absent,
     next: InitiallyAbsentTupleEntry = absent,
@@ -246,12 +239,6 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
     observation: InitiallyAbsentTuple
   ) => {
     const values = [observation.target, observation.next, observation.retiredNext];
-    if (values.some((entry) => (
-      (entry.byteClass === 'absent') !== (entry.identity === null)
-      || (entry.byteClass !== 'absent' && entry.identity === '')
-    ))) {
-      return { status: 'invalid', reason: 'malformed-observation' } as const;
-    }
     if (values.some((entry) => entry.byteClass === 'unknown')) {
       return { status: 'invalid', reason: 'unknown-bytes' } as const;
     }
@@ -300,7 +287,16 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
     { target: absent, next: { byteClass: 'exact-next', identity: '' }, retiredNext: absent },
     { target: absent, next: { byteClass: 'unknown', identity: '' }, retiredNext: absent },
     { target: absent, next: absent, retiredNext: { byteClass: 'exact-next', identity: '' } },
-    { target: absent, next: absent, retiredNext: { byteClass: 'unknown', identity: '' } }
+    { target: absent, next: absent, retiredNext: { byteClass: 'unknown', identity: '' } },
+    { target: { byteClass: 'absent', identity: 'A' }, next: unknown, retiredNext: unknown },
+    { target: { byteClass: 'exact-next', identity: null }, next: unknown, retiredNext: unknown },
+    { target: { byteClass: 'unknown', identity: null }, next: unknown, retiredNext: unknown },
+    { target: unknown, next: { byteClass: 'absent', identity: 'A' }, retiredNext: unknown },
+    { target: unknown, next: { byteClass: 'exact-next', identity: null }, retiredNext: unknown },
+    { target: unknown, next: { byteClass: 'unknown', identity: null }, retiredNext: unknown },
+    { target: unknown, next: unknown, retiredNext: { byteClass: 'absent', identity: 'A' } },
+    { target: unknown, next: unknown, retiredNext: { byteClass: 'exact-next', identity: null } },
+    { target: unknown, next: unknown, retiredNext: { byteClass: 'unknown', identity: null } }
   ];
   for (const malformed of malformedRows) {
     expect(classifyInitiallyAbsentEntryTuple({
@@ -311,18 +307,6 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
     platform: 'darwin' as InitiallyAbsentTuplePlatform,
     tuple: null as unknown as InitiallyAbsentTuple
   })).toEqual({ status: 'invalid', reason: 'unsupported-platform' });
-  expect(classifyInitiallyAbsentEntryTuple({
-    platform: 'linux',
-    tuple: tuple({ byteClass: 'unknown', identity: null } as InitiallyAbsentTupleEntry)
-  })).toEqual({ status: 'invalid', reason: 'malformed-observation' });
-  expect(classifyInitiallyAbsentEntryTuple({
-    platform: 'linux',
-    tuple: tuple({ byteClass: 'unknown', identity: 'A' })
-  })).toEqual({ status: 'invalid', reason: 'unknown-bytes' });
-  expect(classifyInitiallyAbsentEntryTuple({
-    platform: 'linux',
-    tuple: tuple(exactA, absent, exactB)
-  })).toEqual({ status: 'invalid', reason: 'identity-mismatch' });
 
   const legalTuples = {
     win32: [tuple(), tuple(absent, exactA), tuple(exactA)],
