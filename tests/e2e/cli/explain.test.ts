@@ -21,8 +21,8 @@ test('CLI emits explain JSON for CI consumers', async () => {
       'Provenance detail: artifacts:',
       'registry:',
       'unverified:',
-      'Install impact: 3 impacts; groups: 2; actions: copy, merge-prisma;',
-      'runtime entries: 0; targets: 8',
+      'Install impact: 3 impacts;',
+      'actions: copy, merge-prisma; runtime entries: 3; targets: 8',
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
       'Chain: attention; stages: 3/4; attention: 1; failed: 0',
       'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
@@ -91,20 +91,18 @@ test('CLI emits explain JSON for CI consumers', async () => {
         changeSourceCount: number;
         runtimeEntryCount: number;
         installImpactCount: number;
+        installImpacts: Array<{
+          blockId: string;
+          actionKinds: string[];
+          runtimeEntries: string[];
+          targetPaths: string[];
+        }>;
         installImpactSummary: {
           impactCount: number;
-          groupCount: number;
           blockCount: number;
           actionKinds: string[];
           runtimeEntryCount: number;
           targetPathCount: number;
-          groupSummaries: Array<{
-            vertical: string;
-            blockCount: number;
-            actionKinds: string[];
-            runtimeEntries: string[];
-            targetPaths: string[];
-          }>;
         };
         impactedBlocks: string[];
         failurePoints: unknown[];
@@ -220,38 +218,37 @@ test('CLI emits explain JSON for CI consumers', async () => {
     });
     expect(payload.reviewSummary.installImpactSummary).toMatchObject({
       impactCount: 3,
-      groupCount: 2,
       blockCount: 3,
       actionKinds: ['copy', 'merge-prisma'],
-      runtimeEntryCount: 0,
-      targetPathCount: 8,
-      groupSummaries: expect.arrayContaining([
-        expect.objectContaining({
-          vertical: 'customer',
-          blockCount: 1,
-          actionKinds: ['copy', 'merge-prisma'],
-          runtimeEntries: [],
-          targetPaths: expect.arrayContaining([
-            'prisma/schema.prisma',
-            'src/installed/entity/customer-service.ts',
-            'tests/acceptance/customer-flow.test.ts',
-            'tests/unit/customer-normalizer.test.ts'
-          ])
-        }),
-        expect.objectContaining({
-          vertical: 'none',
-          blockCount: 2,
-          actionKinds: ['copy'],
-          runtimeEntries: [],
-          targetPaths: expect.arrayContaining([
-            'src/installed/auth/session.ts',
-            'src/installed/tenant/context.ts',
-            'tests/acceptance/auth-flow.test.ts',
-            'tests/shared/tenant-runtime-fixture.ts'
-          ])
-        })
-      ])
+      runtimeEntryCount: 3,
+      targetPathCount: 8
     });
+    expect(payload.reviewSummary.installImpacts.map(({ blockId, actionKinds, runtimeEntries, targetPaths }) =>
+      ({ blockId, actionKinds, runtimeEntries, targetPaths }))).toEqual([
+      {
+        blockId: 'auth/basic-session',
+        actionKinds: ['copy'],
+        runtimeEntries: ['src/installed/auth/session.ts'],
+        targetPaths: ['src/installed/auth/session.ts', 'tests/acceptance/auth-flow.test.ts']
+      },
+      {
+        blockId: 'entity/customer-basic',
+        actionKinds: ['copy', 'merge-prisma'],
+        runtimeEntries: ['src/installed/entity/customer-service.ts'],
+        targetPaths: [
+          'prisma/schema.prisma',
+          'src/installed/entity/customer-service.ts',
+          'tests/acceptance/customer-flow.test.ts',
+          'tests/unit/customer-normalizer.test.ts'
+        ]
+      },
+      {
+        blockId: 'tenant/basic-workspace',
+        actionKinds: ['copy'],
+        runtimeEntries: ['src/installed/tenant/context.ts'],
+        targetPaths: ['src/installed/tenant/context.ts', 'tests/shared/tenant-runtime-fixture.ts']
+      }
+    ]);
     expect(payload.reviewSummary.impactedBlocks).toEqual(
       expect.arrayContaining([
         'auth/basic-session',

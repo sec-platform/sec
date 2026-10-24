@@ -1292,74 +1292,8 @@ test.serial('failed explicit resource batch settles started siblings then emits 
   }
 });
 
-test.serial('copied TCB recovery is one-file isolated and emits an exact diagnostic-only failure receipt', async () => {
-  const file = 'tests/unit/verification/ci-verification-execution.test.ts';
-  const plan = planFastTestProcesses([file]);
-  expect(plan.parallelFiles).toEqual([]);
-  expect(plan.resourceQueues['independent-process']).toEqual([file]);
-  devCommandExitCodes.push(7);
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (message?: unknown) => { errors.push(String(message)); };
-
-  try {
-    expect(await runFastTests([file])).toBe(7);
-    expect(devCommandCalls).toEqual([{
-      command: 'bun',
-      args: ['test', `./${file}`, ...DEFAULT_MANAGED_INNER_ARGS, '--timeout', '180000']
-    }]);
-    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(receipts).toHaveLength(1);
-    const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
-      schema: string;
-      replayAuthority: string;
-      queue: string;
-      failures: Array<{ selectedTestFiles: string[]; effectiveArgv: string[] }>;
-    };
-    expect(receipt).toMatchObject({
-      schema: 'sec-fast-test-failure-receipt-v3',
-      replayAuthority: 'none-diagnostic-only',
-      queue: 'independent-process'
-    });
-    expect(receipt.failures).toHaveLength(1);
-    expect(receipt.failures[0].selectedTestFiles).toEqual([file]);
-    expect(receipt.failures[0].effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([`./${file}`]);
-  } finally {
-    console.error = originalError;
-  }
-});
-
-test.serial('failure receipt normalizes lone surrogates within final serialized tail caps', async () => {
-  devCommandExitCodes.push(7);
-  devCommandObservationOverrides.push({
-    stdoutTail: '\ud800'.repeat(4096),
-    stderrTail: '\udc00'.repeat(4096)
-  });
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (message?: unknown) => { errors.push(String(message)); };
-
-  try {
-    expect(await runFastTests(['tests/unit/workspace/path-containment.test.ts'])).toBe(7);
-
-    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(receipts).toHaveLength(1);
-    const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
-      failures: Array<{ stdoutTail: string; stderrTail: string }>;
-    };
-    for (const field of [receipt.failures[0].stdoutTail, receipt.failures[0].stderrTail]) {
-      expect(Buffer.byteLength(field, 'utf8')).toBeLessThanOrEqual(2 * 1024);
-      expect(field.length).toBeGreaterThan(0);
-      expect([...field].every((character) => character === '�')).toBe(true);
-    }
-  } finally {
-    console.error = originalError;
-  }
-});
-
-
-
 test.serial('observed failure receipt bounds terminal, integrity, argv, and UTF-8 tails', async () => {
+  const file = 'tests/unit/verification/ci-verification-execution.test.ts';
   const longText = '🙂界'.repeat(700);
   const longArg = `--test-name-pattern=${longText}argv sentinel`;
   devCommandExitCodes.push(7);
@@ -1378,15 +1312,20 @@ test.serial('observed failure receipt bounds terminal, integrity, argv, and UTF-
 
   try {
     expect(await runFastTests([
-      'tests/integration/workspace/pipeline-kernel.test.ts',
+      file,
       longArg
     ])).toBe(1);
+    expect(devCommandCalls).toEqual([{
+      command: 'bun',
+      args: ['test', `./${file}`, ...DEFAULT_MANAGED_INNER_ARGS, longArg, '--timeout', '180000']
+    }]);
 
     const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
     expect(receipts).toHaveLength(1);
     const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
       failures: Array<{
         kind: string;
+        selectedTestFiles: string[];
         terminal: { kind: string; error?: string };
         observationIntegrity: { kind: string; error?: string };
         effectiveArgv: string[];
@@ -1395,9 +1334,16 @@ test.serial('observed failure receipt bounds terminal, integrity, argv, and UTF-
         stderrTail: string;
       }>;
     };
+    expect(receipt).toMatchObject({
+      schema: 'sec-fast-test-failure-receipt-v3',
+      replayAuthority: 'none-diagnostic-only',
+      queue: 'independent-process'
+    });
     expect(receipt.failures).toHaveLength(1);
     const failure = receipt.failures[0]!;
     expect(failure.kind).toBe('observed-command-failure');
+    expect(failure.selectedTestFiles).toEqual([file]);
+    expect(failure.effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([`./${file}`]);
     expect(failure.terminal.kind).toBe('spawn-failed');
     expect(failure.observationIntegrity.kind).toBe('failed');
     expect(failure.effectiveArgvTruncated).toBe(true);

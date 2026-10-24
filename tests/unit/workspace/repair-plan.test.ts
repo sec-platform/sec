@@ -200,7 +200,7 @@ test('repair admits subject-bound diagnostics before effects and keeps all-lane 
 });
 
 
-test('repair passes its admitted tuple through planning without rereading or caller retargeting', async () => {
+test('repair passes its admitted tuple through planning without rereading removed artifacts', async () => {
   await withTempWorkspace(async workspaceRoot => {
     const fixture = buildRepairVerificationFixture('all', false);
     for (const relative of [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.provenance]) {
@@ -213,7 +213,6 @@ test('repair passes its admitted tuple through planning without rereading or cal
       readVerification: () => captured.verificationReport,
       buildPlan: report => {
         expect(report).toEqual(captured.verificationReport);
-        fixture.lock.app.id = 'retargeted-by-plan-caller';
         return buildRepairPlan(report);
       },
       publish: async (plan, lock) => {

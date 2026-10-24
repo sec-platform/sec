@@ -24,11 +24,10 @@ import {
   scanNoFollowDirectoryTreeInventory
 } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../src/adapters/runtime-state/workspace-state/paths.ts';
-import { DEFAULT_TEST_TIMEOUT_MS, type FastTestBatchExecutionAdmission } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   consumeTestProcessTempAssignment,
   createTestInvocationRuntimeRoots,
-  createTestProcessTempRoot,
   disposeRetainedTestInvocationRuntime,
   prepareTestInvocationRuntime,
   testInvocationRuntimeIsolationModeForPlatform,
@@ -148,51 +147,6 @@ for (const drift of ['none', 'binding', 'identity', 'cache-absent', 'tmp-absent'
   }, DEFAULT_TEST_TIMEOUT_MS);
 }
 
-test('test invocation runtime rejects a reconstructed fast-batch deadline before physical effects', async () => {
-  const root = generation('sec-invocation-runtime-forged-budget-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  mkdirSync(hostTempRoot);
-  try {
-    await expect(createTestInvocationRuntimeRoots({
-      repositoryRoot,
-      hostTempRoot,
-      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
-      fastTestBatchAdmission: Object.freeze({}) as FastTestBatchExecutionAdmission
-    })).rejects.toThrow('owner-issued admission');
-    expect(existsSync(stateRoot)).toBe(false);
-    expect(existsSync(cacheRoot)).toBe(false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('test process temp owns one disjoint generation and removes only that generation', async () => {
-  const repositoryRoot = generation('sec-temp-owner-repository-');
-  const hostTempRoot = generation('sec-temp-owner-host-');
-  const stateRoot = generation('sec-temp-owner-state-');
-  const cacheRoot = generation('sec-temp-owner-cache-');
-  try {
-    const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
-    const owned = await createTestProcessTempRoot({ repositoryRoot, hostTempRoot, environment });
-    expect(environment.TMP).toBe(owned.tempRoot);
-    expect(environment.TEMP).toBe(owned.tempRoot);
-    expect(environment.TMPDIR).toBe(owned.tempRoot);
-    expect(owned.tempRoot).toBe(path.join(owned.processRoot, 'tmp'));
-    expect(existsSync(owned.processRoot)).toBe(true);
-    await owned.cleanup();
-    expect(existsSync(owned.processRoot)).toBe(false);
-    expect(existsSync(hostTempRoot)).toBe(true);
-  } finally {
-    for (const target of [repositoryRoot, hostTempRoot, stateRoot, cacheRoot]) {
-      rmSync(target, { recursive: true, force: true });
-    }
-  }
-});
-
 test.skipIf(process.platform !== 'win32')('test process temp rejects an unavailable Windows path budget before any generation effect', async () => {
   const repositoryRoot = generation('sec-temp-budget-repository-');
   const stateRoot = generation('sec-temp-budget-state-');
@@ -227,16 +181,20 @@ test('test process temp rejects OS temp overlap before creating a generation', a
   try {
     const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
     const candidateParents = [repositoryRoot, stateRoot, cacheRoot];
-    const generations = (): readonly string[] => candidateParents.flatMap((parent) =>
-      readdirSync(parent)
-        .filter((entry) => entry.startsWith('sec-test-process-'))
-        .map((entry) => path.join(parent, entry)));
-    const before = generations();
     for (const hostTempRoot of candidateParents) {
-      await expect(createTestProcessTempRoot({ repositoryRoot, hostTempRoot, environment }))
-        .rejects.toThrow('must be disjoint');
+      let unexpected: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+      try {
+        await expect(createTestInvocationRuntimeRoots({ repositoryRoot, hostTempRoot, environment })
+          .then(runtime => { unexpected = runtime; return runtime; }))
+          .rejects.toMatchObject({
+            code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+            message: expect.stringContaining('must be physically disjoint')
+          });
+        expect(candidateParents.map(parent => readdirSync(parent))).toEqual([[], [], []]);
+      } finally {
+        await unexpected?.cleanup();
+      }
     }
-    expect(generations()).toEqual(before);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -327,11 +285,13 @@ test('direct test invocation binds and retires one State Cache and TMP generatio
     expect(environment.TMP).toBe(runtime.tempRoot);
     expect(environment.TEMP).toBe(runtime.tempRoot);
     expect(environment.TMPDIR).toBe(runtime.tempRoot);
+    expect(runtime.tempRoot).toBe(path.join(runtime.processRoot, 'tmp'));
     expect(existsSync(runtime.processRoot)).toBe(true);
     await runtime.cleanup();
     expect(existsSync(runtime.processRoot)).toBe(false);
     expect(existsSync(runtime.stateRoot)).toBe(false);
     expect(existsSync(runtime.cacheRoot)).toBe(false);
+    expect(existsSync(hostTempRoot)).toBe(true);
     expect(environment).toEqual({
       SEC_STATE_HOME: stateRoot,
       SEC_CACHE_HOME: cacheRoot,

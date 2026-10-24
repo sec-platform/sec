@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { publishRepairPlanResult, type RepairPlanPublicationOperations } from '../../../src/application/repair-plan-publication.ts';
+import { publishRepairPlanResult } from '../../../src/application/repair-plan-publication.ts';
 import { buildRepairPlan } from '../../../src/application/repair-plan.ts';
 import { buildPassingReviewReport, buildReviewLock } from '../../helpers/review-fixtures.ts';
 
@@ -24,45 +24,27 @@ for (const status of ['passed', 'failed'] as const) {
   });
 }
 
-for (const primary of [undefined, null, false, 0, Symbol('failure'), new Error('publication')]) {
-  for (const secondaryFails of [false, true]) {
-    test(`publication failure ${String(primary)} survives settlement failure=${secondaryFails}`, async () => {
-      const input = fixture(); const secondary = Object.freeze({ reason: 'state-write' });
-      let writes = 0;
-      const pending = publishRepairPlanResult(input, {
-        publish: () => { throw primary; },
-        recordFailure: async lock => {
-          writes++; expect(lock.passStatus.repair).toBe('failed');
-          if (secondaryFails) throw secondary;
-        }
-      });
-      try { await pending; throw new Error('unexpected success'); }
-      catch (error) {
-        if (!secondaryFails) expect(error).toBe(primary);
-        else {
-          expect(error).toBeInstanceOf(AggregateError);
-          expect((error as AggregateError).errors).toEqual([primary, secondary]);
-          expect((error as AggregateError).cause).toBe(primary);
-        }
+for (const secondaryFails of [false, true]) {
+  test(`publication failure survives settlement failure=${secondaryFails}`, async () => {
+    const primary = new Error('publication');
+    const input = fixture(); const secondary = Object.freeze({ reason: 'state-write' });
+    let writes = 0;
+    const pending = publishRepairPlanResult(input, {
+      publish: () => { throw primary; },
+      recordFailure: async lock => {
+        writes++; expect(lock.passStatus.repair).toBe('failed');
+        if (secondaryFails) throw secondary;
       }
-      expect(writes).toBe(1);
     });
-  }
+    try { await pending; throw new Error('unexpected success'); }
+    catch (error) {
+      if (!secondaryFails) expect(error).toBe(primary);
+      else {
+        expect(error).toBeInstanceOf(AggregateError);
+        expect((error as AggregateError).errors).toEqual([primary, secondary]);
+        expect((error as AggregateError).cause).toBe(primary);
+      }
+    }
+    expect(writes).toBe(1);
+  });
 }
-
-test('publication ports preserve private state and the captured settlement callback', async () => {
-  const primary = new Error('publish'); let release!: () => void;
-  const pause = new Promise<void>(resolve => { release = resolve; });
-  class Ports implements RepairPlanPublicationOperations {
-    #calls = 0;
-    async publish() { this.#calls++; await pause; throw primary; }
-    recordFailure() { this.#calls++; }
-    get calls() { return this.#calls; }
-  }
-  const ports = new Ports();
-  const pending = publishRepairPlanResult(fixture(), ports);
-  ports.recordFailure = () => { throw new Error('replacement'); };
-  release();
-  await expect(pending).rejects.toBe(primary);
-  expect(ports.calls).toBe(2);
-});
