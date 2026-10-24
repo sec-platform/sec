@@ -86,17 +86,17 @@ test('policy inspection routes retained report through application summary proje
     expect(projected.status).toBe('skipped');
     expect(projected.policies).toEqual([]);
     expect(projected.violations).toEqual([]);
-    const rendered = formatPolicyReport(projected);
+    // Projector/formatter meaning was independently verified with the
+    // nonempty fixture above. The skipped report's real CLI output is a
+    // separate source-backed witness, not a second formatter echo.
     const { stdout } = await expectCliSuccess(workspaceRoot, ['policy']);
-    for (const actual of [rendered, stdout]) {
-      const lines = actual.split(/\r?\n/u);
-      const header = lines.find(line => line.startsWith('Policy report '));
-      for (const field of ['Policy report skipped', 'official=0', 'project=0', 'merged=0', 'violations=0']) {
-        expect(header).toContain(field);
-      }
-      expect(lines.find(line => line.startsWith('Sources:'))).toMatch(/\b0\b/u);
-      expect(lines.find(line => line.startsWith('Severity:'))).toMatch(/\bnone\b/u);
+    const lines = stdout.split(/\r?\n/u);
+    const header = lines.find(line => line.startsWith('Policy report '));
+    for (const field of ['Policy report skipped', 'official=0', 'project=0', 'merged=0', 'violations=0']) {
+      expect(header).toContain(field);
     }
+    expect(lines.find(line => line.startsWith('Sources:'))).toMatch(/\b0\b/u);
+    expect(lines.find(line => line.startsWith('Severity:'))).toMatch(/\bnone\b/u);
 
     const json = await expectCliJson(workspaceRoot, ['policy', '--json']);
     expect(json).toEqual(report);

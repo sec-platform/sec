@@ -83,7 +83,10 @@ for (const [command, mode] of legacyModes) {
         const explicit = await runCliInProcess(root, [command, mode]);
         expect(explicit).toEqual(implicit);
         expect(explicit.code).toBe(0);
-      } else {
+      } else if (command === 'policy' || command === 'provenance') {
+        // policy/acceptance/runtime/verification share the artifact reader;
+        // policy proves its missing branch once. Provenance has a separate
+        // resolver, so it keeps an independent absence witness.
         const missing = await runCliInProcess(root, [command]);
         expect(missing.code).toBe(1);
         expect(missing.stderr).toContain('not found');

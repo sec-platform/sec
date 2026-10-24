@@ -48,21 +48,31 @@ test('review matrix routes adapter result through application and entry while pr
 
     const { stdout } = await expectCliSuccess(workspaceRoot, ['review', 'matrix']);
     const lines = stdout.trimEnd().split(/\r?\n/u);
-    const stages = ['verification', 'coverage', 'artifacts', 'review'] as const;
-    expect(matrix.rowCount).toBe(stages.length);
-    expect(matrix.rows.map(row => row.stage)).toEqual([...stages]);
-    expect(lines).toHaveLength(stages.length + 1);
-    expect(lines[0]).toContain(`E2E matrix ${matrix.status}`);
+    // The production matrix builder is used by the CLI too; checking its
+    // projection against itself is a wiring test, not an independent oracle.
+    const expectedStages = [
+      { stage: 'verification', status: 'passed', markers: ['lane=fast', 'ci=passed', 'failures=0'] },
+      { stage: 'coverage', status: 'passed', markers: ['blocks=0/0'] },
+      { stage: 'artifacts', status: 'attention', markers: ['artifacts=missing'] },
+      { stage: 'review', status: 'passed', markers: ['review-summary=generated'] }
+    ] as const;
+    expect(matrix.status).toBe('attention');
+    expect(matrix.rowCount).toBe(expectedStages.length);
+    expect(matrix.rows.map(({ stage, status }) => ({ stage, status })))
+      .toEqual(expectedStages.map(({ stage, status }) => ({ stage, status })));
+    expect(lines).toHaveLength(expectedStages.length + 1);
+    expect(lines[0]).toContain('E2E matrix attention');
     expect(lines[0]).toContain('rows=4');
-    expect(lines[1]).toContain('verification: passed');
-    expect(lines[1]).toContain('ci=passed');
-    expect(lines[1]).toContain('failures=0');
-    expect(lines[2]).toContain('coverage: passed');
-    for (const [index, row] of matrix.rows.entries()) {
+    for (const [index, expected] of expectedStages.entries()) {
       const line = lines[index + 1]!;
-      expect(line).toContain(`${row.stage}: ${row.status}`);
-      expect(line).toContain(row.detail);
-      for (const evidence of row.evidence) expect(line).toContain(evidence);
+      expect(line).toContain(expected.stage + ': ' + expected.status);
+      for (const marker of expected.markers) {
+        expect(line).toContain(marker);
+        expect(
+          matrix.rows[index]!.detail.includes(marker)
+          || matrix.rows[index]!.evidence.some(value => value.includes(marker))
+        ).toBe(true);
+      }
     }
 
     const json = await expectCliJson(workspaceRoot, ['review', 'matrix', '--json']);

@@ -8,6 +8,19 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
+// Fixed semantic oracle for both the direct projection and real CLI JSON.
+// Never compute a route's expected result with its own production projection.
+const EXPECTED_POLICY_SOURCES = {
+  status: 'passed',
+  sourceCount: 3,
+  policyCount: 4,
+  sources: [
+    { scope: 'official', path: 'a', policyCount: 2, policyIds: ['official:a', 'official:b'] },
+    { scope: 'official', path: 'z', policyCount: 1, policyIds: ['official:z'] },
+    { scope: 'project', path: 'b', policyCount: 1, policyIds: ['project:b'] }
+  ]
+};
+
 test('policy sources routes retained policy evidence through application and entry', async () => {
   // Direct projection protects detachment and ordering; real CLI checks rendering below.
   {
@@ -29,16 +42,7 @@ test('policy sources routes retained policy evidence through application and ent
 
     source.official.sources[0]!.policyIds.push('later');
     source.project.sources[0]!.policyIds.length = 0;
-    expect(view).toEqual({
-      status: 'passed',
-      sourceCount: 3,
-      policyCount: 4,
-      sources: [
-        { scope: 'official', path: 'a', policyCount: 2, policyIds: ['official:a', 'official:b'] },
-        { scope: 'official', path: 'z', policyCount: 1, policyIds: ['official:z'] },
-        { scope: 'project', path: 'b', policyCount: 1, policyIds: ['project:b'] }
-      ]
-    });
+    expect(view).toEqual(EXPECTED_POLICY_SOURCES);
     expect(source.official.sources.map((entry) => entry.path)).toEqual(originalOfficial);
     view.sources[1]!.policyIds.push('projection-only');
     expect(source.official.sources[0]!.policyIds).toEqual(['official:z', 'later']);
@@ -60,7 +64,6 @@ test('policy sources routes retained policy evidence through application and ent
     await fs.mkdir(path.dirname(reportPath), { recursive: true });
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
-    const projected = projectPolicySources(report);
     const { stdout } = await expectCliSuccess(workspaceRoot, ['policy', 'sources']);
     const lines = stdout.split(/\r?\n/u);
     const header = lines.find(line => line.startsWith('Policy sources '));
@@ -81,6 +84,6 @@ test('policy sources routes retained policy evidence through application and ent
     }
 
     const json = await expectCliJson(workspaceRoot, ['policy', 'sources', '--json']);
-    expect(json).toEqual(projected);
+    expect(json).toEqual(EXPECTED_POLICY_SOURCES);
   });
 });
