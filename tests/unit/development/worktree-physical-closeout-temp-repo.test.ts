@@ -1,8 +1,9 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   closeSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -90,33 +91,92 @@ function materializeCompilerDependencyFixture(root: string): void {
   }
 }
 
-function fixture(options: Readonly<{ compilerDependencies?: boolean; documentationCoordination?: boolean; targetName?: string; trackedBackslash?: boolean }> = {}) {
+type CloseoutFixtureOptions = Readonly<{
+  compilerDependencies?: boolean;
+  documentationCoordination?: boolean;
+  targetName?: string;
+  trackedBackslash?: boolean;
+}>;
+
+// Build a native bare remote and a native main repository once for each
+// distinct tracked source class. Crucially, no registered worktree is copied:
+// each test must issue its own native worktree registration at its actual path.
+const immutableCloseoutTemplates = new Map<string, Readonly<{ root: string }>>();
+
+afterAll(() => {
+  const errors: unknown[] = [];
+  for (const template of immutableCloseoutTemplates.values()) {
+    try { rmSync(template.root, { recursive: true, force: true }); }
+    catch (error) { errors.push(error); }
+  }
+  immutableCloseoutTemplates.clear();
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, 'Closeout fixture base cleanup failed');
+});
+
+function closeoutBase(options: CloseoutFixtureOptions): Readonly<{ root: string }> {
+  const key = JSON.stringify([
+    options.compilerDependencies === true,
+    options.documentationCoordination === true,
+    options.trackedBackslash === true
+  ]);
+  const retained = immutableCloseoutTemplates.get(key);
+  if (retained !== undefined) return retained;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-wt-base-'));
+  const remote = path.join(root, 'remote.git');
+  const repository = path.join(root, 'repository');
+  try {
+    git(root, ['init', '--bare', remote]);
+    git(root, ['init', '-b', 'main', repository]);
+    git(repository, ['config', 'user.name', 'SEC Test']);
+    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
+    git(repository, ['config', 'core.autocrlf', 'false']);
+    writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
+    if (options.trackedBackslash === true) writeFileSync(path.join(repository, 'a\\b'), 'backslash tracked\n', 'utf8');
+    if (options.compilerDependencies === true) writeCompilerDependencyInputs(repository);
+    if (options.documentationCoordination === true) writeFileSync(path.join(repository, '.gitignore'), '.tmp/\n', 'utf8');
+    git(repository, ['add', '.']);
+    git(repository, ['commit', '-m', 'main']);
+    git(repository, ['remote', 'add', 'origin', remote]);
+    git(repository, ['push', '-u', 'origin', 'main']);
+    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    git(repository, ['remote', 'set-head', 'origin', 'main']);
+    git(repository, ['branch', 'codex/fixture']);
+    const prepared = Object.freeze({ root });
+    immutableCloseoutTemplates.set(key, prepared);
+    return prepared;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Native closeout fixture base setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+function fixture(options: CloseoutFixtureOptions = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-worktree-physical-closeout-'));
   const remote = path.join(root, 'remote.git');
   const repository = path.join(root, 'repository');
   const target = path.join(root, options.targetName ?? 'candidate');
-  git(root, ['init', '--bare', remote]);
-  git(root, ['init', '-b', 'main', repository]);
-  git(repository, ['config', 'user.name', 'SEC Test']);
-  git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-  git(repository, ['config', 'core.autocrlf', 'false']);
-  writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
-  if (options.trackedBackslash === true) writeFileSync(path.join(repository, 'a\\b'), 'backslash tracked\n', 'utf8');
-  if (options.compilerDependencies === true) writeCompilerDependencyInputs(repository);
-  if (options.documentationCoordination === true) writeFileSync(path.join(repository, '.gitignore'), '.tmp/\n', 'utf8');
-  git(repository, ['add', '.']);
-  git(repository, ['commit', '-m', 'main']);
-  git(repository, ['remote', 'add', 'origin', remote]);
-  git(repository, ['push', '-u', 'origin', 'main']);
-  git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-  git(repository, ['remote', 'set-head', 'origin', 'main']);
-  const branch = 'codex/fixture';
-  git(repository, ['branch', branch]);
-  git(repository, ['worktree', 'add', target, branch]);
-  const headSha = git(target, ['rev-parse', 'HEAD']);
-  const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']);
-  const recoveryAuthorityDigest = detailDigest('fixture-recovery');
-  return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };
+  try {
+    const template = closeoutBase(options);
+    cpSync(path.join(template.root, 'remote.git'), remote, { recursive: true });
+    cpSync(path.join(template.root, 'repository'), repository, { recursive: true });
+    git(repository, ['remote', 'set-url', 'origin', remote]);
+    const branch = 'codex/fixture';
+    git(repository, ['worktree', 'add', target, branch]);
+    const headSha = git(target, ['rev-parse', 'HEAD']);
+    const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']);
+    const recoveryAuthorityDigest = detailDigest('fixture-recovery');
+    return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Native closeout fixture copy and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 async function persistRetiredPhaseForCrash(authorization: Awaited<ReturnType<typeof prepareWorktreePhysicalCloseout>>): Promise<string> {
