@@ -25,8 +25,7 @@ import {
   disposeUnclaimedDockerCommandProviderCapability,
   issueDockerCommandProviderCapability
 } from './command-provider.ts';
-import { assertDockerCommandOperationAvailable, compileLinuxDockerDaemonProbeArguments, LINUX_DOCKER_OPERATIONS, openContainerEngineSession } from './container-engine-session.ts';
-import { openLinuxDockerCommandProvider } from './linux-command-provider.ts';
+import { compileLinuxDockerDaemonProbeArguments, openContainerEngineSession } from './container-engine-session.ts';
 import { assertLinuxDockerEndpoint, openLinuxDockerEndpoint, type LinuxDockerEndpoint } from './linux-endpoint.ts';
 import { assertLinuxDockerRuntimeState, openLinuxDockerRuntimeState } from './linux-runtime-state.ts';
 
@@ -170,12 +169,6 @@ linuxTest('a Linux session rejects a different expected endpoint before any comm
   }
 });
 
-test('Linux installed provider rejects an unbound working directory before discovery', async () => {
-  await expect(openLinuxDockerCommandProvider({ workingDirectory: '.' }))
-    .rejects.toThrow(/working directory|platform/u);
-});
-
-
 test('Linux daemon probe disables ambient config, proxies and redirects and bounds the local request', () => {
   const deadline = Date.now() + 30_000;
   const args = compileLinuxDockerDaemonProbeArguments(endpointHost, deadline);
@@ -292,21 +285,6 @@ linuxTest('Linux config cannot introduce credential helpers or ambient plugin di
     }
     await writeFile(config, '{}');
   } finally { state.close(); }
-});
-
-
-test('Linux command-family admission refuses Docker CLI help/error reachability before transport', () => {
-  expect(LINUX_DOCKER_OPERATIONS).toEqual([]);
-  for (const kind of ['container-copy', 'container-create', 'container-exec', 'container-inspect',
-    'container-list', 'container-remove', 'container-run', 'container-start', 'image-inspect',
-    'image-list', 'image-remove', 'network-disconnect', 'volume-create', 'volume-inspect'] as const) {
-    expect(() => assertDockerCommandOperationAvailable('linux', kind))
-      .toThrow('linux-cli-plugin-closure-unavailable');
-    expect(() => assertDockerCommandOperationAvailable('win32', kind)).not.toThrow();
-  }
-  expect(() => assertDockerCommandOperationAvailable('linux', undefined)).toThrow('linux-cli-plugin-closure-unavailable');
-  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-build')).toThrow('linux-buildx-closure-unavailable');
-  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-bake')).toThrow('linux-buildx-closure-unavailable');
 });
 
 

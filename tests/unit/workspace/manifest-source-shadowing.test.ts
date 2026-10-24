@@ -114,7 +114,10 @@ test('disappearing lower sources clear diagnostics and pinned reload never expan
   const block = prepareManifestResolution(f.workspaceRoot, [first], [first]).resolvedBlocks[0]!;
   f.write(1, '2.0.0', undefined, { unknownField: true });
   const pinned = loadManifestForResolvedBlock(f.workspaceRoot, block);
-  expect(pinned.registrySourceId).toBe('first');
+  expect(pinned).toMatchObject({
+    registrySourceId: 'first', registryKind: 'private', registryLocation: 'workspace', registryPath: 'registry-first',
+    manifest: { id: 'cache/probe', version: '1.0.0' }
+  });
   expect(pinned.registryResolution).toBeUndefined();
   unlinkSync(path.join(f.workspaceRoot, 'registry-second', 'cache.probe', 'block.manifest.yaml'));
   unlinkSync(path.join(f.workspaceRoot, 'registry-third', 'cache.probe', 'block.manifest.yaml'));
@@ -223,24 +226,24 @@ test('duplicate selected identity compares manifest authority rather than invoca
   expect(() => resolveManifestGraph([selected, changed], [])).toThrow(expect.objectContaining({ code: 'RESOLVE-CONFLICT-004' }));
 });
 
-for (const warm of [false, true]) {
-  for (const reversed of [false, true]) {
-    test(`source-order diagnostics preserve same-version definition rejection (${warm ? 'warm' : 'cold'}, ${reversed ? 'reverse' : 'forward'})`, async () => {
-      const f = fixture();
-      f.write(1, '1.0.0');
-      const registrySources = reversed ? [...f.registrySources].reverse() : f.registrySources;
-      const options = { workspaceRoot: f.workspaceRoot, registrySources };
-      if (warm) {
-        const admitted = loadManifestById('cache/probe', options);
-        expect(admitted.registryResolution!.shadowed).toHaveLength(2);
-        await loadAllManifests(options);
-      }
-      // Even a shadowed, stack-incompatible body must be rejected when its
-      // stable ID/version contradicts another source. Order is not authority.
-      f.write(1, '1.0.0', undefined, { stackProfiles: ['other-stack'], provides: ['different/capability'] });
-      expect(() => loadManifestById('cache/probe', options))
-        .toThrow(expect.objectContaining({ code: 'RESOLVE-CONFLICT-004' }));
-      await expect(loadAllManifests(options)).rejects.toMatchObject({ code: 'RESOLVE-CONFLICT-004' });
-    });
-  }
+// Keep a cold selected-source conflict and a warm conflict wholly among shadows.
+// Source ordering is already checked in both directions by the success case.
+for (const { warm, reversed } of [{ warm: false, reversed: false }, { warm: true, reversed: true }]) {
+  test(`source-order diagnostics preserve same-version definition rejection (${warm ? 'warm' : 'cold'}, ${reversed ? 'reverse' : 'forward'})`, async () => {
+    const f = fixture();
+    f.write(1, '1.0.0');
+    const registrySources = reversed ? [...f.registrySources].reverse() : f.registrySources;
+    const options = { workspaceRoot: f.workspaceRoot, registrySources };
+    if (warm) {
+      const admitted = loadManifestById('cache/probe', options);
+      expect(admitted.registryResolution!.shadowed).toHaveLength(2);
+      await loadAllManifests(options);
+    }
+    // Even a shadowed, stack-incompatible body must be rejected when its
+    // stable ID/version contradicts another source. Order is not authority.
+    f.write(1, '1.0.0', undefined, { stackProfiles: ['other-stack'], provides: ['different/capability'] });
+    expect(() => loadManifestById('cache/probe', options))
+      .toThrow(expect.objectContaining({ code: 'RESOLVE-CONFLICT-004' }));
+    await expect(loadAllManifests(options)).rejects.toMatchObject({ code: 'RESOLVE-CONFLICT-004' });
+  });
 }

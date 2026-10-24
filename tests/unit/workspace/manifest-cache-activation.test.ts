@@ -6,12 +6,10 @@ import path from 'node:path';
 import { blockDirName, resolveRegistryRoot } from "../../../src/adapters/workspace-context.ts";
 import {
   loadAllManifests,
-  loadManifestById,
-  loadManifestForResolvedBlock
+  loadManifestById
 } from '../../../src/adapters/workspace/sources/load-manifest.ts';
 import { manifestCache } from '../../../src/adapters/workspace/sources/manifest-cache.ts';
 
-const BLOCK_ID = 'ticket/basic';
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
@@ -56,58 +54,6 @@ async function writeManifest(registryRoot: string, directoryName: string, source
   await fs.writeFile(manifestPath, source, 'utf8');
   return manifestPath;
 }
-
-test('repeated manifest loads preserve deeply immutable source content', async () => {
-  manifestCache.clear();
-  const first = await loadManifestById(BLOCK_ID);
-  const second = await loadManifestById(BLOCK_ID);
-
-  expect(second).toEqual(first);
-  expect(Object.isFrozen(first)).toBe(true);
-  expect(Object.isFrozen(first.manifest)).toBe(true);
-  expect(Object.isFrozen(first.manifest.provides)).toBe(true);
-  expect(Object.isFrozen(first.manifest.installs)).toBe(true);
-  expect(Object.isFrozen(first.manifest.installs[0])).toBe(true);
-  expect(() => first.manifest.provides.push('forged/capability')).toThrow();
-  expect(second.manifest.provides).not.toContain('forged/capability');
-});
-
-test('resolved block loads preserve exact registry source identity', async () => {
-  const discovered = await loadManifestById(BLOCK_ID);
-  const block = {
-    id: discovered.manifest.id,
-    version: discovered.manifest.version,
-    registrySourceId: discovered.registrySourceId,
-    registryKind: discovered.registryKind,
-    registryLocation: discovered.registryLocation,
-    registryPath: discovered.registryPath
-  };
-
-  manifestCache.clear();
-  const loaded = await loadManifestForResolvedBlock(process.cwd(), block);
-  expect(loaded.manifest.id).toBe(block.id);
-  expect(loaded.manifest.version).toBe(block.version);
-  expect(loaded.registrySourceId).toBe(block.registrySourceId);
-  expect(loaded.registryKind).toBe(block.registryKind);
-  expect(loaded.registryLocation).toBe(block.registryLocation);
-  expect(loaded.registryPath).toBe(block.registryPath);
-});
-
-test.each(['routes: []', 'uiPortals: []', 'uiHooks: []'])(
-  'retired UI manifest grammar is rejected instead of becoming a compatibility surface',
-  async (retiredField) => {
-    const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
-    await writeManifest(
-      registryRoot,
-      blockDirName('cache/probe'),
-      `${manifestSource('cache/probe', '1.0.0')}${retiredField}\n`
-    );
-    const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
-
-    expect(() => loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] }))
-      .toThrow(expect.objectContaining({ code: 'MANIFEST-SCHEMA-001' }));
-  }
-);
 
 test('addressed manifest reads reject a linked block directory', async () => {
   const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();

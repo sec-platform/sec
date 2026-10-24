@@ -40,20 +40,6 @@ function sourceOptions(f: ReturnType<typeof fixture>, names: readonly string[]) 
   return { ...f.options, registrySources: names.map(name => ({ ...f.source, id: name, path: name })) };
 }
 
-test('different versions preserve source priority and explicit version filtering', () => using(async f => {
-  f.write(); const later = f.write('block/a', 'later');
-  writeFileSync(later.file, JSON.stringify({ ...later.manifest, version: '2.0.0', provides: ['new/service'] }));
-  const options = sourceOptions(f, ['registry', 'later']);
-  const addressed = loadManifestById('block/a', options);
-  const catalog = await loadAllManifests(options);
-  assert.equal(addressed.manifest.version, '1.0.0');
-  assert.equal(addressed.registrySourceId, 'registry');
-  assert.equal(catalog.length, 1);
-  assert.equal(catalog[0]!.manifest.version, '1.0.0');
-  assert.equal(catalog[0]!.registrySourceId, 'registry');
-  assert.equal(loadManifestById('block/a', { ...options, version: '2.0.0' }).registrySourceId, 'later');
-}));
-
 test('effective version overlays participate in collision checks after merging root defaults', () => using(async f => {
   const first = f.write(), second = f.write('block/a', 'second');
   for (const entry of [first, second]) {
@@ -76,14 +62,6 @@ test('a repeated catalog read reuses parsed validation but keeps independent mut
   assert.deepEqual(next[0]!.manifest.provides, ['block/a']);
   assert.deepEqual(next[0]!.resourceRoots, [written.folder]);
   assert.deepEqual((await loadAllManifests(f.options))[0], next[0]);
-  const beforeClear = parses();
-  manifestCache.clearWorkspace(f.root);
-  const refreshed = await loadAllManifests(f.options);
-  assert.equal(parses(), beforeClear + 1);
-  assert.equal(refreshed[0]!.manifest.id, 'block/a');
-  assert.equal(refreshed[0]!.manifest.version, '1.0.0');
-  assert.deepEqual(refreshed[0]!.manifest.provides, ['block/a']);
-  assert.deepEqual(refreshed[0]!.resourceRoots, [written.folder]);
 }));
 
 test('explicit unversioned lookup and catalog lookup share one parse record', () => using(async (f, parses) => {

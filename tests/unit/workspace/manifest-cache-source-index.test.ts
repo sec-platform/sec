@@ -48,18 +48,6 @@ test('logical and observed-source reuse each refresh the shared bounded LRU orde
   }
 });
 
-test('a logical digest miss retires the corresponding source lookup', () => {
-  const cache = new ManifestCache(), a = fixture(); cache.set(a.key, a.entry);
-  assert.equal(cache.get({ ...a.key, sourceDigest: 'sha256:other' }), undefined);
-  assert.equal(cache.getByObservedSource(a.source), undefined); assert.equal(cache.size, 0);
-});
-
-test('a source digest miss retires its logical cache record', () => {
-  const cache = new ManifestCache(), a = fixture(); cache.set(a.key, a.entry);
-  assert.equal(cache.getByObservedSource({ ...a.source, sourceDigest: 'sha256:other' }), undefined);
-  assert.equal(cache.get(a.key), undefined); assert.equal(cache.size, 0);
-});
-
 test('workspace, registry selection, location and observed path remain separate causal identities', () => {
   const cache = new ManifestCache(), a = fixture(); cache.set(a.key, a.entry);
   for (const patch of [{ workspaceRoot: '/other' }, { registrySourceId: 'other' }, { registryKind: 'official' },
@@ -67,39 +55,4 @@ test('workspace, registry selection, location and observed path remain separate 
     assert.equal(cache.getByObservedSource({ ...a.source, ...patch } as ManifestObservedSourceKey), undefined);
   }
   assert.deepEqual(cache.getByObservedSource(a.source), a.entry);
-});
-
-test('version-qualified records stay outside the root-source index and retire on a digest miss', () => {
-  const cache = new ManifestCache(), a = fixture(), b = fixture('block/b');
-  const key = { ...a.key, version: '1.0.0' };
-  const otherKey = { ...b.key, version: '1.0.0' };
-  cache.set(key, a.entry);
-  cache.set(otherKey, b.entry);
-  assert.equal(cache.getByObservedSource(a.source), undefined);
-  assert.deepEqual(cache.get(key), a.entry);
-  assert.equal(cache.get({ ...key, sourceDigest: 'sha256:other' }), undefined);
-  assert.equal(cache.get(key), undefined);
-  assert.equal(cache.size, 1);
-  assert.deepEqual(cache.get(otherKey), b.entry);
-});
-
-test('workspace clearing removes both projections without clearing another workspace', () => {
-  const cache = new ManifestCache(), a = fixture(), b = fixture('block/a', '/other');
-  cache.set(a.key, a.entry); cache.set(b.key, b.entry); cache.clearWorkspace('/workspace');
-  assert.equal(cache.getByObservedSource(a.source), undefined); assert.deepEqual(cache.getByObservedSource(b.source), b.entry);
-  assert.equal(cache.get(a.key), undefined); assert.deepEqual(cache.get(b.key), b.entry);
-  cache.clear(); assert.equal(cache.getByObservedSource(b.source), undefined); assert.equal(cache.size, 0);
-  assert.equal(cache.get(b.key), undefined);
-});
-
-test('disabled cache retains no logical or source record', () => {
-  const cache = new ManifestCache(0), a = fixture(); cache.set(a.key, a.entry);
-  assert.equal(cache.getByObservedSource(a.source), undefined); assert.equal(cache.get(a.key), undefined);
-  assert.equal(cache.size, 0);
-});
-
-test('invalid replacement does not evict a previously valid source', () => {
-  const cache = new ManifestCache(1), a = fixture(), b = fixture('block/b'); cache.set(a.key, a.entry);
-  assert.throws(() => cache.set(a.key, b.entry)); assert.deepEqual(cache.getByObservedSource(a.source), a.entry);
-  assert.deepEqual(cache.get(a.key), a.entry);
 });

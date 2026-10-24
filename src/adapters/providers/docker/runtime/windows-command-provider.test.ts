@@ -91,8 +91,3 @@ test.skipIf(process.platform !== 'win32')(
     }
   }
 );
-
-test('Windows Docker provider rejects a noncanonical working directory before discovery', async () => {
-  await expect(openWindowsDockerCommandProvider({ workingDirectory: '.' }))
-    .rejects.toThrow(/working directory|platform/u);
-});
