@@ -33,7 +33,18 @@ function diagnosticTree(root: string, depth = 0): string[] {
   return rows;
 }
 
-test('real child death after durable acquisition fence but before terminal lets a fresh process converge without upgrading the opaque token', async () => {
+function recoveryTreeBytes(root: string): readonly unknown[] {
+  return readdirSync(root).sort().map(name => {
+    const entry = path.join(root, name);
+    const metadata = lstatSync(entry, { bigint: true });
+    expect(metadata.isSymbolicLink()).toBe(false);
+    expect(metadata.isDirectory() || metadata.isFile()).toBe(true);
+    return [name, metadata.dev, metadata.ino,
+      metadata.isDirectory() ? recoveryTreeBytes(entry) : readFileSync(entry)];
+  });
+}
+
+test('real child death before terminal preserves durable recovery evidence without authorizing stale takeover', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-closeout-crash-')); const remote = path.join(root, 'remote.git'); const repository = path.join(root, 'repository'); const target = path.join(root, 'candidate');
   let activeChild: { readonly pid: number; readonly exitCode: number | null; readonly exited: Promise<number> } | undefined;
   try {
@@ -67,28 +78,59 @@ test('real child death after durable acquisition fence but before terminal lets 
     if (!observed) throw new Error(`fixture never exposed the exact durable-fence/terminal-pending shape:\n${diagnosticTree(root).join('\n')}`);
     expect(JSON.parse(readFileSync(handshake, 'utf8'))).toMatchObject({ stage: 'acquisition-fence-durable-terminal-pending', proofRoot: path.resolve(proofRoot) });
     killFixtureTree(child.pid); expect(await child.exited).not.toBe(0);
-    // The killed executor can hold both repository and target leases.  Let
-    // their canonical stale/liveness recovery windows elapse; no test-side
-    // release, heartbeat rewrite, or lease manager option is used.
+    const proofNames = readdirSync(proofRoot).sort();
+    const fenceNames = readdirSync(path.dirname(target))
+      .filter(name => /^\.workspace-write-lease-retired-[0-9a-f]{64}\.json$/u.test(name)).sort();
+    expect(fenceNames).toHaveLength(1);
+    const recoveryFiles = [input.authorizationPath,
+      ...proofNames.map(name => path.join(proofRoot, name)),
+      ...fenceNames.map(name => path.join(path.dirname(target), name))];
+    const retainedBytes = recoveryFiles.map(file => [file, readFileSync(file)] as const);
+    const registeredBefore = git(repository, ['worktree', 'list', '--porcelain']);
+    expect(registeredBefore).toContain(`branch refs/heads/${branch}`);
+    const tombstonePath = path.join(path.dirname(target), prepared.authorization.tombstoneName);
+    const tombstoneBefore = lstatSync(tombstonePath, { bigint: true });
+    expect(tombstoneBefore.isDirectory()).toBe(true);
+    const retainedRoots = [path.dirname(input.authorizationPath),
+      path.join(repository, '.git', '.sec', 'workspace-write-lease'),
+      path.join(repository, '.sec', 'workspace-write-lease'),
+      path.join(tombstonePath, '.sec', 'workspace-write-lease')];
+    const retainedTrees = retainedRoots.map(directory => [directory, recoveryTreeBytes(directory)] as const);
+    expect(existsSync(firstOutput)).toBe(false);
+    // The original process has exited, but neither its stale heartbeat nor the
+    // preterminal fence proves every effect settled. Let the canonical stale
+    // window elapse without releasing or rewriting the original leases.
     await Bun.sleep(36_000);
     const resumedOutput = path.join(root, 'resumed-receipt.json');
     const resumed = Bun.spawn(['bun', fixture, JSON.stringify(input), resumedOutput], { stdout: 'pipe', stderr: 'pipe' });
     activeChild = resumed;
-    // The killed child may leave both the repository and relocated target
-    // leases live.  Fresh acquisition resolves their canonical 30s stale
-    // windows serially, so this is intentionally wider than one stale window.
+    // Keep the original bounded child window; a fresh process must refuse
+    // stale takeover, not manufacture a terminal from process death.
     const status = await Promise.race([resumed.exited, Bun.sleep(90_000).then(() => null)]);
     if (status === null) {
       const snapshot = diagnosticTree(root).join('\n');
       killFixtureTree(resumed.pid);
-      throw new Error(`fresh child did not finish after stale recovery: ${await new Response(resumed.stderr).text()}\n${snapshot}`);
+      throw new Error(`fresh child did not finish its stale-recovery refusal: ${await new Response(resumed.stderr).text()}\n${snapshot}`);
     }
-    expect(status).toBe(0);
-    const receipt = JSON.parse(readFileSync(resumedOutput, 'utf8')) as { terminal: string; receiptDigest: `sha256:${string}` };
-    expect(receipt.terminal).toBe('completed');
+    expect(status).not.toBe(0);
+    expect(await new Response(resumed.stderr).text()).toContain(
+      'Workspace writer lease predecessor process/effect settlement is unproven; legacy state is preserved'
+    );
+    expect(existsSync(resumedOutput)).toBe(false);
+    expect(git(repository, ['worktree', 'list', '--porcelain'])).toBe(registeredBefore);
+    expect(readdirSync(proofRoot).sort()).toEqual(proofNames);
+    expect(readdirSync(path.dirname(target))
+      .filter(name => /^\.workspace-write-lease-retired-[0-9a-f]{64}\.json$/u.test(name)).sort()).toEqual(fenceNames);
+    for (const [file, bytes] of retainedBytes) expect(readFileSync(file)).toEqual(bytes);
+    for (const [directory, bytes] of retainedTrees) expect(recoveryTreeBytes(directory)).toEqual(bytes);
+    const tombstoneAfter = lstatSync(tombstonePath, { bigint: true });
+    expect([tombstoneAfter.dev, tombstoneAfter.ino]).toEqual([tombstoneBefore.dev, tombstoneBefore.ino]);
+    expect(readFileSync(path.join(tombstonePath, 'a.txt'), 'utf8')).toBe('a\n');
+    for (let i = 0; i < 50; i += 1) {
+      expect(readFileSync(path.join(tombstonePath, `slow-${i}.txt`), 'utf8')).toBe(`${i}\n`);
+    }
     expect(existsSync(target)).toBe(false);
-    // A later process may converge the physical registry/target state, but it
-    // cannot upgrade the original process-local branch/ref capability.
+    // A failed fresh attempt cannot upgrade the original process-local token.
     expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token, repositoryRoot: repository, targetPath: target,
       branch, headSha, treeSha, recoveryAuthorityDigest
