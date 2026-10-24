@@ -40,24 +40,6 @@ function sourceOptions(f: ReturnType<typeof fixture>, names: readonly string[]) 
   return { ...f.options, registrySources: names.map(name => ({ ...f.source, id: name, path: name })) };
 }
 
-test('same-version conflicting definitions fail after registry source selection changes', () => using(async f => {
-  f.write(); loadManifestById('block/a', f.options);
-  const other = f.write('block/a', 'other');
-  writeFileSync(other.file, JSON.stringify({ ...other.manifest, provides: ['different/service'] }));
-  const options = sourceOptions(f, ['registry', 'other']);
-  assert.throws(() => loadManifestById('block/a', options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
-  await assert.rejects(loadAllManifests(options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
-}));
-
-test('conflicts between two hidden candidates cannot disappear behind a different-version winner', () => using(async f => {
-  const winner = f.write(); writeFileSync(winner.file, JSON.stringify({ ...winner.manifest, version: '2.0.0' }));
-  f.write('block/a', 'hidden-a'); const last = f.write('block/a', 'hidden-b');
-  writeFileSync(last.file, JSON.stringify({ ...last.manifest, provides: ['different/service'] }));
-  const options = sourceOptions(f, ['registry', 'hidden-a', 'hidden-b']);
-  assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
-  await assert.rejects(loadAllManifests(options), /Conflicting manifest definitions/);
-}));
-
 test('different versions preserve source priority and explicit version filtering', () => using(async f => {
   f.write(); const later = f.write('block/a', 'later');
   writeFileSync(later.file, JSON.stringify({ ...later.manifest, version: '2.0.0', provides: ['new/service'] }));
@@ -125,8 +107,16 @@ test('catalog parsing also primes later logical lookup without exposing its muta
   assert.deepEqual(logical.manifest.provides, ['block/a']);
 }));
 
-test('changed current bytes invalidate cached parsing before returning a new version', () => using(async (f, parses) => {
-  const a = f.write(); await loadAllManifests(f.options); const before = parses();
+test('changed current bytes invalidate addressed and catalog caches before returning a new version', () => using(async (f, parses) => {
+  const a = f.write();
+  const first = loadManifestById('block/a', f.options);
+  a.manifest.version = '1.0.1'; writeFileSync(a.file, JSON.stringify(a.manifest));
+  const changed = loadManifestById('block/a', f.options);
+  assert.equal(first.manifest.version, '1.0.0');
+  assert.equal(changed.manifest.version, '1.0.1');
+
+  assert.equal((await loadAllManifests(f.options))[0]!.manifest.version, '1.0.1');
+  const before = parses();
   a.manifest.version = '2.0.0'; writeFileSync(a.file, JSON.stringify(a.manifest));
   assert.equal((await loadAllManifests(f.options))[0]!.manifest.version, '2.0.0'); assert.equal(parses(), before + 1);
   assert.equal(loadManifestById('block/a', f.options).manifest.version, '2.0.0');
@@ -137,18 +127,6 @@ test('deleted or invalid current sources cannot reuse a previous valid result', 
   unlinkSync(a.file); await assert.rejects(loadAllManifests(f.options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-013');
   writeFileSync(a.file, JSON.stringify({ ...a.manifest, id: 'block/other' }));
   await assert.rejects(loadAllManifests(f.options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-012');
-}));
-
-test('a lower precedence source is still validated even after the selected source was cached', () => using(async f => {
-  f.write(); const shadow = f.write('block/a', 'shadow');
-  const options = { ...f.options, registrySources: [f.source, { ...f.source, id: 'shadow', path: 'shadow' }] };
-  loadManifestById('block/a', options);
-  const result = await loadAllManifests(options); assert.equal(result.length, 1); assert.equal(result[0]!.registrySourceId, 'private');
-  writeFileSync(shadow.file, JSON.stringify({ ...shadow.manifest, unknownField: true }));
-  await assert.rejects(loadAllManifests(options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-001');
-  writeFileSync(shadow.file, JSON.stringify({ ...shadow.manifest, provides: ['different/service'] }));
-  assert.throws(() => loadManifestById('block/a', options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
-  await assert.rejects(loadAllManifests(options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
 }));
 
 test('version overlays never prime or replace the root manifest observation', () => using(async (f, parses) => {

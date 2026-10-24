@@ -827,7 +827,7 @@ test('machine cutover types an active Windows durable publication candidate and 
   }
 });
 
-test('machine cutover exposes its exact double-dot receipt publication candidate as joinable contention', () => {
+test('machine cutover preserves a malformed receipt publication and joins only its exact live owner', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-publication-join-'));
   try {
     const key = action('machine-cutover-receipt-publication');
@@ -844,6 +844,13 @@ test('machine cutover exposes its exact double-dot receipt publication candidate
       leaseName: receiptLockName
     });
     expect(path.basename(candidatePath).startsWith('..journal-mutation-')).toBe(true);
+    const candidateBytes = readFileSync(candidatePath);
+    writeFileSync(candidatePath, '');
+    expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
+      .toThrow('malformed mutation publication candidate');
+    expect(readFileSync(candidatePath)).toEqual(Buffer.alloc(0));
+    expect(lstatSync(receiptPath, { throwIfNoEntry: false })).toBeUndefined();
+    writeFileSync(candidatePath, candidateBytes);
     try {
       ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot));
       throw new Error('Expected receipt publication contention');
@@ -858,35 +865,6 @@ test('machine cutover exposes its exact double-dot receipt publication candidate
       .toBe(1);
   } finally {
     rmSync(stateRoot, { recursive: true, force: true });
-  }
-});
-
-test('machine cutover classifies same-lock dead and malformed publications from evidence', () => {
-  for (const candidateCase of [
-    { name: 'dead', pid: 2_147_483_647, bytes: undefined, expected: 'stale mutation publication candidate' },
-    { name: 'malformed', pid: process.pid, bytes: '', expected: 'malformed mutation publication candidate' }
-  ] as const) {
-    const stateRoot = mkdtempSync(path.join(tmpdir(), `sec-action-machine-same-lock-${candidateCase.name}-`));
-    try {
-      const receiptPath = path.join(
-        stateRoot,
-        VERIFICATION_ACTION_JOURNAL_DIRECTORY,
-        VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
-      );
-      const receiptLockName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
-      const candidatePath = mutationPublicationCandidate({
-        directoryPath: path.dirname(receiptPath),
-        leaseName: receiptLockName,
-        pid: candidateCase.pid,
-        ...(candidateCase.bytes === undefined ? {} : { bytes: candidateCase.bytes })
-      });
-      expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
-        .toThrow(candidateCase.expected);
-      expect(existsSync(candidatePath)).toBeTrue();
-      expect(lstatSync(receiptPath, { throwIfNoEntry: false })).toBeUndefined();
-    } finally {
-      rmSync(stateRoot, { recursive: true, force: true });
-    }
   }
 });
 

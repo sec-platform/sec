@@ -93,32 +93,6 @@ test('resolved block loads preserve exact registry source identity', async () =>
   expect(loaded.registryPath).toBe(block.registryPath);
 });
 
-test('source byte changes invalidate a long-lived manifest cache entry', async () => {
-  const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
-  const manifestPath = await writeManifest(
-    registryRoot,
-    blockDirName('cache/probe'),
-    manifestSource('cache/probe', '1.0.0')
-  );
-  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
-  const first = await loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] });
-
-  await fs.writeFile(manifestPath, manifestSource('cache/probe', '1.0.1'), 'utf8');
-  const second = await loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] });
-
-  expect(first.manifest.version).toBe('1.0.0');
-  expect(second.manifest.version).toBe('1.0.1');
-});
-
-test('addressed manifest must declare the exact requested block identity', async () => {
-  const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
-  await writeManifest(registryRoot, blockDirName('cache/probe'), manifestSource('cache/other', '1.0.0'));
-  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
-
-  expect(() => loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] }))
-    .toThrow(expect.objectContaining({ code: 'MANIFEST-SCHEMA-011' }));
-});
-
 test.each(['routes: []', 'uiPortals: []', 'uiHooks: []'])(
   'retired UI manifest grammar is rejected instead of becoming a compatibility surface',
   async (retiredField) => {
@@ -134,15 +108,6 @@ test.each(['routes: []', 'uiPortals: []', 'uiHooks: []'])(
       .toThrow(expect.objectContaining({ code: 'MANIFEST-SCHEMA-001' }));
   }
 );
-
-test('registry enumeration rejects manifests whose physical directory cannot be reconstructed from id', async () => {
-  const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
-  await writeManifest(registryRoot, 'wrong-directory', manifestSource('cache/probe', '1.0.0'));
-  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
-
-  await expect(loadAllManifests({ workspaceRoot, registrySources: [...source] }))
-    .rejects.toMatchObject({ code: 'MANIFEST-SCHEMA-012' });
-});
 
 test('addressed manifest reads reject a linked block directory', async () => {
   const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();

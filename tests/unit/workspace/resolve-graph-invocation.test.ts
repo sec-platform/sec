@@ -26,9 +26,9 @@ function fixture() {
   return { root, plan, manifest, cleanup() { rmSync(root, { recursive: true, force: true }); } };
 }
 
-test('real resolver preserves provider-before-consumer order and stable global install step IDs', async () => {
+test('real resolver coalesces repeated capabilities while preserving provider order and global install step IDs', async () => {
   const f = fixture(); try {
-    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base']); f.plan.blocks = [{ id: 'block/app' }, { id: 'block/base' }];
+    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base', 'cap/base']); f.plan.blocks = [{ id: 'block/app' }, { id: 'block/base' }];
     const incompatible = f.manifest('block/a', [], ['cap/base']);
     writeFileSync(path.join(incompatible.folder, 'block.manifest.yaml'), JSON.stringify({
       ...incompatible.source, stackProfiles: ['other-stack'],
@@ -45,21 +45,17 @@ test('real resolver preserves provider-before-consumer order and stable global i
   } finally { f.cleanup(); }
 });
 
-test('original plan edits after invocation cannot change catalog sources or the returned app identity', async () => {
-  const f = fixture(); try {
-    f.manifest('block/app'); f.plan.blocks = [{ id: 'block/app' }];
-    const pending = resolveGraph(f.root, f.plan);
-    f.plan.app.name = 'replaced'; f.plan.registry.sources[0]!.path = 'missing-registry';
-    f.plan.blocks.length = 0;
-    const lock = await pending; assert.equal(lock.app.name, 'original'); assert.equal(lock.resolvedBlocks.length, 1);
-  } finally { f.cleanup(); }
-});
-
-test('relative root is fixed before asynchronous catalog observation', async () => {
+test('relative root and plan choices are captured before asynchronous catalog observation', async () => {
   const f = fixture(), cwd = process.cwd(); try {
     f.manifest('block/app'); f.plan.blocks = [{ id: 'block/app' }]; process.chdir(f.root);
-    const pending = resolveGraph('.', f.plan); process.chdir(tmpdir());
-    const lock = await pending; assert.equal(lock.resolvedBlocks[0]!.manifestPath, 'registry/block.app/block.manifest.yaml');
+    const pending = resolveGraph('.', f.plan);
+    process.chdir(tmpdir());
+    f.plan.app.name = 'replaced'; f.plan.registry.sources[0]!.path = 'missing-registry';
+    f.plan.blocks.length = 0;
+    const lock = await pending;
+    assert.equal(lock.app.name, 'original');
+    assert.equal(lock.resolvedBlocks.length, 1);
+    assert.equal(lock.resolvedBlocks[0]!.manifestPath, 'registry/block.app/block.manifest.yaml');
   } finally { process.chdir(cwd); f.cleanup(); }
 });
 
@@ -90,13 +86,6 @@ test('real local private provider requires explicit selection before install res
     await assert.rejects(resolveGraph(f.root, f.plan),
       error => (error as { code?: string }).code === 'RESOLVE-AUTHORITY-007');
     assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
-  } finally { f.cleanup(); }
-});
-
-test('duplicate provider declarations do not create artificial ambiguity', async () => {
-  const f = fixture(); try {
-    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base', 'cap/base']); f.plan.blocks = [{ id: 'block/app' }, { id: 'block/base' }];
-    assert.deepEqual((await resolveGraph(f.root, f.plan)).resolvedBlocks.map(b => b.id), ['block/base', 'block/app']);
   } finally { f.cleanup(); }
 });
 

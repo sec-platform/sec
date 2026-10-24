@@ -26,7 +26,7 @@ test('tracked project observation returns null only for an actual non-repository
   }
 });
 
-test('tracked project observation returns exact NUL-delimited Git-indexed project paths', async () => {
+test('tracked project observation keeps exact paths across root forms and rejects corrupt or unavailable sources', async () => {
   await withIsolatedTempDirectory(async (workspaceRoot) => {
     const init = await runCommand('git', ['init', '--quiet'], { cwd: workspaceRoot });
     expect(init.code).toBe(0);
@@ -43,30 +43,12 @@ test('tracked project observation returns exact NUL-delimited Git-indexed projec
     }
 
     expect(await listTrackedProjectPaths(workspaceRoot)).toEqual(new Set(trackedPaths));
-  });
-});
+    const relativeRoot = path.relative(process.cwd(), workspaceRoot);
+    expect(await listTrackedProjectPaths(relativeRoot)).toEqual(new Set(trackedPaths));
 
-test('tracked project observation propagates a corrupt Git index instead of treating it as untracked', async () => {
-  await withIsolatedTempDirectory(async (workspaceRoot) => {
-    const init = await runCommand('git', ['init', '--quiet'], { cwd: workspaceRoot });
-    expect(init.code).toBe(0);
     await fs.writeFile(path.join(workspaceRoot, '.git', 'index'), 'not-a-git-index', 'utf8');
-
     await expect(listTrackedProjectPaths(workspaceRoot))
       .rejects.toThrow('Unable to observe tracked project paths');
-  });
-});
-
-test('tracked project observation canonicalizes its root and fails closed when provider admission is unavailable', async () => {
-  await withIsolatedTempDirectory(async (workspaceRoot) => {
-    const init = await runCommand('git', ['init', '--quiet'], { cwd: workspaceRoot });
-    expect(init.code).toBe(0);
-    await fs.writeFile(path.join(workspaceRoot, 'tracked.txt'), 'tracked\n', 'utf8');
-    const add = await runCommand('git', ['add', '--', 'tracked.txt'], { cwd: workspaceRoot });
-    expect(add.code).toBe(0);
-
-    const relativeRoot = path.relative(process.cwd(), workspaceRoot);
-    expect(await listTrackedProjectPaths(relativeRoot)).toEqual(new Set(['tracked.txt']));
   });
 
   const unavailableRoot = path.join(os.tmpdir(), `sec-tracked-provider-absent-${crypto.randomUUID()}`);

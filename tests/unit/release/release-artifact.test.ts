@@ -104,31 +104,6 @@ async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
   git(repositoryRoot, ['commit', '--quiet', '-m', 'initial']);
 }
 
-test('frozen release source ignores untracked noise and binds one exact commit/tree', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-source-'));
-  try {
-    await initMinimalBunRepository(repositoryRoot);
-    const expectedCommit = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    const expectedTree = git(repositoryRoot, ['rev-parse', `${expectedCommit}^{tree}`]);
-    await fs.writeFile(path.join(repositoryRoot, 'local-note.txt'), 'untracked-noise\n');
-
-    const frozen = await prepareFrozenReleaseSource(repositoryRoot);
-    try {
-      expect(frozen.sourceCommit).toBe(expectedCommit);
-      expect(frozen.sourceTree).toBe(expectedTree);
-      await expect(fs.readFile(path.join(frozen.root, 'tracked.txt'), 'utf8'))
-        .resolves.toBe('committed\n');
-      await expect(fs.lstat(path.join(frozen.root, 'local-note.txt')))
-        .rejects.toMatchObject({ code: 'ENOENT' });
-      expect(frozen.dependencyLockDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    } finally {
-      await disposeFrozenReleaseSource(frozen);
-    }
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
 test('release runtime requirement rejects absent and mismatched Bun without a Node fallback', () => {
   const requirement = currentBuilder();
   for (const observedVersion of [null, '0.0.0']) {
@@ -204,13 +179,25 @@ test('Bun-target release bundle rejects a non-Bun source interpreter directive b
   }
 });
 
-test('Bun-target release bundle launches under the retained Bun generation', async () => {
+test('Bun-target release bundle consumes the exact frozen source and rejects later tracked drift', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-bin-'));
   const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-artifact-'));
   try {
     await initMinimalBunRepository(repositoryRoot);
+    const expectedCommit = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const expectedTree = git(repositoryRoot, ['rev-parse', `${expectedCommit}^{tree}`]);
+    await fs.writeFile(path.join(repositoryRoot, 'local-note.txt'), 'untracked-noise\n');
+
     const frozen = await prepareFrozenReleaseSource(repositoryRoot);
     try {
+      expect(frozen.sourceCommit).toBe(expectedCommit);
+      expect(frozen.sourceTree).toBe(expectedTree);
+      await expect(fs.readFile(path.join(frozen.root, 'tracked.txt'), 'utf8'))
+        .resolves.toBe('committed\n');
+      await expect(fs.lstat(path.join(frozen.root, 'local-note.txt')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+      expect(frozen.dependencyLockDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
       await buildFrozenReleaseBundle(frozen, artifactRoot);
       const entrypoint = path.join(artifactRoot, 'index.js');
       expect(await fs.readFile(path.join(artifactRoot, '.bun-version'), 'utf8'))
@@ -233,6 +220,10 @@ test('Bun-target release bundle launches under the retained Bun generation', asy
     } finally {
       await disposeFrozenReleaseSource(frozen);
     }
+
+    await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'dirty-tracked-builder-surface\n');
+    await expect(prepareFrozenReleaseSource(repositoryRoot))
+      .rejects.toThrow('Release tracked worktree/index differs from captured source commit');
   } finally {
     await Promise.all([
       rm(repositoryRoot, { recursive: true, force: true }),
@@ -241,21 +232,12 @@ test('Bun-target release bundle launches under the retained Bun generation', asy
   }
 }, 20_000);
 
-test('tracked worktree drift is rejected against the captured source commit', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-tracked-drift-'));
-  try {
-    await initMinimalBunRepository(repositoryRoot);
-    await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'dirty-tracked-builder-surface\n');
-
-    await expect(prepareFrozenReleaseSource(repositoryRoot))
-      .rejects.toThrow('Release tracked worktree/index differs from captured source commit');
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
-test('exact Git source ignores archive export-ignore/export-subst semantics and preserves blob bytes', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-archive-attributes-'));
+test('exact Git source preserves archive-sensitive and binary bytes without replacement-object views', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-exact-bytes-'));
+  const binaryPath = process.platform === 'win32'
+    ? 'binary payload.bin'
+    : 'binary\tpayload.bin';
+  const expectedBinary = Buffer.from([0x00, 0xff, 0x80, 0x0a, 0x09, 0x7f]);
   try {
     await initRepository(repositoryRoot);
     await fs.writeFile(
@@ -263,29 +245,11 @@ test('exact Git source ignores archive export-ignore/export-subst semantics and 
       'tracked.txt export-ignore export-subst\n'
     );
     await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'literal $Format:%H$ bytes\n');
+    await fs.writeFile(path.join(repositoryRoot, 'replacement-source.txt'), 'original-committed-bytes\n');
+    await fs.writeFile(path.join(repositoryRoot, binaryPath), expectedBinary);
     git(repositoryRoot, ['add', '--all']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'archive-attributes']);
-
-    const materialized = await materializeExactReleaseGitTree(repositoryRoot);
-    try {
-      await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
-        .resolves.toBe('literal $Format:%H$ bytes\n');
-    } finally {
-      await disposeExactReleaseGitTree(materialized);
-    }
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
-test('exact Git source disables replacement-object views', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-replace-object-'));
-  try {
-    await initRepository(repositoryRoot);
-    await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'original-committed-bytes\n');
-    git(repositoryRoot, ['add', '--all']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'original']);
-    const originalBlob = git(repositoryRoot, ['rev-parse', 'HEAD:tracked.txt']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'exact-source-bytes']);
+    const originalBlob = git(repositoryRoot, ['rev-parse', 'HEAD:replacement-source.txt']);
     const replacementPath = path.join(repositoryRoot, 'replacement.tmp');
     await fs.writeFile(replacementPath, 'replacement-view-bytes\n');
     const replacementBlob = git(repositoryRoot, ['hash-object', '-w', 'replacement.tmp']);
@@ -296,7 +260,11 @@ test('exact Git source disables replacement-object views', async () => {
     const materialized = await materializeExactReleaseGitTree(repositoryRoot);
     try {
       await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
+        .resolves.toBe('literal $Format:%H$ bytes\n');
+      await expect(fs.readFile(path.join(materialized.root, 'replacement-source.txt'), 'utf8'))
         .resolves.toBe('original-committed-bytes\n');
+      await expect(fs.readFile(path.join(materialized.root, binaryPath)))
+        .resolves.toEqual(expectedBinary);
     } finally {
       await disposeExactReleaseGitTree(materialized);
     }
@@ -337,30 +305,6 @@ test('release source rejects Git LFS pointer bytes instead of packaging pointer 
 
     await expect(materializeExactReleaseGitTree(repositoryRoot))
       .rejects.toThrow('Frozen release source contains a Git LFS pointer: asset.bin');
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
-test('exact Git source preserves binary blobs behind NUL-delimited path records', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-binary-'));
-  const binaryPath = process.platform === 'win32'
-    ? 'binary payload.bin'
-    : 'binary\tpayload.bin';
-  const expected = Buffer.from([0x00, 0xff, 0x80, 0x0a, 0x09, 0x7f]);
-  try {
-    await initRepository(repositoryRoot);
-    await fs.writeFile(path.join(repositoryRoot, binaryPath), expected);
-    git(repositoryRoot, ['add', '--all']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'binary-nul-record']);
-
-    const materialized = await materializeExactReleaseGitTree(repositoryRoot);
-    try {
-      await expect(fs.readFile(path.join(materialized.root, binaryPath)))
-        .resolves.toEqual(expected);
-    } finally {
-      await disposeExactReleaseGitTree(materialized);
-    }
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
   }

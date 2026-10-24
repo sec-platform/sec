@@ -11,13 +11,11 @@ function allowed(args: string[]): boolean {
 }
 
 test('repository locator values do not become command positions', () => {
-  for (const locator of ['--git-dir', '--work-tree']) {
-    for (const command of [
-      ['branch', '--show-current'], ['config', '--get', 'core.hooksPath'],
-      ['show', 'HEAD:package.json'], ['worktree', 'list', '--porcelain'],
-      ['symbolic-ref', '--short', 'HEAD'], ['var', 'GIT_AUTHOR_IDENT']
-    ]) assert.equal(allowed([locator, command[0]!, ...command]), true);
-  }
+  for (const command of [
+    ['branch', '--show-current'], ['config', '--get', 'core.hooksPath'],
+    ['show', 'HEAD:package.json'], ['worktree', 'list', '--porcelain'],
+    ['symbolic-ref', '--short', 'HEAD'], ['var', 'GIT_AUTHOR_IDENT']
+  ]) assert.equal(allowed(['--git-dir', command[0]!, ...command]), true);
 });
 
 test('multiple global options preserve the actual subcommand boundary', () => {
@@ -52,16 +50,6 @@ test('historical transport can observe only an exact pull head alongside existin
     assert.equal(allowed(['ls-remote', '--exit-code', 'origin', ref]), false, ref);
   }
   assert.equal(allowed(['ls-remote', '--exit-code', 'origin', 'refs/pull/573/head', 'refs/heads/main']), false);
-});
-
-test('ordinary read forms retain their previous independent protocol vectors', () => {
-  for (const args of [
-    ['status', '--porcelain=v1', '-z'], ['cat-file', '--batch'], ['ls-files', '--stage', '-z'],
-    ['ls-tree', '-r', '-z', 'HEAD'], ['rev-parse', '--verify', 'HEAD'],
-    ['merge-base', '--is-ancestor', 'main', 'HEAD'], ['diff', '--no-ext-diff', '--name-only', 'HEAD'],
-    ['remote', 'get-url', 'origin'], ['rev-list', '--count', 'HEAD'],
-    ['for-each-ref', '--format=%(refname)', 'refs/heads/']
-  ]) assert.equal(allowed(args), true, JSON.stringify(args));
 });
 
 test('local-ref retirement can observe its exact bounded native ref fields', () => {

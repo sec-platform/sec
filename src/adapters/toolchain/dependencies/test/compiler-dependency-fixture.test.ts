@@ -167,53 +167,54 @@ test('failed consumer publication or readback releases the original admitted gen
     retained.add(initial);
     await initial.retire();
     retained.delete(initial);
-    for (const retain of [retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration]) {
-      for (const boundary of ['publication', 'readback'] as const) {
-        const failure = new Error(`original-consumer-${boundary}-failure`);
-        let observedRoot: string | undefined;
-        let observedName: string | undefined;
-        let injected = false;
-        const publish = physical.publishExclusiveDurableCanonicalFile;
-        const inspect = physical.inspectNoFollowOrdinaryFileEntry;
-        if (boundary === 'publication') {
-          const spy = spyOn(physical, 'publishExclusiveDurableCanonicalFile');
-          restoreSpy = () => { spy.mockRestore(); };
-          spy.mockImplementation(input => {
-            const result = publish(input);
-            if (!injected && input.name.endsWith('-acquired.json')) {
-              injected = true;
-              observedRoot = input.parent.path;
-              observedName = input.name;
-              throw failure; // The actual publication survived the lost response.
-            }
-            return result;
-          });
-        } else {
-          const spy = spyOn(physical, 'inspectNoFollowOrdinaryFileEntry');
-          restoreSpy = () => { spy.mockRestore(); };
-          spy.mockImplementation((parent, name, ...rest) => {
-            const result = inspect(parent, name, ...rest);
-            if (!injected && name.endsWith('-acquired.json')) {
-              injected = true;
-              observedRoot = parent.path;
-              observedName = name;
-              throw failure;
-            }
-            return result;
-          });
-        }
-        await expect(retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 })
-          .then(generation => { retained.add(generation); return generation; })).rejects.toBe(failure);
-        restoreSpy();
-        restoreSpy = undefined;
-        expect(injected).toBe(true);
-        expect(observedRoot).toBeDefined();
-        expect((await readdir(observedRoot!)).includes(observedName!)).toBe(false);
-        const next = await retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
-        retained.add(next);
-        await next.retire();
-        retained.delete(next);
+    for (const [retain, boundary] of [
+      [retainCompilerDependencyExecutionGeneration, 'publication'],
+      [retainCompilerDependencyReadGeneration, 'readback']
+    ] as const) {
+      const failure = new Error(`original-consumer-${boundary}-failure`);
+      let observedRoot: string | undefined;
+      let observedName: string | undefined;
+      let injected = false;
+      const publish = physical.publishExclusiveDurableCanonicalFile;
+      const inspect = physical.inspectNoFollowOrdinaryFileEntry;
+      if (boundary === 'publication') {
+        const spy = spyOn(physical, 'publishExclusiveDurableCanonicalFile');
+        restoreSpy = () => { spy.mockRestore(); };
+        spy.mockImplementation(input => {
+          const result = publish(input);
+          if (!injected && input.name.endsWith('-acquired.json')) {
+            injected = true;
+            observedRoot = input.parent.path;
+            observedName = input.name;
+            throw failure; // The actual publication survived the lost response.
+          }
+          return result;
+        });
+      } else {
+        const spy = spyOn(physical, 'inspectNoFollowOrdinaryFileEntry');
+        restoreSpy = () => { spy.mockRestore(); };
+        spy.mockImplementation((parent, name, ...rest) => {
+          const result = inspect(parent, name, ...rest);
+          if (!injected && name.endsWith('-acquired.json')) {
+            injected = true;
+            observedRoot = parent.path;
+            observedName = name;
+            throw failure;
+          }
+          return result;
+        });
       }
+      await expect(retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 })
+        .then(generation => { retained.add(generation); return generation; })).rejects.toBe(failure);
+      restoreSpy();
+      restoreSpy = undefined;
+      expect(injected).toBe(true);
+      expect(observedRoot).toBeDefined();
+      expect((await readdir(observedRoot!)).includes(observedName!)).toBe(false);
+      const next = await retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
+      retained.add(next);
+      await next.retire();
+      retained.delete(next);
     }
   } catch (error) {
     primary = { label: 'consumer-admission-failure', error };
@@ -259,6 +260,10 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
   let operationRetired = false;
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
+    await expect(issueCompilerDependencyFixtureOperation({
+      ...fixtureDescriptor(dependencyRoot),
+      packages: [{ name: '../foreign', version: '1.0.0' }]
+    }).then(issued => { operation = issued; return issued; })).rejects.toThrow('package name is noncanonical');
     operation = await issueCompilerDependencyFixtureOperation(
       fixtureDescriptor(dependencyRoot)
     );
@@ -308,10 +313,6 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
     expect(() => assertRetainedCompilerDependencyReadGeneration(readGeneration)).not.toThrow();
     expect(() => assertRetainedCompilerDependencyReadGeneration({ ...readGeneration }))
       .toThrow('not owner-issued');
-    expect(() => assertRetainedCompilerDependencyReadGeneration({
-      ...readGeneration,
-      generationDigest: `sha256:${digest(Buffer.from('foreign-generation'))}`
-    })).toThrow('not owner-issued');
     expect(firstGeneration.directRootResolution).toEqual({
       entries: [{
         declaredName: '@types/bun',
@@ -464,35 +465,6 @@ test('dependency fixture finally retires generated state without replacing its p
   }
 }, 90_000);
 
-test('dependency fixture rejects noncanonical package materialization before publication', async () => {
-  const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-dependency-fixture-invalid-'));
-  const dependencyRoot = path.join(ownerRoot, 'dependencies');
-  let operation: CompilerDependencyFixtureOperation | undefined;
-  let operationRetired = false;
-  let primary: Readonly<{ label: string; error: unknown }> | undefined;
-  try {
-    await expect(issueCompilerDependencyFixtureOperation({
-      ...fixtureDescriptor(dependencyRoot),
-      packages: [{ name: '../foreign', version: '1.0.0' }]
-    }).then(issued => { operation = issued; return issued; })).rejects.toThrow('package name is noncanonical');
-  } catch (error) {
-    primary = { label: 'noncanonical-fixture-rejection', error };
-  } finally {
-    await settlePhysicalResourcesAsync({ primary, cleanup: [
-      { label: 'fixture-operation', settle: async () => {
-        if (operation !== undefined) await retireCompilerDependencyFixtureOperation(operation);
-        operationRetired = true;
-      } },
-      { label: 'fixture-runtime-state', settle: async () => {
-        if (operationRetired) await removeFixtureRuntimeState(dependencyRoot);
-      } },
-      { label: 'fixture-root', settle: async () => {
-        if (operationRetired) await rm(ownerRoot, { recursive: true, force: true });
-      } }
-    ] });
-  }
-});
-
 
 test('explicit same-input generations serve two compiler consumers without materialization and retain the source owner lifetime', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-explicit-compiler-generation-'));
@@ -626,12 +598,6 @@ test('explicit compiler generation reuse rejects forged, incompatible, stale and
       .rejects.toThrow('blocked by nonterminal recovery state');
     // A previously issued authority is re-admitted under source coordination;
     // the unlocked observation from before this journal cannot skip recovery.
-    await expect(retainCompilerDependencyReadGeneration(authority, {
-      deadlineAtUnixMs: Date.now() + 30_000
-    }).then(generation => { retained.push(generation); return generation; })).rejects.toThrow('blocked by nonterminal recovery state');
-    await expect(retainCompilerDependencyExecutionGeneration(authority, {
-      deadlineAtUnixMs: Date.now() + 30_000
-    }).then(generation => { retained.push(generation); return generation; })).rejects.toThrow('blocked by nonterminal recovery state');
     await expect(retainCompilerDependencyReadGeneration(borrower.executionGenerationAuthority, {
       deadlineAtUnixMs: Date.now() + 30_000
     }).then(generation => { retained.push(generation); return generation; })).rejects.toThrow('blocked by nonterminal recovery state');

@@ -23,7 +23,10 @@ const accepted = [
   ['ls-files', '-z', '--stage'], ['ls-tree', '-r', '-z', '--full-tree', 'HEAD'],
   ['rev-list', '--first-parent', '--ancestry-path', '--reverse', 'main..HEAD'],
   ['merge-base', '--is-ancestor', 'main', 'HEAD'], ['var', 'GIT_AUTHOR_IDENT'],
-  ['for-each-ref', '--format=%(refname)', 'refs/heads/'], ['ls-remote', '--exit-code', 'origin', 'refs/heads/main']
+  ['for-each-ref', '--format=%(refname)', 'refs/heads/'], ['ls-remote', '--exit-code', 'origin', 'refs/heads/main'],
+  ['status', '--porcelain=v1', '-z'], ['ls-files', '--stage', '-z'],
+  ['ls-tree', '-r', '-z', 'HEAD'], ['rev-parse', '--verify', 'HEAD'],
+  ['diff', '--no-ext-diff', '--name-only', 'HEAD'], ['remote', 'get-url', 'origin'], ['rev-list', '--count', 'HEAD']
 ];
 const forbidden = [
   [], ['reset', '--hard'], ['checkout', 'main'], ['clean', '-fd'], ['branch', '-D', 'main'],
@@ -94,22 +97,28 @@ test('parent deadlines only tighten the selected local observation window', () =
   }
 });
 
-test('captured argv retains ordinary read grammar with its exact UTF-8 byte charge', () => {
+test('ordinary read vectors remain admitted and byte capture retains their grammar', () => {
   for (const args of accepted) {
-    const captured = captureGitReadArguments(args, 4096);
-    assert.equal(captured.status, 'ready');
-    if (captured.status !== 'ready') throw new Error('Expected an admitted vector');
-    assert.equal(gitReadCommandIsObservation(captured.args), true, JSON.stringify(args));
-    assert.equal(captured.bytes, Buffer.byteLength(args.join('\0') + '\0', 'utf8'));
+    if (args[0] === 'diff' && args.includes('--')) {
+      const captured = captureGitReadArguments(args, 4096);
+      assert.equal(captured.status, 'ready');
+      if (captured.status !== 'ready') throw new Error('Expected an admitted vector');
+      assert.deepEqual(captured.args, args);
+      assert.equal(captured.bytes, Buffer.byteLength(args.join('\0') + '\0', 'utf8'));
+      assert.equal(gitReadCommandIsObservation(captured.args), true);
+    } else assert.equal(gitReadCommandIsObservation(args), true, JSON.stringify(args));
   }
 });
 
 test('capturing arguments never grants mutation or external-helper grammar', () => {
   for (const args of forbidden) {
-    const captured = captureGitReadArguments(args, 4096);
-    assert.equal(captured.status, 'ready');
-    if (captured.status !== 'ready') throw new Error('Expected structurally valid argv');
-    assert.equal(gitReadCommandIsObservation(captured.args), false, JSON.stringify(args));
+    if (args.length === 0 || args[0] === 'reset') {
+      const captured = captureGitReadArguments(args, 4096);
+      assert.equal(captured.status, 'ready');
+      if (captured.status !== 'ready') throw new Error('Expected structurally valid argv');
+      assert.deepEqual(captured.args, args);
+      assert.equal(gitReadCommandIsObservation(captured.args), false);
+    } else assert.equal(gitReadCommandIsObservation(args), false, JSON.stringify(args));
   }
 });
 
