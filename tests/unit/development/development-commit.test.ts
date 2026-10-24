@@ -224,38 +224,38 @@ let developmentCommitTemplate: Promise<string> | undefined;
 async function createDevelopmentCommitTemplate(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-source-'));
   try {
-  git(root, ['init', '--quiet']);
-  git(root, ['config', 'user.name', 'SEC Tests']);
-  git(root, ['config', 'user.email', 'tests@example.com']);
-  const moduleRoot = path.join(
-    root,
-    'src',
-    'adapters',
-    'self-hosting',
-    'development',
-    'import-normalization'
-  );
-  await mkdir(moduleRoot, { recursive: true });
-  await Promise.all([
-    writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{"noEmit":true}}\n'),
-    writeFile(path.join(moduleRoot, 'kernel.ts'), 'export function normalize(): void {}\n'),
-    writeFile(
-      path.join(moduleRoot, 'runtime.ts'),
-      "export { normalize as verifyCandidateImportNormalization } from './kernel.ts';\n"
-    ),
-    writeFile(path.join(moduleRoot, 'module.json'), `${JSON.stringify({
-      importGraph: 'runtime',
-      externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
-      capabilityProviders: [{
-        capability: IMPORT_NORMALIZATION_OPERATION.capability,
-        operations: [IMPORT_NORMALIZATION_OPERATION.operation]
-      }]
-    })}\n`)
-  ]);
-  git(root, ['add', '--all']);
-  git(root, ['commit', '--quiet', '-m', 'base']);
-  await writeFile(path.join(root, 'next.txt'), 'next\n');
-  git(root, ['add', 'next.txt']);
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    const moduleRoot = path.join(
+      root,
+      'src',
+      'adapters',
+      'self-hosting',
+      'development',
+      'import-normalization'
+    );
+    await mkdir(moduleRoot, { recursive: true });
+    await Promise.all([
+      writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{"noEmit":true}}\n'),
+      writeFile(path.join(moduleRoot, 'kernel.ts'), 'export function normalize(): void {}\n'),
+      writeFile(
+        path.join(moduleRoot, 'runtime.ts'),
+        "export { normalize as verifyCandidateImportNormalization } from './kernel.ts';\n"
+      ),
+      writeFile(path.join(moduleRoot, 'module.json'), `${JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
+        capabilityProviders: [{
+          capability: IMPORT_NORMALIZATION_OPERATION.capability,
+          operations: [IMPORT_NORMALIZATION_OPERATION.operation]
+        }]
+      })}\n`)
+    ]);
+    git(root, ['add', '--all']);
+    git(root, ['commit', '--quiet', '-m', 'base']);
+    await writeFile(path.join(root, 'next.txt'), 'next\n');
+    git(root, ['add', 'next.txt']);
     return root;
   } catch (error) {
     try { await rm(root, { recursive: true, force: true }); }
@@ -299,8 +299,7 @@ async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
         date: '1700000100 +0000'
       })
     })
-  });
-}
+    });
   } catch (error) {
     try { await rm(root, { recursive: true, force: true }); }
     catch (cleanupError) {
