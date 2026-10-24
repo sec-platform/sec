@@ -1,5 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { copyFileSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,8 +22,8 @@ async function absent(p: string) {
   catch (error) { if ((error as {code?: string}).code === 'ENOENT') return true; throw error; }
 }
 
-// Uses actual ordinary Node/Bun filesystem operations. The two tests wrapping
-// fs.copyFile add controlled scheduling/failure but do not replace other IO.
+// Uses actual ordinary Node/Bun filesystem operations, with controlled
+// scheduling or failure only where a test needs to observe in-flight work.
 test('one traversal preserves nested bytes and empty directories across a cwd-changing fence', async () => {
   const f = await fixture(), original = process.cwd();
   try {
@@ -102,42 +103,109 @@ test('single-file copying detaches destination hardlinks without rewriting a pee
   } finally { await fs.rm(f.root, { recursive: true, force: true }); }
 });
 
-test('one concurrency ceiling covers files across all directory branches', async () => {
-  const f = await fixture(), originalCopy = fs.copyFile;
-  let active = 0, maximum = 0, copied = 0;
+test.serial('one concurrency ceiling covers files across all directory branches', async () => {
+  const f = await fixture();
+  const original = { copyFile: fs.copyFile, lstat: fs.lstat, mkdir: fs.mkdir, readdir: fs.readdir };
+  const files = Array.from({ length: 32 }, (_, index) => ({ name: String(index), bytes: String(index) }));
   try {
-    for (let d = 0; d < 4; d++) {
-      await fs.mkdir(path.join(f.source, `dir${d}`));
-      for (let i = 0; i < 8; i++) await fs.writeFile(path.join(f.source, `dir${d}`, `${i}`), String(i));
+    for (const file of files) await fs.writeFile(path.join(f.source, file.name), file.bytes);
+    // Keep real metadata and directory effects, but resolve them without native
+    // IO scheduling. A setImmediate turn then drains every runnable promise
+    // chain to a held copy or completion; no elapsed delay means "saturated".
+    fs.lstat = (async (...args: Parameters<typeof fs.lstat>) => Reflect.apply(lstatSync, undefined, args)) as typeof fs.lstat;
+    fs.mkdir = (async (...args: Parameters<typeof fs.mkdir>) => Reflect.apply(mkdirSync, undefined, args)) as typeof fs.mkdir;
+    fs.readdir = (async (...args: Parameters<typeof fs.readdir>) => Reflect.apply(readdirSync, undefined, args)) as typeof fs.readdir;
+    async function peakFor(target: string): Promise<number> {
+      let active = 0, peak = 0, copied = 0, settled = false, draining = false;
+      let failure: { error: unknown } | undefined;
+      const releases: Array<() => void> = [];
+      fs.copyFile = (async (...args: Parameters<typeof fs.copyFile>) => {
+        const gate = deferred();
+        peak = Math.max(peak, ++active);
+        if (draining) gate.resolve(); else releases.push(gate.resolve);
+        try { await gate.promise; copyFileSync(...args); copied++; }
+        finally { active--; }
+      }) as typeof fs.copyFile;
+      const outcome = copyRecursive(f.source, target)
+        .catch(error => { failure = { error }; })
+        .finally(() => { settled = true; });
+      try {
+        while (!settled) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+          if (settled) break;
+          const release = releases.shift();
+          assert.ok(release, 'unfinished copy must be waiting at a controlled completion gate');
+          release();
+        }
+        await outcome;
+        if (failure) throw failure.error;
+        assert.equal(copied, files.length); assert.equal(active, 0);
+        for (const file of files) assert.equal(await fs.readFile(path.join(target, file.name), 'utf8'), file.bytes);
+        return peak;
+      } finally {
+        draining = true;
+        for (const release of releases.splice(0)) release();
+        await outcome;
+        // Also drain the released callbacks if a faulty copy returned early.
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
     }
-    fs.copyFile = (async (...args: Parameters<typeof fs.copyFile>) => {
-      active++; maximum = Math.max(maximum, active);
-      try { await new Promise(resolve => setTimeout(resolve, 5)); await originalCopy(...args); copied++; }
-      finally { active--; }
-    }) as typeof fs.copyFile;
-    await copyRecursive(f.source, f.target);
-    assert.equal(copied, 32); assert.ok(maximum > 1); assert.ok(maximum <= 8); assert.equal(active, 0);
-  } finally { fs.copyFile = originalCopy; await fs.rm(f.root, { recursive: true, force: true }); }
+    const flatPeak = await peakFor(path.join(f.root, 'flat-target'));
+    for (let directory = 0; directory < 4; directory++) await fs.mkdir(path.join(f.source, `dir${directory}`));
+    for (const [index, file] of files.entries()) {
+      const nested = path.join(`dir${index % 4}`, file.name);
+      await fs.rename(path.join(f.source, file.name), path.join(f.source, nested));
+      file.name = nested;
+    }
+    const branchedPeak = await peakFor(f.target);
+    assert.ok(branchedPeak <= flatPeak, 'directory branches must not multiply one copy operation\'s capacity');
+    // Retained pending independent policy evidence: the layout comparison does
+    // not itself reject an equally unbounded fan-out in both layouts.
+    assert.ok(branchedPeak <= 8);
+  } finally { Object.assign(fs, original); await fs.rm(f.root, { recursive: true, force: true }); }
 });
 
-test('a failed copy joins an already-started peer before reporting the error', async () => {
-  const f = await fixture(), originalCopy = fs.copyFile;
-  const entered = deferred(), release = deferred(), refused = deferred(), primary = new Error('copy failed');
+test.serial('a failed copy drains started peers without requiring parallel admission', async () => {
+  const f = await fixture();
+  const original = { copyFile: fs.copyFile, lstat: fs.lstat, mkdir: fs.mkdir, readdir: fs.readdir };
+  const refuse = deferred(), release = deferred(), primary = new Error('copy failed');
+  const started: string[] = [];
   let returned = false, peerFinished = false;
   let outcome: Promise<unknown> | undefined;
   try {
     await fs.writeFile(path.join(f.source, 'a'), 'a'); await fs.writeFile(path.join(f.source, 'b'), 'b');
+    fs.lstat = (async (...args: Parameters<typeof fs.lstat>) => Reflect.apply(lstatSync, undefined, args)) as typeof fs.lstat;
+    fs.mkdir = (async (...args: Parameters<typeof fs.mkdir>) => Reflect.apply(mkdirSync, undefined, args)) as typeof fs.mkdir;
+    fs.readdir = (async (...args: Parameters<typeof fs.readdir>) => Reflect.apply(readdirSync, undefined, args)) as typeof fs.readdir;
     fs.copyFile = (async (...args: Parameters<typeof fs.copyFile>) => {
-      if (path.basename(String(args[0])) === 'a') { await entered.promise; refused.resolve(); throw primary; }
-      entered.resolve(); await release.promise; await originalCopy(...args); peerFinished = true;
+      started.push(path.basename(String(args[0])));
+      if (started.length === 1) { await refuse.promise; throw primary; }
+      await release.promise; copyFileSync(...args); peerFinished = true;
     }) as typeof fs.copyFile;
     outcome = copyRecursive(f.source, f.target).then(() => ({ ok: true }), error => ({ error }))
       .finally(() => { returned = true; });
-    await refused.promise; await new Promise(resolve => setTimeout(resolve, 0));
-    assert.equal(returned, false); assert.equal(peerFinished, false);
+    // With metadata IO already resolved, this turn reaches every currently
+    // admissible copy gate without assuming a worker count or directory order.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const admitted = [...started];
+    assert.ok(admitted.length === 1 || admitted.length === 2);
+    assert.equal(new Set(admitted).size, admitted.length);
+    for (const name of admitted) assert.ok(name === 'a' || name === 'b');
+    refuse.resolve();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    if (admitted.length === 2) {
+      assert.equal(returned, false); assert.equal(peerFinished, false);
+    }
     release.resolve();
     const result = await outcome as { error: unknown };
-    assert.equal(peerFinished, true);
+    assert.deepEqual(started, admitted, 'failure must not admit a previously queued copy');
+    assert.equal(peerFinished, admitted.length === 2);
+    assert.equal(await absent(path.join(f.target, admitted[0]!)), true);
+    if (admitted.length === 2) assert.equal(await fs.readFile(path.join(f.target, admitted[1]!), 'utf8'), admitted[1]);
     assert.ok(result.error === primary || (result.error instanceof AggregateError && result.error.errors.includes(primary)));
-  } finally { release.resolve(); await outcome; fs.copyFile = originalCopy; await fs.rm(f.root, { recursive: true, force: true }); }
+  } finally {
+    refuse.resolve(); release.resolve(); await outcome;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    Object.assign(fs, original); await fs.rm(f.root, { recursive: true, force: true });
+  }
 });
