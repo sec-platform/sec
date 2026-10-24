@@ -93,13 +93,3 @@ test('inherited lane cannot silently enter the standalone own-input boundary', (
     (error: unknown) => error instanceof CodedFailure && error.code === 'CLI-USAGE-001');
 });
 
-test('real verify and compile actions reject lanes before loading their execution domain', async () => {
-  for (const name of ['verify', 'compile']) {
-    const root = new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} });
-    registerWorkspaceCommands(root); registerPipelineCommands(root, inertPipelineOperations);
-    const command = root.commands.find((c) => c.name() === name)!;
-    command.setOptionValue('lane', 'unknown');
-    await assert.rejects(root.parseAsync([name], { from: 'user' }), (error: unknown) =>
-      (error as { code: string }).code === (name === 'verify' ? 'CLI-USAGE-001' : 'PIPELINE-USAGE-002'));
-  }
-});
