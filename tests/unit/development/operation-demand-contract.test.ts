@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { ensureOperationDependencies } from '../../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts';
 import {
   assertOperationDemandGraph,
   compileOperationDemandGraph
@@ -80,4 +81,11 @@ test('demand identity is order-independent and forged ambient demand is rejected
     ...graph,
     capabilityDemands: ['compiler-dependency-tree']
   })).toThrow('differs from the canonical compiler output');
+});
+
+test('dependency bootstrap rejects a valid graph that does not demand compiler dependencies', async () => {
+  await expect(ensureOperationDependencies(compileOperationDemandGraph({
+    operation: 'work-selection-observe',
+    terminalWorkIds: []
+}))).rejects.toThrow('requires an operation demand for compiler-dependency-tree');
 });

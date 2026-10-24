@@ -300,12 +300,7 @@ for (const source of ['existing', 'installed'] as const) {
   });
 }
 
-test('dependency bootstrap rejects a valid graph that does not demand compiler dependencies', async () => {
-  await expect(ensureOperationDependencies(compileOperationDemandGraph({
-    operation: 'work-selection-observe',
-    terminalWorkIds: []
-}))).rejects.toThrow('requires an operation demand for compiler-dependency-tree');
-});
+
 
 test('one process-local materialization is reusable only for a covered demand closure', async () => {
   const calls: string[] = [];
