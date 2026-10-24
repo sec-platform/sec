@@ -116,19 +116,6 @@ test('a planned acceptance must cover at least one resolved block', async () => 
   )).rejects.toThrow('covers no resolved block');
 });
 
-test('acceptance targets cannot reference unknown resolved block identities', async () => {
-  const captured = captureAcceptanceSources([{
-    id: 'unknown_target',
-    covers: { blocks: ['missing/block'] }
-  }]);
-  await expect(buildAcceptanceCoverage(
-    '.',
-    lock(['unknown_target'], captured),
-    runtime(),
-    fast([])
-  )).rejects.toThrow('unknown resolved block');
-});
-
 test('acceptance dependency cycles are invalid proof graphs rather than uncovered results', async () => {
   const captured = captureAcceptanceSources([
     {

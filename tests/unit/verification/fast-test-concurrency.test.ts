@@ -14,9 +14,9 @@ import {
   explicitFastTestMaxConcurrency
 } from '../../../src/adapters/self-hosting/development/runner/test-concurrency-policy.ts';
 
-test('one pure capped budget resolves CPU counts 1..256 and MAX_SAFE_INTEGER', () => {
+test('one pure capped budget covers every admitted allocation and excess CPU boundaries', () => {
   const cpuCounts = [
-    ...Array.from({ length: 256 }, (_, index) => index + 1),
+    ...Array.from({ length: MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET + 1 }, (_, index) => index + 1),
     Number.MAX_SAFE_INTEGER
   ];
 

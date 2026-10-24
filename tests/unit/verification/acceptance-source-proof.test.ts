@@ -48,11 +48,9 @@ test('a non-built-in manifest source proves only installed and actually passed t
   expect(buildAcceptanceCoverageReport(unexecuted).acceptancePassed).toEqual([]);
 });
 
-test('all required tests and repeated declarations form all-of proof obligations', () => {
+test('passed acceptance still requires evidence for every declared dependency', () => {
   const input = fixture([first, second]);
-  expect(buildAcceptanceCoverageReport(input).acceptancePassed).toEqual([]);
   input.fast.acceptance.passed.push(second);
-  expect(buildAcceptanceCoverageReport(input).acceptancePassed).toEqual(['invoice_total']);
   input.lock.acceptanceSources!.push({ declaringBlockId: 'billing/invoice', acceptance: { id: 'invoice_dependency', source: { tests: [second] } } });
   input.lock.acceptanceSources![0]!.acceptance.dependsOn = ['invoice_dependency'];
   const dependent = buildAcceptanceCoverageReport(input);

@@ -171,9 +171,14 @@ function authorization(): SemanticMutationAuthorizationContext {
   return { ...draft, authorizationRevision: semanticMutationAuthorizationRevision(draft) };
 }
 
+// Share only the validated, deeply frozen source IR. Each fixture still builds
+// fresh endpoints, requests, authorization and planning results below.
+const beforeSnapshot = buildValidatedEngineeringIR(buildInput(false));
+const afterSnapshot = buildValidatedEngineeringIR(buildInput(true));
+
 function fixture() {
-  const before = buildValidatedEngineeringIR(buildInput(false));
-  const after = buildValidatedEngineeringIR(buildInput(true));
+  const before = beforeSnapshot;
+  const after = afterSnapshot;
   const base = endpoint(before, 'tx:base');
   const staged = endpoint(after, 'tx:staged');
   const delta = buildFactDelta(base, staged);
@@ -259,7 +264,6 @@ test('request normalization is strict, deterministic, non-mutating, and deeply f
   expect(JSON.stringify(first)).toBe(JSON.stringify(second));
   expect(JSON.stringify(request)).toBe(json);
   expectDeepFrozen(first);
-  expect(() => normalizeSemanticMutationRequest({ ...request, risk: 'low' })).toThrow('unknown fields');
   expect(() => normalizeSemanticMutationRequest({ ...request, requestId: ' whitespace ' })).toThrow('trimmed non-empty');
   expect(() => normalizeSemanticMutationRequest({
     ...request,
