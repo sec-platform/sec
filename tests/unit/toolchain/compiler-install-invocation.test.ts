@@ -5,11 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runBunInstall } from '../../../src/adapters/toolchain/dependencies/runtime/compiler-install-process.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../../../src/adapters/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const success = { code: 0, stderr: '', stdout: 'fixture' };
 async function fixture(run: (root: string) => Promise<void>) {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-install-invocation-'));
-  try { await run(root); } finally { await rm(root, { recursive: true, force: true }); }
+  return settleWorkspaceCallback(() => run(root), () => rm(root, { recursive: true, force: true }));
 }
 const budgetFailure = (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003';
 

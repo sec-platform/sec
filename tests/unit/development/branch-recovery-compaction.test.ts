@@ -7,6 +7,7 @@ import type { BranchLifecycleInventory } from '../../../src/execution/verificati
 
 
 import { createRecoveryBundle } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 function git(root: string, args: readonly string[], allowFailure = false) {
   const result = spawnSync('git', [...args], {
@@ -20,13 +21,13 @@ function git(root: string, args: readonly string[], allowFailure = false) {
   return result;
 }
 
-test('branch recovery bundle retains only the source closure missing from exact main', () => {
+test('branch recovery bundle retains only the source closure missing from exact main', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-recovery-compaction-'));
   const repository = path.join(root, 'repository');
   const recoveryRoot = path.join(root, 'recovery');
   const consumer = path.join(root, 'consumer.git');
   const empty = path.join(root, 'empty.git');
-  try {
+  return settleWorkspaceCallback(async () => {
     mkdirSync(repository);
     git(repository, ['init', '--quiet', '--initial-branch=main']);
     git(repository, ['config', 'user.name', 'SEC Test']);
@@ -114,7 +115,5 @@ test('branch recovery bundle retains only the source closure missing from exact 
     mkdirSync(empty);
     git(empty, ['init', '--quiet', '--bare']);
     expect(git(empty, ['bundle', 'verify', result.recovery.path], true).status).toBeGreaterThan(0);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
 }, 30_000);

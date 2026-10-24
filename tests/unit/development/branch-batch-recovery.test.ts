@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createBatchRecoveryBundle, createRecoveryBundle, verifyRecoveryAuthorityHeadsLive } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import type { BranchLifecycleInventory } from '../../../src/execution/verification/branch-closeout.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
@@ -47,9 +48,9 @@ function fixture(root: string) {
   return { repository, refs, inventory };
 }
 
-test('batch recovery rejects compact prerequisites and restores both unique tips without its source repository', () => {
+test('batch recovery rejects compact prerequisites and restores both unique tips without its source repository', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-complete-batch-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     const { repository, refs, inventory } = fixture(root);
     const recoveryRoot = path.join(root, 'recovery');
     const recovery = createBatchRecoveryBundle({ inventory, refs, recoveryRoot });
@@ -76,5 +77,5 @@ test('batch recovery rejects compact prerequisites and restores both unique tips
     git(empty, ['fetch', '--no-tags', recovery.path, '+refs/heads/*:refs/heads/*']);
     for (const ref of refs) expect(git(empty, ['show', `${ref.expectedHeadSha}:unique.txt`])).toBe(ref.branch);
     expect(git(empty, ['show', `${inventory.main.remoteSha}:base.txt`])).toBe('base 2');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
 }, 60_000);

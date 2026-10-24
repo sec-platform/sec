@@ -4,18 +4,19 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const source = (relative: string) => JSON.stringify(path.join(repo, relative));
 async function runCase(body: (root: string, decoy: string) => string) {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-cli-input-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     const decoy = path.join(root, 'decoy'); await mkdir(decoy);
     const script = path.join(root, 'case.ts');
     await writeFile(script, body(root, decoy));
     const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
     expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('bound request retained');
-  } finally { await rm(root, { recursive: true, force: true }); }
+  }, () => rm(root, { recursive: true, force: true }));
 }
 
 test('dependency root and output format are fixed before asynchronous domain loading', async () => {

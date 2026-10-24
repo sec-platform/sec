@@ -4,12 +4,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 // Isolate loader failure from the other tests' module cache. The production
 // wrapper, not a replacement execution function, owns the fallback boundary.
 test('unavailable optional progress dependency cannot block or retry the requested action', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-spinner-load-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     const spinner = fileURLToPath(new URL('../../../src/bootstrap/cli/runtime/spinner.ts', import.meta.url));
     const script = path.join(root, 'spinner-loading.ts');
     await Bun.write(script, `
@@ -34,5 +35,5 @@ test('unavailable optional progress dependency cannot block or retry the request
     const { code, stdout: out, stderr: err } = await runRetainedBunTestCommand([script], { cwd: root });
     expect(code, err).toBe(0);
     expect(out.trim()).toBe('completed once per request');
-  } finally { await rm(root, { recursive: true, force: true }); }
+  }, () => rm(root, { recursive: true, force: true }));
 });

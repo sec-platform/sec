@@ -8,6 +8,7 @@ import { getDependencyEnvironmentStatus, type DependencyEnvironmentStatus } from
 import { compilerRoot } from '../../../src/adapters/workspace-context.ts';
 import { cleanDependencyEnvironment, type DependencyEnvironmentOperation } from '../../../src/application/dependency-environment.ts';
 import { createDependencyOperation } from '../../../src/bootstrap/toolchain/dependency-operation.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 // Native consumer tests: do not replace Workspace removal or lifecycle owners.
 // All possible deletion targets are inside this fixture; the shared target is
@@ -15,15 +16,14 @@ import { createDependencyOperation } from '../../../src/bootstrap/toolchain/depe
 async function fixture(run:(root:string,shared:string,operation:DependencyEnvironmentOperation<DependencyEnvironmentStatus>)=>Promise<void>){
  const root=await fs.mkdtemp(path.join(tmpdir(),'sec-cleanup-admission-'));
  const shared=path.join(root,'foreign-shared');
- try{
+ return settleWorkspaceCallback(async()=>{
   await fs.mkdir(path.join(root,'node_modules'));await fs.writeFile(path.join(root,'node_modules/keep'),'keep');await fs.writeFile(path.join(root,'.runtime-deps.stamp.json'),'keep');
   const native = createDependencyOperation({ workspaceRoot: root });
   const operation = Object.freeze({ ...native, compilerRoot, canonicalSharedRoot: path.join(compilerRoot, '.shared-deps'),
    getStatus: (workspaceRoot:string,sharedDepsRoot:string) => getDependencyEnvironmentStatus(workspaceRoot, { sharedDepsRoot }),
    removeProjectProjection: removeDependencyProjectProjection });
   await run(root,shared,operation);
- }
- finally{await fs.rm(root,{recursive:true,force:true});}
+ }, () => fs.rm(root,{recursive:true,force:true}));
 }
 test('foreign shared-root plans are refused before project deletion with or without force',async()=>fixture(async(root,shared,operation)=>{
  for (const selection of [{project:true,shared:true}, {project:true,shared:true,force:true}]) {
