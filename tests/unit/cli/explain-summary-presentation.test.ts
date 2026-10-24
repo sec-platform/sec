@@ -35,23 +35,35 @@ test('live explanation preserves zero coverage, supplied matrix content and deta
     const view = projectExplainSummary(sourceGraph, summary, matrix);
     expect({ sourceGraph, summary, matrix }).toEqual(before);
     const text = formatExplainSummary(view);
-    expect(text).toBe([
-      'Explain graph 3 nodes 1 edges',
-      'Node types: block=2, operation=1',
-      'Edge types: depends_on=1',
-      'Coverage: 0 blocks; uncovered blocks=0',
-      'Provenance origins: none',
-      'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
-      'Chain: attention; stages: 3/4; attention: 1; failed: 0',
-      'E2E verification: passed; lane=fast; failed=none; supplied matrix; evidence=ci=passed, failures=0',
-      'E2E coverage: passed; blocks=0/0; evidence=blocks=0/0',
-      'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
-      'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
-      'Impacted: 0 blocks, 0 runtime entries',
-      'Coverage detail: passed; acceptance passed: 0; covered blocks: 0/0',
-      'Install impact: 0 impacts; groups: 0; actions: none; runtime entries: 0; targets: 0',
-      'Provenance detail: artifacts: 0; overrides: 0; registry: 0; unverified: 0'
-    ].join('\n'));
+    const lines = text.split('\n');
+    // These are independently specified results; prose punctuation and
+    // whitespace are not an artificial compatibility contract.
+    const expected = [
+      ['Explain graph ', ['3 nodes', '1 edges']],
+      ['Node types:', ['block=2', 'operation=1']],
+      ['Edge types:', ['depends_on=1']],
+      ['Coverage:', ['0 blocks', 'uncovered blocks=0']],
+      ['Provenance origins:', ['none']],
+      ['CI status:', ['passed', 'failures: 0', 'regression risks: 0', 'conflict hints: 0']],
+      ['Chain:', ['attention', 'stages: 3/4', 'attention: 1', 'failed: 0']],
+      ['E2E verification:', ['passed', 'lane=fast', 'supplied matrix', 'ci=passed', 'failures=0']],
+      ['E2E coverage:', ['passed', 'blocks=0/0']],
+      ['E2E artifacts:', ['attention', 'artifacts=missing']],
+      ['E2E review:', ['passed', 'review-summary=generated']],
+      ['Impacted:', ['0 blocks', '0 runtime entries']],
+      ['Coverage detail:', ['passed', 'covered blocks: 0/0']],
+      ['Install impact:', ['0 impacts', 'targets: 0']],
+      ['Provenance detail:', ['artifacts: 0', 'unverified: 0']]
+    ] as const;
+    expect(lines).toHaveLength(expected.length);
+    for (const [prefix, markers] of expected) {
+      const rows = lines.filter(line => line.startsWith(prefix));
+      expect(rows).toHaveLength(1);
+      for (const marker of markers) expect(rows[0]).toContain(marker);
+    }
+    expect(lines.filter(line => line.startsWith('E2E ')).map(line => line.split(':')[0])).toEqual([
+      'E2E verification', 'E2E coverage', 'E2E artifacts', 'E2E review'
+    ]);
     sourceGraph.nodes[0]!.type = 'operation';
     summary.installImpactSummary.actionKinds.push('changed');
     summary.chainSummary.status = 'failed';

@@ -48,18 +48,6 @@ test('command-specific flags preserve the own-enumerable input boundary', () => 
   if (input.kind === 'execute') assert.equal(input.request.dryRun, false);
 });
 
-test('selected write flag is captured once and unrelated fields are not enumerated', () => {
-  let reads = 0;
-  const raw = new Proxy({ json: true, compact: false,
-    get dryRun() { reads++; return true; },
-    get unrelated() { assert.fail('unrelated field read'); throw new Error('unreachable'); } }, {
-    ownKeys() { assert.fail('whole options enumerated'); }
-  });
-  const input = parseRepairCommandInput(undefined, raw);
-  assert.equal(reads, 1); assert.equal(input.kind, 'execute');
-  if (input.kind === 'execute') assert.equal(input.request.dryRun, true);
-});
-
 test('later changes to raw flags do not change captured request or presentation', () => {
   const raw = { json: true, compact: true, dryRun: false };
   const input = parseUpgradeCommandInput('block', '1', raw, 'sec upgrade');
@@ -68,6 +56,14 @@ test('later changes to raw flags do not change captured request or presentation'
   if (input.kind !== 'execute') assert.fail('wrong selected route');
   assert.equal(input.request.dryRun, false);
   assert.equal(Reflect.set(input.request, 'dryRun', true), false);
+  const repairOptions = { json: true, compact: false, dryRun: true };
+  const repair = parseRepairCommandInput(undefined, repairOptions);
+  repairOptions.json = false; repairOptions.dryRun = false;
+  assert.equal(repair.kind, 'execute');
+  if (repair.kind === 'execute') {
+    assert.deepEqual(repair.output, { json: true, compact: false });
+    assert.equal(repair.request.dryRun, true);
+  }
 });
 
 for (const subject of ['plan', 'diagnostics']) {

@@ -109,6 +109,17 @@ test('provenance inspection routes text through application and entry while pres
     });
 
     const text = formatProvenanceRegistry(view);
+    // A generated artifact without a declared producing pass is not an
+    // empty-string pass. Retain this absence boundary next to the real CLI
+    // consumer instead of a separate projection-only registration.
+    const unboundPass = projectProvenanceRegistryInspect({ artifacts: [{
+      path: 'src/no-pass.ts', originType: 'generated', originId: 'unbound',
+      verifiedBy: [], overrideStatus: 'none'
+    }] });
+    expect(unboundPass.generatedPasses).toEqual([]);
+    const absentPasses = formatProvenanceRegistry(unboundPass).split('\n')
+      .find(line => line.startsWith('Generated passes:'));
+    expect(absentPasses).toContain('none');
     for (const count of [/\bartifacts=5(?=$|[\s;,()])/u, /\bregistry=1(?=$|[\s;,()])/u, /\boverrides=1(?=$|[\s;,()])/u, /\bunverified=3(?=$|[\s;,()])/u]) {
       expect(text).toMatch(count);
     }

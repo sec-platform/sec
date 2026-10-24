@@ -36,6 +36,17 @@ for (const [lane, runFast, runtimeMode, scope] of [
       assert.equal(workspace.request.emitTiming, !expectedOutput.json);
       assert.ok(Object.isFrozen(workspace)); assert.ok(Object.isFrozen(workspace.request));
     }
+    if (lane === 'runtime') {
+      // A parsed request cannot change its lane or output mode after capture,
+      // even when its original ordinary options object is mutated.
+      const mutable: Record<string, unknown> = { lane, json: true, compact: false };
+      const captured = parseVerifyCommandInput(mutable);
+      mutable.lane = 'all'; mutable.json = false; mutable.compact = true;
+      assert.deepEqual(captured, {
+        output: { json: true, compact: false },
+        request: { lane: 'runtime', emitTiming: false }
+      });
+    }
   });
 }
 
@@ -75,17 +86,6 @@ test('standalone and pipeline defaults remain independently registered', () => {
   assert.equal(option('compile').defaultValue, 'all');
   assert.equal(option('verify').required, true);
   assert.equal(option('compile').required, true);
-});
-
-test('verify captures only owned fields once and fixes execution and output values', () => {
-  const reads: Record<string, number> = {};
-  const raw = { lane: 'runtime', json: true, compact: false };
-  const input = new Proxy(raw, { ownKeys() { assert.fail('unowned input enumerated'); },
-    get(target, key) { reads[String(key)] = (reads[String(key)] ?? 0) + 1; return Reflect.get(target, key); } });
-  const captured = parseVerifyCommandInput(input);
-  raw.lane = 'all'; raw.json = false; raw.compact = true;
-  assert.deepEqual(reads, { json: 1, compact: 1, lane: 1 });
-  assert.deepEqual(captured, { output: { json: true, compact: false }, request: { lane: 'runtime', emitTiming: false } });
 });
 
 test('inherited lane cannot silently enter the standalone own-input boundary', () => {

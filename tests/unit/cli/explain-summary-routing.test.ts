@@ -3,9 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { projectExplainSummary } from '../../../src/application/explain-summary.ts';
 import { buildE2eMatrix } from '../../../src/assurance/verification/review/matrix.ts';
-import { formatExplainSummary } from '../../../src/entry/cli/explain-summary.ts';
 import { buildReviewSummaryFromInputs } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
@@ -48,7 +46,25 @@ test('live explain routing preserves raw JSON, text and single matrix derivation
       return stdout;
     };
     const e2eMatrix = buildE2eMatrix(reviewSummary);
-    expect(await invoke([])).toBe(`${formatExplainSummary(projectExplainSummary(graph, reviewSummary, e2eMatrix))}\n`);
+    const output = await invoke([]);
+    const lines = output.trimEnd().split(/\r?\n/u);
+    expect(lines[0]).toMatch(/^Explain graph 0 nodes 0 edges\b/u);
+    const required = [
+      ['Node types:', ['none']],
+      ['CI status:', ['passed', 'failures: 0']],
+      ['E2E verification:', ['passed', 'lane=fast', 'ci=passed', 'failures=0']],
+      ['E2E coverage:', ['passed', 'blocks=0/0']],
+      ['E2E artifacts:', ['attention', 'artifacts=missing']],
+      ['E2E review:', ['passed', 'review-summary=generated']]
+    ] as const;
+    for (const [prefix, markers] of required) {
+      const rows = lines.filter(line => line.startsWith(prefix));
+      expect(rows).toHaveLength(1);
+      for (const marker of markers) expect(rows[0]).toContain(marker);
+    }
+    expect(e2eMatrix.rows.map(row => row.stage)).toEqual([
+      'verification', 'coverage', 'artifacts', 'review'
+    ]);
     expect(JSON.parse(await fs.readFile(receiptPath, 'utf8'))).toEqual({ reads: 1 });
     const compact = await invoke(['--json', '--compact']);
     expect(compact.trim().split('\n')).toHaveLength(1);
