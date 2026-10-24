@@ -1,8 +1,68 @@
 import { expect, test } from 'bun:test';
 import { Command } from 'commander';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
+import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { registerInspectionQuery } from '../../../src/entry/cli/inspection-query.ts';
 import { runCliInProcess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
+
+
+// Each default alias must resolve a real, independently identifiable report.
+// Comparing two "not found" errors alone cannot establish correct routing.
+const availableReports = {
+  policy: {
+    key: 'policyReport',
+    contents: {
+      status: 'skipped',
+      official: { policies: [], sources: [], violations: [] },
+      project: { policies: [], sources: [], violations: [] },
+      merged: { policies: [] },
+      violations: [], diagnostics: []
+    },
+    witness: 'Policy report skipped'
+  },
+  acceptance: {
+    key: 'acceptanceCoverage',
+    contents: { status: 'passed', acceptancePassed: ['mode:acceptance'], blocks: [], uncoveredBlocks: [] },
+    witness: 'acceptancePassed=1'
+  },
+  runtime: {
+    key: 'runtimeReport',
+    contents: {
+      status: 'passed',
+      build: { status: 'passed', passed: ['mode:runtime'], failed: [], command: 'fixture-build' },
+      unit: { status: 'passed', passed: [], failed: [], command: null },
+      acceptance: { status: 'passed', passed: [], failed: [], command: null }
+    },
+    witness: 'fixture-build'
+  },
+  verification: {
+    key: 'verificationReport',
+    contents: {
+      summary: { status: 'passed', requestedLane: 'fast', failedLanes: [] },
+      fast: {
+        status: 'passed', build: { status: 'passed' }, unit: { status: 'passed' },
+        acceptance: { status: 'passed' }, policy: { status: 'passed' }
+      },
+      runtime: {
+        status: 'skipped', build: { status: 'skipped' }, unit: { status: 'skipped' },
+        acceptance: { status: 'skipped' }
+      }
+    },
+    witness: 'requestedLane=fast'
+  },
+  provenance: {
+    key: 'provenance',
+    contents: {
+      artifacts: [{
+        path: 'src/default-mode.ts', originType: 'generated',
+        originId: 'mode:provenance', verifiedBy: [], overrideStatus: 'none'
+      }]
+    },
+    witness: 'src/default-mode.ts'
+  }
+} as const;
 
 const legacyModes = [
   ['policy', 'report'], ['acceptance', 'coverage'], ['runtime', 'report'],
@@ -24,6 +84,15 @@ for (const [command, mode] of legacyModes) {
           expect(explicit.stderr).toContain('not found');
           expect(explicit.stderr).not.toContain('commander.');
         }
+      }
+      if (command !== 'demo') {
+        const { key, contents, witness } = availableReports[command];
+        await writeJson(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES[key]), contents);
+        const implicitAvailable = await runCliInProcess(root, [command]);
+        const explicitAvailable = await runCliInProcess(root, [command, mode]);
+        expect(implicitAvailable.code).toBe(0);
+        expect(explicitAvailable).toEqual(implicitAvailable);
+        expect(implicitAvailable.stdout).toContain(witness);
       }
     });
   });
