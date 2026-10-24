@@ -192,7 +192,9 @@ test(
     const firstReady = path.join(repositoryRoot, 'generation-one.ready');
     const firstResult = path.join(repositoryRoot, 'first-result.json');
     const secondResult = path.join(repositoryRoot, 'second-result.json');
-    await Promise.all([
+    // A failed child must not let afterEach retire the shared fixture while
+    // the already-started sibling still owns a native process and marker.
+    const children = await Promise.allSettled([
       runDependencyBootstrapChild({
         attemptLog,
         readyMarker: firstReady,
@@ -206,6 +208,12 @@ test(
         resultPath: secondResult
       })
     ]);
+    const childFailures = children.flatMap(value =>
+      value.status === 'rejected' ? [value.reason] : []);
+    if (childFailures.length === 1) throw childFailures[0];
+    if (childFailures.length > 1) {
+      throw new AggregateError(childFailures, 'Concurrent dependency bootstrap children failed');
+    }
     const joinedResults = [firstResult, secondResult].map((resultPath) => (
       JSON.parse(fs.readFileSync(resultPath, 'utf8')) as {
         generationDigest: string;
