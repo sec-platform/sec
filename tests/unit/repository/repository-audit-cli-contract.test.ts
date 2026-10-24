@@ -19,7 +19,8 @@ test('repository defaults preserve high-severity enforcement and no output effec
     mode: 'repository', diagnostic: false, enforce: false, full: false,
     blockingDetails: false, blockingDetailsDomain: 'priority', blockingDetailsPage: 0, includeCandidates: false,
     failOn: 'high', defaultRef: undefined,
-    outputPath: null, query: null, reductionMode: 'none', supersessionBaseline: 'HEAD'
+    outputPath: null, query: null, reductionMode: 'none', supersessionBaseline: 'HEAD',
+    transitionCandidateRoot: null, transitionExpectedHead: null, testAuthorInput: null
   });
 });
 
