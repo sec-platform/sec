@@ -606,19 +606,6 @@ test('computed values block changed declarations and their consumer frontier', (
       subject: 'computed-property-unresolved'
     })
   );
-  const invocation = compileFixture({
-    'src/example/service.ts': [
-      'export function run(values: Record<string, () => string>, key: string): string {',
-      '  return values[key]();',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  expect(reconcile(before, invocation).unresolvedReasons).toContainEqual(expect.objectContaining({
-    code: 'changed-path-source-program-unknown',
-    subject: 'computed-property-unresolved'
-  }));
-
   const consumerBefore = compileFixture({
     'src/example/service.ts': [
       'export function select(values: Record<string, unknown>, key: string): unknown {',

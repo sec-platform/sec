@@ -21,13 +21,26 @@ test('read-only observation captures one input for its physical scan and same-co
   const f=fixture(); try {
     const options=new Proxy({...f.options,get generatedStateLifecycle(){assert.fail('unused lifecycle'); throw new Error('unreachable');},get beforeCommit(){assert.fail('write fence'); throw new Error('unreachable');}},
       {ownKeys(){assert.fail('options enumerated');}});
-    const request=new Proxy({...input(f),options,get unrelated(){assert.fail('unrelated input'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('input enumerated');}});
-    const same=input(f), expectedDigest=generatedStateDigest(request.binding);
+    const values={...input(f),options};
+    const replacements={ownerRoot:path.join(f.root,'b'),sourcePath:path.join(f.root,'b'),binding:{selected:'b'},
+      options:{lockTimeoutMs:20_000,monotonicNowMs:()=>assert.fail('replacement controls')}};
+    const selected=new Set<PropertyKey>();
+    const request=new Proxy({...values,get unrelated(){assert.fail('unrelated input'); throw new Error('unreachable');}}, {
+      ownKeys(){assert.fail('input enumerated');},
+      get(target,key,receiver){
+        if(Object.hasOwn(replacements,key)){
+          if(selected.has(key))return Reflect.get(replacements,key);
+          selected.add(key);
+        }
+        return Reflect.get(target,key,receiver);
+      }
+    });
+    const same=input(f), expectedDigest=generatedStateDigest({selected:'a'});
     const first=runtimeDependencySourceGeneration(request);
-    request.sourcePath=path.join(f.root,'b'); request.binding.selected='b';
+    request.sourcePath=path.join(f.root,'b'); values.binding.selected='b';
     const second=runtimeDependencySourceGeneration(same);
     const [a,b]=await Promise.all([first,second]);
-    assert.equal(a,b); assert.equal(a.sourcePath,same.sourcePath); assert.equal(a.bindingDigest,expectedDigest);
+    assert.equal(a,b); assert.equal(a.ownerRoot,f.root); assert.equal(a.sourcePath,same.sourcePath); assert.equal(a.bindingDigest,expectedDigest);
     assertRuntimeDependencySourceGenerationIssued(a);
   } finally {rmSync(f.root,{recursive:true,force:true});}
 });
@@ -50,15 +63,6 @@ test.serial('relative paths bind before callbacks or the deferred scan can chang
     process.chdir(tmpdir());
     const result=await pending;assert.equal(result.ownerRoot,f.root);assert.equal(result.sourcePath,path.join(f.root,'a'));
   }finally{process.chdir(original);rmSync(f.root,{recursive:true,force:true});}
-});
-
-test('required input fields are sampled once before scan scheduling', async () => {
-  const f=fixture();try{
-    const counts: Record<string,number>={}, values=input(f), request={} as typeof values;
-    for(const key of Object.keys(values) as (keyof typeof values)[])Object.defineProperty(request,key,{enumerable:true,get(){counts[key]=(counts[key]??0)+1;return values[key];}});
-    await runtimeDependencySourceGeneration(request);
-    assert.deepEqual(counts,{ownerRoot:1,sourcePath:1,binding:1,options:1});
-  }finally{rmSync(f.root,{recursive:true,force:true});}
 });
 
 for(const requested of [null, false, {maximumBytes:null},{maximumEntries:null},{maximumBytes:-1},{maximumEntries:0}]){

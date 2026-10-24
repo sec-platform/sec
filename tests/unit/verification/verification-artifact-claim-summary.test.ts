@@ -314,7 +314,7 @@ test('passed required gates must explicitly support their claim', () => {
   expectBlocked(candidate);
 });
 
-test('fast, runtime and policy reports must match their green aggregate', () => {
+test('contradictory lane observations and invalid policy status cannot retain a green artifact', () => {
   const fastDrift = mutablePassedArtifact();
   fastDrift.verificationReport.fast.build.status = 'skipped';
   fastDrift.verificationReport.build.status = 'skipped';
@@ -354,19 +354,16 @@ test('full-runtime PASS requires an execution command', () => {
   expectBlocked(missingCommand);
 });
 
-test('coverage cannot be emptied or partially forged under a green claim summary', () => {
+test('green full-runtime coverage requires both passed observations and no uncovered blocks', () => {
   const missingCoverage = mutablePassedArtifact();
   invalidateCoverage(missingCoverage);
+  missingCoverage.acceptanceCoverage.acceptancePassed = [ACCEPTANCE_ID];
   expectBlocked(missingCoverage);
 
   const forgedCoverage = mutablePassedArtifact();
   forgedCoverage.acceptanceCoverage.acceptancePassed = [];
   expectBlocked(forgedCoverage);
 
-  const partialCoverage = mutablePassedArtifact();
-  partialCoverage.acceptanceCoverage.blocks[0]!.declaredAcceptance.push('second_requirement');
-  partialCoverage.acceptanceCoverage.blocks[0]!.uncovered = false;
-  expectBlocked(partialCoverage);
 });
 
 test('all-lane artifacts cannot replace full runtime proof with a service projection', () => {

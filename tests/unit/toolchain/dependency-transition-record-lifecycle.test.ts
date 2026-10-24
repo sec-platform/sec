@@ -52,14 +52,34 @@ test('begin, successor and durable readback retain one exact canonical immutable
 }));
 
 test('begin never retargets owner or source after asynchronous slot observation starts', async () => using(async f => {
-  const input = request(f);
-  const expectedDestination = input.destinationPath;
+  const values = request(f);
+  const expectedDestination = values.destinationPath;
+  mkdirSync(expectedDestination);
+  const replacements = { ...values, kind: 'runtime-projection',
+    ownerRoot: path.join(f.root, 'missing-owner'), destinationPath: path.join(f.root, 'other'),
+    stagePath: path.join(f.root, 'source'), stageRootPath: path.join(f.root, 'source'),
+    backupPath: path.join(f.root, 'source'), bindingDigest: null,
+    sourceGeneration: { ...f.sourceGeneration, ownerRoot: path.join(f.root, 'missing-source') },
+    options: { ...f.options, async beforeCommit() { assert.fail('replacement effect'); } } };
+  const selected = new Set<PropertyKey>();
+  const input = new Proxy(values, { get(target, key, receiver) {
+    if (Object.hasOwn(replacements, key)) {
+      if (selected.has(key)) return Reflect.get(replacements, key);
+      selected.add(key);
+    }
+    return Reflect.get(target, key, receiver);
+  } });
   const pending = beginDependencyTransition(input);
-  Object.assign(input, { ownerRoot: path.join(f.root, 'missing-owner'), destinationPath: path.join(f.root, 'other'),
+  Object.assign(values, { ownerRoot: path.join(f.root, 'missing-owner'), destinationPath: path.join(f.root, 'other'),
     sourceGeneration: { ...f.sourceGeneration, ownerRoot: path.join(f.root, 'missing-source') } });
   const result = await pending;
-  assert.equal(result.ownerRoot, f.root); assert.equal(result.destination.path, expectedDestination);
-  assert.equal(result.sourceGeneration.ownerRoot, f.root);
+  assert.equal(result.ownerRoot, f.root); assert.equal(result.kind, 'compiler-bridge');
+  for (const slot of [result.destination, result.preimage]) {
+    assert.equal(slot.path, expectedDestination); assert.equal(slot.kind, 'directory');
+    assert.equal(slot.bindingDigest, f.sourceGeneration.bindingDigest);
+  }
+  assert.equal(result.stage, null); assert.equal(result.stageRoot, null); assert.equal(result.backup, null);
+  assert.deepEqual(result.sourceGeneration, f.sourceGeneration);
 }));
 
 test('begin rejects a structural source clone before creating any transition namespace', async () => using(async f => {
@@ -88,14 +108,6 @@ test('begin captures only known request fields and narrows effect options before
   const pending = beginDependencyTransition(input);
   rawOptions.beforeCommit = async () => assert.fail('late replacement');
   await pending; assert.ok(calls > 0);
-}));
-
-test('each begin decision field is captured once before provider calls', async () => using(async f => {
-  const values = request(f), reads = new Map<string, number>(), input = {};
-  for (const [key, value] of Object.entries(values)) Object.defineProperty(input, key,
-    { enumerable: true, get() { reads.set(key, (reads.get(key) ?? 0) + 1); return value; } });
-  await beginDependencyTransition(input as typeof values);
-  assert.ok([...reads.values()].every(count => count === 1));
 }));
 
 for (const [key, value] of [['sequence', 3], ['attemptNonce', 'replaced'], ['operationKey', 'sha256:' + '0'.repeat(64)],
