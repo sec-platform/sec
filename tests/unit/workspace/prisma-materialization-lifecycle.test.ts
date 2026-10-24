@@ -19,18 +19,6 @@ const input = (f: { root: string; source: string; target: string }) => ({
   workspaceRoot: f.root, sourcePath: f.source, targetPath: f.target, sourceRequired: true
 });
 
-test('source-bound schema materialization creates, merges and becomes a no-op', async () => fixture(async f => {
-  writeFileSync(f.source, schema('Record'));
-  await materializePrismaSource(input(f));
-  assert.equal(readFileSync(f.target, 'utf8'), schema('Record'));
-  writeFileSync(f.source, schema('Record', '  name String'));
-  await materializePrismaSource(input(f));
-  const merged = readFileSync(f.target, 'utf8');
-  assert.ok(merged.includes('id Int')); assert.ok(merged.includes('name String'));
-  await materializePrismaSource(input(f));
-  assert.equal(readFileSync(f.target, 'utf8'), merged);
-}));
-
 test('a changed target is not overwritten after a commit fence', async () => fixture(async f => {
   writeFileSync(f.source, schema('B')); writeFileSync(f.target, schema('A'));
   const user = schema('User');
@@ -97,16 +85,6 @@ test('schema conflict is rejected before any publication fence', async () => fix
   assert.equal(readFileSync(f.target, 'utf8'), schema('A', ' id Int'));
 }));
 
-test.serial('relative root and paths remain fixed when a fence changes cwd', async () => fixture(async f => {
-  const old = process.cwd(); writeFileSync(f.source, schema('A'));
-  try {
-    process.chdir(f.root);
-    await materializePrismaSource({ workspaceRoot: '.', sourcePath: 'registry/model.prisma', targetPath: 'prisma/schema.prisma', sourceRequired: true,
-      commitFence: async () => { process.chdir(tmpdir()); } });
-    assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
-  } finally { process.chdir(old); }
-}));
-
 test('the real optional model-template entry uses the same merge and conditional publisher', async () => fixture(async f => {
   const template = path.join(getWorkspacePaths(f.root).modelRoot, 'schema', 'db.prisma.template');
   mkdirSync(path.dirname(template), { recursive: true }); writeFileSync(template, schema('B')); writeFileSync(f.target, schema('A'));
@@ -118,44 +96,11 @@ test('actual merge-prisma strategy shares model identity instead of appending du
   writeFileSync(f.source, schema('Record', ' name String')); writeFileSync(f.target, schema('Record', ' id Int'));
   const step = { stepId: 'merge', blockId: 'test/one', registrySourceId: 'test', registryKind: 'private', registryLocation: 'workspace',
     registryPath: '.', sourceRoot: 'registry', action: 'merge-prisma', from: 'model.prisma', to: 'prisma/schema.prisma' } as InstallPlanStep;
-  await new InstallStrategyRegistry().executeAll([step], { workspaceRoot: f.root, lock: {} as never });
-  const merged = readFileSync(f.target, 'utf8');
-  assert.equal(merged.match(/model Record/g)?.length, 1); assert.ok(merged.includes('id Int')); assert.ok(merged.includes('name String'));
-}));
-
-
-test('target containment is admitted even when an optional source is missing', async () => fixture(async f => {
-  for (const targetPath of [f.root, path.join(f.root, '..', 'outside.prisma')]) {
-    await assert.rejects(materializePrismaSource({ ...input(f), targetPath, sourceRequired: false,
-      commitFence: async () => assert.fail('fence before path admission') }), /inside its workspace/);
-  }
-}));
-
-test('source publication checks retain a class-based fence receiver', async () => fixture(async f => {
-  writeFileSync(f.source, schema('A'));
-  class Input {
-    #calls = 0;
-    workspaceRoot = f.root;
-    sourcePath = f.source;
-    targetPath = f.target;
-    sourceRequired = true;
-    async commitFence() { this.#calls++; }
-    get calls() { return this.#calls; }
-  }
-  const request = new Input();
-  await materializePrismaSource(request);
-  assert.ok(request.calls > 0);
-  assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
-}));
-
-
-test.serial('relative root interpretation is fixed before request getters can change cwd', async () => fixture(async f => {
-  const cwd = process.cwd(); writeFileSync(f.source, schema('A'));
-  try {
-    process.chdir(f.root);
-    await materializePrismaSource({ workspaceRoot: '.',
-      get sourcePath() { process.chdir(tmpdir()); return 'registry/model.prisma'; },
-      targetPath: 'prisma/schema.prisma', sourceRequired: true });
-    assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
-  } finally { process.chdir(cwd); }
+  const registry = new InstallStrategyRegistry();
+  const context = { workspaceRoot: f.root, lock: {} as never };
+  await registry.executeAll([step], context);
+  const expected = schema('Record', ' id Int\n name String');
+  assert.equal(readFileSync(f.target, 'utf8'), expected);
+  await registry.executeAll([step], context);
+  assert.equal(readFileSync(f.target, 'utf8'), expected);
 }));

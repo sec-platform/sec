@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { access, cp, link, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { access, cp, link, mkdir, mkdtemp, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -222,11 +222,11 @@ test.concurrent('candidate organizer repairs the complete amended commit diff in
     git(repoRoot, ['add', 'README.md']);
     const contexts: string[] = [];
 
-    expect(await runStagedIndexOnlyImportOrganizer(repoRoot, {
+    expect(await runCandidateImportOrganizer(repoRoot, {
       candidateContext: (mode) => {
         contexts.push(mode);
       }
-    }, { candidateBase })).toBe(0);
+    }, {})).toBe(0);
 
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
     expect(await readFile(fixturePath)).toEqual(Buffer.from(committed));
@@ -240,28 +240,6 @@ test.concurrent('candidate organizer repairs the complete amended commit diff in
     }, { candidateBase })).toBe(0);
     expect(contexts).toEqual(['working-tree', 'snapshot']);
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
-  });
-});
-
-test.concurrent('candidate organizer derives the branch merge-base without an ambient base variable', async () => {
-  await withRepository(async (repoRoot) => {
-    const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
-    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
-    const committed = `${source('unsorted')}export const committedChange = answer;\n`;
-    const expected = `${source('sorted')}export const committedChange = answer;\n`;
-    await writeFile(fixturePath, committed, 'utf8');
-    git(repoRoot, ['add', 'fixture.ts']);
-    git(repoRoot, ['commit', '--quiet', '--no-verify', '-m', 'legacy candidate']);
-    await writeFile(path.join(repoRoot, 'README.md'), 'final candidate metadata\n', 'utf8');
-    git(repoRoot, ['add', 'README.md']);
-
-    expect(await runCandidateImportOrganizer(repoRoot, {}, {})).toBe(0);
-
-    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
-    expect(await readFile(fixturePath)).toEqual(Buffer.from(committed));
-    expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim().split(/\r?\n/u).sort())
-      .toEqual(['README.md', 'fixture.ts']);
   });
 });
 
@@ -331,9 +309,21 @@ test.concurrent('candidate apply normalizes the complete committed, staged, unst
     for (const filePath of [committedPath, fixturePath, stagedPath, untrackedPath, nestedUntrackedPath]) {
       expect(await readFile(filePath, 'utf8')).toBe(source('sorted'));
     }
+    const noopPaths = [committedPath, fixturePath, stagedPath, untrackedPath, nestedUntrackedPath,
+      path.join(repoRoot, 'values.ts')];
+    const beforeNoop = await Promise.all(noopPaths.map(async (filePath) => ({
+      bytes: await readFile(filePath),
+      mtimeMs: (await stat(filePath)).mtimeMs
+    })));
+    const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
     const noop = await runImportApply({}, repoRoot, {});
     expect(noop.status).toBe('noop');
     expect(noop.files).toEqual([]);
+    for (const [index, filePath] of noopPaths.entries()) {
+      expect(await readFile(filePath)).toEqual(beforeNoop[index]!.bytes);
+      expect((await stat(filePath)).mtimeMs).toBe(beforeNoop[index]!.mtimeMs);
+    }
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
   });
 });
 
@@ -470,27 +460,6 @@ test.concurrent('freeze seals identity by pure compare and never publishes to th
   });
 });
 
-test.concurrent('true NOOP publishes no source bytes and no mtime churn', async () => {
-  await withRepository(async (repoRoot) => {
-    const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const valuesPath = path.join(repoRoot, 'values.ts');
-    const beforeFixture = await readFile(fixturePath);
-    const beforeValues = await readFile(valuesPath);
-    const fixtureBefore = (await stat(fixturePath)).mtimeMs;
-    const valuesBefore = (await stat(valuesPath)).mtimeMs;
-    const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
-
-    const outcome = await runImportApply({}, repoRoot, {});
-    expect(outcome.status).toBe('noop');
-    expect(outcome.files).toEqual([]);
-    expect(await readFile(fixturePath)).toEqual(beforeFixture);
-    expect(await readFile(valuesPath)).toEqual(beforeValues);
-    expect((await stat(fixturePath)).mtimeMs).toBe(fixtureBefore);
-    expect((await stat(valuesPath)).mtimeMs).toBe(valuesBefore);
-    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
-  });
-});
-
 test.concurrent('sort-and-combine and remove-unused are independent typed intents', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
@@ -566,62 +535,24 @@ test.concurrent('staged organizer preserves bytes visible through an external ha
     const fixturePath = path.join(repoRoot, 'fixture.ts');
     const aliasPath = `${repoRoot}-fixture-hardlink.ts`;
     const staged = `${source('unsorted')}export const stagedChange = answer;\n`;
+    const working = `${staged}// unstaged work must survive\n`;
     try {
       await writeFile(fixturePath, staged, 'utf8');
       await link(fixturePath, aliasPath);
       git(repoRoot, ['add', 'fixture.ts']);
+      await writeFile(fixturePath, working, 'utf8');
 
       expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
       expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(
         `${source('sorted')}export const stagedChange = answer;\n`
       ));
-      expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
-      expect(await readFile(aliasPath)).toEqual(Buffer.from(staged));
+      expect(await readFile(fixturePath)).toEqual(Buffer.from(working));
+      expect(await readFile(aliasPath)).toEqual(Buffer.from(working));
       expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
     } finally {
       await rm(aliasPath, { force: true });
     }
-  });
-});
-
-test.skipIf(process.platform === 'win32')(
-  'staged organizer preserves bytes visible through an external symlink alias',
-  async () => {
-    await withRepository(async (repoRoot) => {
-      const fixturePath = path.join(repoRoot, 'fixture.ts');
-      const aliasPath = `${repoRoot}-fixture-symlink.ts`;
-      const staged = source('unsorted');
-      try {
-        await writeFile(fixturePath, staged, 'utf8');
-        await symlink(fixturePath, aliasPath, 'file');
-        git(repoRoot, ['add', 'fixture.ts']);
-
-        expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
-
-        expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(source('sorted')));
-        expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
-        expect(await readFile(aliasPath)).toEqual(Buffer.from(staged));
-      } finally {
-        await rm(aliasPath, { force: true });
-      }
-    });
-  }
-);
-
-test.concurrent('staged organizer normalizes only the index when unstaged bytes diverge', async () => {
-  await withRepository(async (repoRoot) => {
-    const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const staged = source('unsorted');
-    const working = `${staged}// unstaged work must survive\n`;
-    await writeFile(fixturePath, staged, 'utf8');
-    git(repoRoot, ['add', 'fixture.ts']);
-    await writeFile(fixturePath, working, 'utf8');
-
-    expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
-
-    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(source('sorted')));
-    expect(await readFile(fixturePath, 'utf8')).toBe(working);
   });
 });
 

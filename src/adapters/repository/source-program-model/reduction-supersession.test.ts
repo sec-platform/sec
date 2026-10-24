@@ -11,22 +11,6 @@ import {
 import { compileSourceProgramTestValue } from './test-value.ts';
 import { compileSupersessionFixture, compileSupersessionSnapshot } from './test/supersession-fixture.ts';
 
-test('production command observations retain duplicate-command candidates', () => {
-  const productDuplicate = compileSupersessionFixture({
-    'src/example/cli.ts': [
-      "import { Command } from 'commander';",
-      'const root = new Command();',
-      "root.command('sample');",
-      "root.command('sample');",
-      ''
-    ].join('\n')
-  }).full.model;
-  expect(productDuplicate.candidates).toContainEqual(expect.objectContaining({
-    code: 'duplicate-entrypoint-command',
-    subject: 'sample'
-  }));
-});
-
 test('supersession evidence preserves a zero input admission ceiling and rejects negative budgets', () => {
   const sources = {
     'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n"
@@ -126,6 +110,13 @@ test('supersession does not treat the same test occurrence as input or oracle eq
 
 test('supersession separates semantic signatures from source occurrence identity', () => {
   const repeatedFixture = compileSupersessionFixture({
+    'src/example/cli.ts': [
+      "import { Command } from 'commander';",
+      'const root = new Command();',
+      "root.command('sample');",
+      "root.command('sample');",
+      ''
+    ].join('\n'),
     'tests/example-command.test.ts': [
       "import { Command } from 'commander';",
       'const root = new Command();',
@@ -135,10 +126,11 @@ test('supersession separates semantic signatures from source occurrence identity
     ].join('\n')
   });
   const repeatedCommand = repeatedFixture.evidence;
-  expect(repeatedFixture.full.model.entrypoints.filter(({ kind }) => kind === 'cli-command')).toHaveLength(2);
-  expect(repeatedFixture.full.model.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'duplicate-entrypoint-command'
-  }));
+  expect(repeatedFixture.full.model.entrypoints.filter(({ kind, path }) => (
+    kind === 'cli-command' && path === 'tests/example-command.test.ts'
+  ))).toHaveLength(2);
+  expect(repeatedFixture.full.model.candidates.filter(({ code }) => code === 'duplicate-entrypoint-command'))
+    .toEqual([expect.objectContaining({ subject: 'sample', paths: ['src/example/cli.ts'] })]);
   const repeatedUnits = repeatedCommand.entrypointUnits.filter((unit) => (
     unit.path === 'tests/example-command.test.ts'
   ));
@@ -172,7 +164,9 @@ test('supersession separates semantic signatures from source occurrence identity
     .filter(([key]) => key !== 'occurrenceId'));
   const legacyCanonical = Object.freeze({
     ...repeatedCommand,
-    entrypointUnits: Object.freeze([legacyUnit, ...repeatedCommand.entrypointUnits.slice(1)])
+    entrypointUnits: Object.freeze(repeatedCommand.entrypointUnits.map(unit => (
+      unit.id === repeatedUnits[0]!.id ? legacyUnit : unit
+    )))
   });
   const { evidenceDigest: _legacyDigest, ...legacyEvidenceWithoutDigest } = legacyCanonical;
   expect(() => parseSourceProgramSupersessionEvidence(Object.freeze({

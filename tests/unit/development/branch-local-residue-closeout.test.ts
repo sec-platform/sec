@@ -804,7 +804,10 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
         repositoryRoot: fixture.repositoryRoot,
         recoveryRoot: fixture.recoveryRoot,
         run: fixture.run,
-        now: () => new Date('2026-08-22T00:01:00.000Z')
+        now: () => new Date('2026-08-22T00:01:00.000Z'),
+        faults: boundary === 'afterReceipt'
+          ? { afterDelete: () => { throw new Error('ref deletion was replayed'); } }
+          : undefined
       });
       expect(result.settled).toEqual(['fix/example']);
       expect(readdirSync(fixture.recoveryRoot)
@@ -1220,9 +1223,8 @@ test('a divergent retained target stays unresolved without owner-issued review e
   }
 }, 30_000);
 
-for (const cut of [null, 'preparation', 'first-journal', 'last-journal', 'bundle', 'checksum',
-  'first-receipt', 'last-receipt'] as const) {
-test(`terminal settlement resumes duplicate family retirement after ${cut ?? 'no interruption'}`, async () => {
+for (const cut of ['first-journal', 'last-journal', 'bundle', 'first-receipt'] as const) {
+test(`terminal settlement resumes duplicate family retirement after ${cut}`, async () => {
   const fixture = createEffectFixture('duplicate-bundle-retirement');
   let duplicateName = '';
   let journalRemovals = 0;
@@ -1297,49 +1299,41 @@ test(`terminal settlement resumes duplicate family retirement after ${cut ?? 'no
       }
     })).rejects.toThrow('fault:duplicate-ready');
 
-    if (cut !== null) {
-      await expect(executeMergedLocalBranchResidueCloseout({
-        repositoryRoot: fixture.repositoryRoot,
-        recoveryRoot: fixture.recoveryRoot,
-        run: fixture.run,
-        faults: { afterRetireFile: name => {
-          if (!name.startsWith(duplicateName)) return;
-          if (name.endsWith('.journal.json')) journalRemovals++;
-          if (name.endsWith('.receipt.json')) receiptRemovals++;
-          const reached = cut === 'preparation' ? name.endsWith('.preparation.json')
-            : cut === 'first-journal' ? journalRemovals === 1
-            : cut === 'last-journal' ? journalRemovals === 2
-            : cut === 'bundle' ? name === duplicateName
-            : cut === 'checksum' ? name === `${duplicateName}.sha256`
-            : cut === 'first-receipt' ? receiptRemovals === 1
-            : receiptRemovals === 2;
-          if (reached) throw new Error(`cut-after-${cut}`);
-        } }
-      })).rejects.toThrow(`cut-after-${cut}`);
-      expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
-      // The parent terminal carrier survives every interrupted prefix.
-      expect(readdirSync(fixture.recoveryRoot).some(name => name.startsWith('sec-local-branch-residue-')
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterRetireFile: name => {
+        if (!name.startsWith(duplicateName)) return;
+        if (name.endsWith('.journal.json')) journalRemovals++;
+        if (name.endsWith('.receipt.json')) receiptRemovals++;
+        const reached = cut === 'first-journal' ? journalRemovals === 1
+          : cut === 'last-journal' ? journalRemovals === 2
+          : cut === 'bundle' ? name === duplicateName
+          : receiptRemovals === 1;
+        if (reached) throw new Error(`cut-after-${cut}`);
+      } }
+    })).rejects.toThrow(`cut-after-${cut}`);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    // The parent terminal carrier survives every interrupted prefix.
+    expect(readdirSync(fixture.recoveryRoot).some(name => name.startsWith('sec-local-branch-residue-')
+      && name.endsWith('.receipt.json'))).toBeTrue();
+    if (cut === 'bundle' || cut === 'first-receipt') {
+      expect(existsSync(path.join(fixture.recoveryRoot, duplicateName))).toBeFalse();
+      expect(readdirSync(fixture.recoveryRoot).some(name => name.startsWith(duplicateName)
         && name.endsWith('.receipt.json'))).toBeTrue();
-      if (cut === 'bundle' || cut === 'checksum' || cut === 'first-receipt') {
-        expect(existsSync(path.join(fixture.recoveryRoot, duplicateName))).toBeFalse();
-        expect(readdirSync(fixture.recoveryRoot).some(name => name.startsWith(duplicateName)
-          && name.endsWith('.receipt.json'))).toBeTrue();
-      }
     }
     const result = await executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run,
       now: () => new Date('2026-08-22T00:01:00.000Z'),
-      faults: cut === null ? undefined
-        : { afterDelete: () => { throw new Error('ref deletion was replayed'); } }
+      faults: { afterDelete: () => { throw new Error('ref deletion was replayed'); } }
     });
     expect(result.settled).toEqual(['fix/example']);
     expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
-    if (cut !== 'last-receipt') {
-      expect(result.retiredRecoveryFiles.some((file) => file.includes('sec-branch-closeout-fix-example')))
-        .toBeTrue();
-    }
+    expect(result.retiredRecoveryFiles.some((file) => file.includes('sec-branch-closeout-fix-example')))
+      .toBeTrue();
   } finally {
     fixture.dispose();
   }

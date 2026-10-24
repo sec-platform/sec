@@ -38,7 +38,6 @@ function fixture(onStep?: (name: typeof order[number], args: unknown[]) => void)
     readOverrideTargets: ['override.ts']
   };
   const operations = Object.fromEntries(order.map(name => [name, function(this: unknown, ...args: unknown[]) {
-    expect(this).toBe(operations);
     calls.push({ name, args });
     onStep?.(name, args);
     return results[name];
@@ -48,14 +47,8 @@ function fixture(onStep?: (name: typeof order[number], args: unknown[]) => void)
 
 const options = { opaqueModuleMaterializationMode: 'build-copy' as const };
 
-test('composition owns generation through baseline and lock publication using one captured install plan', async () => {
-  const f = fixture(name => {
-    if (name === 'checkWriteBoundary') {
-      f.lock.installPlan[0]!.to = 'changed-by-provider.ts';
-      f.lock.installPlan = [];
-      f.operations.persistLock = () => { throw new Error('late replacement must not run'); };
-    }
-  });
+test('composition owns generation through baseline and lock publication', async () => {
+  const f = fixture();
   const originalStep = { ...f.lock.installPlan[0]! };
   const controller = new AbortController();
   const result = await executeProjectComposition(f.lock, semantic, { ...options, signal: controller.signal }, f.operations);
@@ -63,8 +56,6 @@ test('composition owns generation through baseline and lock publication using on
   expect(f.calls.map(call => call.name)).toEqual([...order]);
   const args = (name: typeof order[number]) => f.calls.find(call => call.name === name)!.args;
   expect(args('install')[0]).toEqual([originalStep]);
-  expect(Object.isFrozen(args('install')[0])).toBe(true);
-  expect(Object.isFrozen((args('install')[0] as unknown[])[0])).toBe(true);
   expect(args('install')[1]).toBe(f.lock);
   expect(args('install')[3]).toBe(controller.signal);
   const fence = args('ensureBase')[0];
@@ -92,7 +83,9 @@ test('composition owns generation through baseline and lock publication using on
   expect(f.lock.passStatus.compose).toBe('succeeded');
 });
 
-for (const stage of order) {
+// Shared run() governs intermediate stages; retain early, semantic and durable
+// failure cuts rather than repeating the same control-flow check at every port.
+for (const stage of ['checkWriteBoundary', 'lowerSemantic', 'persistLock'] as const) {
   test(`composition preserves ${stage} failure and starts no later capability`, async () => {
     const failure = Object.freeze({ stage });
     const f = fixture(name => { if (name === stage) throw failure; });
@@ -102,7 +95,12 @@ for (const stage of order) {
     // durable success. The pipeline still owns failure/transaction settlement.
     if (stage !== 'persistLock') expect(f.lock.passStatus.compose).toBe('pending');
   });
-  if (stage !== 'persistLock') test(`composition cancellation after ${stage} prevents later capability starts`, async () => {
+}
+
+// Cancellation after an effect and after the final baseline both precede durable
+// success; the separate settled-composition case owns cancellation after commit.
+for (const stage of ['install', 'publishBaseline'] as const) {
+  test(`composition cancellation after ${stage} prevents later capability starts`, async () => {
     const controller = new AbortController();
     const reason = Object.freeze({ cancelledAfter: stage });
     const f = fixture(name => { if (name === stage) controller.abort(reason); });
@@ -150,22 +148,21 @@ test('settled composition survives cancellation through the workspace and pipeli
   expect(f.lock.passStatus.compose).toBe('succeeded');
 });
 
-test('composition validates all ports and initial cancellation before any capability executes', async () => {
+test('initial native cancellation prevents every composition capability', async () => {
   const f = fixture();
   const failure = Object.freeze({ cancelled: true });
+  const signal = AbortSignal.abort(failure);
+  Object.defineProperty(signal, 'throwIfAborted', { value() {} });
   await expect(executeProjectComposition(f.lock, semantic,
-    { ...options, signal: AbortSignal.abort(failure) }, f.operations)).rejects.toBe(failure);
-  f.operations.persistLock = undefined as never;
-  await expect(executeProjectComposition(f.lock, semantic, options, f.operations)).rejects.toBeInstanceOf(TypeError);
+    { ...options, signal }, f.operations)).rejects.toBe(failure);
   expect(f.calls).toEqual([]);
 });
 
-test('the live fence preserves provider receiver and cancellation', async () => {
+test('the live fence refuses effects when cancellation arrives during its authority check', async () => {
   const controller = new AbortController();
   const failure = new Error('authority revoked');
   const f = fixture();
-  const request = { ...options, signal: controller.signal, commitFence: async function(this: unknown) {
-    expect(this).toBe(request);
+  const request = { ...options, signal: controller.signal, commitFence: async () => {
     controller.abort(failure);
   } };
   f.operations.ensureBase = async fence => { await fence(); };

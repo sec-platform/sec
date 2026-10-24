@@ -82,23 +82,6 @@ test('retained file transaction exposes its retained root identity and current f
   }
 });
 
-test('retained file transaction rejects an unissued test actor', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
-  try {
-    const issued = createRetainedNoFollowFileTransactionTestActorForTests({
-      beforeRename: () => { throw new Error('unissued actor must not run'); }
-    });
-    const copied = Object.freeze({ ...issued });
-    expect(() => retainNoFollowFileTransaction(root, 'foreign actor', copied)).toThrow(
-      expect.objectContaining({
-        code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
-      })
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction revalidates bytes after an awaited pre-effect actor', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
   try {

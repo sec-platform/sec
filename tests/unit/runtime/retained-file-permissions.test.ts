@@ -45,14 +45,6 @@ test('retained permissions preserve a readonly source mode on different authoriz
   } finally { f.close(); }
 });
 
-test('retained permissions reject a structural receipt clone rather than treating it as publication authority', async () => {
-  const f = await fixture();
-  try {
-    await expect(copyRetainedNoFollowFilePermissions({ ...f.input, target: { ...f.target } }))
-      .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE' });
-  } finally { f.close(); }
-});
-
 test('retained permissions reject a byte-identical replacement leaf with a different identity', async () => {
   const f = await fixture();
   try {

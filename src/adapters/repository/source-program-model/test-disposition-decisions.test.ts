@@ -99,36 +99,6 @@ function constantResultResponsibility(testId: string, owner: string) {
     retirementConditionsDigest: scopeDigest });
 }
 
-test('exact owner retention accepts simulated SUT input assessment without issuing production authority', async () => {
-  const testPath = 'src/example/behavior.test.ts';
-  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
-  const baseline = compileSupersessionSnapshot({ 'src/example/operation.ts': "export function execute() { return 'ok'; }\n", [testPath]: source });
-  const current = compileSupersessionSnapshot({ 'src/example/operation.ts': "export function execute() { const result = 'ok'; return result; }\n", [testPath]: source });
-  const changedPaths = ['src/example/operation.ts'];
-  const decision: SourceProgramTestAuthorDecision = { owner: 'example', replacementOwners: ['example'],
-    disposition: 'retain-unassessed', baselineTestIds: [baseline.tests[0]!.testId], currentTestIds: [current.tests[0]!.testId],
-    changedInputPaths: changedPaths, baselineResponsibilities: [], currentResponsibilities: [],
-    reason: 'The test definition is retained; changed imported input still needs fresh verification.' };
-  const payload = testAuthorPayload(baseline, current, [decision]);
-  const assessment = assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths });
-  const approval = await observeTestAuthor(payload);
-  await expect(observeTestAuthor(payload, { permission: 'maintain', role_name: 'maintain' }))
-    .resolves.toBeDefined();
-  await expect(observeTestAuthor(payload, { permission: 'maintain' }))
-    .rejects.toThrow('current maintainer');
-  expect(qualifySourceProgramTestAuthorAssessment({ assessment, approval })).toBe('test-only-simulation');
-  const receipt = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations', baseline, current,
-    changedPaths, authorAssessment: assessment, authorApproval: approval });
-  expect(receipt.status).toBe('author-decision-conditional');
-  expect(receipt.findings).toEqual([]);
-  expect(receipt.authorAssessedCurrentPaths).toEqual([]);
-  expect(receipt.replacements).toEqual([expect.objectContaining({ kind: 'test', proof: 'retained-unassessed' })]);
-  expect(() => qualifySourceProgramTestAuthorAssessment({ approval, assessment: { ...assessment } }))
-    .toThrow('exact compiler assessment required');
-  const wrongOwner = testAuthorPayload(baseline, current, [{ ...decision, owner: 'another-owner' }]);
-  expect(() => assessSourceProgramTestAuthorDecision({ payload: wrongOwner, baseline, current, changedPaths })).toThrow();
-});
-
 test('introduce judgment joins only genuine new occurrences and cannot clear an old obligation', async () => {
   const production = { 'src/example/operation.ts': "export function execute() { return 'ok'; }\n" };
   const newPath = 'src/example/new.test.ts';
@@ -193,7 +163,22 @@ test('late conditional author input preserves immutable facts, exact history and
   expect(assessment.authorAssessment).toBeNull();
   expect(JSON.stringify(assessment)).toBe(original);
   const approval = await observeTestAuthor(payload);
+  await expect(observeTestAuthor(payload, { permission: 'maintain', role_name: 'maintain' }))
+    .resolves.toBeDefined();
+  await expect(observeTestAuthor(payload, { permission: 'maintain' }))
+    .rejects.toThrow('current maintainer');
   expect(qualifySourceProgramTestAuthorAssessment({ approval, assessment: proposed })).toBe('test-only-simulation');
+  const receipt = compileSourceProgramSupersessionReceipt({
+    authorityScope: 'test-obligations', baseline: assessment.baseline, current: assessment.current,
+    changedPaths: assessment.changedPaths, authorAssessment: proposed, authorApproval: approval
+  });
+  expect(receipt.status).toBe('author-decision-conditional');
+  expect(receipt.findings).toEqual([]);
+  expect(receipt.authorAssessedCurrentPaths).toEqual([]);
+  expect(receipt.replacements).toEqual([expect.objectContaining({ kind: 'test', proof: 'retained-unassessed' })]);
+  const wrongOwner = testAuthorPayload(assessment.baseline, assessment.current,
+    [{ ...decision, owner: 'another-owner' }]);
+  expect(() => assessSourceProgramTransitionAuthorInput({ assessment, payload: wrongOwner })).toThrow();
   expect(() => qualifySourceProgramTestAuthorAssessment({ approval, assessment: { ...proposed } }))
     .toThrow('exact compiler assessment required');
   const historical = { ...assessment, authorAssessment: proposed };

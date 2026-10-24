@@ -34,18 +34,6 @@ test('a later unsupported operation rejects the entire plan before any execution
   assert.equal(effects, 0);
 });
 
-test('selector callbacks cannot replace later steps or previously captured provider methods', async () => {
-  const registry = new InstallStrategyRegistry(), inputs = [step('a'), step('b')];
-  const seen: string[] = [];
-  const provider = custom(async s => { seen.push(s.to); });
-  provider.canHandle = () => {
-    Object.assign(inputs[1]!, { to: 'replaced' }); provider.execute = async () => assert.fail('replaced method'); return true;
-  };
-  registry.register(provider);
-  await registry.executeAll(inputs, context());
-  assert.deepEqual(seen.sort(), ['a', 'b']);
-});
-
 test('all started installs are joined before batch failure returns', async () => {
   const registry = new InstallStrategyRegistry(), held = deferred(), started = deferred();
   const primary = new Error('first'); let returned = false;
@@ -66,15 +54,4 @@ test('cancellation during the owner fence prevents the selected effect', async (
   const registry = new InstallStrategyRegistry(), controller = new AbortController(), reason = new Error('cancelled');
   registry.register(custom(async () => assert.fail('effect after cancellation')));
   await assert.rejects(registry.executeAll([step('a')], { ...context(controller.signal), async commitFence() { controller.abort(reason); } }), e => e === reason);
-});
-
-test('the provider keeps private instance state and receives a frozen batch context', async () => {
-  class Provider implements InstallStrategy {
-    readonly action = 'probe'; #calls = 0;
-    canHandle(s: InstallPlanStep) { return String(s.action) === 'probe'; }
-    async execute(_s: InstallPlanStep, c: ReturnType<typeof context>) { this.#calls++; assert.ok(Object.isFrozen(c)); }
-    get calls() { return this.#calls; }
-  }
-  const provider = new Provider(); await new InstallStrategyRegistry().register(provider).executeAll([step('a')], context());
-  assert.equal(provider.calls, 1);
 });

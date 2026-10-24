@@ -164,7 +164,7 @@ test('status-write authority remains unable to merge a pull request', async () =
   expect(transportCalls).toBe(0);
 });
 
-test('read authority cannot register or delete runners', async () => {
+test('read authority cannot delete runners', async () => {
   let transportCalls = 0;
   const api = capability({
     effect: 'read',
@@ -173,12 +173,6 @@ test('read authority cannot register or delete runners', async () => {
       return Response.json({});
     }
   });
-  await expect(withGitHubApiTestSession({
-    capability: api,
-    operation: async () => await executeGitHubApiOperation(api, {
-      kind: 'create-runner-registration-token'
-    })
-  })).rejects.toThrow('requires runner-admin authority');
   await expect(withGitHubApiTestSession({
     capability: api,
     operation: async () => await executeGitHubApiOperation(api, {
@@ -210,23 +204,6 @@ test('read authority compiles the bounded repository runner inventory page', asy
   ]);
 });
 
-test('runner-admin capability requires repository admin permission before transport', () => {
-  let transportCalls = 0;
-  for (const permission of ['maintain', 'read'] as const) {
-    expect(() => issueGitHubApiTestCapability({
-      repository: 'sec-platform/sec',
-      token: TOKEN,
-      principal: Object.freeze({ ...PRINCIPAL, permission }),
-      effect: 'runner-admin',
-      transport: async () => {
-        transportCalls += 1;
-        return Response.json({});
-      }
-    })).toThrow('requires admin permission');
-  }
-  expect(transportCalls).toBe(0);
-});
-
 test('runner-admin enrollment rejects maintain and accepts admin repository permission', async () => {
   const enroll = async (permission: 'admin' | 'maintain') => {
     const operations: string[] = [];
@@ -252,37 +229,6 @@ test('runner-admin enrollment rejects maintain and accepts admin repository perm
       '/repos/sec-platform/sec/collaborators/maintainer/permission'
     ]
   });
-});
-
-test('runner-admin compiles the fixed registration-token request', async () => {
-  const observations: Array<Readonly<{ url: string; method: string | undefined; body: string | null }>> = [];
-  const api = capability({
-    effect: 'runner-admin',
-    principal: Object.freeze({ ...PRINCIPAL, permission: 'admin' }),
-    transport: async (target, init) => {
-      observations.push(Object.freeze({
-        url: String(target),
-        method: init?.method,
-        body: init?.body === undefined ? null : String(init.body)
-      }));
-      return Response.json({ token: 'transient-registration-token' });
-    }
-  });
-  await withGitHubApiTestSession({
-    capability: api,
-    operation: async () => {
-      expect(await executeGitHubApiOperation(api, {
-        kind: 'create-runner-registration-token'
-      })).toEqual({ token: 'transient-registration-token' });
-    }
-  });
-  expect(observations).toEqual([
-    {
-      url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/registration-token',
-      method: 'POST',
-      body: null
-    }
-  ]);
 });
 
 test('runner-admin authority cannot invoke unrelated read or write operations', async () => {
@@ -611,27 +557,6 @@ test('a failed response joins cancellation before releasing its reader and retur
   expect(response.body!.locked).toBe(false);
 });
 
-test('response failure and a rejected cancellation both remain observable', async () => {
-  const cleanupFailure = Object.freeze({ cleanup: 'rejected' });
-  const response = new Response(new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(new Uint8Array([255])); },
-    cancel() { throw cleanupFailure; }
-  }));
-  const api = capability({ effect: 'read', transport: async () => response });
-  const outcome = await withGitHubApiTestSession({ capability: api,
-    operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
-  }).then(value => ({ value }), error => ({ error }));
-  expect('error' in outcome).toBe(true);
-  if ('error' in outcome) {
-    expect(outcome.error).toBeInstanceOf(AggregateError);
-    if (outcome.error instanceof AggregateError) {
-      expect(outcome.error.errors[0]).toBeInstanceOf(Error);
-      expect(outcome.error.errors[1]).toBe(cleanupFailure);
-    }
-  }
-  expect(response.body!.locked).toBe(false);
-});
-
 test('observer deadline retains unfinished transport responsibility and cancels a late response', async () => {
   const delivery = deferredResponse<Response>();
   let cancellations = 0;
@@ -664,17 +589,24 @@ function containsError(root: unknown, predicate: (error: unknown) => boolean): b
 test('a caught response cleanup error closes future request admission and cannot become session success', async () => {
   const cleanup = Object.freeze({ cleanup: 'not acknowledged' });
   let requests = 0;
+  let responseFailure: unknown;
   const response = new Response(new ReadableStream<Uint8Array>({
     start(c) { c.enqueue(new Uint8Array([255])); }, cancel() { throw cleanup; }
   }));
   const api = capability({ effect: 'read', transport: async () => { requests++; return response; } });
   const outcome = await withGitHubApiTestSession({ capability: api, operation: async () => {
-    try { await executeGitHubApiOperation(api, { kind: 'repository' }); } catch { /* recovery is not settlement */ }
+    try { await executeGitHubApiOperation(api, { kind: 'repository' }); }
+    catch (error) { responseFailure = error; /* recovery is not settlement */ }
     await expect(executeGitHubApiOperation(api, { kind: 'repository' })).rejects.toThrow('unresolved settlement');
     return 'handled';
   } }).then(value => ({ value }), error => ({ error }));
+  expect(responseFailure).toBeInstanceOf(AggregateError);
+  if (responseFailure instanceof AggregateError) {
+    expect(responseFailure.errors[0]).toBeInstanceOf(Error);
+    expect(responseFailure.errors[1]).toBe(cleanup);
+  }
   expect('error' in outcome).toBe(true);
-  if ('error' in outcome) expect(containsError(outcome.error, error => error === cleanup)).toBe(true);
+  if ('error' in outcome) expect(containsError(outcome.error, error => error === responseFailure)).toBe(true);
   expect(requests).toBe(1);
   expect(response.body!.locked).toBe(false);
 });
