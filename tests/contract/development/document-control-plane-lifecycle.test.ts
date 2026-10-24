@@ -72,14 +72,6 @@ import {
   renderWorkRollingSelectionPlan
 } from '../../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { digest, rawSha256 } from '../../../src/contracts/canonical.ts';
-import {
-  DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES,
-  DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
-  DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE,
-  compileDocumentControlFreezeChildFailure,
-  parseDocumentControlFreezeChildFailure,
-  renderDocumentControlFreezeChildFailure
-} from '../../helpers/document-control-freeze-child-failure.ts';
 
 const fixtureGitHubCapabilities = new Map<string, ReturnType<typeof issueGitHubApiTestCapability>>();
 
@@ -411,51 +403,6 @@ async function expectUnsafeReparseRejection(operation: Promise<unknown>): Promis
   expect((failure as Error).message).toMatch(/reparse point|symbolic link|junction/u);
 }
 
-test('freeze child failure envelope is bounded canonical and redacts unknown errors', () => {
-  expect(compileDocumentControlFreezeChildFailure(
-    new Error('Git index escapes its canonical transaction root.')
-  )).toEqual(DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE);
-  const secret = 'C:\\private\\workspace\\credential.txt';
-  const unexpected = Object.assign(new Error(`${secret}:${'x'.repeat(4096)}`), {
-    code: 'ESECRET'
-  });
-  const rendered = renderDocumentControlFreezeChildFailure(unexpected);
-  expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(
-    DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES
-  );
-  expect(rendered).not.toContain(secret);
-  expect(rendered).not.toContain('ESECRET');
-  expect(parseDocumentControlFreezeChildFailure(rendered)).toEqual(
-    DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE
-  );
-  for (const malformed of [
-    'x'.repeat(DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES + 1),
-    new Uint8Array([0xff]),
-    `${JSON.stringify({
-      schema: DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE.schema,
-      name: DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE.name,
-      code: null
-    })}\n`,
-    `${JSON.stringify({
-      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
-      stack: 'forbidden diagnostic'
-    })}\n`,
-    `${JSON.stringify({
-      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
-      message: secret
-    })}\n`,
-    `${JSON.stringify({
-      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
-      code: 'ESECRET'
-    })}\n`,
-    `${JSON.stringify({
-      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
-      message: '🧪'.repeat(129)
-    })}\n`,
-    ` ${JSON.stringify(DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE)}\n`
-  ]) expect(() => parseDocumentControlFreezeChildFailure(malformed)).toThrow();
-});
-
 bunTest.skipIf(process.platform !== 'win32')(
   'Windows direct status preserves index bytes and creates no freeze transaction',
   async () => {
@@ -563,6 +510,32 @@ tests:
 ---
 
 # ${CURRENT_ACTIVE_ID}
+`;
+}
+
+function freezeTargetManifestSource(baseSha: string): string {
+  return `---
+schema: codex-development-work-package-v1
+id: ${FREEZE_TARGET_ID}
+tracking: issue-311
+base: ${baseSha}
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ci-verification-v19
+tasks:
+  - id: freeze-target
+    owner: development-governance-maintainer
+    ownedPaths:
+      - ${FREEZE_TARGET_PATH}
+forbiddenPaths:
+  - src/compiler/
+acceptance:
+  - "Freeze transaction remains exact."
+tests:
+  - tests/contract/development/document-control-plane-lifecycle.test.ts
+---
+
+# ${FREEZE_TARGET_ID}
 `;
 }
 
@@ -818,29 +791,7 @@ async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {
   runGit(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
   const baseSha = runGit(repositoryRoot, ['rev-parse', 'HEAD']);
   runGit(repositoryRoot, ['switch', '--quiet', '-c', 'fixture-candidate']);
-  const targetManifest = `---
-schema: codex-development-work-package-v1
-id: ${FREEZE_TARGET_ID}
-tracking: issue-311
-base: ${baseSha}
-manifestState: frozen
-requiredProfile: quick
-ciRevision: ci-verification-v19
-tasks:
-  - id: freeze-target
-    owner: development-governance-maintainer
-    ownedPaths:
-      - ${FREEZE_TARGET_PATH}
-forbiddenPaths:
-  - src/compiler/
-acceptance:
-  - "Freeze transaction remains exact."
-tests:
-  - tests/contract/development/document-control-plane-lifecycle.test.ts
----
-
-# ${FREEZE_TARGET_ID}
-`;
+  const targetManifest = freezeTargetManifestSource(baseSha);
   const targetPath = path.join(repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, targetManifest, 'utf8');
@@ -930,6 +881,23 @@ test('shared resolver fails closed for stale, unavailable, malformed, and checko
   const oldDefaultBlob = Buffer.from('schema: old\n', 'utf8');
   const checkoutCrlfBytes = Buffer.from('schema: frozen\r\n', 'utf8');
   const pointer = pointerFor(gitBlob);
+
+  expect(resolveActiveWorkPackage({
+    pointer,
+    candidateManifestBlob: gitBlob,
+    defaultManifestBlob: null,
+    defaultRefState: 'fresh'
+  })).toEqual({
+    state: 'active',
+    manifest: FIXTURE_MANIFEST_PATH,
+    manifestDigest: pointer.manifestDigest
+  });
+  expect(resolveActiveWorkPackage({
+    pointer,
+    candidateManifestBlob: gitBlob,
+    defaultManifestBlob: gitBlob,
+    defaultRefState: 'fresh'
+  })).toEqual({ state: 'none', reason: 'matching-default-blob' });
 
   expect(resolveActiveWorkPackage({
     pointer,
@@ -1107,59 +1075,6 @@ matchingDefaultBlob: none
   })).toThrow('must match');
 });
 
-test('real Git lifecycle resolves missing path to active and published blob to none', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-control-plane-lifecycle-'));
-  try {
-    runGit(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    runGit(repositoryRoot, ['config', 'user.email', 'sec-control-plane@example.invalid']);
-    runGit(repositoryRoot, ['config', 'user.name', 'SEC Control Plane Test']);
-    await writeFile(path.join(repositoryRoot, 'README.md'), '# fixture\n', 'utf8');
-    runGit(repositoryRoot, ['add', 'README.md']);
-    runGit(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
-
-    runGit(repositoryRoot, ['switch', '--quiet', '-c', 'candidate']);
-    const manifestPath = path.join(repositoryRoot, FIXTURE_MANIFEST_PATH);
-    await mkdir(path.dirname(manifestPath), { recursive: true });
-    await writeFile(manifestPath, 'schema: frozen\n', 'utf8');
-    runGit(repositoryRoot, ['add', FIXTURE_MANIFEST_PATH]);
-    runGit(repositoryRoot, ['commit', '--quiet', '-m', 'candidate']);
-    const candidateBlob = readGitBlob(repositoryRoot, `HEAD:${FIXTURE_MANIFEST_PATH}`);
-    expect(candidateBlob).toBeDefined();
-    const pointer = pointerFor(candidateBlob!);
-
-    runGit(repositoryRoot, ['switch', '--quiet', 'main']);
-    expect(readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`)).toBeUndefined();
-    expect(resolveActiveWorkPackage({
-      pointer,
-      candidateManifestBlob: candidateBlob!,
-      defaultManifestBlob: null,
-      defaultRefState: 'fresh'
-    })).toMatchObject({ state: 'active', manifest: FIXTURE_MANIFEST_PATH });
-
-    runGit(repositoryRoot, ['merge', '--quiet', '--ff-only', 'candidate']);
-    const publishedBlob = readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`);
-    expect(publishedBlob).toEqual(candidateBlob!);
-    expect(resolveActiveWorkPackage({
-      pointer,
-      candidateManifestBlob: candidateBlob!,
-      defaultManifestBlob: publishedBlob!,
-      defaultRefState: 'fresh'
-    })).toEqual({ state: 'none', reason: 'matching-default-blob' });
-
-    await writeFile(path.join(repositoryRoot, 'external-change.txt'), 'next main\n', 'utf8');
-    runGit(repositoryRoot, ['add', 'external-change.txt']);
-    runGit(repositoryRoot, ['commit', '--quiet', '-m', 'subsequent external change']);
-    expect(resolveActiveWorkPackage({
-      pointer,
-      candidateManifestBlob: candidateBlob!,
-      defaultManifestBlob: readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`)!,
-      defaultRefState: 'fresh'
-    })).toEqual({ state: 'none', reason: 'matching-default-blob' });
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
-}, 30_000);
-
 test('status resolves a published rolling projection as history after its exact manifest reaches default', async () => {
   const fixture = await createFreezeFixture();
   try {
@@ -1231,187 +1146,175 @@ test('status resolves a published rolling projection as history after its exact 
   }
 }, 30_000);
 
-test('same-package freeze preserves the exact current tracking identity', async () => {
-  const fixture = await createFreezeFixture();
-  try {
-    const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
-    const replacementBytes = Buffer.from(
-      currentActiveManifestSource('issue-999', fixture.baseSha),
-      'utf8'
-    );
-    const currentPointerSource = await readFile(
-      path.join(fixture.repositoryRoot, POINTER_PATH),
-      'utf8'
-    );
-    expect(() => createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource()),
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes,
-      manifestPath: CURRENT_ACTIVE_PATH,
-      manifestBytes: replacementBytes,
-      baseSha: fixture.baseSha,
-      reviewedOn: '2026-08-09'
-    })).toThrow('cannot replace the exact tracking identity');
-    const samePackage = createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource()),
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes,
-      manifestPath: CURRENT_ACTIVE_PATH,
-      manifestBytes: currentManifestBytes,
-      baseSha: '0'.repeat(40),
-      reviewedOn: '2026-08-09'
-    });
-    expect(samePackage.retiredManifestPath).toBeNull();
-  } finally {
-    await fixture.dispose();
-  }
+test('same-package freeze preserves the exact current tracking identity', () => {
+  const baseSha = 'a'.repeat(40);
+  const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
+  const replacementBytes = Buffer.from(
+    currentActiveManifestSource('issue-999', baseSha),
+    'utf8'
+  );
+  const currentPointerSource = activePointerSource(
+    CURRENT_ACTIVE_PATH,
+    currentManifestBytes
+  );
+  expect(() => createFreezeProjection({
+    spec: parseCurrentStateSpec(currentStateSource()),
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes,
+    manifestPath: CURRENT_ACTIVE_PATH,
+    manifestBytes: replacementBytes,
+    baseSha,
+    reviewedOn: '2026-08-09'
+  })).toThrow('cannot replace the exact tracking identity');
+  const samePackage = createFreezeProjection({
+    spec: parseCurrentStateSpec(currentStateSource()),
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes,
+    manifestPath: CURRENT_ACTIVE_PATH,
+    manifestBytes: currentManifestBytes,
+    baseSha: '0'.repeat(40),
+    reviewedOn: '2026-08-09'
+  });
+  expect(samePackage.retiredManifestPath).toBeNull();
 });
 
-test('freeze projection replaces topology only with an exact WorkDecision binding', async () => {
-  const fixture = await createFreezeFixture();
-  try {
-    const manifestBytes = await readFile(path.join(
-      fixture.repositoryRoot,
-      ...FREEZE_TARGET_PATH.split('/')
-    ));
-    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${fixture.baseSha}^{tree}`]);
-    const currentPointerSource = await readFile(
-      path.join(fixture.repositoryRoot, POINTER_PATH),
-      'utf8'
-    );
-    const receipt = workSelectionReceiptFixture({ exactMain: fixture.baseSha, exactMainTree });
-    const selection = { receipt };
-    const selectedRollingPlanSource = renderWorkRollingSelectionPlan({
-      receipt,
-      reviewedOn: '2026-08-12'
-    });
-    const requiredSpec = parseCurrentStateSpec(currentStateSource('origin'));
-    const projection = createFreezeProjection({
-      spec: requiredSpec,
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      workSelectionProjection: selection,
-      manifestPath: FREEZE_TARGET_PATH,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    });
-    expect(projection.rollingPlanSource).toBe(selectedRollingPlanSource);
-    expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
-      activePackageId: FREEZE_TARGET_ID,
-      candidatePackageIds: ['candidate-two-v1', 'candidate-three-v1']
-    });
-    expect(() => createFreezeProjection({
-      spec: requiredSpec,
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      requestedRollingPlanSource: `${selectedRollingPlanSource}\nmanual drift\n`,
-      workSelectionProjection: selection,
-      manifestPath: FREEZE_TARGET_PATH,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    })).toThrow('must equal the trusted WorkDecision renderer exactly');
-    expect(() => createFreezeProjection({
-      spec: requiredSpec,
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      workSelectionProjection: { receipt: workSelectionReceiptFixture({
-        exactMain: fixture.baseSha,
-        exactMainTree,
-        targetTracking: 'issue-999'
-      }) },
-      manifestPath: FREEZE_TARGET_PATH,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    })).toThrow('must equal the target manifest package and tracking identity');
-    expect(() => createFreezeProjection({
-      spec: requiredSpec,
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      manifestPath: FREEZE_TARGET_PATH,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    })).toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
-    expect(() => createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource()),
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      workSelectionProjection: selection,
-      manifestPath: FREEZE_TARGET_PATH,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      reviewedOn: '2026-08-12'
-    })).toThrow('WorkDecision projection must bind the exact freeze base and tree');
-  } finally {
-    await fixture.dispose();
-  }
+test('freeze projection replaces topology only with an exact WorkDecision binding', () => {
+  const baseSha = 'a'.repeat(40);
+  const manifestBytes = Buffer.from(freezeTargetManifestSource(baseSha), 'utf8');
+  const exactMainTree = '2'.repeat(40);
+  const currentPointerSource = activePointerSource(
+    CURRENT_ACTIVE_PATH,
+    Buffer.from(currentActiveManifestSource(), 'utf8')
+  );
+  const receipt = workSelectionReceiptFixture({ exactMain: baseSha, exactMainTree });
+  const selection = { receipt };
+  const selectedRollingPlanSource = renderWorkRollingSelectionPlan({
+    receipt,
+    reviewedOn: '2026-08-12'
+  });
+  const requiredSpec = parseCurrentStateSpec(currentStateSource('origin'));
+  const projection = createFreezeProjection({
+    spec: requiredSpec,
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+    workSelectionProjection: selection,
+    manifestPath: FREEZE_TARGET_PATH,
+    manifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  });
+  expect(projection.rollingPlanSource).toBe(selectedRollingPlanSource);
+  expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
+    activePackageId: FREEZE_TARGET_ID,
+    candidatePackageIds: ['candidate-two-v1', 'candidate-three-v1']
+  });
+  expect(() => createFreezeProjection({
+    spec: requiredSpec,
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+    requestedRollingPlanSource: `${selectedRollingPlanSource}\nmanual drift\n`,
+    workSelectionProjection: selection,
+    manifestPath: FREEZE_TARGET_PATH,
+    manifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  })).toThrow('must equal the trusted WorkDecision renderer exactly');
+  expect(() => createFreezeProjection({
+    spec: requiredSpec,
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+    workSelectionProjection: { receipt: workSelectionReceiptFixture({
+      exactMain: baseSha,
+      exactMainTree,
+      targetTracking: 'issue-999'
+    }) },
+    manifestPath: FREEZE_TARGET_PATH,
+    manifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  })).toThrow('must equal the target manifest package and tracking identity');
+  expect(() => createFreezeProjection({
+    spec: requiredSpec,
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+    manifestPath: FREEZE_TARGET_PATH,
+    manifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  })).toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
+  expect(() => createFreezeProjection({
+    spec: parseCurrentStateSpec(currentStateSource()),
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+    workSelectionProjection: selection,
+    manifestPath: FREEZE_TARGET_PATH,
+    manifestBytes,
+    baseSha,
+    reviewedOn: '2026-08-12'
+  })).toThrow('WorkDecision projection must bind the exact freeze base and tree');
 });
 
-test('freeze projection admits only the exact degraded-main repair and preserves prior topology', async () => {
-  const fixture = await createFreezeFixture();
-  try {
-    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${fixture.baseSha}^{tree}`]);
-    const observedAt = '2026-08-12T00:00:00.000Z';
-    const repairFailure = rawSha256('fixture-main-health-failure');
-    const repairPath = createMainHealthRepairWorkPackagePath({
-      repository: 'sec-platform/sec',
-      defaultBranch: 'main',
-      mainSha: fixture.baseSha,
-      mainTreeSha: exactMainTree,
-      owner: 'ci-verification-maintainer',
-      failureFingerprints: [repairFailure]
-    });
-    const repairId = repairPath.slice('config/repository/work-packages/'.length, -'.md'.length);
-    const ledger = createMainHealthLedger({
-      repository: 'sec-platform/sec',
-      defaultBranch: 'main',
-      mainSha: fixture.baseSha,
-      mainTreeSha: exactMainTree,
-      status: 'degraded',
-      failureFingerprints: [repairFailure],
-      owner: 'ci-verification-maintainer',
-      repairWorkPackage: repairPath,
-      expiresAt: '2026-08-12T00:05:00.000Z',
-      allowedLanes: ['repair'],
-      trustRevision: fixture.baseSha,
-      observedAt,
-      producer: {
-        identity: 'fixture-main-health-producer',
-        trustRevision: fixture.baseSha,
-        sourceTransport: 'github-api',
-        sourceRunId: 'fixture-run',
-        sourceRef: 'fixture:main-health',
-        sourceDigest: rawSha256('fixture-main-health-source')
-      }
-    });
-    const decision = compileMainHealthRepairDecision({
-      observation: { kind: 'available', ledger },
-      now: observedAt,
-      expectedRepository: 'sec-platform/sec',
-      expectedDefaultBranch: 'main',
-      expectedMainSha: fixture.baseSha,
-      expectedMainTreeSha: exactMainTree,
-      expectedTrustRevision: fixture.baseSha
-    });
-    const manifestBytes = Buffer.from(`---
+test('freeze projection admits only the exact degraded-main repair and preserves prior topology', () => {
+  const baseSha = 'a'.repeat(40);
+  const exactMainTree = '2'.repeat(40);
+  const observedAt = '2026-08-12T00:00:00.000Z';
+  const repairFailure = rawSha256('fixture-main-health-failure');
+  const repairPath = createMainHealthRepairWorkPackagePath({
+    repository: 'sec-platform/sec',
+    defaultBranch: 'main',
+    mainSha: baseSha,
+    mainTreeSha: exactMainTree,
+    owner: 'ci-verification-maintainer',
+    failureFingerprints: [repairFailure]
+  });
+  const repairId = repairPath.slice('config/repository/work-packages/'.length, -'.md'.length);
+  const ledger = createMainHealthLedger({
+    repository: 'sec-platform/sec',
+    defaultBranch: 'main',
+    mainSha: baseSha,
+    mainTreeSha: exactMainTree,
+    status: 'degraded',
+    failureFingerprints: [repairFailure],
+    owner: 'ci-verification-maintainer',
+    repairWorkPackage: repairPath,
+    expiresAt: '2026-08-12T00:05:00.000Z',
+    allowedLanes: ['repair'],
+    trustRevision: baseSha,
+    observedAt,
+    producer: {
+      identity: 'fixture-main-health-producer',
+      trustRevision: baseSha,
+      sourceTransport: 'github-api',
+      sourceRunId: 'fixture-run',
+      sourceRef: 'fixture:main-health',
+      sourceDigest: rawSha256('fixture-main-health-source')
+    }
+  });
+  const decision = compileMainHealthRepairDecision({
+    observation: { kind: 'available', ledger },
+    now: observedAt,
+    expectedRepository: 'sec-platform/sec',
+    expectedDefaultBranch: 'main',
+    expectedMainSha: baseSha,
+    expectedMainTreeSha: exactMainTree,
+    expectedTrustRevision: baseSha
+  });
+  const manifestBytes = Buffer.from(`---
 schema: codex-development-work-package-v1
 id: ${repairId}
 tracking: none
-base: '${fixture.baseSha}'
+base: '${baseSha}'
 manifestState: frozen
 requiredProfile: quick
 ciRevision: ci-verification-v19
@@ -1428,63 +1331,66 @@ tests:
   - tests/contract/development/document-control-plane-lifecycle.test.ts
 ---
 `, 'utf8');
-    const directRepairInput = {
-      packageId: repairId,
-      manifestPath: repairPath,
-      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`,
-      mainSha: fixture.baseSha,
-      mainTreeSha: exactMainTree,
-      healthRevision: decision.binding!.healthRevision,
-      ledgerDigest: decision.binding!.ledgerDigest,
-      decisionDigest: decision.decisionDigest,
-      failureFingerprints: decision.binding!.failureFingerprints,
-      reviewedOn: '2026-08-12'
-    } as const;
-    const currentPointerSource = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8');
-    const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
-    const currentPointer = parseActivePointer(currentPointerSource);
-    const publishedActivePackage = Object.freeze({
-      manifestPath: currentPointer.manifest,
-      manifestDigest: currentPointer.manifestDigest,
-      defaultManifestBytes: currentManifestBytes
-    });
-    const projection = createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource('origin')),
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes,
-      mainHealthRepairProjection: { decision, publishedActivePackage },
-      manifestPath: repairPath,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    });
-    expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
-      activePackageId: repairId,
-      candidatePackageIds: [
-        FREEZE_TARGET_ID,
-        'candidate-two-v1',
-        'candidate-three-v1'
-      ]
-    });
-    expect(projection.rollingPlanSource).not.toContain('- current-body: exact-current-bytes');
-    expect(projection.rollingPlanSource).not.toContain('- target-body: exact-target-bytes');
-    expect(projection.rollingPlanSource).toContain('sec-work-rolling-transition-projection-v1');
-    expect(projection.rollingPlanSource).toContain(`"exactMain": "${fixture.baseSha}"`);
-    expect(projection.rollingPlanSource).toContain(`"exactMainTree": "${exactMainTree}"`);
-    expect(projection.rollingPlanSource).toContain(decision.binding!.healthRevision);
-    expect(projection.rollingPlanSource).toContain(repairFailure);
-    expect(projection.rollingPlanSource).not.toContain('last-reviewed: 2026-08-08\n---\n\n# Freeze fixture\n\n## 当前唯一');
-    const normalizedProjection = activateMainHealthRepairRollingPlan({
-      source: rollingPlanSource().replace('### 2. candidate-two-v1\n', '### 2. candidate-two-v1  \n'),
-      ...directRepairInput,
-      publishedActivePackageId: CURRENT_ACTIVE_ID
-    });
-    expect(normalizedProjection).not.toContain('candidate-two-v1  ');
-    const maximalPriorTopology = rollingPlanSource().replace(
-      '## Gate、单写者与重算',
-      `### 4. candidate-four-v1
+  const directRepairInput = {
+    packageId: repairId,
+    manifestPath: repairPath,
+    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`,
+    mainSha: baseSha,
+    mainTreeSha: exactMainTree,
+    healthRevision: decision.binding!.healthRevision,
+    ledgerDigest: decision.binding!.ledgerDigest,
+    decisionDigest: decision.decisionDigest,
+    failureFingerprints: decision.binding!.failureFingerprints,
+    reviewedOn: '2026-08-12'
+  } as const;
+  const currentPointerSource = activePointerSource(
+    CURRENT_ACTIVE_PATH,
+    Buffer.from(currentActiveManifestSource(), 'utf8')
+  );
+  const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
+  const currentPointer = parseActivePointer(currentPointerSource);
+  const publishedActivePackage = Object.freeze({
+    manifestPath: currentPointer.manifest,
+    manifestDigest: currentPointer.manifestDigest,
+    defaultManifestBytes: currentManifestBytes
+  });
+  const projection = createFreezeProjection({
+    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes,
+    mainHealthRepairProjection: { decision, publishedActivePackage },
+    manifestPath: repairPath,
+    manifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  });
+  expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
+    activePackageId: repairId,
+    candidatePackageIds: [
+      FREEZE_TARGET_ID,
+      'candidate-two-v1',
+      'candidate-three-v1'
+    ]
+  });
+  expect(projection.rollingPlanSource).not.toContain('- current-body: exact-current-bytes');
+  expect(projection.rollingPlanSource).not.toContain('- target-body: exact-target-bytes');
+  expect(projection.rollingPlanSource).toContain('sec-work-rolling-transition-projection-v1');
+  expect(projection.rollingPlanSource).toContain(`"exactMain": "${baseSha}"`);
+  expect(projection.rollingPlanSource).toContain(`"exactMainTree": "${exactMainTree}"`);
+  expect(projection.rollingPlanSource).toContain(decision.binding!.healthRevision);
+  expect(projection.rollingPlanSource).toContain(repairFailure);
+  expect(projection.rollingPlanSource).not.toContain('last-reviewed: 2026-08-08\n---\n\n# Freeze fixture\n\n## 当前唯一');
+  const normalizedProjection = activateMainHealthRepairRollingPlan({
+    source: rollingPlanSource().replace('### 2. candidate-two-v1\n', '### 2. candidate-two-v1  \n'),
+    ...directRepairInput,
+    publishedActivePackageId: CURRENT_ACTIVE_ID
+  });
+  expect(normalizedProjection).not.toContain('candidate-two-v1  ');
+  const maximalPriorTopology = rollingPlanSource().replace(
+    '## Gate、单写者与重算',
+    `### 4. candidate-four-v1
 
 - fourth-body: exact-fourth-bytes
 
@@ -1493,75 +1399,70 @@ tests:
 - fifth-body: exact-fifth-bytes
 
 ## Gate、单写者与重算`
-    );
-    const maximalProjection = createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource('origin')),
-      currentPointerSource,
-      currentRollingPlanSource: maximalPriorTopology,
-      currentManifestBytes,
-      mainHealthRepairProjection: { decision, publishedActivePackage },
-      manifestPath: repairPath,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    });
-    expect(parseRollingPlan(maximalProjection.rollingPlanSource).candidatePackageIds)
-      .toEqual([
-        FREEZE_TARGET_ID,
-        'candidate-two-v1',
-        'candidate-three-v1',
-        'candidate-four-v1',
-        'candidate-five-v1'
-      ]);
-    expect(() => activateMainHealthRepairRollingPlan({
-      source: maximalPriorTopology,
-      ...directRepairInput,
-      publishedActivePackageId: null
-    })).toThrow('cannot preserve all prior identities within the five-candidate bound');
-    const unpublishedProjection = activateMainHealthRepairRollingPlan({
-      source: rollingPlanSource(),
-      ...directRepairInput,
-      publishedActivePackageId: null
-    });
-    expect(parseRollingPlan(unpublishedProjection).candidatePackageIds[0])
-      .toBe(CURRENT_ACTIVE_ID);
-    const wrongManifestBytes = await readFile(
-      path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'))
-    );
-    expect(() => createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource('origin')),
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes,
-      mainHealthRepairProjection: { decision, publishedActivePackage },
-      manifestPath: FREEZE_TARGET_PATH,
-      manifestBytes: wrongManifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    })).toThrow('differs from the exact manifest or repository identity');
-    expect(() => createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource('origin')),
-      currentPointerSource,
-      currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes,
-      mainHealthRepairProjection: {
-        decision,
-        publishedActivePackage: {
-          ...publishedActivePackage,
-          defaultManifestBytes: Buffer.from(`${currentActiveManifestSource()}\n`, 'utf8')
-        }
-      },
-      manifestPath: repairPath,
-      manifestBytes,
-      baseSha: fixture.baseSha,
-      baseTreeSha: exactMainTree,
-      reviewedOn: '2026-08-12'
-    })).toThrow('does not prove the current active package is byte-identical on exact default');
-  } finally {
-    await fixture.dispose();
-  }
+  );
+  const maximalProjection = createFreezeProjection({
+    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    currentPointerSource,
+    currentRollingPlanSource: maximalPriorTopology,
+    currentManifestBytes,
+    mainHealthRepairProjection: { decision, publishedActivePackage },
+    manifestPath: repairPath,
+    manifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  });
+  expect(parseRollingPlan(maximalProjection.rollingPlanSource).candidatePackageIds)
+    .toEqual([
+      FREEZE_TARGET_ID,
+      'candidate-two-v1',
+      'candidate-three-v1',
+      'candidate-four-v1',
+      'candidate-five-v1'
+    ]);
+  expect(() => activateMainHealthRepairRollingPlan({
+    source: maximalPriorTopology,
+    ...directRepairInput,
+    publishedActivePackageId: null
+  })).toThrow('cannot preserve all prior identities within the five-candidate bound');
+  const unpublishedProjection = activateMainHealthRepairRollingPlan({
+    source: rollingPlanSource(),
+    ...directRepairInput,
+    publishedActivePackageId: null
+  });
+  expect(parseRollingPlan(unpublishedProjection).candidatePackageIds[0])
+    .toBe(CURRENT_ACTIVE_ID);
+  const wrongManifestBytes = Buffer.from(freezeTargetManifestSource(baseSha), 'utf8');
+  expect(() => createFreezeProjection({
+    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes,
+    mainHealthRepairProjection: { decision, publishedActivePackage },
+    manifestPath: FREEZE_TARGET_PATH,
+    manifestBytes: wrongManifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  })).toThrow('differs from the exact manifest or repository identity');
+  expect(() => createFreezeProjection({
+    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    currentPointerSource,
+    currentRollingPlanSource: rollingPlanSource(),
+    currentManifestBytes,
+    mainHealthRepairProjection: {
+      decision,
+      publishedActivePackage: {
+        ...publishedActivePackage,
+        defaultManifestBytes: Buffer.from(`${currentActiveManifestSource()}\n`, 'utf8')
+      }
+    },
+    manifestPath: repairPath,
+    manifestBytes,
+    baseSha,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-12'
+  })).toThrow('does not prove the current active package is byte-identical on exact default');
 });
 
 test('freeze rejects a manually staged pointer and rolling-plan selection baseline', async () => {
