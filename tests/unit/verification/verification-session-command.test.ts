@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { parseVerificationSessionCommand } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import { parseVerificationSessionCommand, planHostedIntegrationEffects, routeHostedIntegration } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import type { GitHubCandidateObservation, VerificationSession } from '../../../src/execution/verification/session.ts';
 
 test('command parsing preserves each supported operation and its arguments', () => {
   const invocations = [
@@ -59,4 +60,71 @@ test('command parsing never invokes caller methods or admits nonprimitive flag v
   }
   expect(callerMethodCalls).toBe(0);
   expect(parseVerificationSessionCommand(['resume', '--request', 'request.json']).args.get('--request')).toBe('request.json');
+});
+
+const BASE_SHA = '1'.repeat(40);
+const HEAD_SHA = '2'.repeat(40);
+const JOIN_SESSION_DIGEST = `sha256:${'6'.repeat(64)}` as const;
+
+test('hosted integration router separates first effect, merged recovery, and blocking', () => {
+  const session = { repository: 'sec-platform/sec', prNumber: 42,
+    sessionRevision: JOIN_SESSION_DIGEST, baseSha: BASE_SHA, baseTreeSha: BASE_SHA,
+    headSha: HEAD_SHA, headTreeSha: HEAD_SHA } as VerificationSession;
+  const candidate: GitHubCandidateObservation = {
+    repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
+    isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE_SHA,
+    baseTreeSha: BASE_SHA, headBranch: 'feat/example', headSha: HEAD_SHA, headTreeSha: HEAD_SHA,
+    title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
+    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null,
+    mergeCommitParentShas: null
+  };
+  const open = routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
+    priorEffectStarted: false, authorizationPublicationCount: 0 });
+  expect(open).toMatchObject({ lane: 'open-first-effect',
+    reason: 'exact-open-candidate-without-prior-effect' });
+  expect(planHostedIntegrationEffects(open)).toEqual({
+    prepareRecoveryArtifact: true,
+    createAuthorizationPublication: true,
+    executePhysicalMerge: true,
+    consumeOriginalAuthorizationPublication: false,
+    consumeOriginalRecoveryArtifact: false
+  });
+
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
+    priorEffectStarted: true, authorizationPublicationCount: 0 })).toMatchObject({
+      lane: 'blocked', reason: 'open-prior-effect-started'
+    });
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
+    priorEffectStarted: false, authorizationPublicationCount: 1 })).toMatchObject({
+      lane: 'blocked', reason: 'open-prior-effect-started'
+    });
+
+  const mergedCandidate = { ...candidate, state: 'MERGED' as const,
+    baseSha: '8'.repeat(40), baseTreeSha: '7'.repeat(40),
+    mergeCommitSha: '9'.repeat(40), mergeCommitTreeSha: HEAD_SHA,
+    mergeCommitMessage: 'marker-bound merge',
+    mergeCommitParentShas: Object.freeze(['8'.repeat(40)]) };
+  const merged = routeHostedIntegration({ repository: 'sec-platform/sec', session,
+    candidate: mergedCandidate, priorEffectStarted: true, authorizationPublicationCount: 1 });
+  expect(merged).toMatchObject({ lane: 'merged-recovery', mergeCommitSha: '9'.repeat(40),
+    mergeCommitTreeSha: HEAD_SHA });
+  const mergedEffects = planHostedIntegrationEffects(merged);
+  expect(mergedEffects).toEqual({
+    prepareRecoveryArtifact: false,
+    createAuthorizationPublication: false,
+    executePhysicalMerge: false,
+    consumeOriginalAuthorizationPublication: true,
+    consumeOriginalRecoveryArtifact: true
+  });
+
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
+    candidate: { ...candidate, state: 'CLOSED' as const }, priorEffectStarted: false,
+    authorizationPublicationCount: 0 })).toMatchObject({
+      lane: 'blocked', reason: 'pull-request-closed-without-exact-merge'
+    });
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
+    candidate: { ...mergedCandidate, mergeCommitTreeSha: BASE_SHA }, priorEffectStarted: true,
+    authorizationPublicationCount: 1 })).toMatchObject({
+      lane: 'blocked', reason: 'merged-readback-incomplete-or-tree-mismatch'
+    });
 });

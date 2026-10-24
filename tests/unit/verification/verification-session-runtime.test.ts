@@ -96,68 +96,7 @@ const JOIN_REQUEST: VerificationSessionHostedRequest<typeof import("../../../src
   requestOperationId: `sha256:${'4'.repeat(64)}`
 });
 
-test('hosted integration router separates first effect, merged recovery, and blocking', () => {
-  const session = { repository: 'sec-platform/sec', prNumber: 42,
-    sessionRevision: JOIN_SESSION, baseSha: BASE, baseTreeSha: BASE,
-    headSha: HEAD, headTreeSha: HEAD } as VerificationSession;
-  const candidate: GitHubCandidateObservation = {
-    repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
-    isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
-    baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
-    title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
-    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null,
-    mergeCommitParentShas: null
-  };
-  const open = routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
-    priorEffectStarted: false, authorizationPublicationCount: 0 });
-  expect(open).toMatchObject({ lane: 'open-first-effect',
-    reason: 'exact-open-candidate-without-prior-effect' });
-  expect(planHostedIntegrationEffects(open)).toEqual({
-    prepareRecoveryArtifact: true,
-    createAuthorizationPublication: true,
-    executePhysicalMerge: true,
-    consumeOriginalAuthorizationPublication: false,
-    consumeOriginalRecoveryArtifact: false
-  });
 
-  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
-    priorEffectStarted: true, authorizationPublicationCount: 0 })).toMatchObject({
-      lane: 'blocked', reason: 'open-prior-effect-started'
-    });
-  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
-    priorEffectStarted: false, authorizationPublicationCount: 1 })).toMatchObject({
-      lane: 'blocked', reason: 'open-prior-effect-started'
-    });
-
-  const mergedCandidate = { ...candidate, state: 'MERGED' as const,
-    baseSha: '8'.repeat(40), baseTreeSha: '7'.repeat(40),
-    mergeCommitSha: '9'.repeat(40), mergeCommitTreeSha: HEAD,
-    mergeCommitMessage: 'marker-bound merge',
-    mergeCommitParentShas: Object.freeze(['8'.repeat(40)]) };
-  const merged = routeHostedIntegration({ repository: 'sec-platform/sec', session,
-    candidate: mergedCandidate, priorEffectStarted: true, authorizationPublicationCount: 1 });
-  expect(merged).toMatchObject({ lane: 'merged-recovery', mergeCommitSha: '9'.repeat(40),
-    mergeCommitTreeSha: HEAD });
-  const mergedEffects = planHostedIntegrationEffects(merged);
-  expect(mergedEffects).toEqual({
-    prepareRecoveryArtifact: false,
-    createAuthorizationPublication: false,
-    executePhysicalMerge: false,
-    consumeOriginalAuthorizationPublication: true,
-    consumeOriginalRecoveryArtifact: true
-  });
-
-  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
-    candidate: { ...candidate, state: 'CLOSED' as const }, priorEffectStarted: false,
-    authorizationPublicationCount: 0 })).toMatchObject({
-      lane: 'blocked', reason: 'pull-request-closed-without-exact-merge'
-    });
-  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
-    candidate: { ...mergedCandidate, mergeCommitTreeSha: BASE }, priorEffectStarted: true,
-    authorizationPublicationCount: 1 })).toMatchObject({
-      lane: 'blocked', reason: 'merged-readback-incomplete-or-tree-mismatch'
-    });
-});
 
 test('hosted Review locator is exact, non-triggering, and reuses only its matching locator', async () => {
   const input = {
