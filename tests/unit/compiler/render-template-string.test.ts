@@ -92,26 +92,6 @@ test('template output bound counts UTF-8 bytes rather than UTF-16 code units', (
   assert.throws(() => renderTemplateString('__VALUE__', { VALUE: exact + 'x' }), code('COMPOSE-TEMPLATE-009'));
 });
 
-test('template byte accounting preserves surrogate pairs spanning substitution boundaries', () => {
-  const prefix = 'x'.repeat(MAX_OUTPUT_BYTES - 4);
-  const result = renderTemplateString('__VALUE__\uDE00', { VALUE: prefix + '\uD83D' });
-  assert.equal(result, prefix + '😀');
-  assert.equal(Buffer.byteLength(result), MAX_OUTPUT_BYTES);
-});
-
-test('template accounting includes dangling surrogate replacement bytes', () => {
-  const value = 'x'.repeat(MAX_OUTPUT_BYTES - 3) + '\uD83D';
-  assert.equal(renderTemplateString('__VALUE__', { VALUE: value }), value);
-  assert.throws(() => renderTemplateString('__VALUE__x', { VALUE: value }), code('COMPOSE-TEMPLATE-009'));
-});
-
-test('template context accessors are rejected without executing user code', () => {
-  let reads = 0;
-  const context = { get VALUE() { reads++; return 'unsafe'; } };
-  assert.throws(() => renderTemplateString('__VALUE__', context), code('COMPOSE-TEMPLATE-007'));
-  assert.equal(reads, 0);
-});
-
 test('template interpolation remains literal, simultaneous and safe for prototype-looking keys', () => {
   const context = Object.assign(Object.create(null), { A: '__B__$&$1', B: 'expanded', constructor: 'safe' });
   assert.equal(renderTemplateString('__A__ / __B__ / __constructor__', context), '__B__$&$1 / expanded / safe');

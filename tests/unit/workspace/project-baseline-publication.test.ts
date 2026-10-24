@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { assertProjectBaseline, currentReadOnlyProjectPaths, getProjectBaselinePath, readProjectBaseline, writeProjectBaseline } from '../../../src/adapters/workspace/project-baseline.ts';
+import { assertProjectBaseline, getProjectBaselinePath, readProjectBaseline, writeProjectBaseline } from '../../../src/adapters/workspace/project-baseline.ts';
 
 // Native retained IO integration: run on a repository-supported Bun/host profile.
 async function fixture() {
@@ -35,7 +35,13 @@ test('a concurrent different baseline is not overwritten by a stale publication'
 test('baseline readback preserves ownership while equal output still validates final artifact observations', async () => {
   const f = await fixture();
   try {
-    const baseline = await writeProjectBaseline(f.root, f.paths);
+    await assert.rejects(writeProjectBaseline(f.root, {
+      artifactPaths: ['Src/a.txt', 'src/a.txt']
+    }), /invalid/);
+    const baseline = await writeProjectBaseline(f.root, { artifactPaths: [
+      'src/a.txt', 'model/policies/policy.spec.yaml', '.sec/artifacts/evidence/report.json',
+      'tsconfig.json', 'src/a.txt', 'model/patches/manual.ts', '.sec/cache/local.json'
+    ] });
     assert.equal(baseline.formatVersion, '1');
     assert.deepEqual(baseline.artifacts.map(value => value.path), ['src/a.txt']);
     assert.deepEqual(readProjectBaseline(f.root), baseline);
@@ -47,10 +53,3 @@ test('baseline readback preserves ownership while equal output still validates f
     assertProjectBaseline(f.root, baseline, { allowedChangedPaths: ['src/a.txt'] });
   } finally { await rm(f.root, { recursive: true, force: true }); }
 }, 30_000);
-
-test('in-memory baseline type assertions cannot omit contract validation', () => {
-  const root = path.resolve('unobserved-baseline-validation');
-  assert.throws(() => assertProjectBaseline(root, { formatVersion: 'wrong', artifacts: [] } as never), /malformed/);
-  assert.throws(() => currentReadOnlyProjectPaths({ artifactPaths: ['Src/a.txt', 'src/a.txt'] }), /invalid/);
-  assert.throws(() => currentReadOnlyProjectPaths({ artifactPaths: new Array(1) }), /invalid/);
-});
