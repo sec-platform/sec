@@ -5395,14 +5395,15 @@ if (process.platform === 'linux') {
         .find((name) => name.startsWith('.entry-') && name.endsWith('.pre'));
       expect(lastIndexDeletion).toBeDefined();
       await unlink(path.join(gitDirectory, lastIndexDeletion!));
-      const preservedBefore = (await readdir(gitDirectory)).filter((name) => name.startsWith('.entry-')).sort();
+      const recoveryBefore = await readEntryRecoveryByteSnapshot(gitDirectory);
+      const effectsBefore = await readFreezeEffectSnapshot(fixture.repositoryRoot);
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
       })).rejects.toThrow('not one exact canonical deletion prefix');
-      expect((await readdir(gitDirectory)).filter((name) => name.startsWith('.entry-')).sort())
-        .toEqual(preservedBefore);
+      expect(await readEntryRecoveryByteSnapshot(gitDirectory)).toEqual(recoveryBefore);
+      expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(effectsBefore);
     } finally {
       await fixture.dispose();
     }
