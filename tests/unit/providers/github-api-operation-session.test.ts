@@ -254,7 +254,7 @@ test('runner-admin enrollment rejects maintain and accepts admin repository perm
   });
 });
 
-test('runner-admin compiles fixed runner effects and accepts DELETE 204 empty success', async () => {
+test('runner-admin compiles the fixed registration-token request', async () => {
   const observations: Array<Readonly<{ url: string; method: string | undefined; body: string | null }>> = [];
   const api = capability({
     effect: 'runner-admin',
@@ -265,9 +265,7 @@ test('runner-admin compiles fixed runner effects and accepts DELETE 204 empty su
         method: init?.method,
         body: init?.body === undefined ? null : String(init.body)
       }));
-      return init?.method === 'DELETE'
-        ? new Response(null, { status: 204 })
-        : Response.json({ token: 'transient-registration-token' });
+      return Response.json({ token: 'transient-registration-token' });
     }
   });
   await withGitHubApiTestSession({
@@ -276,21 +274,12 @@ test('runner-admin compiles fixed runner effects and accepts DELETE 204 empty su
       expect(await executeGitHubApiOperation(api, {
         kind: 'create-runner-registration-token'
       })).toEqual({ token: 'transient-registration-token' });
-      expect(await executeGitHubApiOperation(api, {
-        kind: 'delete-repository-runner',
-        runnerId: 42
-      })).toBeNull();
     }
   });
   expect(observations).toEqual([
     {
       url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/registration-token',
       method: 'POST',
-      body: null
-    },
-    {
-      url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/42',
-      method: 'DELETE',
       body: null
     }
   ]);
@@ -769,12 +758,21 @@ test('a validated workflow locator is not re-read while compiling its request ro
 
 test('caller mutation cannot revoke or reinterpret an already admitted DELETE response', async () => {
   const operation = { kind: 'delete-repository-runner', runnerId: 42 };
+  const observed: Array<{ target: string; method: string | undefined; body: unknown }> = [];
   const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
-    transport: async () => { operation.kind = 'repository'; return new Response(null, { status: 204 }); }
+    transport: async (target, init) => {
+      observed.push({ target: String(target), method: init?.method, body: init?.body });
+      operation.kind = 'repository';
+      return new Response(null, { status: 204 });
+    }
   });
   expect(await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
     api, operation as Parameters<typeof executeGitHubApiOperation>[1]
   ) })).toBeNull();
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/actions/runners/42',
+    method: 'DELETE', body: undefined
+  }]);
 });
 
 test('exact ref deletion captures branch and old SHA before repository identity observation', async () => {
@@ -925,31 +923,26 @@ function streamedNoContent(bytes: Uint8Array = new Uint8Array()): Response {
   } as unknown as Response;
 }
 
-test('runner deletion owns one exact DELETE and settles null or streamed empty 204', async () => {
-  for (const response of [
-    new Response(null, { status: 204 }),
-    streamedNoContent()
-  ]) {
-    const observed: Array<{ target: string; method: string }> = [];
-    const api = capability({
-      effect: 'runner-admin',
-      principal: { ...PRINCIPAL, permission: 'admin' },
-      transport: async (target, init) => {
-        observed.push({ target: String(target), method: init?.method ?? 'GET' });
-        return response;
-      }
-    });
-    await expect(withGitHubApiTestSession({
-      capability: api,
-      operation: () => executeGitHubApiOperation(api, {
-        kind: 'delete-repository-runner', runnerId: 91
-      })
-    })).resolves.toBeNull();
-    expect(observed).toEqual([{
-      target: 'https://api.github.com/repos/sec-platform/sec/actions/runners/91',
-      method: 'DELETE'
-    }]);
-  }
+test('runner deletion owns one exact DELETE and settles streamed empty 204', async () => {
+  const observed: Array<{ target: string; method: string }> = [];
+  const api = capability({
+    effect: 'runner-admin',
+    principal: { ...PRINCIPAL, permission: 'admin' },
+    transport: async (target, init) => {
+      observed.push({ target: String(target), method: init?.method ?? 'GET' });
+      return streamedNoContent();
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'delete-repository-runner', runnerId: 91
+    })
+  })).resolves.toBeNull();
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/actions/runners/91',
+    method: 'DELETE'
+  }]);
 });
 
 test('terminal delete 204 rejects unexpected response bytes', async () => {

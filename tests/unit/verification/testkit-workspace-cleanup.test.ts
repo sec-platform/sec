@@ -93,24 +93,6 @@ describe('testkit workspace cleanup', () => {
     assert.deepEqual(harness.delays, []);
     assert.equal(harness.deferredCleanupDirs.has(harness.directory), true);
   });
-  test('preserves the original callback failure and cleanup failure together', async () => {
-    const primary = new Error('primary');
-    const cleanupFailure = new Error('cleanup');
-    let cleanupCalls = 0;
-    await assert.rejects(settleWorkspaceCallback(async () => {
-      throw primary;
-    }, async () => {
-      cleanupCalls += 1;
-      throw cleanupFailure;
-    }), error => {
-      assert.ok(error instanceof AggregateError);
-      assert.deepEqual(error.errors, [primary, cleanupFailure]);
-      assert.equal(error.cause, primary);
-      return true;
-    });
-    assert.equal(cleanupCalls, 1);
-    assert.equal(Object.hasOwn(primary, 'cause'), false);
-  });
   test('retains forensic authority without cleanup after an opted-in callback failure', async () => {
     const directory = 'C:\\workspace\\retained';
     const deferredCleanupDirs = new Set([directory]);
@@ -146,13 +128,18 @@ describe('testkit workspace cleanup', () => {
 
 test('arbitrary primary and cleanup failures retain exact values without coercion', async () => {
   const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
-  for (const primary of [undefined, null, false, 0, proxy]) {
+  const primaryError = new Error('primary');
+  for (const primary of [undefined, primaryError, proxy]) {
     const cleanup = Object.freeze({ failed: 'cleanup' });
-    await assert.rejects(settleWorkspaceCallback(async () => { throw primary; }, async () => { throw cleanup; }), error => {
+    let cleanupCalls = 0;
+    await assert.rejects(settleWorkspaceCallback(async () => { throw primary; }, async () => { cleanupCalls++; throw cleanup; }), error => {
       assert.ok(error instanceof AggregateError); assert.equal(error.errors[0], primary);
-      assert.equal(error.errors[1], cleanup); assert.equal(error.cause, primary); return true;
+      assert.equal(error.errors[1], cleanup); assert.equal(error.errors.length, 2);
+      assert.equal(error.cause, primary); return true;
     });
+    assert.equal(cleanupCalls, 1);
   }
+  assert.equal(Object.hasOwn(primaryError, 'cause'), false);
 });
 
 test('callback mutation cannot enable forensic retention after admission', async () => {

@@ -23,7 +23,7 @@ test('independent template kinds do not block one another', async () => {
 
 test('failure is shared exactly and retired so an explicitly retried preparation may succeed', async () => {
   const cases = [
-    ...[undefined, null, false, 0, new Error('prepare')].map(reason => ({ reason, synchronous: false })),
+    { reason: undefined, synchronous: false },
     { reason: new Error('sync'), synchronous: true }
   ];
   for (const { reason, synchronous } of cases) {

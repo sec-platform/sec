@@ -206,16 +206,15 @@ test('verification provenance reads exact numeric attempt, suite, workflow and j
       { target: 'https://api.github.com/repos/sec-platform/sec/actions/jobs/14', method: 'GET', body: undefined }
     ]);
     requests.length = 0;
-    for (const id of ['0', '../escape', '12?branch=main']) {
-      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: id, runAttempt: 1 })).rejects.toThrow();
-      expect(requests).toEqual([]);
-      await expect(executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: id })).rejects.toThrow();
-      expect(requests).toEqual([]);
-      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: id })).rejects.toThrow();
-      expect(requests).toEqual([]);
-      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: id })).rejects.toThrow();
-      expect(requests).toEqual([]);
-    }
+    // History owns the shared numeric-ID grammar; each provenance route retains its admission wire.
+    await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '0', runAttempt: 1 })).rejects.toThrow();
+    expect(requests).toEqual([]);
+    await expect(executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: '0' })).rejects.toThrow();
+    expect(requests).toEqual([]);
+    await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: '0' })).rejects.toThrow();
+    expect(requests).toEqual([]);
+    await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: '0' })).rejects.toThrow();
+    expect(requests).toEqual([]);
     await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '11', runAttempt: 0 })).rejects.toThrow();
     expect(requests).toEqual([]);
   } });
