@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
@@ -135,6 +135,14 @@ function repositoryFixture(): Readonly<{
   return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
 }
 
+let observedRepository: ReturnType<typeof repositoryFixture> | undefined;
+function observationFixture(): ReturnType<typeof repositoryFixture> {
+  return observedRepository ??= repositoryFixture();
+}
+afterAll(() => {
+  if (observedRepository !== undefined) rmSync(observedRepository.root, { recursive: true, force: true });
+});
+
 function activeWorkObservation(
   fixture: ReturnType<typeof repositoryFixture>
 ): ActiveWorkPackageOwnerObservation {
@@ -224,7 +232,7 @@ process.exit(1);
 }
 
 test('target-scoped closeout inventory binds authenticated exact PR and fresh target refs', () => {
-  const fixture = repositoryFixture();
+  const fixture = observationFixture();
   const restorePath = installGitHubObservationShim(fixture);
   try {
     const observation = noActiveWorkObservation(fixture);
@@ -270,7 +278,6 @@ test('target-scoped closeout inventory binds authenticated exact PR and fresh ta
     })).toThrow('authenticated exact PR observation differs from the closeout target');
   } finally {
     restorePath();
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 }, 180_000);
 
@@ -414,7 +421,7 @@ test('typed inventory boundary ignores ambient repository and index steering wit
 });
 
 test('closeout requires its documentation owner and revalidates the exact recovery head before effects', () => {
-  const fixture = repositoryFixture();
+  const fixture = observationFixture();
   const restorePath = installGitHubObservationShim(fixture);
   const recoveryRoot = path.join(fixture.root, 'recovery');
   try {
@@ -498,13 +505,12 @@ test('closeout requires its documentation owner and revalidates the exact recove
     expect(existsSync(rehydrationRoot)).toBe(false);
   } finally {
     restorePath();
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 }, 180_000);
 
 
 test('receipt inventory consumes paired permission JSON and preserves unreadable-provider uncertainty', () => {
-  const fixture = repositoryFixture();
+  const fixture = observationFixture();
   const baseSha = 'a'.repeat(40);
   const pullRequests = [{ number: 42, headRefName: fixture.branch, headRefOid: fixture.headSha,
     baseRefName: 'main', baseRefOid: baseSha, state: 'CLOSED', isDraft: false, isCrossRepository: false }];
@@ -528,6 +534,5 @@ test('receipt inventory consumes paired permission JSON and preserves unreadable
       .toMatchObject({ status: 'unknown', reason: expect.stringContaining('invalid JSON') });
   } finally {
     restorePath();
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });

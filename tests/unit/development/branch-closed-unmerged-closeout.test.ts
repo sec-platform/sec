@@ -35,6 +35,7 @@ const PR_NUMBER = 570;
 let repositoryRoot = '';
 let recoveryRoot = '';
 let supersededEvidence: ClosedSupersededDispositionEvidence;
+let recovery: ReturnType<typeof createRecoveryBundle>['recovery'] | undefined;
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
@@ -163,7 +164,7 @@ function inventory(): BranchLifecycleInventory {
 }
 
 function prepared(before: BranchLifecycleInventory): PreparedBranchCloseoutEnvelope {
-  const recovery = createRecoveryBundle({ inventory: before, branch: BRANCH,
+  recovery ??= createRecoveryBundle({ inventory: before, branch: BRANCH,
     expectedSha: HEAD_SHA, recoveryRoot, refSource: { kind: 'local-branch' } }).recovery;
   const pullRequest = before.pullRequests.find(({ number }) => number === PR_NUMBER)!;
   const remote = before.remoteBranches.find(({ branch }) => branch === BRANCH);

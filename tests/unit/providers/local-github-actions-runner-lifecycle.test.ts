@@ -290,21 +290,6 @@ function seedRetainedGeneration(lifecycle: 'provisioning' | 'routing' | 'active'
   writeFileSync(statePath(), JSON.stringify(state, null, 2) + '\n');
 }
 
-test.serial('retired provisioning rejects before Git, credential, Docker or durable-state effects', async () => {
-  await expect(start()).rejects.toMatchObject({ name: 'LocalRunnerTopologyRetiredError', code: 'runner-topology-retired' });
-  expect(boundaryEntries).toEqual([]);
-  expect(events).toEqual([]); expect(runners).toEqual([]); expect(containers).toEqual([]);
-  expect(existsSync(statePath())).toBe(false);
-});
-
-test.serial('retired start leaves an interrupted legacy generation for its recovery owner', async () => {
-  seedRetainedGeneration('active'); interruptReplacement('quarantined');
-  await expect(start()).rejects.toMatchObject({ code: 'runner-topology-retired' });
-  expect(boundaryEntries).toEqual([]);
-  expect(events).toEqual([]); expect(pendingState).toBe('quarantined');
-  expect(existsSync(pendingPath())).toBe(true); expect(runners).toHaveLength(3); expect(containers).toHaveLength(3);
-});
-
 test.serial('committed legacy routing resumes exact IDs without provisioning and can be stopped', async () => {
   seedRetainedGeneration();
   await recover();
@@ -390,7 +375,23 @@ test.serial('marker release acknowledgement loss retains already-running busy ca
 
 for (const command of ['recover', 'stop'] as const) {
   test.serial(`pending durable replacement is settled under lease before ${command} interprets absence`, async () => {
+    if (command === 'recover') {
+      await expect(start()).rejects.toMatchObject({ name: 'LocalRunnerTopologyRetiredError', code: 'runner-topology-retired' });
+      expect(boundaryEntries).toEqual([]);
+      expect(events).toEqual([]); expect(runners).toEqual([]); expect(containers).toEqual([]);
+      expect(existsSync(statePath())).toBe(false);
+    }
     seedRetainedGeneration('active'); interruptReplacement('quarantined');
+    if (command === 'recover') {
+      await expect(start()).rejects.toMatchObject({ code: 'runner-topology-retired' });
+      expect(boundaryEntries).toEqual([]);
+      expect(events).toEqual([]); expect(pendingState).toBe('quarantined');
+      expect(existsSync(pendingPath())).toBe(true); expect(runners).toHaveLength(3); expect(containers).toHaveLength(3);
+      const observed = await observeLocalGitHubActionsProvider({ cwd: root });
+      expect(observed).toMatchObject({ status: 'residue', reason: 'lifecycle-state-recovery-required' });
+      expect(pendingState).toBe('quarantined'); expect(events).toEqual([]);
+      expect(existsSync(pendingPath())).toBe(true); expect(existsSync(statePath())).toBe(false);
+    }
     if (command === 'recover') await recover();
     else await stopLocalGitHubActionsProvider({ cwd: root });
     expect(events[0]).toBe('recover-state'); expect(pendingState).toBeNull();
@@ -402,18 +403,12 @@ for (const command of ['recover', 'stop'] as const) {
   });
 }
 
-for (const phase of ['quarantined', 'installed'] as const) {
-  test.serial(`read-only status reports ${phase} durable artifacts without recovery or absence claims`, async () => {
-    seedRetainedGeneration('active'); interruptReplacement(phase);
-    const observed = await observeLocalGitHubActionsProvider({ cwd: root });
-    expect(observed).toMatchObject({ status: 'residue', reason: 'lifecycle-state-recovery-required' });
-    expect(pendingState).toBe(phase); expect(events).toEqual([]);
-    expect(existsSync(pendingPath())).toBe(true); expect(existsSync(statePath())).toBe(phase === 'installed');
-  });
-}
-
 test.serial('installed teardown replacement is settled before recovery chooses its lifecycle', async () => {
   seedRetainedGeneration('active'); interruptReplacement('installed');
+  const observed = await observeLocalGitHubActionsProvider({ cwd: root });
+  expect(observed).toMatchObject({ status: 'residue', reason: 'lifecycle-state-recovery-required' });
+  expect(pendingState).toBe('installed'); expect(events).toEqual([]);
+  expect(existsSync(pendingPath())).toBe(true); expect(existsSync(statePath())).toBe(true);
   await recover();
   expect(pendingState).toBeNull(); expect(existsSync(pendingPath())).toBe(false);
   expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);

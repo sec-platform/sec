@@ -1,10 +1,11 @@
-import { expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { afterAll, expect, test } from 'bun:test';
+import { chmod, lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
-import { getWorkspacePaths } from '../../../src/adapters/workspace-context.ts';
+import { getWorkspacePaths, resolveWorkspaceLockPath } from '../../../src/adapters/workspace-context.ts';
 import { saveLock } from '../../../src/adapters/workspace/lock.ts';
+import { ensureCanonicalWorkspaceArtifactParents } from '../../../src/adapters/workspace/project-base.ts';
 import { loadPlan } from '../../../src/adapters/workspace/sources/load-plan.ts';
 import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
 import { resolveWorkspace } from '../../../src/bootstrap/engineering/block-orchestrator.ts';
@@ -16,6 +17,41 @@ import { verifyWorkspace } from '../../../src/bootstrap/engineering/verify-orche
 import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
 import { buildReviewLock } from '../../helpers/review-fixtures.ts';
+import { copyWorkspaceFixture } from '../../testkit/workspace-files.ts';
+
+let templateRoot: string | undefined;
+let preparedTemplate: Promise<{ root: string; lockMode: number }> | undefined;
+
+afterAll(async () => {
+  if (templateRoot !== undefined) await rm(templateRoot, { recursive: true, force: true });
+});
+
+function rootCaptureTemplate(): Promise<{ root: string; lockMode: number }> {
+  return preparedTemplate ??= (async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-root-template-'));
+    templateRoot = root;
+    await initWorkspace(root);
+    // Root identity needs a real workspace, not the complete official catalog.
+    const planPath = getWorkspacePaths(root).workspaceConfigPath;
+    const plan = loadPlan(planPath);
+    plan.registry.sources = [{ id: 'root-test', kind: 'private', location: 'workspace', path: '.root-test-registry' }];
+    await mkdir(path.join(root, '.root-test-registry'));
+    await writeYaml(planPath, plan);
+    // Satisfy stage prerequisites, but keep verification artifacts absent:
+    // domain rejection must remain the same, not become a locator failure.
+    await saveLock(root, buildReviewLock({
+      app: {
+        id: plan.app.id,
+        name: plan.app.name,
+        stack: plan.app.stack,
+        mode: plan.app.mode
+      },
+      acceptancePlan: plan.acceptance.map(({ id }) => id).sort(),
+      passStatus: { lock: 'succeeded' }
+    }));
+    return { root, lockMode: (await lstat(await resolveWorkspaceLockPath(root))).mode & 0o777 };
+  })();
+}
 
 type Operation = { name: string; run(root: string): Promise<unknown>; fresh?: boolean };
 const operations: Operation[] = [
@@ -47,27 +83,16 @@ for (const operation of operations) {
       }
     };
     try {
-      if (!operation.fresh) for (const root of [baseline, target]) {
-        await initWorkspace(root);
-        // This test exercises root identity, not the complete official catalog.
-        // A real, empty private registry keeps the native resolver bounded.
-        const planPath = getWorkspacePaths(root).workspaceConfigPath;
-        const plan = loadPlan(planPath);
-        plan.registry.sources = [{ id: 'root-test', kind: 'private', location: 'workspace', path: '.root-test-registry' }];
-        await mkdir(path.join(root, '.root-test-registry'));
-        await writeYaml(planPath, plan);
-        // Satisfy stage prerequisites, but keep verification artifacts absent:
-        // domain rejection must remain the same, not become a locator failure.
-        await saveLock(root, buildReviewLock({
-          app: {
-            id: plan.app.id,
-            name: plan.app.name,
-            stack: plan.app.stack,
-            mode: plan.app.mode
-          },
-          acceptancePlan: plan.acceptance.map(({ id }) => id).sort(),
-          passStatus: { lock: 'succeeded' }
-        }));
+      if (!operation.fresh) {
+        const template = await rootCaptureTemplate();
+        for (const root of [baseline, target]) {
+          // Independent native copies carry only data, never the initializer's
+          // root-bound create journal, lease generations or retained authority.
+          await copyWorkspaceFixture(template.root, root);
+          await ensureCanonicalWorkspaceArtifactParents(root);
+          await mkdir(getWorkspacePaths(root).cacheRoot, { recursive: true });
+          await chmod(await resolveWorkspaceLockPath(root), template.lockMode);
+        }
       }
       const expected = await observe(operation.run(baseline), baseline);
       const pending = operation.run(path.relative(cwd, target));
