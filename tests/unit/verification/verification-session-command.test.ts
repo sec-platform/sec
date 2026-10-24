@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test';
-import { parseVerificationSessionCommand, planHostedIntegrationEffects, routeHostedIntegration } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import { parseVerificationSessionCommand, planHostedIntegrationEffects, routeHostedIntegration, verificationSessionCli, verificationSessionExecutionPlacement } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import { executeHostedSessionCompilerCommand } from '../../../src/bootstrap/development/closeout/verification-session-hosted.ts';
+import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
+import { parseHostedVerificationCommand } from '../../../src/entry/verification-session-hosted-cli.ts';
 import type { GitHubCandidateObservation, VerificationSession } from '../../../src/execution/verification/session.ts';
 
 test('command parsing preserves each supported operation and its arguments', () => {
@@ -127,4 +130,34 @@ test('hosted integration router separates first effect, merged recovery, and blo
     authorizationPublicationCount: 1 })).toMatchObject({
       lane: 'blocked', reason: 'merged-readback-incomplete-or-tree-mismatch'
     });
+});
+
+test('VerificationSession placement defaults local and rejects implicit hosted selection', async () => {
+  expect(verificationSessionExecutionPlacement(undefined)).toBe('local');
+  expect(verificationSessionExecutionPlacement('local')).toBe('local');
+  expect(verificationSessionExecutionPlacement('hosted')).toBe('hosted');
+  expect(() => verificationSessionExecutionPlacement('automatic')).toThrow(/local or hosted/);
+  await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
+    '--execution', 'automatic'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/local or hosted/);
+  await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
+    '--execution', 'hosted', '--test-author-comment', '1'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/requires local preparation/);
+});
+
+test('CLI rejects caller-provided authority artifacts', async () => {
+  await expect(verificationSessionCli(['resume', '--request', 'request.json',
+    '--artifact', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --artifact/);
+  await expect(verificationSessionCli(['resume', '--request', 'request.json',
+    '--authorization', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --authorization/);
+  expect(() => parseHostedVerificationCommand(['integrate-hosted', '--repository', 'sec-platform/sec',
+    '--output', 'projection.json', '--authorization', 'forged.json']))
+    .toThrow(/Unknown argument for integrate-hosted: --authorization/);
+  for (const command of ['prepare-integration-hosted', 'integrate-hosted',
+    'closeout-mutate-hosted', 'closeout-publish-hosted']) {
+    expect(() => parseHostedVerificationCommand([command, '--repository', 'sec-platform/sec',
+      '--output', 'projection.json', '--artifact', 'caller.json']))
+      .toThrow(new RegExp(`Unknown argument for ${command}: --artifact`));
+  }
+  await expect(executeHostedSessionCompilerCommand(['finalize-hosted', '--envelope', 'envelope.json', '--output',
+    'artifact.json', '--evidence', 'evidence.json', '--previous-artifact', 'prior.json']))
+    .rejects.toThrow(/exactly one of --evidence or --previous-artifact/);
 });

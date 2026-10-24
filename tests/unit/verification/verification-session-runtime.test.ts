@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { executeHostedSessionCompilerCommand, resumeHostedVerificationSession } from '../../../src/bootstrap/development/closeout/verification-session-hosted.ts';
+import { resumeHostedVerificationSession } from '../../../src/bootstrap/development/closeout/verification-session-hosted.ts';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
 import type { BranchLifecycleInventory } from '../../../src/execution/verification/branch-closeout.ts';
 import type { VerificationSessionHostedRequest } from "../../../src/execution/verification/hosted.ts";
@@ -63,13 +63,8 @@ import {
   assertHostedCompilerInternalProvenance,
   assertHostedSquashMergeCompletion,
   classifyDurableVerificationSessionProjection,
-  parseHostedSynchronousSquashMergeResponse,
-  planHostedIntegrationEffects,
-  routeHostedIntegration,
-  verificationSessionCli,
-  verificationSessionExecutionPlacement
+  parseHostedSynchronousSquashMergeResponse
 } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import { parseHostedVerificationCommand } from '../../../src/entry/verification-session-hosted-cli.ts';
 import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../../testkit/process-resource.ts';
@@ -1537,17 +1532,6 @@ test('OPEN candidate execution rejects remote-main drift even after authorizatio
   expect(() => assertTrustedRuntime({ ...proof, remoteDefaultSha: BASE }, session, false)).not.toThrow();
 });
 
-test('VerificationSession placement defaults local and rejects implicit hosted selection', async () => {
-  expect(verificationSessionExecutionPlacement(undefined)).toBe('local');
-  expect(verificationSessionExecutionPlacement('local')).toBe('local');
-  expect(verificationSessionExecutionPlacement('hosted')).toBe('hosted');
-  expect(() => verificationSessionExecutionPlacement('automatic')).toThrow(/local or hosted/);
-  await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
-    '--execution', 'automatic'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/local or hosted/);
-  await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
-    '--execution', 'hosted', '--test-author-comment', '1'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/requires local preparation/);
-});
-
 test('local preparation request cannot enter any hosted consumer or runtime state', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-local-request-placement-'));
   const localRequest = createVerificationSessionLocalPreparationRequest(JOIN_REQUEST);
@@ -1578,30 +1562,6 @@ test('local preparation request cannot enter any hosted consumer or runtime stat
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
-
-test('CLI rejects caller-provided authority artifacts', async () => {
-  await expect(verificationSessionCli(['resume', '--request', 'request.json',
-    '--artifact', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --artifact/);
-  await expect(verificationSessionCli(['resume', '--request', 'request.json',
-    '--authorization', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --authorization/);
-  expect(() => parseHostedVerificationCommand(['integrate-hosted', '--repository', 'sec-platform/sec',
-    '--output', 'projection.json', '--authorization', 'forged.json']))
-    .toThrow(/Unknown argument for integrate-hosted: --authorization/);
-  for (const command of ['prepare-integration-hosted', 'integrate-hosted',
-    'closeout-mutate-hosted', 'closeout-publish-hosted']) {
-    expect(() => parseHostedVerificationCommand([command, '--repository', 'sec-platform/sec',
-      '--output', 'projection.json', '--artifact', 'caller.json']))
-      .toThrow(new RegExp(`Unknown argument for ${command}: --artifact`));
-  }
-  await expect(executeHostedSessionCompilerCommand(['finalize-hosted', '--envelope', 'envelope.json', '--output',
-    'artifact.json', '--evidence', 'evidence.json', '--previous-artifact', 'prior.json']))
-    .rejects.toThrow(/exactly one of --evidence or --previous-artifact/);
-});
-
-
-
-
-
 
 test('durable remote projection blocks closed PR and OPEN candidate identity drift', () => {
   for (const candidate of [
