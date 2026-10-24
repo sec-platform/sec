@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { dependencyTransitionRecordBytes, transitionRecordName } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
-import { inspectActiveDependencyTransitionRollover, recoverDependencyTransitionRollover } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
+import { inspectActiveDependencyTransitionRollover, recoverDependencyTransitionRollover, rolloverDependencyTransitionLedger } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/rollover.ts';
+import { dependencyTransitionLedgerDigest, inspectDependencyTransitionNamespace } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { canonicalJson } from '../../../src/contracts/canonical.ts';
 import { formatJsonFile } from "../../../src/contracts/json-text.ts";
@@ -171,3 +172,17 @@ test('a complete historical epoch cannot silently have its physical checkpoint c
   fs.writeFileSync(f.receiptPath('complete'), formatJsonFile(canonicalJson(receipt)));
   await assert.rejects(inspectActiveDependencyTransitionRollover(f.root, f.options), /continuity/);
 }));
+
+test('a ledger below the canonical rollover threshold performs no namespace or publication effects', async () => {
+  const f = createRolloverFixture();
+  try {
+    fs.unlinkSync(f.receiptPath('prepared'));
+    fs.mkdirSync(f.paths.backupRoot, { recursive: true });
+    const ledger = { namespace: inspectDependencyTransitionNamespace(f.root)!, records: f.records,
+      ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal };
+    await assert.rejects(rolloverDependencyTransitionLedger(f.root, ledger, f.terminal,
+      { ...f.options, beforeCommit() { assert.fail('premature namespace effect'); } }), /predecessor receipt/);
+    assert.deepEqual(fs.readdirSync(f.paths.rolloversRoot), []);
+    assert.equal(fs.readdirSync(f.paths.recordsRoot).length, f.records.size);
+  } finally { f.cleanup(); }
+});

@@ -33,17 +33,3 @@ test('normal capacity rollover enters the common recovery path and publishes exa
     assert.equal(fs.existsSync(f.prepared.nextRecordsPath), false);
   } finally { f.cleanup(); }
 }, 240_000);
-
-test('a ledger below the canonical rollover threshold performs no namespace or publication effects', async () => {
-  const f = createRolloverFixture();
-  try {
-    fs.unlinkSync(f.receiptPath('prepared'));
-    fs.mkdirSync(f.paths.backupRoot, { recursive: true });
-    const ledger = { namespace: inspectDependencyTransitionNamespace(f.root)!, records: f.records,
-      ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal };
-    await assert.rejects(rolloverDependencyTransitionLedger(f.root, ledger, f.terminal,
-      { ...f.options, beforeCommit() { assert.fail('premature namespace effect'); } }), /predecessor receipt/);
-    assert.deepEqual(fs.readdirSync(f.paths.rolloversRoot), []);
-    assert.equal(fs.readdirSync(f.paths.recordsRoot).length, f.records.size);
-  } finally { f.cleanup(); }
-});
