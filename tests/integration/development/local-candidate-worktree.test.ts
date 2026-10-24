@@ -6,7 +6,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import { createLocalGitWorktreeAddFailureActorForTests } from '../../../src/adapters/providers/git/local-worktree.ts';
@@ -90,10 +90,10 @@ async function withFixture(run: (value: ReturnType<typeof fixture>, lease: Local
   return settleWorkspaceCallback(async () => {
     lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
     await run(value, lease);
-  }, () => settleWorkspaceCleanups([
-    async () => { await lease?.release(); },
-    async () => { rmSync(value.ownedRoot, { recursive: true, force: true }); }
-  ]));
+  }, async () => {
+    await lease?.release();
+    rmSync(value.ownedRoot, { recursive: true, force: true });
+  });
 }
 
 test.skipIf(process.platform !== 'linux')('a substituted .git marker blocks retained Git use and preserves candidate ownership', async () => {
@@ -193,10 +193,10 @@ test('prepared acquisition failure remains retryable with native reuse and exact
     expect(lstatSync(lease.owner.candidateRoot, { throwIfNoEntry: false })).toBeUndefined();
     expect(lstatSync(markerPath, { throwIfNoEntry: false })).toBeUndefined();
     expect(git(value.root, 'worktree', 'list', '--porcelain')).not.toContain(lease.owner.candidateRoot);
-  }, () => settleWorkspaceCleanups([
-    async () => { await lease?.release(); },
-    async () => { rmSync(value.ownedRoot, { recursive: true, force: true }); }
-  ]));
+  }, async () => {
+    await lease?.release();
+    rmSync(value.ownedRoot, { recursive: true, force: true });
+  });
 }, 30_000);
 
 for (const residue of ['present', 'absent'] as const) {

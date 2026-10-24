@@ -50,7 +50,7 @@ async function buildOrganizerGitBase(): Promise<OrganizerGitBase> {
   git(repoRoot, ['config', 'user.email', 'tests@example.com']);
   git(repoRoot, ['config', 'user.name', 'SEC Tests']);
   git(repoRoot, ['config', 'core.autocrlf', 'false']);
-  await Promise.all([
+  const writes = await Promise.allSettled([
     writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
       compilerOptions: {
         allowImportingTsExtensions: true,
@@ -64,6 +64,11 @@ async function buildOrganizerGitBase(): Promise<OrganizerGitBase> {
     writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
     writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8')
   ]);
+  const writeFailures = writes.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+  if (writeFailures.length === 1) throw writeFailures[0];
+  if (writeFailures.length > 1) {
+    throw new AggregateError(writeFailures, 'Import organizer source writes failed');
+  }
   git(repoRoot, ['add', '--all']);
   git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
     return Object.freeze({

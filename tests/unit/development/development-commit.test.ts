@@ -236,7 +236,7 @@ async function createDevelopmentCommitTemplate(): Promise<string> {
       'import-normalization'
     );
     await mkdir(moduleRoot, { recursive: true });
-    await Promise.all([
+    const writes = await Promise.allSettled([
       writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{"noEmit":true}}\n'),
       writeFile(path.join(moduleRoot, 'kernel.ts'), 'export function normalize(): void {}\n'),
       writeFile(
@@ -252,6 +252,11 @@ async function createDevelopmentCommitTemplate(): Promise<string> {
         }]
       })}\n`)
     ]);
+    const writeFailures = writes.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (writeFailures.length === 1) throw writeFailures[0];
+    if (writeFailures.length > 1) {
+      throw new AggregateError(writeFailures, 'Commit fixture source writes failed');
+    }
     git(root, ['add', '--all']);
     git(root, ['commit', '--quiet', '-m', 'base']);
     await writeFile(path.join(root, 'next.txt'), 'next\n');
