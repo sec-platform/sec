@@ -9,6 +9,17 @@ const PHYSICAL_RUNTIME_FRAGMENT = '/physical/runtime/';
 
 test('dependency transition contract erases physical-provider type imports from runtime emission', async () => {
   const source = await readCompilerTypeScriptMutationFixture(CONTRACT, 'tcb-analysis');
+  // The source really declares this physical type dependency. Without the
+  // source witness, removing that import entirely would make a no-runtime-
+  // import assertion pass vacuously.
+  const sourceAst = ts.createSourceFile(CONTRACT, source, ts.ScriptTarget.Latest, true);
+  const physicalImports = sourceAst.statements
+    .filter(ts.isImportDeclaration)
+    .filter((node) => ts.isStringLiteralLike(node.moduleSpecifier)
+      && node.moduleSpecifier.text.includes(PHYSICAL_RUNTIME_FRAGMENT));
+  expect(physicalImports).toHaveLength(1);
+  expect(physicalImports[0]!.importClause?.isTypeOnly).toBe(true);
+
   const emitted = ts.transpileModule(source, {
     fileName: CONTRACT,
     compilerOptions: {
@@ -27,6 +38,10 @@ test('dependency transition contract erases physical-provider type imports from 
   const runtimeImports = output.statements
     .filter(ts.isImportDeclaration)
     .map((node) => (node.moduleSpecifier as ts.StringLiteral).text);
+  // A functioning emitter preserves genuine value imports while excluding
+  // the TypeScript-only physical capability. Both sides are independently
+  // grounded by the currently adopted source contract.
+  expect(runtimeImports).toContain('node:path');
   expect(runtimeImports.some((specifier) =>
     specifier.includes(PHYSICAL_RUNTIME_FRAGMENT)
   )).toBe(false);
