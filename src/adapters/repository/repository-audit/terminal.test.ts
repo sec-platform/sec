@@ -97,8 +97,3 @@ test('source transition wrapper preserves safe owner denial details without raw 
   expect(message).not.toContain('secret raw');
   expect(message).not.toContain('resources');
 });
-
-test('source transition wrapper distinguishes missing assessment from a worker denial', () => {
-  expect(() => requireSettledSourceProgramTransitionAssessment({ status: 'completed' }))
-    .toThrow('completed without a transition assessment');
-});

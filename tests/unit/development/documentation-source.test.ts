@@ -10,7 +10,9 @@ function fixture() {
     schema: 'sec.documentation-baseline/2', source_root: '..',
     source_roots: ['.documentation', 'docs'], source_manifest: 'source-manifest.json',
     audited_namespaces: ['docs'], non_documentation_roots: [],
-    excluded_from_source_hash: DOCUMENTATION_NON_SOURCE,
+    excluded_from_source_hash: [
+      '.documentation/figures.json', '.documentation/requirements.json', '.documentation/source-manifest.json'
+    ],
     entry: '../docs/main.md', delivery_number: 'fixture', archive_name: 'fixture.zip',
     scope: 'Byte identity only', authority_limit: 'Not approval'
   }));

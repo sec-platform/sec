@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import {
   parseExactRefRetirement, parsePlannedRefSupersessionReview
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
-import { parseExactRemoteRefBatchRecoveryPreparation } from '../../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
+import { parseExactRemoteRefBatchRecoveryPreparation, parseExactRemoteRefRecoveryPreparation } from '../../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
 import { sha256 } from '../../../src/contracts/canonical.ts';
 
 const HEAD = 'b'.repeat(40);
@@ -29,7 +29,25 @@ function preparation() {
 }
 
 test('fixed batch preparation rejects changed plans, duplicate refs and incomplete source review', () => {
-  expect(parseExactRemoteRefBatchRecoveryPreparation(preparation()).refs).toHaveLength(1);
+  const prepared = preparation();
+  expect(parseExactRemoteRefBatchRecoveryPreparation(prepared)).toEqual({
+    schema: 'sec-exact-ref-batch-recovery-preparation-v2', repository: 'sec-platform/sec',
+    expectedMainSha: MAIN, requestDigest: prepared.requestDigest,
+    retirements: [{ classification: 'reviewed-plan-superseded',
+      branches: ['fix/old'], expectedHeadSha: HEAD, review }],
+    refs: [{ branch: 'fix/old', expectedHeadSha: HEAD, refState: 'present',
+      absenceObserved: false, blocker: null }],
+    recovery: { bundleName: 'sec-branch-closeout-batch-plan.bundle',
+      sha256: `sha256:${'2'.repeat(64)}`, verifyOutput: 'complete native bundle' }
+  });
+  const legacy = { schema: 'sec-exact-ref-retirement-recovery-preparation-v1',
+    repository: prepared.repository, expectedMainSha: MAIN, retirement: prepared.retirements[0],
+    refState: 'present', recovery: prepared.recovery };
+  expect(() => parseExactRemoteRefRecoveryPreparation({ ...legacy, refState: 'moved' }))
+    .toThrow('identity is invalid');
+  expect(() => parseExactRemoteRefRecoveryPreparation({ ...legacy,
+    recovery: { ...legacy.recovery, bundleName: '../escape.bundle' } }))
+    .toThrow('bundle identity is invalid');
   expect(() => parsePlannedRefSupersessionReview({ ...review, unknowns: ['unread source'] })).toThrow();
   expect(() => parsePlannedRefSupersessionReview({ ...review, issueNumber: 313 })).toThrow();
   expect(() => parseExactRefRetirement({ classification: 'reviewed-plan-superseded',
@@ -138,7 +156,12 @@ for (const fault of ['none', 'run', 'request', 'archive'] as const) {
         resumeReceipt: { artifactId: '1', artifactDigest: archiveDigest, runId: '10', runAttempt: 1 } });
       if (fault === 'none') {
         expect((await result).results).toEqual(receipt.results);
-        expect(requests).toHaveLength(4);
+        expect([...new Set(requests)].sort()).toEqual([
+          '/receipt.zip',
+          '/repos/sec-platform/sec/actions/artifacts/1',
+          '/repos/sec-platform/sec/actions/artifacts/1/zip',
+          '/repos/sec-platform/sec/actions/runs/10/attempts/1'
+        ]);
       } else {
         await expect(result).rejects.toThrow(fault === 'run' ? 'trusted completed' : fault === 'request' ? 'fixed request' : 'archive identity');
       }

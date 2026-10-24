@@ -17,42 +17,32 @@ function input(id = 'captured-app'): BuildEngineeringIRInput {
   };
 }
 
-test('captured compilation preserves the existing validation, plan and view results', () => {
-  const source = input();
-  const snapshot = buildValidatedEngineeringIR(source);
-  const result = compileSemanticInput({ engineeringIRInput: source });
+test('compilation preserves canonical results across caller mutation and independent requests', () => {
+  const firstInput = input('first');
+  const before = structuredClone(firstInput);
+  const first = compileSemanticInput({ engineeringIRInput: firstInput });
+  expect(firstInput).toEqual(before);
 
-  expect(result).toEqual({
+  const snapshot = buildValidatedEngineeringIR(before);
+  expect(first).toEqual({
     snapshot,
     generatorPlan: buildSemanticGeneratorPlan(snapshot, []),
     semanticViews: buildSemanticViewSet(snapshot)
   });
-  expect(result).not.toBeInstanceOf(Promise);
-  expect(Object.isFrozen(result)).toBe(true);
-});
+  expect(first).not.toBeInstanceOf(Promise);
+  expect(Object.isFrozen(first)).toBe(true);
 
-test('compilation neither mutates its input nor shares a mutable result with the caller', () => {
-  const source = input();
-  const before = structuredClone(source);
-  const first = compileSemanticInput({ engineeringIRInput: source });
-  expect(source).toEqual(before);
+  const second = compileSemanticInput({ engineeringIRInput: input('second') });
+  const repeated = compileSemanticInput({ engineeringIRInput: firstInput });
+  expect(first.snapshot.ir.appId).not.toBe(second.snapshot.ir.appId);
+  expect(first.snapshot.ir.inputRevision).not.toBe(second.snapshot.ir.inputRevision);
+  expect(repeated).toEqual(first);
 
-  source.app.name = 'edited-after-capture';
+  firstInput.app.name = 'edited-after-capture';
   expect(first.snapshot.ir.entities.find((entity) => entity.kind === 'app')?.label).toBe(before.app.name);
   expect(Object.isFrozen(first.snapshot.ir)).toBe(true);
   expect(Object.isFrozen(first.generatorPlan)).toBe(true);
   expect(Object.isFrozen(first.semanticViews)).toBe(true);
-});
-
-test('independent requests do not replace or contaminate an earlier result', () => {
-  const firstInput = input('first');
-  const first = compileSemanticInput({ engineeringIRInput: firstInput });
-  const second = compileSemanticInput({ engineeringIRInput: input('second') });
-  const repeated = compileSemanticInput({ engineeringIRInput: firstInput });
-
-  expect(first.snapshot.ir.appId).not.toBe(second.snapshot.ir.appId);
-  expect(first.snapshot.ir.inputRevision).not.toBe(second.snapshot.ir.inputRevision);
-  expect(repeated).toEqual(first);
 });
 
 test('invalid captured input retains the existing compiler error instead of returning partial results', () => {

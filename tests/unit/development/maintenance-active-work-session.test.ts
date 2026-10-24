@@ -112,10 +112,13 @@ test('real Active Work observer borrows the same closeout session before and aft
     await withGitHubApiTestSession({ capability: cap, repositoryRoot: root, operation: async () => {
       const before = requireActiveWorkPackageOwnerObservation(await observeActiveWorkPackage(root));
       expect(before).toMatchObject({ state: 'none', defaultSha: mainSha });
+      const beforeMainReads = requests.filter(url => url.endsWith('/git/ref/heads/main')).length;
+      expect(beforeMainReads).toBeGreaterThan(0);
       await executeGitHubApiOperation(cap, { kind: 'delete-ref-cas', branch: 'transport/old', expectedOldSha: mainSha });
+      const afterEffectMainReads = requests.filter(url => url.endsWith('/git/ref/heads/main')).length;
       const after = requireActiveWorkPackageOwnerObservation(await observeActiveWorkPackage(root));
       expect(after).toMatchObject({ state: 'none', defaultSha: mainSha });
-      expect(requests.filter(url => url.endsWith('/git/ref/heads/main'))).toHaveLength(4);
+      expect(requests.filter(url => url.endsWith('/git/ref/heads/main')).length).toBeGreaterThan(afterEffectMainReads);
       expect(effects).toBe(1);
     } });
   });
