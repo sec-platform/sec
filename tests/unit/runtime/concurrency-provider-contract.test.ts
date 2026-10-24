@@ -51,10 +51,12 @@ test('production concurrency entrypoints expose only structured group operations
   const options = ts.parseJsonConfigFileContent(config.config, ts.sys, root).options;
   const cache = ts.createModuleResolutionCache(root, value => value, options);
   const violations: string[] = [];
+  const inspected = new Set<string>();
   for (const relative of new Bun.Glob('**/*.{ts,tsx,js,mjs,cjs}').scanSync(sourceRoot)) {
     if (relative.endsWith('.test.ts')) continue;
     const file = path.join(sourceRoot, relative);
     if (file === owner) continue;
+    inspected.add(relative.replaceAll('\\', '/'));
     const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
     const found = unstructuredImports(source, specifier => {
       if (specifier === 'p-limit' || specifier.startsWith('p-limit/')) return 'limiter';
@@ -63,6 +65,15 @@ test('production concurrency entrypoints expose only structured group operations
     });
     violations.push(...found.map(text => `${relative}: ${text}`));
   }
+  // An empty or unexpectedly narrowed scanner would produce zero violations.
+  // Prove that the exact known application and toolchain consumers were visited.
+  for (const required of [
+    'adapters/filesystem/discovery.ts',
+    'adapters/self-hosting/development/runner/fast-test-policy.ts'
+  ]) {
+    assert.equal(inspected.has(required), true, `source scan omitted ${required}`);
+  }
+  assert.ok(inspected.size > 2, 'source census cannot be empty');
   assert.deepEqual(violations, []);
 });
 
