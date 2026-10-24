@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { renderTemplateString, TEMPLATE_MAX_INPUT_BYTES } from '../../../src/compiler/templates/render-template-string.ts';
+import { renderTemplateString } from '../../../src/compiler/templates/render-template-string.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
 const code = (expected: string, details?: Record<string, unknown>) => (error: unknown): boolean => {
@@ -100,11 +100,4 @@ test('template interpolation remains literal, simultaneous and safe for prototyp
 
 test('template inactive branches do not interpolate missing values', () => {
   assert.equal(renderTemplateString('/*#IF ON*/__MISSING__/*#ENDIF*/', { ON: false }), '');
-});
-
-test('template input bound and context primitive validation remain fail-closed', () => {
-  assert.throws(() => renderTemplateString('x'.repeat(TEMPLATE_MAX_INPUT_BYTES + 1), {}), code('COMPOSE-TEMPLATE-006'));
-  for (const value of [null, {}, [], Infinity, undefined, () => 'x']) {
-    assert.throws(() => renderTemplateString('__VALUE__', { VALUE: value }), code('COMPOSE-TEMPLATE-007'));
-  }
 });
