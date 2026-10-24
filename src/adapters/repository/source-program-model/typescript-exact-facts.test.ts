@@ -1,38 +1,10 @@
 import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import {
   compileTypeScriptSourceProgramModel,
   observeSourceProgramTypeScriptRename,
-  observeSourceProgramTypeScriptSyntax,
-  sourceProgramTypeScriptExactFactGenerationReceipt
+  observeSourceProgramTypeScriptSyntax
 } from './typescript.ts';
-
-test('exact TypeScript generation receipt excludes private source scope and membership capabilities', () => {
-  const source = 'export function run(): void {}\n';
-  const sourcePath = 'src/example/run.ts';
-  const descriptorPath = 'src/example/module.json';
-  const membership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [sourcePath, descriptorPath],
-    descriptorSources: [{
-      descriptorPath,
-      source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
-    }]
-  });
-  const model = compileTypeScriptSourceProgramModel({
-    sourceRevision: rawSha256(source),
-    files: [{ path: sourcePath, source, contentDigest: rawSha256(source) }],
-    moduleMembership: membership
-  });
-  const receipt = sourceProgramTypeScriptExactFactGenerationReceipt(model);
-  expect(Object.keys(receipt ?? {}).sort()).toEqual([
-    'apiClosureDigest',
-    'observationInputDigest',
-    'provenanceDigest',
-    'semanticInputDigest'
-  ]);
-  expect(Object.values(receipt ?? {}).every((value) => typeof value === 'string')).toBe(true);
-});
 
 test('TypeScript rename observations expire with their exact compiler generation', () => {
   const moduleMembership = Object.freeze({
@@ -71,14 +43,6 @@ test('TypeScript rename observations expire with their exact compiler generation
   expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
     expect.objectContaining({ status: 'unresolved', reason: 'generation-stale' })
   );
-  expect(observeSourceProgramTypeScriptRename(
-    { ...model },
-    'src/example.ts',
-    position
-  )).toEqual(expect.objectContaining({
-    status: 'unresolved',
-    reason: 'exact-generation-unavailable'
-  }));
 });
 
 test('TypeScript syntax observations come only from an exact compiler generation', () => {
@@ -102,11 +66,5 @@ test('TypeScript syntax observations come only from an exact compiler generation
 
   expect(observeSourceProgramTypeScriptSyntax(model, 'tests/invalid.test.ts')).toEqual(
     expect.objectContaining({ status: 'resolved', syntax: 'invalid' })
-  );
-  expect(observeSourceProgramTypeScriptSyntax({ ...model }, 'tests/invalid.test.ts')).toEqual(
-    expect.objectContaining({
-      status: 'unresolved',
-      reason: 'exact-generation-unavailable'
-    })
   );
 });

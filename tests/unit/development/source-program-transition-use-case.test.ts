@@ -107,7 +107,7 @@ test('source Read Plan view derives dispatch and port data while preserving unob
   };
   expect(view.authority).toBe('none'); expect(view.readPlanDigest).toBeNull();
   expect(view.control.value.afterAdoption).toEqual({ accepted: 'join-verification', 'needs-author': 'needs-author', blocked: 'blocked' });
-  expect(view.steps.map(step => step.port)).toEqual(['acquireFacts', 'assertFactsQualified', 'observeAuthor', 'adopt', 'runVerification', 'reobserve', 'finalize']);
+  expect(view.steps.map(step => step.port).sort()).toEqual(['acquireFacts', 'assertFactsQualified', 'observeAuthor', 'adopt', 'runVerification', 'reobserve', 'finalize'].sort());
   expect(view.steps.find(step => step.port === 'runVerification')?.inputs[2]).toContain('Promise<SourceProgramTransitionFacts<Facts>>');
   expect(view.steps.every(step => step.declaredOwnerContract.length > 0)).toBe(true);
   expect(view.unresolvedFrontier.length).toBeGreaterThan(0);

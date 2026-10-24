@@ -686,10 +686,11 @@ test('source program model finds capability producers, consumers, literals, and 
   }));
 });
 
-test('source program blocks owner-internal process primitives at repository provider boundaries', () => {
+test('source program blocks owner-internal process calls and import-only test seams at repository provider boundaries', () => {
   const providerPath = 'src/physical-provider/process.ts';
   const consumerPath = 'src/consumer/run.ts';
   const descriptorPath = 'src/physical-provider/module.json';
+  const seamPath = 'src/consumer/options.ts';
   const files = [
     {
       path: providerPath,
@@ -698,69 +699,9 @@ test('source program blocks owner-internal process primitives at repository prov
     {
       path: consumerPath,
       source: "import { nativePrimitive } from '../physical-provider/process.ts';\nnativePrimitive();\n"
-    }
-  ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
-  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, 'src/consumer/module.json', ...files.map(({ path }) => path)],
-    descriptorSources: [
-      {
-        descriptorPath,
-        source: JSON.stringify({
-          importGraph: 'runtime',
-          externalEntrypoints: [],
-          capabilityProviders: [{
-            capability: 'process.native',
-            operations: ['nativePrimitive'],
-            effectKinds: ['process'],
-            ownerInternalOperations: ['nativePrimitive']
-          }]
-        })
-      },
-      {
-        descriptorPath: 'src/consumer/module.json',
-        source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
-      }
-    ]
-  });
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: rawSha256(JSON.stringify(files.map(({ path, contentDigest }) => ({
-      path,
-      contentDigest
-    })))),
-    files,
-    moduleMembership,
-    reviewedProcessDispatchers: [`${consumerPath}::nativePrimitive`]
-  });
-
-  expect(model.capabilities).toContainEqual(expect.objectContaining({
-    path: consumerPath,
-    operation: 'nativePrimitive',
-    providerCapability: 'process.native',
-    providerModuleId: 'physical-provider',
-    transport: 'repository-provider'
-  }));
-  expect(model.candidates).toContainEqual(expect.objectContaining({
-    code: 'direct-process-transport-outside-owner',
-    subject: consumerPath,
-    paths: [consumerPath]
-  }));
-  expect(model.candidates).toContainEqual(expect.objectContaining({
-    code: 'process-resource-session-boundary-unresolved',
-    subject: 'process.native'
-  }));
-});
-
-test('source program blocks raw process primitives imported only as a production test seam', () => {
-  const providerPath = 'src/physical-provider/process.ts';
-  const consumerPath = 'src/consumer/options.ts';
-  const descriptorPath = 'src/physical-provider/module.json';
-  const files = [
-    {
-      path: providerPath,
-      source: 'export function nativePrimitive(): void {}\n'
     },
     {
-      path: consumerPath,
+      path: seamPath,
       source: "import { nativePrimitive } from '../physical-provider/process.ts';\n"
         + 'export interface Options { runner?: typeof nativePrimitive }\n'
     }
@@ -794,17 +735,36 @@ test('source program blocks raw process primitives imported only as a production
     })))),
     files,
     moduleMembership,
-    reviewedProcessDispatchers: [`${consumerPath}::nativePrimitive`]
+    reviewedProcessDispatchers: [
+      `${consumerPath}::nativePrimitive`,
+      `${seamPath}::nativePrimitive`
+    ]
   });
 
-  expect(model.capabilities).not.toContainEqual(expect.objectContaining({
+  expect(model.capabilities).toContainEqual(expect.objectContaining({
     path: consumerPath,
-    capability: 'process'
+    operation: 'nativePrimitive',
+    providerCapability: 'process.native',
+    providerModuleId: 'physical-provider',
+    transport: 'repository-provider'
   }));
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'direct-process-transport-outside-owner',
     subject: consumerPath,
-    paths: [consumerPath],
+    paths: [consumerPath]
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'process-resource-session-boundary-unresolved',
+    subject: 'process.native'
+  }));
+  expect(model.capabilities).not.toContainEqual(expect.objectContaining({
+    path: seamPath,
+    capability: 'process'
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'direct-process-transport-outside-owner',
+    subject: seamPath,
+    paths: [seamPath],
     reason: expect.stringContaining('1 raw owner-internal import')
   }));
 });

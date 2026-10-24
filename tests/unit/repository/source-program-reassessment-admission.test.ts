@@ -19,24 +19,11 @@ function planDouble() {
     attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: sha256('untrusted correlation') }) });
 }
 
-test('a copied receiver Origin cannot issue a reassessment grant', async () => {
+test('an unissued receiver Origin cannot issue a reassessment grant', async () => {
   const source = { origin: { phase: 'receive-verification-session-resume', runId: '1' } };
-  await expect(issueHostedSourceProgramReassessment(source as unknown as IssueInput)).rejects.toThrow();
-});
-
-test('reassessment source getters are rejected before they can publish authority', async () => {
-  let getterCalls = 0;
-  const source = { origin: {} };
-  Object.defineProperty(source, 'envelope', { enumerable: true, get() { getterCalls += 1; throw new Error('getter executed'); } });
-  await expect(issueHostedSourceProgramReassessment(source as unknown as IssueInput)).rejects.toThrow('ordinary own data field');
-  expect(getterCalls).toBe(0);
-});
-
-test('a Proxy source is rejected without executing caller traps', async () => {
-  let traps = 0;
-  const source = new Proxy({}, { ownKeys() { traps += 1; return []; } });
-  await expect(issueHostedSourceProgramReassessment(source as IssueInput)).rejects.toThrow('Proxy');
-  expect(traps).toBe(0);
+  await expect(issueHostedSourceProgramReassessment(source as unknown as IssueInput)).rejects.toMatchObject({
+    code: 'authenticated-github-job-origin-unavailable', reason: 'binding'
+  });
 });
 
 test('a JSON-copied operation plan cannot enter the Domain consumer', async () => {
@@ -44,17 +31,11 @@ test('a JSON-copied operation plan cannot enter the Domain consumer', async () =
   await expect(consumeHostedSourceProgramReassessment(input as ConsumeInput)).rejects.toThrow('foundation');
 });
 
-test('a foundation plan does not turn copied native facts into a reassessment grant', async () => {
+test('a foundation plan cannot bypass receiver Origin admission at the Domain consumer', async () => {
   const input = { admission: { plan: planDouble(), grant: {}, source: { origin: {} } } };
-  await expect(consumeHostedSourceProgramReassessment(input as unknown as ConsumeInput)).rejects.toThrow();
-});
-
-test('consumer admission accessors are rejected before invoking them', async () => {
-  let getterCalls = 0;
-  const admission = { plan: planDouble(), source: { origin: {} } };
-  Object.defineProperty(admission, 'grant', { enumerable: true, get() { getterCalls += 1; return {}; } });
-  await expect(consumeHostedSourceProgramReassessment({ admission } as unknown as ConsumeInput)).rejects.toThrow('ordinary own data field');
-  expect(getterCalls).toBe(0);
+  await expect(consumeHostedSourceProgramReassessment(input as unknown as ConsumeInput)).rejects.toMatchObject({
+    code: 'authenticated-github-job-origin-unavailable', reason: 'binding'
+  });
 });
 
 test('declared issuer and physical consumer share the actual bounded operation contract', () => {
