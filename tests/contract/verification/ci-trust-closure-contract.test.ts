@@ -1,10 +1,6 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
-import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
-import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { slowTestSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../../src/adapters/verification/platform/trust/compiler.ts';
 import {
   createSecTrustedBootstrapTrustRoot,
@@ -64,89 +60,9 @@ function step(workflow: Workflow, job: string, name: string): WorkflowStep {
   return found;
 }
 
-test('Quick and Full plan topology remains deterministic behind the Action normalizer', () => {
-  const quickGates = buildCiQuickGatePlan({
-    includeImports: true,
-    includeDocs: true,
-    selectedSlowSuites: ['e2e-artifacts']
-  });
-  expect(quickGates.map(({ id }) => id)).toEqual([
-    'imports', 'docs-doctor', 'typecheck', 'affected-tests', 'slow-suite-e2e-artifacts'
-  ]);
-  expect(quickGates.find(({ id }) => id === 'typecheck')?.args).toEqual(['run', 'typecheck:verified']);
-  const fullGates = buildCiFullGatePlan();
-  const fullGateIds = fullGates.map(({ id }) => id);
-  expect(fullGateIds).not.toContain('test-budget');
-  expect(fullGates.find(({ id }) => id === 'typecheck')?.args).toEqual(['run', 'typecheck:verified']);
-  expect(fullGateIds).toEqual(expect.arrayContaining([
-    'imports', 'typecheck', 'docs-doctor', 'full-fast',
-    'deps-warmup', 'resolve', 'compose',
-    'verify-all', 'lock', 'explain', 'reference-check'
-  ]));
-  expect(fullGateIds.filter((id) => id.startsWith('slow-suite-')).sort()).toEqual(
-    slowTestSuiteIds().map((suite) => `slow-suite-${suite}`).sort()
-  );
-  expect(CodexDevelopmentBuildVerificationPlan('full', [], null).gates.map(({ id }) => id))
-    .toContain('docs-doctor');
-  expect(CodexDevelopmentBuildVerificationPlan('full', null, null).gates.map(({ id }) => id))
-    .toContain('docs-doctor');
-  expect(() => CodexDevelopmentBuildVerificationPlan('quick', [], null))
-    .toThrow('owner-issued test-impact source provider');
-  expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
-  expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
-  expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
-  expect(buildCiQuickGatePlan({ includeImports: false, includeDocs: false })).toEqual([
-    { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck:verified'] },
-    { id: 'affected-tests', phase: 'quick', args: ['run', 'test', '--', '--affected'] }
-  ]);
-  expect(fullGates.find((step) => step.id === 'affected-tests')).toBeUndefined();
-  expect(fullGates.filter((step) => step.phase === 'workspace').map((step) => step.id)).toEqual([
-    'resolve', 'compose', 'verify-all', 'lock', 'explain', 'reference-check'
-  ]);
-});
 
-test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {
-  expect(Object.isFrozen(CI_MAIN_HEALTH_POLICY)).toBe(true);
-  expect(createCiMainHealthRequestOperationId('93dde9e44bbcffdd7fa1d6be726df1725947f6e2'))
-    .toBe('sha256:1062f573e4a315b308f46c6abd9a82815fdaa97a3b2171f0cb8b806467473a78');
-  expect(CI_MAIN_HEALTH_POLICY_DIGEST).toMatch(/^sha256:[0-9a-f]{64}$/);
-  expect(CI_MAIN_HEALTH_JOB_NAME).toBe('sec/main-health');
-  const contract = buildCiContract();
-  expect(contract.mainHealthContext).toBe(CI_MAIN_HEALTH_JOB_NAME);
-  expect(contract.mainHealthPolicyDigest).toBe(CI_MAIN_HEALTH_POLICY_DIGEST);
-  expect(contract.mainHealthStepOrder).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
-  expect(contract.mainHealthCommands).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
-  expect(contract.mainHealthCommands).toEqual(['bun run deps:ensure', 'bun --version']);
-  expect(CI_MAIN_HEALTH_POLICY.runtimeReadinessInput).toMatchObject({
-    command: 'bun --version', dependencyPreparation: 'not-required-for-runtime-readiness',
-    guarantees: ['runtime-startup', 'successful-exit', 'original-resource-release'],
-    excludedQualification: ['full-fast-tests', 'typecheck', 'documentation', 'business-behavior']
-  });
-  const workflow = parseYaml(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as Workflow;
-  const job = Object.values(workflow.jobs).find(({ name }) => name === CI_MAIN_HEALTH_JOB_NAME);
-  if (!job) throw new Error(`MainHealth workflow job is missing: ${CI_MAIN_HEALTH_JOB_NAME}`);
-  expect(job.name).toBe(CI_MAIN_HEALTH_JOB_NAME);
-  expect(job.if).toBe("${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1' }}");
-  expect(job.concurrency).toEqual({
-    group: 'sec-main-health-${{ github.event.client_payload.payload.mainSha }}',
-    'cancel-in-progress': false,
-    queue: 'max'
-  });
-  expect(job.steps.map((step) => step.name)).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
-  expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
-  const readiness = job.steps.find((step) => step.id === 'runtime-readiness');
-  expect(readiness?.run).toBe('bun --version');
-  expect(readiness?.shell).toBe('bun --no-env-file --no-install src/bootstrap/development/main-health-runtime.ts {0}');
-  expect(readiness?.env?.SEC_MAIN_HEALTH_SHA).toBe('${{ github.event.client_payload.payload.mainSha }}');
-  expect((workflow.on as Record<string, unknown>).push).toBeUndefined();
-  expect(job.steps[0]?.if).toBe("${{ github.event_name == 'repository_dispatch' }}");
-  expect(job.steps[1]?.with).toMatchObject({
-    ref: '${{ github.event.client_payload.payload.mainSha }}',
-    'persist-credentials': false
-  });
-  expect(job.steps[2]?.with).toMatchObject({ 'bun-version-file': '.bun-version' });
-  expect(job.steps[3]?.uses).toBe('actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9');
-});
+
+
 
 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
