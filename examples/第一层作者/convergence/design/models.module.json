@@ -1,7 +1,7 @@
 {
   "schema": "gift.author-module/design-converged",
   "moduleId": "module:expression-convergence",
-  "dialects": {"sem":{"languageId":"gift.semantic-convergence","constraint":"design-contract-closure"}},
+  "dialects": {"sem":{"languageId":"gift.semantic-convergence","constraint":"design-semantic-boundaries"}},
   "definitions": {
     "Recovery": {"extension:definition":{"dialectRef":"sem","bodySchemaRef":"urn:gift:design-schema:semantic-convergence","payload":{"profile":"finite-observation","states":[{"id":"s","labels":[],"values":{}},{"id":"ok","labels":["good"],"values":{}}],"initial":["s"],"edges":[["s","s"],["s","ok"],["ok","ok"]],"deadlock":"reject","fairness":"none","knowledgePartitions":{},"claims":{"RecoveryAlwaysPossible":{"op":"AG","args":[{"op":"EF","args":[{"atom":"good"}]}]},"RecoveryInevitable":{"op":"AF","args":[{"atom":"good"}]}}},"bindingRef":"sem:Interpret"}},
     "Knowledge": {"extension:definition":{"dialectRef":"sem","bodySchemaRef":"urn:gift:design-schema:semantic-convergence","payload":{"profile":"finite-observation","states":[{"id":"w0","labels":["p"],"values":{}},{"id":"w1","labels":["p"],"values":{}},{"id":"w2","labels":[],"values":{}}],"initial":["w0"],"edges":[["w0","w0"],["w1","w1"],["w2","w2"]],"deadlock":"reject","fairness":"none","knowledgePartitions":{"A":[["w0","w1"],["w2"]],"B":[["w0"],["w1","w2"]]},"claims":{"EverybodyKnows":{"op":"and","args":[{"knowledge":"A","body":{"atom":"p"}},{"knowledge":"B","body":{"atom":"p"}}]},"AKnowsBKnows":{"knowledge":"A","body":{"knowledge":"B","body":{"atom":"p"}}},"Common":{"commonKnowledge":["A","B"],"body":{"atom":"p"}}}},"bindingRef":"sem:Interpret"}},

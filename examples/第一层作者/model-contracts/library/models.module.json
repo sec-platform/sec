@@ -4,7 +4,7 @@
   "dialects": {
     "sem": {
       "languageId": "gift.semantic-convergence",
-      "constraint": "design-contract-closure"
+      "constraint": "design-semantic-boundaries"
     }
   },
   "imports": {},
@@ -71,7 +71,10 @@
                 }
               ]
             }
-          }
+          },
+          "propositions": [
+            "good"
+          ]
         },
         "bindingRef": "sem:Interpret"
       }
@@ -101,7 +104,10 @@
           "deadlock": "reject",
           "fairness": "none",
           "knowledgePartitions": {},
-          "claims": {}
+          "claims": {},
+          "propositions": [
+            "good"
+          ]
         },
         "bindingRef": "sem:Interpret"
       }
@@ -142,7 +148,10 @@
           "deadlock": "reject",
           "fairness": "none",
           "knowledgePartitions": {},
-          "claims": {}
+          "claims": {},
+          "propositions": [
+            "good"
+          ]
         },
         "bindingRef": "sem:Interpret"
       }
@@ -215,7 +224,11 @@
                 }
               ]
             }
-          }
+          },
+          "propositions": [
+            "zero",
+            "one"
+          ]
         },
         "bindingRef": "sem:Interpret"
       }
@@ -256,7 +269,11 @@
           "deadlock": "reject",
           "fairness": "none",
           "knowledgePartitions": {},
-          "claims": {}
+          "claims": {},
+          "propositions": [
+            "zero",
+            "one"
+          ]
         },
         "bindingRef": "sem:Interpret"
       }
@@ -297,7 +314,11 @@
           "deadlock": "reject",
           "fairness": "none",
           "knowledgePartitions": {},
-          "claims": {}
+          "claims": {},
+          "propositions": [
+            "zero",
+            "one"
+          ]
         },
         "bindingRef": "sem:Interpret"
       }

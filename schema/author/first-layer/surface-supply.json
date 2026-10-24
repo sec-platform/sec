@@ -2,8 +2,8 @@
   "schema": "gift.author-dialect-supply/1",
   "dialect": {
     "languageId": "gift.surface-convergence",
-    "revision": "design-surface-contract-closure",
-    "digest": "sha256:4f2ccd2e5cd8d4f258a431cd884017c58447f27af551a7cb5642b60e4b474e8a"
+    "revision": "design-surface-boundaries",
+    "digest": "sha256:2fd58c09aa989985b0cbd16dd158ed24b91b994d952a2b389661dd9d173902bd"
   },
   "issuer": "design-specification-not-a-runtime-authority",
   "definitionKinds": [

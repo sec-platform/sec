@@ -25,3 +25,17 @@
 | [ODRL Information Model 2.2](https://www.w3.org/TR/odrl-model/) | 许可、禁止、义务、违例补救的不同责任 | 本包模型不是现实法律意见；声明不签发权限 |
 
 外部页面按本轮实际读取使用，没有安装工具、获取物理提供者、运行目标产品或证明本文所有定理。
+
+
+## 专业边界再审采用的直接材料
+
+本次规范对照固定到设计分支`14930bc1da27d3f052a59d306d32d603d0b40cb7`，读取原专业语义、机器结构、供给签名及convergence/model-contracts的实际源。与先前来源的历史取得范围分别保留，不把新解释追认为旧Reader已支持。
+
+| 原始资料及实际读取位置 | 支持的具体采用 | 不外推的内容 |
+|---|---|---|
+| [PRISM：非概率性质](https://www.prismmodelchecker.org/manual/PropertySpecification/Non-probabilisticProperties)，A/E及其state s解释 | 嵌套CTL在当前状态的路径域求值，而非反复回初态 | 不证明本包任意混合逻辑、概率或现实映像正确；未运行PRISM。 |
+| [PRISM：部分可观察模型](https://www.prismmodelchecker.org/manual/ThePRISMLanguage/PartiallyObservableModels)，策略只能读取observables | 完整状态与观察历史是不同信息假设；隐藏状态不由求解器可见性取得 | 本包有限对抗游戏和概率POMDP并非同一产品；不从全信息策略推出部署可用。 |
+| [Software Foundations：MoreStlc](https://softwarefoundations.cis.upenn.edu/plf-current/MoreStlc.html)，Pairs节的类型与规约 | 积需形成和投影消去，投影对已求值的积取成员，按值次序显式 | 本包多元积和System F/依赖组合仍需自己的保持证据；未运行Rocq或机械证明。 |
+| [Potassco：ASP Basics](https://potassco.org/guide/basics/)，Core Rules与Integrity Constraint | 空体为真，完整性约束淘汰候选；空程序的空答案集不同于无答案集 | 本包无变量有限GL reduct的独立核对不代表一般ASP求解器已接入。 |
+
+因果证据条件化以本包有限噪声枚举及q=P(evidence)直接推导：q为零没有可用的离散归一化条件式；模型族下识别不足是另一命题。混合事件的urgent先行/较小priority优先、轮转中删除上次候选后的定位及有限horizon终点X，均是当前明确选择的设计政策，不借外部名称伪称唯一通用惯例。精确来源支持的规则、本文推导、设计选择与实际工具执行分别记录。

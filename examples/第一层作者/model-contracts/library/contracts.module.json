@@ -4,7 +4,7 @@
   "dialects": {
     "sem": {
       "languageId": "gift.semantic-convergence",
-      "constraint": "design-contract-closure"
+      "constraint": "design-semantic-boundaries"
     }
   },
   "imports": {

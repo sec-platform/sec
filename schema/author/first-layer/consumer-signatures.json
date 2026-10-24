@@ -44,6 +44,47 @@
           ],
           "owner": "SEMANTICS.md#model-contract-use",
           "effects": "pure linking only; no external evaluation"
+        },
+        "finite-observation": {
+          "owner": "SEMANTICS.md#model",
+          "requiredResolvedDependencies": [
+            "declared or legacy-inferred atomic vocabulary",
+            "total state valuation and admissible relation",
+            "profile-sorted state or trace formula"
+          ],
+          "resultRole": "model declaration; interpretation does not execute model checking"
+        },
+        "observation-game": {
+          "owner": "SEMANTICS.md#strategy",
+          "requiredResolvedDependencies": [
+            "information mode and exact finite transition horizon",
+            "complete observations/actions/environment transitions",
+            "actual observation realization for deployment claims"
+          ],
+          "resultRole": "strategy problem; full-information truth does not grant hidden observation"
+        },
+        "typed-program": {
+          "profiles": [
+            "explicit-system-f",
+            "predicative-dependent"
+          ],
+          "owner": "SEMANTICS.md#typed-product-elimination",
+          "requiredResolvedDependencies": [
+            "profile-specific types and pure term grammar",
+            "acyclic expandable declaration graph",
+            "typed product introduction and projection",
+            "explicit external assumptions"
+          ],
+          "resultRole": "typed declarations after the stated checks, not a normalization proof for arbitrary host recursion"
+        },
+        "cross-profile": {
+          "owner": "SEMANTICS.md#profile-bridge-admission",
+          "requiredResolvedDependencies": [
+            "source and target interpretations",
+            "same intended subject and observation maps",
+            "conclusion direction and valid premises"
+          ],
+          "resultRole": "original Claim/Requirement relation with exact residuals; no new public consumer"
         }
       }
     }

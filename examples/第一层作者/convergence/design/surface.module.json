@@ -118,7 +118,7 @@
         "bindingRef": "surface:Interpret",
         "payload": {
           "case": "choice-rule",
-          "eligible": "hard-feasible-and-Pareto-nondominated",
+          "eligible": "hard-feasible-not-proven-dominated",
           "comparison": "all-same-subject-workload-units",
           "tieRule": "rotate-stable-id-order",
           "state": "last-accepted-choice",
@@ -159,7 +159,7 @@
   "dialects": {
     "surface": {
       "languageId": "gift.surface-convergence",
-      "constraint": "design-surface-contract-closure"
+      "constraint": "design-surface-boundaries"
     }
   },
   "exports": {

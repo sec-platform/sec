@@ -277,7 +277,7 @@
           "const": "choice-rule"
         },
         "eligible": {
-          "const": "hard-feasible-and-Pareto-nondominated"
+          "const": "hard-feasible-not-proven-dominated"
         },
         "comparison": {
           "const": "all-same-subject-workload-units"

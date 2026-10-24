@@ -20,4 +20,11 @@ requirement旧方言仍由它原来的Body合同负责；本次只给实际校�
 
 专业模型的准确合同经实际Rule/Use绑定进入共同义务，引用者不重复书写模型已经确定的不变量；该条件合同不自动提供现实前提、实现资格或执行权限。来源、实例、条件及独立接受关系继续由[第一层作者](../../../docs/作者/第一层语言.md#inherited-contract-author-delta)和[编译承接](../../../docs/开发/第一层编译承接.md#inherited-contract-elaboration)接到原Requirement/BoundaryView、C0—C6及Claim，专业意义仍由本目录的精确语义拥有。
 
-[语言分层与26项范围](../../../docs/作者/表达范围与专业接合.md)定位编码、专业解释、决定坐标和阶段的区别；[验收](../../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)检查应用差异和下层责任，不增Schema字段、公共Interpret接口或另一套证明模型。此阅读接合未修改供给摘要列明的语义、签名或结构成员；原摘要范围、NOT_IMPLEMENTED及有限画像限制保持。
+[语言分层与26项范围](../../../docs/作者/表达范围与专业接合.md)定位编码、专业解释、决定坐标和阶段的区别；[验收](../../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)检查应用差异和下层责任，不增Schema字段、公共Interpret接口或另一套证明模型。上轮阅读接合没有改变供给成员；当前专业边界修订则同步修改下述语义、签名和结构，并重算两份供给摘要。NOT_IMPLEMENTED与有限画像限制保持，不沿用旧摘要或旧分析通过。
+
+
+## 专业边界修订的实际成员
+
+当前semantic修订为`design-semantic-boundaries`，surface修订为`design-surface-boundaries`；具体内容身份仍由各自manifest及content文件给出。`FiniteModel.propositions`新增准确命题声明，`ProgramTerm.tuple/project`补齐多元积形成/消去；两项是有权新解释中的增量结构，旧Reader不得忽略新字段。CTL当前状态、策略information与horizon、空原子约束、零概率证据和混合事件优先次序的精确规则由[SEMANTICS](SEMANTICS.md#profile-revision-and-boundary-witnesses)拥有。surface的eligible改为当前未证被支配，不冒称缺测候选已经组成真实Pareto前沿。
+
+签名明确每个相交profile的真实前提和结果角色，跨profile只沿原Claim/Requirement接线，不新增公共consumer。现有convergence及model-contracts源、后继源和差异补丁同步绑定新修订；原已声明业务关系与实例身份保持。新增边界输入位于[semantic-boundaries](../../../examples/第一层作者/convergence/semantic-boundaries.json)，正常源位于[boundaries.module](../../../examples/第一层作者/convergence/design/boundaries.module.json)。这些材料不是已执行产品测试，也不使原先未取得的一般类型、求解、现实映像或目标保持证明成立。
