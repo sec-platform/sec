@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { BranchLifecycleInventory, PreparedBranchCloseoutEnvelope } from '../../../src/execution/verification/branch-closeout.ts';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import type { GitHubApiPrincipal } from '../../../src/adapters/providers/github-api/operation-session.ts';
 import {
@@ -50,6 +50,45 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
+// Shared immutable Git object graph; every retirement case receives independent
+// refs, index and worktree bytes. Recovery bundles/receipts remain case-owned.
+type ClosedRecoveryBase = Readonly<{ parent: string; root: string; headSha: string; mainSha: string }>;
+let closedRecoveryBase: ClosedRecoveryBase | undefined;
+
+afterAll(() => {
+  if (closedRecoveryBase !== undefined) {
+    rmSync(closedRecoveryBase.parent, { recursive: true, force: true });
+    closedRecoveryBase = undefined;
+  }
+});
+
+function sourceRecoveryBase(): ClosedRecoveryBase {
+  if (closedRecoveryBase !== undefined) return closedRecoveryBase;
+  const parent = mkdtempSync(path.join(tmpdir(), 'sec-closed-recovery-base-'));
+  const root = path.join(parent, 'repository');
+  try {
+  git(parent, ['init', '--quiet', '--initial-branch=main', root]);
+  git(root, ['config', 'user.name', 'SEC Tests']);
+  git(root, ['config', 'user.email', 'tests@example.com']);
+  git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
+  writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
+  git(root, ['add', 'tracked.txt']);
+  git(root, ['commit', '--quiet', '-m', 'closed branch head']);
+  const headSha = git(root, ['rev-parse', 'HEAD']);
+  writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
+  git(root, ['commit', '--quiet', '-am', 'current main replacement']);
+  const mainSha = git(root, ['rev-parse', 'HEAD']);
+    closedRecoveryBase = Object.freeze({ parent, root, headSha, mainSha });
+    return closedRecoveryBase;
+  } catch (error) {
+    try { rmSync(parent, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Closed recovery base setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
 function fixture(remote = 'origin'): Readonly<{
   root: string;
   recoveryRoot: string;
@@ -60,58 +99,58 @@ function fixture(remote = 'origin'): Readonly<{
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-closed-recovery-retirement-'));
   const root = path.join(parent, 'repository');
   const recoveryRoot = `${root}-recovery`;
-  git(parent, ['init', '--quiet', '--initial-branch=main', root]);
-  git(root, ['config', 'user.name', 'SEC Tests']);
-  git(root, ['config', 'user.email', 'tests@example.com']);
-  git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
-  if (remote !== 'origin') git(root, ['remote', 'add', remote, `https://github.com/${REPOSITORY}.git`]);
-  writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
-  git(root, ['add', 'tracked.txt']);
-  git(root, ['commit', '--quiet', '-m', 'closed branch head']);
-  const headSha = git(root, ['rev-parse', 'HEAD']);
-  writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
-  git(root, ['commit', '--quiet', '-am', 'current main replacement']);
-  const mainSha = git(root, ['rev-parse', 'HEAD']);
-  const commonDir = path.resolve(root, '.git');
-  const inventory: BranchLifecycleInventory = {
-    schema: 'sec-branch-lifecycle-inventory-v1', observedAt: '2026-09-16T00:00:00.000Z',
-    repository: { root, commonDir, fullName: REPOSITORY, remote,
-      remoteUrl: `https://github.com/${REPOSITORY}.git`, defaultBranch: 'main' },
-    main: { localSha: mainSha, remoteSha: mainSha },
-    localBranches: [{ branch: 'main', sha: mainSha }],
-    remoteBranches: [{ branch: 'main', sha: mainSha }],
-    worktrees: [{ path: root, headSha: mainSha, branch: 'main', dirtyCount: 0,
-      untrackedCount: 0, locked: false, prunable: false, observation: 'resolved', reason: null }],
-    pullRequests: [{ number: PR_NUMBER, headBranch: BRANCH, headSha,
-      baseBranch: 'main', baseSha: headSha, state: 'closed', isDraft: false,
-      isCrossRepository: false, url: `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`,
-      closeoutReceipt: { requirement: 'not-required', status: 'not-required', receipt: null, reason: null } }],
-    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null },
-    repositorySetting: { observation: 'resolved', deleteBranchOnMerge: true, reason: null },
-    pruneConfiguration: { observation: 'resolved', fetchPrune: true,
-      remotePrune: true, fetchPruneTags: true, reason: null }, unknowns: []
-  };
-  const bundlePath = path.join(recoveryRoot, 'sec-branch-closeout-retirement-fixture.bundle');
-  mkdirSync(recoveryRoot);
-  git(root, ['bundle', 'create', bundlePath, 'refs/heads/main']);
-  const bundle = readFileSync(bundlePath);
-  const bundleDigest = createHash('sha256').update(bundle).digest('hex');
-  writeFileSync(`${bundlePath}.sha256`, `${bundleDigest}  ${path.basename(bundlePath)}\n`, 'utf8');
-  const preparation = createBranchCloseoutPreparation({
-    preparedAt: '2026-09-16T00:01:00.000Z',
-    repository: inventory.repository, branch: BRANCH, refState: 'absent',
-    expectedHeadSha: headSha, expectedRemoteSha: headSha, expectedLocalSha: null,
-    expectedPrHeadSha: headSha, pullRequestNumber: PR_NUMBER,
-    pullRequestStateAtPreparation: 'closed',
-    recovery: { kind: 'bundle', path: bundlePath, sha256: `sha256:${bundleDigest}`,
-      verified: true, verifyOutput: 'verified fixture bundle' },
-    worktreePathsAtPreparation: []
-  });
-  const payload = { schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA, preparation,
-    before: inventory, attempts: [], foreignWorktreeObservations: [] };
-  const prepared = { ...payload, envelopeDigest: branchLifecycleDigest(payload) };
-  writeFileSync(`${bundlePath}.preparation.json`, `${JSON.stringify(prepared, null, 2)}\n`, 'utf8');
-  return Object.freeze({ root, recoveryRoot, bundlePath, prepared, inventory });
+  try {
+      const base = sourceRecoveryBase();
+      cpSync(base.root, root, { recursive: true });
+      if (remote !== 'origin') git(root, ['remote', 'add', remote, `https://github.com/${REPOSITORY}.git`]);
+      const { headSha, mainSha } = base;
+    const commonDir = path.resolve(root, '.git');
+    const inventory: BranchLifecycleInventory = {
+      schema: 'sec-branch-lifecycle-inventory-v1', observedAt: '2026-09-16T00:00:00.000Z',
+      repository: { root, commonDir, fullName: REPOSITORY, remote,
+        remoteUrl: `https://github.com/${REPOSITORY}.git`, defaultBranch: 'main' },
+      main: { localSha: mainSha, remoteSha: mainSha },
+      localBranches: [{ branch: 'main', sha: mainSha }],
+      remoteBranches: [{ branch: 'main', sha: mainSha }],
+      worktrees: [{ path: root, headSha: mainSha, branch: 'main', dirtyCount: 0,
+        untrackedCount: 0, locked: false, prunable: false, observation: 'resolved', reason: null }],
+      pullRequests: [{ number: PR_NUMBER, headBranch: BRANCH, headSha,
+        baseBranch: 'main', baseSha: headSha, state: 'closed', isDraft: false,
+        isCrossRepository: false, url: `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`,
+        closeoutReceipt: { requirement: 'not-required', status: 'not-required', receipt: null, reason: null } }],
+      activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null },
+      repositorySetting: { observation: 'resolved', deleteBranchOnMerge: true, reason: null },
+      pruneConfiguration: { observation: 'resolved', fetchPrune: true,
+        remotePrune: true, fetchPruneTags: true, reason: null }, unknowns: []
+    };
+    const bundlePath = path.join(recoveryRoot, 'sec-branch-closeout-retirement-fixture.bundle');
+    mkdirSync(recoveryRoot);
+    git(root, ['bundle', 'create', bundlePath, 'refs/heads/main']);
+    const bundle = readFileSync(bundlePath);
+    const bundleDigest = createHash('sha256').update(bundle).digest('hex');
+    writeFileSync(`${bundlePath}.sha256`, `${bundleDigest}  ${path.basename(bundlePath)}\n`, 'utf8');
+    const preparation = createBranchCloseoutPreparation({
+      preparedAt: '2026-09-16T00:01:00.000Z',
+      repository: inventory.repository, branch: BRANCH, refState: 'absent',
+      expectedHeadSha: headSha, expectedRemoteSha: headSha, expectedLocalSha: null,
+      expectedPrHeadSha: headSha, pullRequestNumber: PR_NUMBER,
+      pullRequestStateAtPreparation: 'closed',
+      recovery: { kind: 'bundle', path: bundlePath, sha256: `sha256:${bundleDigest}`,
+        verified: true, verifyOutput: 'verified fixture bundle' },
+      worktreePathsAtPreparation: []
+    });
+    const payload = { schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA, preparation,
+      before: inventory, attempts: [], foreignWorktreeObservations: [] };
+    const prepared = { ...payload, envelopeDigest: branchLifecycleDigest(payload) };
+    writeFileSync(`${bundlePath}.preparation.json`, `${JSON.stringify(prepared, null, 2)}\n`, 'utf8');
+    return Object.freeze({ root, recoveryRoot, bundlePath, prepared, inventory });
+  } catch (error) {
+    try { rmSync(parent, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Closed recovery fixture and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
