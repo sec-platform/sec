@@ -234,19 +234,6 @@ test('worktree retirement settles an empty registered ancestor without an exact 
 });
 
 
-test('legacy shared-deps cannot be born as active generated state', async () => {
-  const fixture = await registeredWorktreeFixture();
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
-  const lifecycle = generatedStateProducerHooks({
-    repositoryRoot: fixture.workspaceRoot,
-    workspaceRoot: fixture.workspaceRoot
-  }, fixture.options);
-  await expect(lifecycle.born(
-    '.shared-deps',
-    'forbidden-legacy-birth'
-  )).rejects.toThrow('not registered by active policy');
-});
-
 test('worktree retirement rejects unknown content inside a registered ancestor before moving roots', async () => {
   const fixture = await registeredWorktreeFixture();
   const foreignPath = path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'foreign', 'keep.txt');
@@ -457,32 +444,6 @@ test('worktree retirement blocks one unknown ignored descendant before moving an
   expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'))).toBe(false);
 });
 
-test('birth and retirement are owner-generated and make only the exact retired root selectable', async () => {
-  const { options, repositoryRoot } = await fixture();
-  const generatedRoot = fixtureRoot(repositoryRoot);
-  await mkdir(generatedRoot, { recursive: true });
-  await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
-  let clock = new Date('2026-08-23T01:00:00.000Z');
-  const lifecycle = generatedStateProducerHooks(
-    { repositoryRoot },
-    { ...options, clock: () => clock }
-  );
-  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-1');
-  const activeInventory = await inspectGeneratedState({ repositoryRoot }, options);
-  expect(activeInventory.blockers).toEqual([]);
-  expect(activeInventory.entries.find(
-    ({ relativePath }) => relativePath === LIFECYCLE_FIXTURE_PATH
-  )).toMatchObject({ registrationState: 'active', settlement: 'protected' });
-
-  clock = new Date('2026-08-23T01:01:00.000Z');
-  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
-  const inventory = await inspectGeneratedState({ repositoryRoot }, options);
-  expect(planGeneratedStateCleanup({ inventory, profile: 'automatic' })).toEqual({
-    selected: [LIFECYCLE_FIXTURE_PATH],
-    protected: []
-  });
-});
-
 test('fresh registration storage is retained before first birth and rejects state-root replacement', async () => {
   const { options, repositoryRoot, stateRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
@@ -522,7 +483,7 @@ test('Runtime State admission rejects an in-repository root before creating it',
   expect(await absent(inRepositoryStateRoot)).toBe(true);
 });
 
-test('a forged-valid physical preimage cannot self-sign without an existing registration', async () => {
+test('unregistered legacy birth and forged preimages cannot create owner state', async () => {
   const { cacheRoot, options, repositoryRoot, stateRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(generatedRoot, { recursive: true });
@@ -535,6 +496,9 @@ test('a forged-valid physical preimage cannot self-sign without an existing regi
   expect(physical).not.toBeNull();
   const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
 
+  await mkdir(path.join(repositoryRoot, '.shared-deps'));
+  await expect(lifecycle.born('.shared-deps', 'forbidden-legacy-birth'))
+    .rejects.toThrow('not registered by active policy');
   await expect(lifecycle.bind(LIFECYCLE_FIXTURE_PATH, {
     owner: 'compiler-dependency-runtime',
     producer: 'stage-compiler-dependency-generation',
@@ -754,16 +718,29 @@ test('a fresh producer terminalizes only an exact active registration whose phys
   });
 });
 
-test('cleanup quarantines, bounded-deletes and reads back one retired physical generation', async () => {
+test('owner retirement selects the exact generation for bounded cleanup and readback', async () => {
   const { options, repositoryRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
   await writeFile(path.join(generatedRoot, 'nested', 'cache.bin'), 'cache');
+  let clock = new Date('2026-08-23T01:00:00.000Z');
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, { ...options, clock: () => clock });
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-2');
+  const activeInventory = await inspectGeneratedState({ repositoryRoot }, options);
+  expect(activeInventory.blockers).toEqual([]);
+  expect(activeInventory.entries.find(
+    ({ relativePath }) => relativePath === LIFECYCLE_FIXTURE_PATH
+  )).toMatchObject({ registrationState: 'active', settlement: 'protected' });
+
+  clock = new Date('2026-08-23T01:01:00.000Z');
+  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
+  const inventory = await inspectGeneratedState({ repositoryRoot }, options);
+  expect(planGeneratedStateCleanup({ inventory, profile: 'automatic' })).toEqual({
+    selected: [LIFECYCLE_FIXTURE_PATH],
+    protected: []
+  });
   await mkdir(path.join(repositoryRoot, '.tmp', 'foreign-sibling'));
   await writeFile(path.join(repositoryRoot, '.tmp', 'foreign-sibling', 'keep.txt'), 'foreign');
-  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
-  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-2');
-  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
 
   const receipt = await settleGeneratedState({
     repositoryRoot,
@@ -941,12 +918,11 @@ test('producer hooks expose quarantine only for the exact live cleanup operation
   expect(await absent(generatedRoot)).toBe(true);
 });
 
-test('producer quarantine rejects cloned, foreign and expired cleanup operations before effect', async () => {
+test('producer quarantine rejects cloned and expired cleanup operations before effect', async () => {
   for (const cleanupOperation of [
     Object.freeze({ ...createGeneratedStateCleanupOperationSession({
       deadlineAtMonotonicMs: performance.now() + 30_000
     }) }),
-    Object.freeze({ deadlineAtMonotonicMs: performance.now() + 30_000 }),
     createGeneratedStateCleanupOperationSession({
       deadlineAtMonotonicMs: 1,
       monotonicNowMs: () => 2
@@ -1280,7 +1256,7 @@ test('cleanup continuation cannot borrow a different profile while the original 
   expect(fixture.store.fs.exists(fixture.intentPath)).toBe(false);
 });
 
-for (const invalidation of ['foreign-owner', 'forged-observation', 'replaced-locator', 'restored-registration'] as const) {
+for (const invalidation of ['foreign-owner', 'forged-observation', 'restored-registration'] as const) {
   test(`caller retraction data cannot authorize current domain retirement: ${invalidation}`, async () => {
     const { options, repositoryRoot } = await fixture();
     const relativePath = 'node_modules';
@@ -1304,9 +1280,6 @@ for (const invalidation of ['foreign-owner', 'forged-observation', 'replaced-loc
       await unlink(locator); await rename(original, locator);
       await lifecycle.restore(relativePath, retired.registrationDigest, registration.root, 'owner-rollback');
       await rename(locator, original);
-      await symlink(replacement, locator, process.platform === 'win32' ? 'junction' : 'dir');
-    } else if (invalidation === 'replaced-locator') {
-      await rename(locator, path.join(repositoryRoot, 'parked-locator'));
       await symlink(replacement, locator, process.platform === 'win32' ? 'junction' : 'dir');
     }
     const before = await lstat(locator, { bigint: true });

@@ -21,16 +21,22 @@ function bound(lifecycle: unknown, beforeCommit = async () => {}) {
 }
 
 for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot]) {
-  test(`${adopt.name} captures only read-only bind and preserves a private-field receiver`, async () => {
+  test(`${adopt.name} captures identity before read-only bind and preserves its private-field receiver`, async () => {
+    const expected = { device: 'dev', inode: 'inode', objectId: 'object' };
     class Provider {
       #calls = 0;
-      async bind(_path: string, expected: unknown) { this.#calls++; assert.ok(expected); return registration; }
+      get bind() { expected.inode = 'replacement'; return this.selectedBind; }
+      async selectedBind(_path: string, expectation?: { physical?: { inode: string } }) {
+        this.#calls++;
+        assert.equal(expectation!.physical!.inode, 'inode');
+        return registration;
+      }
       get retired() { assert.fail('read-only consumer acquired retirement'); throw new Error('unreachable'); }
       get disposed() { assert.fail('read-only consumer acquired disposal'); throw new Error('unreachable'); }
       calls() { return this.#calls; }
     }
     const provider = new Provider();
-    await adopt({ generatedStateLifecycle: provider }, physical);
+    await adopt({ generatedStateLifecycle: provider }, expected);
     assert.equal(provider.calls(), 1);
   });
 }
@@ -54,31 +60,54 @@ test('birth preflights the complete selected capability pair before any fence or
   assert.deepEqual(events, []);
 });
 
-test('birth retains its initial bind through fence and birth method replacement', async () => {
+test('birth retains its identity and methods through fence and birth callback mutation', async () => {
   const events: string[] = [];
+  const expected = { device: 'dev', inode: 'inode', objectId: 'object' };
   const source = {
-    async born(path: string) { assert.equal(this, source); events.push(`born:${path}`); source.bind = async () => assert.fail('changed after birth'); },
-    async bind(path: string) { assert.equal(this, source); events.push(`bind:${path}`); return registration; }
+    async born(path: string, operationId: string) {
+      assert.equal(this, source); assert.equal(operationId, 'compiler-node-modules:a');
+      expected.inode = 'born-replaced'; events.push(`born:${path}`);
+      source.bind = async () => assert.fail('changed after birth');
+    },
+    async bind(path: string, expectation?: { physical?: { inode: string } }) {
+      assert.equal(this, source); assert.equal(expectation!.physical!.inode, 'inode');
+      events.push(`bind:${path}`); return registration;
+    }
   };
-  const options = bound(source, async () => { events.push('fence'); source.bind = async () => assert.fail('changed in fence'); });
-  await birthAndBindCompilerDependencyGeneration(options, '/stage/a', physical);
+  const options = bound(source, async () => {
+    expected.inode = 'fence-replaced'; events.push('fence');
+    source.bind = async () => assert.fail('changed in fence');
+  });
+  await birthAndBindCompilerDependencyGeneration(options, '/stage/a', expected);
   assert.deepEqual(events, ['fence', 'born:node_modules', 'bind:node_modules']);
 });
 
-test('settlement snapshots its own method before the operation fence', async () => {
+test('settlement snapshots its method and physical identity before the operation fence', async () => {
   const events: string[] = [];
-  const source = { async settleRetired(path: string) { assert.equal(this, source); events.push(path); return true; } };
-  await settleRetiredCompilerDependencyGeneration(bound(source, async () => { source.settleRetired = async () => assert.fail('replaced'); }), physical);
+  const expected = { device: 'dev', inode: 'inode', objectId: 'object' };
+  const source = { async settleRetired(path: string, expectation?: { physical?: { objectId: string } }) {
+    assert.equal(this, source); assert.equal(expectation!.physical!.objectId, 'object');
+    events.push(path); return true;
+  } };
+  await settleRetiredCompilerDependencyGeneration(bound(source, async () => {
+    expected.objectId = 'other'; source.settleRetired = async () => assert.fail('replaced');
+  }), expected);
   assert.deepEqual(events, ['node_modules']);
 });
 
-test('retirement snapshots bind and retire together and returns the exact receipt digest', async () => {
+test('retirement owns its immutable identity and selected methods and returns the exact receipt digest', async () => {
   const events: string[] = [];
+  const expected = { device: 'dev', inode: 'inode', objectId: 'object' };
   const source = {
-    async bind() { assert.equal(this, source); events.push('bind'); source.retired = async () => assert.fail('late retirement'); return registration; },
+    async bind(_path: string, expectation?: { physical?: { inode: string } }) {
+      assert.equal(this, source);
+      assert.equal(Reflect.set(expectation!.physical!, 'inode', 'other'), false);
+      assert.equal(expected.inode, 'inode');
+      events.push('bind'); source.retired = async () => assert.fail('late retirement'); return registration;
+    },
     async retired(path: string, outcome: string) { assert.equal(this, source); events.push(`${path}:${outcome}`); return registration; }
   };
-  assert.equal(await bindAndRetireCompilerDependencyPreimage({ generatedStateLifecycle: source }, physical, 'replace'), digest);
+  assert.equal(await bindAndRetireCompilerDependencyPreimage({ generatedStateLifecycle: source }, expected, 'replace'), digest);
   assert.deepEqual(events, ['bind', 'node_modules:replace']);
 });
 
@@ -110,11 +139,12 @@ for (const value of [null, false, 1, 'bind', {}]) {
   });
 }
 
-test('absent optional lifecycle does not acquire or execute a fence', async () => {
+test('absent optional lifecycle reads neither physical identity nor stage and executes no fence', async () => {
   let fences = 0;
+  const expected = { get device(): never { assert.fail('unused identity read'); throw new Error('unreachable'); }, inode: 'inode', objectId: 'object' };
   const options = bound(undefined, async () => { fences++; });
-  await settleRetiredCompilerDependencyGeneration(options);
-  await birthAndBindCompilerDependencyGeneration(options, '/stage/a', physical);
+  await settleRetiredCompilerDependencyGeneration(options, expected);
+  await birthAndBindCompilerDependencyGeneration(options, undefined as never, expected);
   assert.equal(fences, 0);
 });
 

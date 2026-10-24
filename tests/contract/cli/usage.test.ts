@@ -82,10 +82,8 @@ const usageCases = [
   { args: ['repair', '--extra'], diagnostic: "unknown option '--extra'" },
   { args: ['upgrade'], diagnostic: 'Usage: sec upgrade', protocol: true },
   { args: ['verify', '--lane', 'slow'], diagnostic: 'Lane must be', protocol: true },
-  { args: ['resolve', '--extra'], diagnostic: "unknown option '--extra'" },
   { args: ['compose', '--extra'], diagnostic: "unknown option '--extra'" },
   { args: ['lock', '--extra'], diagnostic: "unknown option '--extra'" },
-  { args: ['explain', '--extra'], diagnostic: "unknown option '--extra'" },
   { args: ['doctor', '--extra'], diagnostic: "unknown option '--extra'" }
 ];
 

@@ -21,21 +21,20 @@ test('line-ending classification covers the complete result space', () => {
   }
 });
 
-test('line-ending-only comparison distinguishes normalization from content changes', () => {
-  for (const [left, right, expected] of [
-    ['line1\nline2\n', 'line1\nline2\n', false],
-    ['line1\nline2\n', 'line1\r\nline2\r\n', true],
-    ['hello\nworld', 'hello\r\nworld', true],
-    ['line1\nline2\n', 'line1\ndifferent\n', false],
-    ['', 'content\n', false]
-  ] as const) {
-    expect(differsOnlyInLineEnding(toBytes(left), toBytes(right)), `${JSON.stringify(left)} -> ${JSON.stringify(right)}`)
-      .toBe(expected);
-  }
-});
-
 test('line-ending-only comparison preserves every non-CRLF byte exactly', () => {
   const cases = [
+    {
+      name: 'identical bytes are not a line-ending change',
+      left: [0x41, 0x0A, 0x42],
+      right: [0x41, 0x0A, 0x42],
+      expected: false
+    },
+    {
+      name: 'empty input is not equivalent to nonempty content',
+      left: [],
+      right: [0x41, 0x0A],
+      expected: false
+    },
     {
       name: 'NUL is preserved while LF expands to CRLF',
       left: [0x00, 0x0A, 0x41],
