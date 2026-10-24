@@ -118,7 +118,9 @@ tests:
     const importedValue = JSON.parse(imported.stdout) as Record<string, unknown>;
     expect(importedValue.localState).toBe('exact-snapshot');
     expect((importedValue.invalidation as Record<string, unknown>).disposition).toBe('reuse-zero-remote');
-    expect(importedValue.importedAdmission).not.toBeNull();
+    expect(importedValue.importedAdmission).toMatchObject({
+      baseSha, baseTreeSha, authority: 'context-compression-only'
+    });
 
     const resumed = await invoke(repositoryRoot, env);
     expect(resumed.code, resumed.stderr || resumed.stdout).toBe(0);

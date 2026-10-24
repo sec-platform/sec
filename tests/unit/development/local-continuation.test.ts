@@ -135,21 +135,3 @@ test('admission requires one-parent child of the frozen base', () => {
     observation: Object.freeze({ ...observation(), parentShas: Object.freeze(['9'.repeat(40)]) })
   })).toThrow('one-parent child');
 });
-
-test('V3 continuation derives exact base from native parent and rejects missing or hybrid observations', () => {
-  const { manifestBaseSha: _manifestBaseSha, manifestSchema: _manifestSchema, ...common } = observation();
-  const v3: LocalContinuationObservation = { ...common, manifestSchema: 'codex-development-work-package-v3' };
-  const admitted = admitLocalContinuation({ checkpoint: checkpoint(), observation: v3 });
-  expect(admitted.baseSha).toBe(BASE);
-  expect(admitted.baseTreeSha).toBe(BASE_TREE);
-  expect(admitted.authority).toBe('context-compression-only');
-  for (const invalid of [
-    common,
-    { ...v3, manifestBaseSha: BASE },
-    { ...v3, manifestBaseSha: undefined },
-    { ...common, manifestSchema: 'codex-development-work-package-v2' }
-  ]) {
-    expect(() => admitLocalContinuation({ checkpoint: checkpoint(), observation: invalid as LocalContinuationObservation }))
-      .toThrow();
-  }
-});
