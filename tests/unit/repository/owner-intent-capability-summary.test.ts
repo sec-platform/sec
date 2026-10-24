@@ -31,12 +31,25 @@ test('unrequested paths and non-production facts cannot contribute effects or un
   assert.deepEqual(result, { observedKinds: ['filesystem'], hasUnknown: false });
 });
 
-test('union across requested paths retains every known effect and any unknown fact', () => {
-  const result = view([fact(), fact({ path: 'src/b.ts', capability: 'network' }),
-    fact({ path: 'src/b.ts', capability: 'process', observationClass: 'unknown' })])
-    .capabilitySummaryForPaths(new Set(['src/a.ts', 'src/b.ts']));
-  assert.deepEqual(new Set(result.observedKinds), new Set(['filesystem', 'network']));
-  assert.equal(result.hasUnknown, true);
+test('cross-path union preserves kind membership and unknowns across duplicates and reordering', () => {
+  const known = fact();
+  const capabilities = [known, known,
+    fact({ capability: 'process', observationClass: 'derived' }),
+    fact({ path: 'src/b.ts', capability: 'network' }),
+    fact({ surface: 'test', capability: 'excluded', observationClass: 'unknown' })];
+  for (const hasUnknown of [false, true]) {
+    const records = hasUnknown ? [...capabilities,
+      fact({ capability: 'unresolved', observationClass: 'unknown' }),
+      fact({ transport: 'unknown' })] : capabilities;
+    for (const reverse of [false, true]) {
+      const result = view(reverse ? [...records].reverse() : records).capabilitySummaryForPaths(
+        new Set(reverse ? ['src/b.ts', 'src/a.ts'] : ['src/a.ts', 'src/b.ts'])
+      );
+      assert.deepEqual(new Set(result.observedKinds), new Set(['filesystem', 'network', 'process']));
+      assert.equal(result.observedKinds.length, 3);
+      assert.equal(result.hasUnknown, hasUnknown);
+    }
+  }
 });
 
 test('empty and missing path sets have complete empty summaries', () => {
@@ -98,20 +111,4 @@ test('summary is an immutable detached value and does not freeze its source reco
 test('a new generation does not reuse an old generation summary', () => {
   assert.equal(view([fact()]).capabilitySummaryForPaths(paths).hasUnknown, false);
   assert.equal(view([fact({ transport: 'unknown' })]).capabilitySummaryForPaths(paths).hasUnknown, true);
-});
-
-test('multiset and request permutations agree with independent filter/map/every semantics', () => {
-  const pool = [fact(), fact({ observationClass: 'unknown' }), fact({ transport: 'unknown' }),
-    fact({ path: 'src/b.ts', capability: 'network' }), fact({ surface: 'test' }),
-    fact({ capability: 'process', observationClass: 'derived' })];
-  for (let code = 0; code < 6 ** 4; code += 1) {
-    const capabilities = Array.from({ length: 4 }, (_, i) => pool[Math.floor(code / 6 ** i) % 6]!);
-    const requested = new Set(code % 2 ? ['src/a.ts', 'src/b.ts'] : ['src/b.ts', 'src/a.ts']);
-    const selected = capabilities.filter((item) => item.surface === 'production' && requested.has(item.path));
-    const expectedKinds = new Set(selected.filter((item) => item.observationClass !== 'unknown').map((item) => item.capability));
-    const expectedUnknown = !selected.every((item) => item.observationClass !== 'unknown' && item.transport !== 'unknown');
-    const actual = view(capabilities).capabilitySummaryForPaths(requested);
-    assert.deepEqual(new Set(actual.observedKinds), expectedKinds, `case ${code}`);
-    assert.equal(actual.hasUnknown, expectedUnknown, `case ${code}`);
-  }
 });

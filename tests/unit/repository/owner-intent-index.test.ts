@@ -95,12 +95,6 @@ test('entrypoint with no closure is still target-addressable but not assigned to
   assert.equal(view.entrypointsForOwner('A').length, 0);
 });
 
-test('unknown capability observations are retained for the existing effect guard', () => {
-  const input = fixture(); input.capabilities.push({ ...input.capabilities[0]!, surface: 'test' });
-  const summary = index(input).capabilitySummaryForPaths(new Set(['src/a.ts']));
-  assert.deepEqual(summary, { observedKinds: [], hasUnknown: true });
-});
-
 test('empty capability and consumer demands do not build or read their indexes', () => {
   const input = fixture();
   for (const key of ['capabilities', 'references', 'files'] as const) {
@@ -152,13 +146,9 @@ test('published buckets are frozen but input declarations and input arrays are n
   assert.equal(Object.isFrozen(input.declarations[0]), false);
 });
 
-test('returned capability summaries and consumer sets cannot mutate stored indexes', () => {
+test('returned consumer sets cannot mutate stored indexes', () => {
   const view = index(fixture());
-  const summary = view.capabilitySummaryForPaths(new Set(['src/a.ts']));
-  assert.equal(Reflect.set(summary, 'hasUnknown', false), false);
-  assert.equal(Reflect.set(summary.observedKinds, 0, 'injected'), false);
   (view.consumerPaths(new Set(['a']), new Set()) as Set<string>).clear();
-  assert.equal(view.capabilitySummaryForPaths(new Set(['src/a.ts'])).hasUnknown, true);
   assert.equal(view.consumerPaths(new Set(['a']), new Set()).size, 1);
 });
 

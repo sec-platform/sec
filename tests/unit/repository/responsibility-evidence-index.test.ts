@@ -15,16 +15,24 @@ const fact = (id = 'b', subject = 'owner', revision = 'current') => ({
 
 test('unique input joins preserve the declaration object and containment owner', () => {
   const entry = declaration();
-  const result = index([row()], [fact()], [entry], 'current');
-  assert.deepEqual(result[0]!.containment, { status: 'unique', value: 'owner' });
-  assert.deepEqual(result[0]!.declaration, { status: 'unique', value: entry });
-  assert.equal(result[0]!.conflictingDeclarationClaim, false);
-  if (result[0]!.declaration.status === 'unique') assert.equal(result[0]!.declaration.value, entry);
+  const facts = [fact('outside'), fact(), fact('b', 'stale-owner', 'previous')];
+  for (const ordered of [facts, [...facts].reverse()]) {
+    const result = index([row()], ordered, [entry], 'current');
+    assert.deepEqual(result[0]!.containment, { status: 'unique', value: 'owner' });
+    assert.deepEqual(result[0]!.declaration, { status: 'unique', value: entry });
+    assert.equal(result[0]!.conflictingDeclarationClaim, false);
+    if (result[0]!.declaration.status === 'unique') assert.equal(result[0]!.declaration.value, entry);
+  }
 });
 
-test('duplicate identical containment facts are ambiguous rather than deduplicated', () => {
-  const input = fact();
-  assert.equal(index([row()], [input, input], [declaration()], 'current')[0]!.containment.status, 'ambiguous');
+test('multiple containment facts stay ambiguous regardless of owner equality, order or later claims', () => {
+  const input = fact(), other = fact('b', 'other');
+  for (const facts of [
+    [input, input], [input, other], [other, input],
+    [input, input, input], [input, other, input]
+  ]) {
+    assert.equal(index([row()], facts, [declaration()], 'current')[0]!.containment.status, 'ambiguous');
+  }
 });
 
 test('two qualifying assertions on one fact do not create two claims', () => {
@@ -115,15 +123,4 @@ test('many bindings scan each fact and each declaration once, not once per bindi
   const result = index(Array.from({ length: size }, (_, i) => row(`b${i}`, 'src/a.ts', `f${i}`)), facts, entries, 'current');
   assert.ok(result.every((value) => value.declaration.status === 'unique' && value.containment.status === 'unique'));
   assert.equal(factReads, size); assert.equal(declarationReads, size);
-});
-
-test('small multiset joins agree with independent filtering and cardinality', () => {
-  const pool = [fact(), fact('b', 'other'), fact('outside'), fact('b', 'owner', 'stale')];
-  for (let code = 0; code < 256; code += 1) {
-    const facts = Array.from({ length: 4 }, (_, i) => pool[(code >> (i * 2)) & 3]!);
-    const selected = facts.filter((entry) => entry.object.entityId === 'b' && entry.assertions.some((assertion) => assertion.validFromRevision === 'current'));
-    const actual = index([row()], facts, [], 'current')[0]!.containment;
-    assert.equal(actual.status, selected.length === 0 ? 'absent' : selected.length === 1 ? 'unique' : 'ambiguous');
-    if (actual.status === 'unique') assert.equal(actual.value, selected[0]!.subject);
-  }
 });

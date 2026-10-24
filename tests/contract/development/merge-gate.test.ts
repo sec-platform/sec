@@ -16,10 +16,12 @@ import {
   type CodexDevelopmentMergeGateInput
 } from '../../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createMainHealthLedger } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../../src/adapters/self-hosting/control/main-health/github-status-namespace.ts';
 import { createTrustedRuntimeMainHealthInput } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { createScopeAuthorization } from '../../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
+import { VERIFICATION_ACTION_PROVIDER_POLICY } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationSessionArtifact, CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../../src/adapters/verification/platform/review/contract/stability.ts';
 import { createVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
@@ -972,6 +974,10 @@ test('hosted integration splits read-only authorization, terminal status, and me
     statuses: 'write'
   });
   expect(terminal.steps[0]?.env?.STATUS_CONTEXT).toBe('sec/integration-authorization');
+  expect(INTEGRATION_AUTHORIZATION_STATUS_CONTEXT).toBe('sec/integration-authorization');
+  expect(INTEGRATION_AUTHORIZATION_STATUS_CONTEXT.startsWith(
+    VERIFICATION_ACTION_PROVIDER_POLICY.contextPrefix
+  )).toBe(false);
 
   expect(integrate.needs).toEqual(['plan', 'authorize', 'terminal-status']);
   expect(integrate.permissions).toEqual({

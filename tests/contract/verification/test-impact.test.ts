@@ -165,6 +165,7 @@ test('impact follows executable imports instead of import-like text', () => {
   const helper = 'src/bootstrap/engineering/virtual-test-helper.ts';
   const direct = 'tests/integration/workspace/pipeline-workspace-write-lease.test.ts';
   const selected = 'tests/unit/virtual-facade.test.ts';
+  const slow = 'tests/e2e/workspace/upgrade.test.ts';
   const ignored = 'tests/unit/virtual-import-text.test.ts';
   const provider = sourceProvider({
       'src/bootstrap/engineering/module.json':
@@ -175,12 +176,13 @@ test('impact follows executable imports instead of import-like text', () => {
       [helper]: "export { kernel } from './virtual-entrypoint.ts';",
       [direct]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
       [selected]: "import { kernel } from '../../src/bootstrap/engineering/virtual-test-helper.ts'; void kernel;",
+      [slow]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
       [ignored]: "const text = \"import '../../src/bootstrap/engineering/pipeline-kernel.ts'\"; void text;"
   });
 
   const selection = selectTestsForSources([source], provider);
   expect(selection.fast).toEqual([direct, selected]);
-  expect(selection.slow).toEqual([]);
+  expect(selection.slow).toEqual([slow]);
   expect(selection.owners).toEqual(['bootstrap.engineering']);
   expect(resolveTestOwnership([source], provider)).toEqual([{
     source,

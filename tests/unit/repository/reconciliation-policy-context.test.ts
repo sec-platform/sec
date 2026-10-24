@@ -1,44 +1,35 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { compileRepositoryModuleMembershipSnapshot } from '../../../src/adapters/repository/architecture/contract.ts';
 import {
   compileSourceProgramFindingDelta as compare,
   summarizeSourceProgramFindingDelta as summarize,
   sourceProgramFindingDeltaIsUnresolved as unresolved
 } from '../../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import { captureRepositoryAnalysisPolicy as policy } from '../../../src/adapters/repository/source-program-model/repository-analysis-policy.ts';
-import { compileVirtualRepositorySourceProgramCompilation } from '../../../src/adapters/repository/source-program-model/repository-compilation.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
-import { rawSha256, sha256 } from '../../../src/contracts/canonical.ts';
+import { sha256 } from '../../../src/contracts/canonical.ts';
 
 type Snapshot = Parameters<typeof compare>[0];
 const digest = (s: string) => sha256(s) as `sha256:${string}`;
 const reviewed = 'src/example/a.ts::function-declaration:run::spawn#1';
 function snapshot(hasFinding = false, dispatchers: string[] = [], includeFile = true): Snapshot {
-  const source = 'export function run() { return 1; }\n';
-  const files = includeFile ? [{ path: 'src/example/a.ts', source, contentDigest: rawSha256(source) }] : [];
-  const descriptorPath = 'src/example/module.json';
-  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
-    descriptorSources: [{ descriptorPath, source: JSON.stringify({
-      importGraph: 'runtime', externalEntrypoints: [], capabilityProviders: [], preDependencyBootstrap: false
-    }) }]
-  });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
-    files,
-    moduleMembership,
-    subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
-      baseSnapshotDigest: digest('policy-context-base'), mutationDigest: digest(includeFile ? 'present' : 'removed') } }
-  });
-  const compilation = compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
+  const files = includeFile ? [{ path: 'src/example/a.ts', contentDigest: digest('source bytes'),
+    semanticObservationClass: 'observed' as const }] : [];
   const candidates = hasFinding ? [{ code: 'production-mirrors-source-path' as const, subject: 'src/example/a.ts',
     paths: ['src/example/a.ts'], reason: 'repeated literal', observationClass: 'derived' as const }] : [];
-  return Object.freeze({
-    ...compilation,
+  // The comparison consumes facts, not an issued compilation receipt. Actual
+  // compiler/policy handoff remains in repository-policy-compilation.test.ts.
+  return {
+    sourceRevision: digest('source'), moduleMembershipDigest: digest('membership'),
     analysisPolicy: policy(dispatchers),
-    model: Object.freeze({ ...compilation.model, candidates: Object.freeze(candidates),
-      modelDigest: digest(JSON.stringify({ base: compilation.model.modelDigest, candidates })) })
-  });
+    workspaceSnapshot: { files },
+    projectGeneration: {
+      compilerRevision: digest('compiler'), providerRevision: digest('provider'),
+      compilerConfigDigest: digest('config'), dependencyGenerationDigest: digest('dependencies'),
+      environmentDigest: digest('environment'), projectConfigDigest: null
+    },
+    model: { sourceRevision: digest('source'), modelDigest: digest('model'), files, candidates,
+      unknowns: [], providers: [{ id: 'typescript', revision: 'fixed' }] }
+  } as unknown as Snapshot;
 }
 
 test('a reviewed-dispatcher change cannot turn a disappearing finding into a proved absence', () => {

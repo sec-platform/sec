@@ -1,7 +1,8 @@
 import { afterAll, expect, test } from 'bun:test';
 import {
   currentActiveDocumentationPaths,
-  currentDocumentationVerificationBaseline
+  currentDocumentationVerificationBaseline,
+  isDocumentationVerificationInputPath
 } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 
 import { buildCiContract } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
@@ -11,6 +12,7 @@ import {
   CodexDevelopmentCreateNotRunGate
 } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { resolveTestOwnership } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { parseGitChangedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
 
@@ -106,6 +108,8 @@ test('Quick plan resolves the canonical active documentation corpus', async () =
   const plan = await buildVerificationPlanForTest('quick', [...currentActiveDocumentationPaths()]);
 
   expect(plan.selectionResolved).toBe(true);
+  expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
+  expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
   expect(plan.gates.map((gate) => gate.id).filter((id) => !id.startsWith('slow-suite-'))).toEqual([
     'docs-doctor',
     'typecheck',
@@ -114,13 +118,25 @@ test('Quick plan resolves the canonical active documentation corpus', async () =
 });
 
 test('Quick docs gate follows the canonical documentation lifecycle owner', async () => {
-  for (const file of currentActiveDocumentationPaths()) {
-    const plan = await buildVerificationPlanForTest('quick', [file]);
-    expect(plan.selectionResolved).toBe(true);
-    expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
-    expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
-    expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');
+  const paths = currentActiveDocumentationPaths();
+  const baseline = currentDocumentationVerificationBaseline();
+  // Keep every corpus member's admission and owner witness at their actual
+  // boundaries; the full-corpus and singleton plans exercise the composition.
+  for (const file of paths) {
+    expect(isDocumentationVerificationInputPath(file, baseline), file).toBe(true);
   }
+  expect(resolveTestOwnership(paths, await testImpactProvider())).toEqual(expect.arrayContaining(
+    paths.map((source) => ({
+      source,
+      owner: 'adapters.self-hosting.control.documentation',
+      identity: { kind: 'module', id: 'adapters.self-hosting.control.documentation' }
+    }))
+  ));
+  const singleton = await buildVerificationPlanForTest('quick', ['AGENTS.md']);
+  expect(singleton.selectionResolved).toBe(true);
+  expect(singleton.affectedOwners).toContain('adapters.self-hosting.control.documentation');
+  expect(singleton.affectedOwners).not.toContain('bounded-slow-risk');
+  expect(singleton.gates.map(({ id }) => id)).toContain('docs-doctor');
 
   const unknownDocsYaml = await buildVerificationPlanForTest('quick', [
     'docs/unregistered.manifest.yaml'
