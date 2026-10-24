@@ -8,6 +8,9 @@ const policy = () => ({ id: 'policy-reuse', severity: 'warn' as const,
   appliesTo: ['block/a', 'block/b'], rule: POLICY_RULE_IDS[0] });
 
 test('decoding preserves every supported severity and rule identity', () => {
+  // This is the currently accepted independent semantic policy rule. A
+  // dynamically shortened production rule catalog must not vacuously PASS.
+  assert.ok(POLICY_RULE_IDS.includes('tenant_context_must_flow_to_query'));
   for (const severity of ['info', 'warn', 'error', 'blocker'] as const) for (const rule of POLICY_RULE_IDS) {
     const input = { ...policy(), severity, rule };
     const decoded: PolicyRule = PolicyRuleSchema.parse(input);

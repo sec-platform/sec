@@ -16,7 +16,19 @@ function program() {
 }
 
 test('workspace and inspection commands expose native help', async () => {
-  const names = ['', ...program().command.commands.map((command) => command.name())];
+  // Explicit public entrypoint inventory: deriving this from registered
+  // commands would silently skip a command accidentally removed by production.
+  const names = [
+    '', 'init', 'add', 'resolve', 'compose', 'verify',
+    'repair', 'upgrade', 'lock', 'explain', 'artifacts',
+    'policy', 'acceptance', 'runtime', 'verification', 'provenance',
+    'review', 'demo', 'overview', 'install', 'blocks', 'contract', 'postgres'
+  ];
+  assert.deepEqual(
+    program().command.commands.map(command => command.name()).sort(),
+    names.filter(Boolean).sort(),
+    'every accepted public CLI command must remain registered'
+  );
   for (const name of names) {
     const { command, output } = program();
     await assert.rejects(command.parseAsync([...(name ? [name] : []), '--help'], { from: 'user' }),
