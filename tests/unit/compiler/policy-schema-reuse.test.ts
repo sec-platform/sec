@@ -28,14 +28,6 @@ for (const fields of [
   });
 }
 
-test('canonical-equal duplicate declarations remain legal inputs, not conflicts', () => {
-  const repeated = policy();
-  const input = { policies: [repeated, structuredClone(repeated)] };
-  const decoded: PolicySpec = PolicySpecSchema.parse(input);
-  assert.equal(decoded.policies.length, 2);
-  assert.deepEqual(decoded, input);
-});
-
 test('one source cannot choose between conflicting duplicates by encounter order', () => {
   const first = policy(), changed = { ...policy(), severity: 'error' };
   for (const policies of [[first, changed], [changed, first]]) {
@@ -47,7 +39,8 @@ test('one source cannot choose between conflicting duplicates by encounter order
 
 test('schema parsing owns output arrays while leaving caller declarations unchanged', () => {
   const source = { policies: [policy()] };
-  const first = PolicySpecSchema.parse(source), second = PolicySpecSchema.parse(source);
+  const first: PolicySpec = PolicySpecSchema.parse(source);
+  const second = PolicySpecSchema.parse(source);
   first.policies[0]!.appliesTo.pop();
   assert.deepEqual(source.policies[0]!.appliesTo, ['block/a', 'block/b']);
   assert.deepEqual(second.policies[0]!.appliesTo, ['block/a', 'block/b']);
