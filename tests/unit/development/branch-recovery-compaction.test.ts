@@ -34,8 +34,9 @@ test('branch recovery bundle retains only the source closure missing from exact 
     git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
     for (let index = 0; index < 16; index += 1) {
       writeFileSync(path.join(repository, 'history.txt'), `main-history-${index}\n`, 'utf8');
-      git(repository, ['add', 'history.txt']);
-      git(repository, ['commit', '--quiet', '-m', `main history ${index}`]);
+      if (index === 0) git(repository, ['add', 'history.txt']);
+      // The later fifteen snapshots change this tracked file only.
+      git(repository, ['commit', '--quiet', '-a', '-m', `main history ${index}`]);
     }
 
     git(repository, ['switch', '--quiet', '-c', 'feat/recovery-delta']);

@@ -197,10 +197,9 @@ async function prepareManagedHookSource(repoRoot: string, commitMessage: string)
     await writeFile(hookPath, managedHookSource(hook), 'utf8');
     await chmod(hookPath, 0o755);
   }));
-  git(repoRoot, ['add', '.githooks']);
-  for (const hook of managedHookNames) {
-    git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
-  }
+  // Native Git stages the executable bit for every hook in one bounded command.
+  // chmod above retains the actual worktree permission independently.
+  git(repoRoot, ['add', '--chmod=+x', '.githooks']);
   git(repoRoot, ['commit', '--quiet', '-m', commitMessage]);
 }
 

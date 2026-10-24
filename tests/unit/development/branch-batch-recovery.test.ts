@@ -21,8 +21,9 @@ function fixture(root: string) {
   git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
   for (let index = 0; index < 3; index += 1) {
     writeFileSync(path.join(repository, 'base.txt'), `base ${index}\n`);
-    git(repository, ['add', '.']);
-    git(repository, ['commit', '--quiet', '-m', `base ${index}`]);
+    if (index === 0) git(repository, ['add', 'base.txt']);
+    // Subsequent revisions only alter the already-tracked file.
+    git(repository, ['commit', '--quiet', '-a', '-m', `base ${index}`]);
   }
   const mainSha = git(repository, ['rev-parse', 'HEAD']);
   const refs = ['fix/first', 'fix/second'].map((branch) => {
