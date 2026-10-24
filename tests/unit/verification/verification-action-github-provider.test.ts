@@ -1205,26 +1205,6 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
   });
 
-  test('coordinate-parent binds the current external Session run and is structurally read-only', async () => {
-    fakeGh = new FakeGh();
-    trustedParentEnvironment();
-    const result = await ensureTransaction({
-      origin: parentCoordinateOrigin,
-      authority: { envelope, actionPlanClosure: closure },
-      intent: { kind: 'coordinate-parent' }
-    });
-    expect(result.disposition).toBe('observed');
-    expect(result.actionKey).toBe(ACTION);
-    expect(fakeGh.createCalls).toBe(0);
-    fakeGh.parentPermissionUser.node_id = 'different-node';
-    await expect(ensureTransaction({
-      origin: parentCoordinateOrigin,
-      authority: { envelope, actionPlanClosure: closure },
-      intent: { kind: 'coordinate-parent' }
-    })).rejects.toThrow('parent actor live identity');
-    expect(fakeGh.createCalls).toBe(0);
-  });
-
   test('parent plan consumes its exact workflow source, attempt census and completed upload', async () => {
     for (const completed of [false, true]) {
       fakeGh = new FakeGh();
@@ -1242,12 +1222,20 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
         : await ensureTransaction({ origin: parentCoordinateOrigin,
           authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } });
       expect(result.disposition).toBe(completed ? 'started' : 'observed');
+      expect(result.actionKey).toBe(ACTION);
       expect(fakeGh.workflowSourceCalls).toContainEqual({ path: '.github/workflows/compiler-pr-validation.yml', ref: BASE });
       const parentCalls = fakeGh.jobListCalls.filter(call => call.runId === PARENT_RUN_ID);
       expect(parentCalls.length).toBeGreaterThanOrEqual(2);
       for (const call of parentCalls) expect(call).toEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 1 });
       expect(fakeGh.createCalls).toBe(completed ? 1 : 0);
       expect(fakeGh.dispatchCalls).toBe(0);
+      if (!completed) {
+        fakeGh.parentPermissionUser.node_id = 'different-node';
+        await expect(ensureTransaction({ origin: parentCoordinateOrigin,
+          authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } }))
+          .rejects.toThrow('parent actor live identity');
+        expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+      }
     }
   });
 
@@ -1415,32 +1403,6 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     }
   }, 30_000);
 
-  test('complete status and artifact inventories remain fully paginated', async () => {
-    fakeGh = new FakeGh();
-    fakeGh.statuses = Array.from({ length: 101 }, (_, index) => rawStatus({
-      id: index + 1,
-      context: index === 100 ? CONTEXT : `diagnostic/${index}`
-    }));
-    for (let index = 0; index < 101; index += 1) {
-      fakeGh.artifacts.push({
-        id: 8000 + index,
-        name: `unrelated-${index}`,
-        expired: false,
-        runId: Number(CURRENT_RUN_ID),
-        fileName: 'unrelated.json',
-        source: '{}'
-      });
-    }
-    const result = await ensureTransaction({
-      origin: coordinateOrigin,
-      authority: authority(),
-      intent: { kind: 'coordinate' }
-    });
-    expect(result.disposition).toBe('observed');
-    expect(fakeGh.statusListCalls).toContainEqual({ page: 2, perPage: 100 });
-    expect(fakeGh.artifactListCalls).toContainEqual({ page: 2, perPage: 100 });
-  });
-
   test('artifact inventory freezes total and leading boundary before dispatch', async () => {
     const fillInventory = (target: FakeGh, count: number): void => {
       for (let index = target.artifacts.length; index < count; index += 1) {
@@ -1587,7 +1549,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh();
     fakeGh.statuses = Array.from({ length: 101 }, (_, index) => rawStatus({
       id: 1000 - index,
-      context: `diagnostic/stable-${index}`
+      context: index === 100 ? CONTEXT : `diagnostic/stable-${index}`
     }));
     const stable = await ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } });
     expect(stable.disposition).toBe('observed');
