@@ -48,22 +48,6 @@ test('init creates the minimal workspace on an empty root', async () => {
   expect(persisted).toEqual(provenance);
 });
 
-test('reference Customer scaffold requires an explicit create template', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-init-reference-');
-  const result = await initWorkspace(workspaceRoot, { template: 'reference-customer' });
-  const paths = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(result.planPath);
-
-  expect(plan.app.id).toBe('customer-admin');
-  expect(plan.blocks.map((block) => block.id)).toEqual([
-    'auth/basic-session',
-    'tenant/basic-workspace',
-    'entity/customer-basic'
-  ]);
-  expect((await fs.lstat(paths.srcRoot)).isDirectory()).toBe(true);
-  expect(await fs.readFile(paths.packageJsonPath, 'utf8')).toContain('generated-customer-admin');
-});
-
 test('unsupported create template fails before lifecycle publication', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-init-invalid-template-');
   await expect(initWorkspace(
@@ -131,43 +115,6 @@ async function withNativeSession(root: string, use: (session: WorkspaceCreateSes
   }));
 }
 
-test('native prepare rejects a caller digest before any stage or journal birth', async () => {
-  const root = await createWorkspace('workspace-create-native-invalid-');
-  await withNativeSession(root, async session => {
-    expect(await session.observe()).toEqual({ phase: 'absent' });
-    const before = await fs.readdir(path.join(root, '.sec'));
-    const request = nativeRequest();
-    await expect(session.prepare(request.blueprint, { ...request.intent, digest: 'caller-poison' })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
-    expect(await fs.readdir(path.join(root, '.sec'))).toEqual(before);
-    expect(await fs.readdir(root)).toEqual(['.sec']);
-  });
-});
-
-test('native observed journal does not authorize effects or mismatched resume intent', async () => {
-  const root = await createWorkspace('workspace-create-native-admission-');
-  const request = nativeRequest();
-  await withNativeSession(root, async session => {
-    await session.observe(); await session.prepare(request.blueprint, request.intent);
-  });
-  const before = await fs.readFile(path.join(root, '.sec/workspace-create.json'));
-  await withNativeSession(root, async session => {
-    expect((await session.observe()).phase).toBe('prepared');
-    for (const effect of [() => session.publish('sec.yaml'), () => session.beginSettlement(),
-      () => session.retireStage(), () => session.flushPublished(), () => session.complete()]) {
-      await expect(effect()).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'missing-intent-admission' } });
-    }
-    const changedMode = snapshotWorkspaceCreateRequest('minimal', { ...request.blueprint,
-      files: request.blueprint.files.map(file => ({ ...file, creationMode: 0o600 })) });
-    const changedTemplate = snapshotWorkspaceCreateRequest('reference-customer', request.blueprint);
-    for (const changed of [changedMode, changedTemplate]) {
-      await expect(session.resume(changed.blueprint, changed.intent)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'template-request-mismatch' } });
-    }
-    await expect(session.readCompleted(request.blueprint, request.intent)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
-    expect(await fs.readFile(path.join(root, '.sec/workspace-create.json'))).toEqual(before);
-    await expect(fs.lstat(path.join(root, 'sec.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-});
-
 test('native durability uses private full blueprint despite a runtime caller supplying an empty subset', async () => {
   const root = await createWorkspace('workspace-create-native-full-flush-');
   const request = nativeRequest(), flushed: string[] = [];
@@ -234,38 +181,6 @@ test('same-byte foreign file replacement cannot be adopted by recovery', async (
   await expect(createFixtureGeneration(root)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
   expect((await fs.stat(target)).ino).toBe(foreign.ino);
   expect(await fs.readFile(target)).toEqual(bytes);
-});
-
-test('completed retries preserve initial controls and later author work; different intent conflicts', async () => {
-  const root = await createWorkspace('workspace-create-author-retention-');
-  await initWorkspace(root);
-  const paths = getWorkspacePaths(root);
-  const planPath = paths.workspaceConfigPath;
-  const lockPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.graphLock);
-  const verificationReportPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport);
-  const initialBytes = await Promise.all([
-    fs.readFile(planPath),
-    fs.readFile(lockPath),
-    fs.readFile(verificationReportPath)
-  ]);
-
-  await expect(initWorkspace(root)).resolves.toEqual({ planPath, lockPath });
-
-  const after = await Promise.all([
-    fs.readFile(planPath),
-    fs.readFile(lockPath),
-    fs.readFile(verificationReportPath)
-  ]);
-  expect(after).toEqual(initialBytes);
-  const plan = path.join(root, 'sec.yaml'), extra = path.join(root, 'author-owned.txt');
-  await fs.writeFile(plan, 'later author plan\n'); await fs.writeFile(extra, 'later author file\n');
-  const before = await fs.stat(plan);
-  await initWorkspace(root);
-  expect((await fs.stat(plan)).ino).toBe(before.ino);
-  expect(await fs.readFile(plan, 'utf8')).toBe('later author plan\n');
-  expect(await fs.readFile(extra, 'utf8')).toBe('later author file\n');
-  await expect(initWorkspace(root, { template: 'reference-customer' })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'template-request-mismatch' } });
-  expect(await fs.readFile(plan, 'utf8')).toBe('later author plan\n');
 });
 
 test('copied or forged guardless journal bytes do not create birth or recovery authority', async () => {

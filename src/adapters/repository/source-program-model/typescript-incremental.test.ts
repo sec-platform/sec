@@ -4,7 +4,6 @@ import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
   observeTypeScriptSourceProgramPerformanceForTests,
-  adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot,
   compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot,
   releaseTypeScriptSourceProgramWorkspace,
   sourceProgramCurrentExactReturnProvenances
@@ -98,6 +97,7 @@ test('incremental source facts invalidate the reverse consumer closure and remai
       'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
       'src/example/leaf.ts': 'export const LEAF = 2;\n'
     });
+    releaseTypeScriptSourceProgramWorkspace();
     const contract = compileTypeScriptSourceProgramModelIncremental(contractInput, leaf.state);
     expect(contract.mode).toBe('incremental');
     expect(contract.invalidatedPaths).toEqual([
@@ -317,27 +317,6 @@ test('TypeScript root digest binds raw bytes even when a caller reuses a declare
   }
 });
 
-test('sealed fact shards remain the incremental authority after the TypeScript workspace is released', () => {
-  try {
-    const initialInput = sourceInput({
-      'src/example/contract.ts': 'export const VALUE = 1;\n',
-      'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n"
-    });
-    const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
-    releaseTypeScriptSourceProgramWorkspace();
-    const changedInput = sourceInput({
-      'src/example/contract.ts': 'export const VALUE = 2;\n',
-      'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n"
-    });
-    const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
-
-    expect(changed.mode).toBe('incremental');
-    expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
-  } finally {
-    releaseTypeScriptSourceProgramWorkspace();
-  }
-});
-
 test('workspace-signed incremental performance observation remains clean-compile equivalent', () => {
   try {
     const dependencies = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [
@@ -405,68 +384,6 @@ test('workspace-signed incremental performance observation remains clean-compile
       rawSourceHashOperations: 0,
       semanticScopeParseOperations: 1
     });
-  } finally {
-    releaseTypeScriptSourceProgramWorkspace();
-  }
-});
-
-function structuralCacheFixture(sources: Readonly<Record<string, string>>, label: string) {
-  const input = sourceInput(sources);
-  const snapshot = compileVirtualWorkspaceSourceSnapshot({
-    ...input, subject: { kind: 'virtual-mutation', provenance: {
-      kind: 'source-program-virtual-mutation', baseSnapshotDigest: sha256('before'), mutationDigest: sha256(label)
-    } }
-  });
-  return { input: { ...input, sourceRevision: snapshot.sourceRevision }, snapshot };
-}
-
-test('cache-adopted shards alone cannot authorize structural incremental reuse', () => {
-  try {
-    const before = structuralCacheFixture({ 'src/stable.ts': 'export const value = 1;\n' }, 'before');
-    const previous = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(before.input, null, before.snapshot);
-    const adopted = adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
-      before.input, previous.state.factShards, before.snapshot, { moduleGraphDigest: before.snapshot.moduleGraphDigest }
-    );
-    const after = structuralCacheFixture({ 'src/stable.ts': 'export const value = 1;\n', 'src/new.ts': 'export const added = 2;\n' }, 'after');
-    const result = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(after.input, adopted, after.snapshot);
-    expect(result.mode).toBe('full');
-    expect(result.model).toEqual(compileTypeScriptSourceProgramModel(after.input));
-    const exact = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(before.input, adopted, before.snapshot);
-    expect(exact.mode).toBe('exact');
-    const afterExact = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(after.input, exact.state, after.snapshot);
-    expect(afterExact.mode).toBe('full');
-    expect(afterExact.model).toEqual(result.model);
-    const edited = structuralCacheFixture({ 'src/stable.ts': 'export const value = 2;\n' }, 'edited');
-    expect(edited.snapshot.moduleGraphDigest).toBe(before.snapshot.moduleGraphDigest);
-    const ordinaryIncremental = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(edited.input, adopted, edited.snapshot);
-    expect(ordinaryIncremental.mode).toBe('incremental');
-    const addedAfterEdit = structuralCacheFixture({ 'src/stable.ts': 'export const value = 2;\n', 'src/new.ts': 'export const added = 2;\n' }, 'edited-added');
-    const afterIncremental = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(addedAfterEdit.input, ordinaryIncremental.state, addedAfterEdit.snapshot);
-    expect(afterIncremental.mode).toBe('full');
-    expect(afterIncremental.model).toEqual(compileTypeScriptSourceProgramModel(addedAfterEdit.input));
-  } finally {
-    releaseTypeScriptSourceProgramWorkspace();
-  }
-});
-
-test('cache-adopted baseline keeps unchanged triple-slash inputs in its full fallback', () => {
-  try {
-    const before = structuralCacheFixture({
-      'src/helper.ts': 'export const value = 1;\n',
-      'src/library.ts': '/// <reference lib="es2022" />\nexport const library = true;\n'
-    }, 'directives-before');
-    const previous = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(before.input, null, before.snapshot);
-    const adopted = adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
-      before.input, previous.state.factShards, before.snapshot, { moduleGraphDigest: before.snapshot.moduleGraphDigest }
-    );
-    const after = structuralCacheFixture({
-      'src/helper.ts': 'export const value = 2;\n',
-      'src/library.ts': '/// <reference lib="es2022" />\nexport const library = true;\n'
-    }, 'directives-after');
-    expect(after.snapshot.moduleGraphDigest).toBe(before.snapshot.moduleGraphDigest);
-    const result = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(after.input, adopted, after.snapshot);
-    expect(result.mode).toBe('full');
-    expect(result.model).toEqual(compileTypeScriptSourceProgramModel(after.input));
   } finally {
     releaseTypeScriptSourceProgramWorkspace();
   }

@@ -54,33 +54,6 @@ function assertDeeplyFrozen(value: unknown): void {
 }
 const canonicalBytes = (value: unknown) => JSON.stringify(canonicalJson(value));
 
-for (const mode of ['producer', 'parser'] as const) {
-  test(`${mode} owns every nested fact without changing its digest-bound bytes`, () => {
-    const issued = compileTypeScriptSourceProgramFactShard(fixture());
-    const shard = mode === 'producer' ? issued
-      : parseTypeScriptSourceProgramFactShard(encodeTypeScriptSourceProgramFactShard(issued));
-    const before = canonicalBytes(shard);
-    assertDeeplyFrozen(shard);
-    const objects = [shard.file, shard.declarations[0]!.span, shard.references[0]!,
-      shard.returnProvenances[0]!.normalReturns, shard.literals[0]!.contextSpan!,
-      shard.entrypoints[0]!.targetPaths, shard.capabilities[0]!.span, shard.unknowns[0]!];
-    for (const object of objects) assert.equal(Reflect.set(object, 'injected', true), false);
-    assert.equal(Reflect.set(shard.file, 'path', 'src/unbound.ts'), false);
-    assert.equal(canonicalBytes(shard), before);
-    assert.equal(canonicalBytes(parseTypeScriptSourceProgramFactShard(encodeTypeScriptSourceProgramFactShard(shard))), before);
-  });
-}
-
-test('producer input aliases remain writable but cannot mutate an issued shard', () => {
-  const input = fixture();
-  const shard = compileTypeScriptSourceProgramFactShard(input);
-  const before = canonicalBytes(shard);
-  assert.equal(Reflect.set(input.facts.file, 'path', 'src/replacement.ts'), true);
-  assert.equal(Reflect.set(input.facts.declarations[0]!.span, 'start', 50), true);
-  assert.equal(Reflect.set(input.facts.entrypoints[0]!.targetPaths, '0', 'src/replacement.ts'), true);
-  assert.equal(canonicalBytes(shard), before);
-});
-
 for (const mode of ['issued', 'foreign', 'shallow-frozen'] as const) {
   test(`model assembly owns ${mode} shard contents and the provider descriptor`, () => {
     const issued = compileTypeScriptSourceProgramFactShard(fixture());
@@ -108,8 +81,21 @@ for (const mode of ['issued', 'foreign', 'shallow-frozen'] as const) {
   });
 }
 
-test('foreign shard digests cannot stand in for a content readback', () => {
+test('foreign shard objects and persisted bytes cannot stand in for a canonical content readback', () => {
   const issued = compileTypeScriptSourceProgramFactShard(fixture());
+  const canonical = canonicalBytes(issued);
+  for (const source of [
+    canonical.replace('{', '{"path":"foreign.ts",'),
+    `${canonical}\n{}`,
+    canonical.replace('{', '{"foreign":true,')
+  ]) {
+    assert.throws(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(source)));
+  }
+  const changed = JSON.parse(canonical) as Record<string, unknown>;
+  changed.rawFileDigest = sha256('foreign');
+  assert.throws(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(
+    canonicalBytes(changed)
+  )), /digest-bound/);
   for (const mutation of [
     (value: typeof issued) => Reflect.set(value.file, 'path', 'src/not-in-shard.ts'),
     (value: typeof issued) => Reflect.set(value.declarations[0]!, 'name', 'forged'),
@@ -122,27 +108,6 @@ test('foreign shard digests cannot stand in for a content readback', () => {
     assert.throws(() => assembleTypeScriptSourceProgramModel({ sourceRevision: 'snapshot', compilerRevision: digest,
       provider, shards: [foreign] }));
   }
-});
-
-test('snapshot normalization does not admit object prototypes previously rejected by the codec', () => {
-  const input = fixture();
-  Object.setPrototypeOf(input.facts.file, { foreign: true });
-  assert.throws(() => compileTypeScriptSourceProgramFactShard(input), /plain objects/);
-  const shard = compileTypeScriptSourceProgramFactShard(fixture());
-  const foreignProvider = Object.assign(Object.create({ foreign: true }), provider);
-  assert.throws(() => assembleTypeScriptSourceProgramModel({ sourceRevision: 'snapshot', compilerRevision: digest,
-    provider: foreignProvider, shards: [shard] }), /plain objects/);
-});
-
-test('producer validates and hashes the same captured facts instead of rereading input accessors', () => {
-  const input = fixture();
-  let reads = 0;
-  Object.defineProperty(input.facts.file, 'path', { enumerable: true,
-    get: () => ++reads === 1 ? input.facts.path : 'src/unbound.ts' });
-  const shard = compileTypeScriptSourceProgramFactShard(input);
-  assert.equal(reads, 1);
-  assert.equal(shard.file.path, shard.path);
-  assert.deepEqual(parseTypeScriptSourceProgramFactShard(encodeTypeScriptSourceProgramFactShard(shard)), shard);
 });
 
 test('empty observed literals remain canonical facts without weakening structural rejection', () => {

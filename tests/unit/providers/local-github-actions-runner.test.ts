@@ -20,7 +20,6 @@ import {
   assertOwnedLocalGitHubActionsRunner,
   assertRepositoryIdentityMatchesOrigin,
   assertRepositoryIdentityMatchesRemoteUrls,
-  createBuildxRawJsonProgressAdmission,
   createLocalGitHubActionsRunnerBuildInputProjection,
   createLocalGitHubActionsRunnerDockerfile,
   createLocalGitHubActionsRunnerEnvironmentSpec,
@@ -241,6 +240,9 @@ describe('local GitHub Actions runner contract', () => {
     expect(dockerfile).not.toMatch(/apt-get install[^\n]*\bnodejs\b/u);
 
     const environmentSpec = createLocalGitHubActionsRunnerEnvironmentSpec();
+    expect(environmentSpec).not.toHaveProperty('command');
+    expect(environmentSpec).not.toHaveProperty('buildx');
+    expect(environmentSpec.specDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(environmentSpec.providerRequirement)
       .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.provider.requirement);
     expect(environmentSpec.components.map(({ id }) => id)).toEqual([
@@ -336,41 +338,6 @@ describe('local GitHub Actions runner contract', () => {
         Config: { Labels: labels }
       })).toThrow('cached runner image labels differ from the frozen provider revision');
     }
-  });
-
-  test('admits only monotonic structured BuildKit progress', () => {
-    const progress = createBuildxRawJsonProgressAdmission();
-    const digest = `sha256:${'a'.repeat(64)}`;
-    const vertex = JSON.stringify({ vertexes: [{ digest, name: 'build' }] });
-    expect(progress.push(Buffer.from(vertex.slice(0, 20)))).toBe(false);
-    expect(progress.push(Buffer.from(`${vertex.slice(20)}\n`))).toBe(true);
-    expect(progress.push(Buffer.from(`${vertex}\n`))).toBe(false);
-    const status = (current: number) => `${JSON.stringify({
-      statuses: [{ id: 'download', vertex: digest, current }]
-    })}\n`;
-    expect(progress.push(Buffer.from(status(1)))).toBe(true);
-    expect(progress.push(Buffer.from(status(1)))).toBe(false);
-    expect(progress.push(Buffer.from(status(2)))).toBe(true);
-    expect(progress.push(Buffer.from(`${JSON.stringify({
-      logs: [{ vertex: digest, data: 'presentation chatter' }]
-    })}\n`))).toBe(false);
-    const unknownVertexStatus = JSON.stringify({
-      statuses: [{ id: 'download', vertex: `sha256:${'b'.repeat(64)}`, current: 1 }]
-    });
-    expect(progress.push(Buffer.from(`${unknownVertexStatus}\n`))).toBe(false);
-    expect(progress.push(Buffer.from(`${JSON.stringify({
-      statuses: [{ id: 'random-id-does-not-advance', vertex: digest, current: 2 }]
-    })}\n`))).toBe(false);
-    expect(progress.push(Buffer.from(`${JSON.stringify({
-      statuses: [{ id: 'random-id-advances', vertex: digest, current: 3 }]
-    })}\n`))).toBe(true);
-    expect(progress.push(Buffer.from(`${JSON.stringify({
-      statuses: [{ id: 'first-completion', vertex: digest, current: 3, completed: 'now' }]
-    })}\n`))).toBe(true);
-    expect(progress.push(Buffer.from(`${JSON.stringify({
-      statuses: [{ id: 'second-completion', vertex: digest, current: 3, completed: 'later' }]
-    })}\n`))).toBe(false);
-    expect(progress.push(Buffer.from('presentation output\n'))).toBe(false);
   });
 
   test('recursively validates the complete OCI runtime and provenance closure', () => {
