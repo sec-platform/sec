@@ -1537,6 +1537,10 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
     expect(rolling.activePackageId).toBe(FREEZE_TARGET_ID);
     expect(rolling.candidatePackageIds).toEqual(['candidate-two-v1', 'candidate-three-v1']);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    if (process.platform === 'win32') {
+      await expect(lstat(`${repositoryIndexPath(fixture.repositoryRoot)}.lock`))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }
     const indexBeforeNoop = await readFile(repositoryIndexPath(fixture.repositoryRoot));
     const pointerBeforeNoop = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH));
     const rollingBeforeNoop = await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'));
@@ -2174,6 +2178,25 @@ for (const faultAfter of [
         reviewedOn: '2026-08-09',
         faultAfter
       })).rejects.toThrow(`Injected document control freeze fault: ${faultAfter}`);
+      const originalJournal = JSON.parse(await readFile(
+        path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json'),
+        'utf8'
+      )) as RecoveryJournalView;
+      if (process.platform === 'win32' && faultAfter === 'after-index-lock-write') {
+        const indexPath = repositoryIndexPath(fixture.repositoryRoot);
+        const artifactRoot = path.dirname(indexPath);
+        expect(await readOptionalEntrySnapshot(indexPath)).toMatchObject({
+          present: true, bytes: originalJournal.index.pre
+        });
+        expect(await readOptionalEntrySnapshot(`${indexPath}.lock`)).toMatchObject({
+          present: true, bytes: originalJournal.index.next
+        });
+        for (const suffix of ['pre', 'retired-pre', 'retired-next'] as const) {
+          expect(await readOptionalEntrySnapshot(entryRecoveryPathForTest(
+            artifactRoot, 'git-index', originalJournal.operationId, suffix
+          ))).toMatchObject({ present: false, bytes: null });
+        }
+      }
       const midPhase = await resolveLiveControlPlane(fixture.repositoryRoot);
       expect(midPhase.activeWorkPackage).toEqual({
         state: 'unresolved',
@@ -2189,7 +2212,9 @@ for (const faultAfter of [
         reviewedOn: '2026-08-09'
       });
       expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
-      expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(recovered.candidateTreeSha);
+      expect(recovered.operationId).toBe(originalJournal.operationId);
+      expect(recovered.candidateTreeSha).toBe(originalJournal.candidateTreeSha);
+      expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(originalJournal.candidateTreeSha);
       await expectFreezeTransactionRetired(fixture.repositoryRoot);
     } finally {
       await fixture.dispose();
@@ -2347,6 +2372,15 @@ test('recovery entry identity is operation plus closed logical target and contai
     documentControlRecoveryEntryStem({ operationId, targetKey })
   ));
   expect(new Set(stems).size).toBe(keys.length);
+  const otherOperationStems = keys.map((targetKey) => documentControlRecoveryEntryStem({
+    operationId: `sha256:${'b'.repeat(64)}`,
+    targetKey
+  }));
+  expect(new Set([...stems, ...otherOperationStems]).size).toBe(keys.length * 2);
+  expect(() => documentControlRecoveryEntryStem({
+    operationId: 'sha256:not-a-digest',
+    targetKey: 'git-index'
+  })).toThrow('operationId must be one SHA-256 digest');
   expect(stems.every((stem) => /^\.entry-[0-9a-f]{64}$/u.test(stem))).toBe(true);
   expect(stems.join('\n')).not.toContain(path.sep);
   expect(() => documentControlRecoveryEntryStem({
@@ -2632,17 +2666,16 @@ for (const invalidCase of [
 
 if (process.platform === 'win32') {
   for (const stateCase of [
-    { name: 'W0', faultAfter: 'after-index-lock-write', expected: ['target', 'next'] },
-    { name: 'W1', faultAfter: 'after-index-pre-quarantine', expected: ['next', 'quarantine'] },
-    { name: 'W2', faultAfter: 'after-index-next-install', expected: ['target', 'quarantine'] }
+    { name: 'W1', faultAfter: 'after-index-pre-quarantine' },
+    { name: 'W2', faultAfter: 'after-index-next-install' }
   ] as const satisfies readonly Readonly<{
     name: string;
     faultAfter: FreezeFault;
-    expected: readonly ('target' | 'next' | 'quarantine')[];
   }>[]) {
     test(`Windows entry CAS state ${stateCase.name} is recoverable under its retained-entry semantics`, async () => {
       const prepared = await prepareIndexPublishTupleFixture();
       try {
+        expect(await readFile(prepared.paths.target)).toEqual(prepared.pre);
         await expect(freezeDocumentControlPlane({
           cwd: prepared.fixture.repositoryRoot,
           manifestPath: FREEZE_TARGET_PATH,
@@ -2650,48 +2683,33 @@ if (process.platform === 'win32') {
           faultAfter: stateCase.faultAfter
         })).rejects.toThrow(stateCase.faultAfter);
         const tuple = await readPreEffectTupleSnapshot(prepared);
-        for (const entry of stateCase.expected) expect(tuple.tuple[entry].present).toBe(true);
+        expect(tuple.tuple).toMatchObject({
+          target: stateCase.name === 'W1'
+            ? { present: false, bytes: null }
+            : { present: true, bytes: prepared.next.toString('base64') },
+          next: stateCase.name === 'W1'
+            ? { present: true, bytes: prepared.next.toString('base64') }
+            : { present: false, bytes: null },
+          quarantine: { present: true, bytes: prepared.pre.toString('base64') },
+          retiredPre: { present: false, bytes: null },
+          retiredNext: { present: false, bytes: null }
+        });
         const recovered = await freezeDocumentControlPlane({
           cwd: prepared.fixture.repositoryRoot,
           manifestPath: FREEZE_TARGET_PATH,
           reviewedOn: '2026-08-09'
         });
         expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+        expect(recovered.operationId).toBe(prepared.journal.operationId);
+        expect(recovered.candidateTreeSha).toBe(prepared.journal.candidateTreeSha);
+        expect(runGit(prepared.fixture.repositoryRoot, ['write-tree']))
+          .toBe(prepared.journal.candidateTreeSha);
+        await expectFreezeTransactionRetired(prepared.fixture.repositoryRoot);
       } finally {
         await prepared.fixture.dispose();
       }
     }, 60_000);
   }
-
-  test('Windows entry CAS state W3 is terminally idempotent after non-retained cleanup', async () => {
-    const prepared = await prepareIndexPublishTupleFixture();
-    try {
-      const first = await freezeDocumentControlPlane({
-        cwd: prepared.fixture.repositoryRoot,
-        manifestPath: FREEZE_TARGET_PATH,
-        reviewedOn: '2026-08-09'
-      });
-      const tuple = await readPreEffectTupleSnapshot(prepared);
-      expect(tuple.tuple.target.present).toBe(true);
-      expect(tuple.tuple.next.present).toBe(false);
-      expect(tuple.tuple.quarantine.present).toBe(false);
-      const second = await freezeDocumentControlPlane({
-        cwd: prepared.fixture.repositoryRoot,
-        manifestPath: FREEZE_TARGET_PATH,
-        reviewedOn: '2026-08-09'
-      });
-      expect(second).toMatchObject({
-        baseSha: first.baseSha,
-        baseTreeSha: first.baseTreeSha,
-        candidateTreeSha: first.candidateTreeSha,
-        manifestPath: first.manifestPath,
-        manifestDigest: first.manifestDigest
-      });
-      await expectFreezeTransactionRetired(prepared.fixture.repositoryRoot);
-    } finally {
-      await prepared.fixture.dispose();
-    }
-  }, 60_000);
 
   test('Windows terminal-Q cleanup rejects a NEXT that appears after tuple classification', async () => {
     const prepared = await prepareIndexPublishTupleFixture();
