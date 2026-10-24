@@ -22,7 +22,13 @@ const typedYamlFailure = (code: string) => (error: unknown): boolean => {
 test('string-key profile uses the existing library and rejects duplicate decoded key identities', () => {
   const parsed = parseYamlValue('name: value\nitems: [a, b]\n', { ...admission, stringKeys: true });
   assert.deepEqual(parsed, { name: 'value', items: ['a', 'b'] });
-  assert.throws(() => parseYamlValue('name: a\n"name": b\n', { ...admission, stringKeys: true }), YamlSyntaxError);
+  assert.throws(() => parseYamlValue('name: a\n"name": b\n', { ...admission, stringKeys: true }), (error: unknown) => {
+    assert.ok(error instanceof YamlSyntaxError);
+    assert.equal(error.code, 'YAML-SYNTAX-001');
+    assert.equal(error.kind, 'duplicate-key');
+    assert.equal(error.yamlErrorCode, 'DUPLICATE_KEY');
+    return true;
+  });
   assert.throws(() => parseYamlValue('? [a, b]\n: value\n', { ...admission, stringKeys: true }), YamlSyntaxError);
   assert.throws(() => parseYamlValue('name: a', { ...admission, stringKeys: 'yes' as never }), TypeError);
 });
@@ -40,7 +46,13 @@ test('strict library policy rejects unresolved tag warnings', () => {
 
 test('UTF-8 byte budget is checked before parsing, not character count or alias expansion', () => {
   assert.deepEqual(parseYamlValue('x: 好', { ...admission, maximumInputBytes: 6 }), { x: '好' });
-  assert.throws(() => parseYamlValue('x: 好', { ...admission, maximumInputBytes: 5 }), YamlInputLimitError);
+  assert.throws(() => parseYamlValue('x: 好', { ...admission, maximumInputBytes: 5 }), (error: unknown) => {
+    assert.ok(error instanceof YamlInputLimitError);
+    assert.equal(error.code, 'YAML-INPUT-001');
+    assert.equal(error.actualInputBytes, 6);
+    assert.equal(error.maximumInputBytes, 5);
+    return true;
+  });
   assert.throws(() => parseYamlValue('a: &x [one]\nb: *x\n', { ...admission, maximumAliasCount: 0 }), YamlSyntaxError);
 });
 

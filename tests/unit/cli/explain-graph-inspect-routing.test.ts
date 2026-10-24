@@ -9,32 +9,6 @@ import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 test('explain inspect preserves historical pin graph JSON through reading, counting and rendering', async () => {
-  // Counts and input preservation are independent of the CLI readback below.
-  {
-    const source = {
-      nodes: [{ type: 'service' }, { type: 'entity' }, { type: 'service' }],
-      edges: [{ type: 'writes_to' }, { type: 'depends_on' }, { type: 'writes_to' }],
-      overlays: {
-        coverage: { blocks: [{ id: 'a' }, { id: 'b' }] },
-        provenance: [{ path: 'one' }]
-      }
-    } as const;
-    const nodeOrder = source.nodes.map((node) => node.type);
-    const edgeOrder = source.edges.map((edge) => edge.type);
-
-    const view = projectExplainGraphInspect(source);
-
-    expect(view).toEqual({
-      nodeCount: 3,
-      edgeCount: 3,
-      nodeTypeCounts: [{ id: 'entity', count: 1 }, { id: 'service', count: 2 }],
-      edgeTypeCounts: [{ id: 'depends_on', count: 1 }, { id: 'writes_to', count: 2 }],
-      coverageBlockCount: 2,
-      provenanceArtifactCount: 1
-    });
-    expect(source.nodes.map((node) => node.type)).toEqual(nodeOrder);
-    expect(source.edges.map((edge) => edge.type)).toEqual(edgeOrder);
-  }
   await withTempWorkspace(async (workspaceRoot) => {
     const graph = {
       semanticViews: {},
@@ -77,10 +51,12 @@ test('explain inspect preserves historical pin graph JSON through reading, count
 
     const json = await expectCliJson(workspaceRoot, ['explain', 'graph', '--json']);
     expect(json).toEqual(graph);
-    expect(projectExplainGraphInspect(json as typeof graph)).toMatchObject({
+    expect(projectExplainGraphInspect(json as typeof graph)).toEqual({
       nodeCount: 4, edgeCount: 4,
       nodeTypeCounts: [{ id: 'entity', count: 1 }, { id: 'pin', count: 1 }, { id: 'service', count: 2 }],
-      edgeTypeCounts: [{ id: 'depends_on', count: 2 }, { id: 'writes_to', count: 2 }]
+      edgeTypeCounts: [{ id: 'depends_on', count: 2 }, { id: 'writes_to', count: 2 }],
+      coverageBlockCount: 2, provenanceArtifactCount: 1
     });
+    expect(json).toEqual(graph);
   });
 });

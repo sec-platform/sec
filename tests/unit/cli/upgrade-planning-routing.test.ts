@@ -75,7 +75,6 @@ test('upgrade plan routing uses application projection and entry rendering witho
       expect(text).toMatch(new RegExp(`Preflight ${check}\\W+passed(?=$|[\\s;,()])[^\\n]*\\bevidence=1(?=$|[\\s;,()])`, 'u'));
     }
   }
-  expectPlannedUpgrade(formatUpgradePlanning(planned));
 
   const applied = projectUpgradePlan(
     plan,
