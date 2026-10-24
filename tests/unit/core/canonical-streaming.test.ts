@@ -5,7 +5,13 @@ import { canonicalEquals, canonicalJson, sha256 } from '../../../src/contracts/c
 
 const reference = (value: unknown) => `sha256:${createHash('sha256').update(JSON.stringify(canonicalJson(value))).digest('hex')}`;
 
-test('canonical hashes preserve exact historical bytes for structured and scalar data', () => {
+test('canonical hashes preserve byte meaning and match the independent SHA-256 implementation', () => {
+  // This vector is a literal wire contract, not output reconstructed using
+  // canonicalJson (the same normalization implementation used by sha256).
+  const source = { z: -0, a: { beta: [true, null], alpha: '界' } };
+  const wire = '{"a":{"alpha":"界","beta":[true,null]},"z":0}';
+  const known = `sha256:${createHash('sha256').update(wire, 'utf8').digest('hex')}`;
+  assert.equal(sha256(source), known);
   const samples: unknown[] = [null, false, true, 0, -0, 1.2e30, '', '𝄞\ud800\n', [], new Array(3),
     { '11': 3, '2': 4, z: 2, a: 1 }, JSON.parse('{"__proto__":{"value":1}}')];
   let seed = 521;
