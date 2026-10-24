@@ -1,0 +1,170 @@
+import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import { readJson } from "../../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
+import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { composeWorkspace, explainWorkspace, lockWorkspace, verifyWorkspace } from '../../../src/bootstrap/engineering/cli.ts';
+import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
+import { parseUpgradeDiagnosticsJson } from '../../../src/semantics/upgrade/upgrade-artifact.ts';
+import { writeBlockUpgradeFixture } from '../../helpers/block-upgrade-fixtures.ts';
+import { expectGraphEdge, expectGraphNode, expectReviewConflictHint, expectReviewRegressionRisk } from '../../helpers/graph-assertions.ts';
+import { prepareComposedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
+
+test('upgrade enforces Override selectors and settles an unassessable constraint without stale execution artifacts', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeBlockUpgradeFixture(workspaceRoot);
+    const paths = getWorkspacePaths(workspaceRoot);
+    const manifestPath = path.join(paths.overridesRoot, 'override-manifest.yaml');
+    await fs.mkdir(paths.overridesRoot, { recursive: true });
+    const override = {
+      id: 'custom-consumer', entry: 'patches/custom.ts', target: 'src/custom-consumer.ts',
+      reason: 'consumer requires the previous Block contract'
+    };
+    const beforePlan = await fs.readFile(paths.workspaceConfigPath, 'utf8');
+    await writeYaml(manifestPath, { overrides: [{ ...override, conflictsWith: ['private/block-upgrade@>=0.2.0'] }] });
+    await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true }))
+      .rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-001' });
+
+    await writeYaml(manifestPath, { overrides: [{ ...override, conflictsWith: ['private/block-upgrade@>=0.3.0'] }] });
+    const preview = await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true });
+    expect(preview.upgradePlan.preflightChecks).toContainEqual(expect.objectContaining({
+      id: 'override-conflicts', status: 'passed', evidence: ['custom-consumer']
+    }));
+    expect(await fs.readFile(paths.workspaceConfigPath, 'utf8')).toBe(beforePlan);
+    await expect(fs.lstat(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan)))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+
+    const unassessableConflict = `private/block-upgrade@>=${'9'.repeat(80)}.0.0`;
+    await writeYaml(manifestPath, { overrides: [{ ...override, conflictsWith: [unassessableConflict] }] });
+    const staleArtifactPaths = [CI_ARTIFACT_FILES.upgradePlan, CI_ARTIFACT_FILES.upgradeExecutionTerminal]
+      .map(artifact => resolveWorkspaceArtifactPath(workspaceRoot, artifact));
+    for (const artifactPath of staleArtifactPaths) await fs.writeFile(artifactPath, 'stale execution artifact\n');
+    await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0'))
+      .rejects.toMatchObject({ code: 'UPGRADE-CONFLICT-002' });
+    for (const artifactPath of staleArtifactPaths) {
+      await expect(fs.lstat(artifactPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+    const diagnostics = parseUpgradeDiagnosticsJson(await fs.readFile(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics), 'utf8'
+    ));
+    expect(diagnostics).toMatchObject({
+      phase: 'planning', status: 'blocked', blockId: 'private/block-upgrade', targetVersion: '0.2.0',
+      failedCheck: 'override-conflicts', errorCode: 'UPGRADE-CONFLICT-002',
+      details: { override: { id: 'custom-consumer' }, conflict: unassessableConflict }
+    });
+    expect(await fs.readFile(paths.workspaceConfigPath, 'utf8')).toBe(beforePlan);
+  });
+}, 120000);
+
+test('override-manifest preserves customer and ticket bytes with independent provenance and runtime attribution', async () => {
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-ticket-override-',
+    blockIds: ['ticket/basic', 'reporting/ticket-summary', 'worklog/basic']
+  });
+  const paths = getWorkspacePaths(workspaceRoot);
+  const overrideManifestPath = path.join(paths.overridesRoot, 'override-manifest.yaml');
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
+
+  const customerServicePath = path.join(workspaceRoot, 'src', 'installed', 'entity', 'customer-service.ts');
+  const customerServiceOverride = `${await fs.readFile(customerServicePath, 'utf8')}\n// Manual customer service override active.\n`;
+  const ticketServicePath = path.join(workspaceRoot, 'src', 'installed', 'ticket', 'ticket-service.ts');
+  const ticketServiceOverride = `${await fs.readFile(ticketServicePath, 'utf8')}\n// Manual ticket runtime override active.\n`;
+
+  await writeYaml(overrideManifestPath, {
+    overrides: [
+      {
+        id: 'customer-service-manual',
+        entry: 'patches/customer-service.override.ts',
+        target: 'src/installed/entity/customer-service.ts',
+        reason: 'manual-customer-service-rewrite',
+        source: 'manual',
+        conflictsWith: ['entity/customer-basic@>=0.2.0']
+      },
+      {
+        id: 'ticket-service-runtime-manual',
+        entry: 'patches/ticket-service.override.ts',
+        target: 'src/installed/ticket/ticket-service.ts',
+        reason: 'manual-ticket-runtime-copy-change',
+        source: 'manual',
+        conflictsWith: ['ticket/basic@>=0.2.0', 'worklog/basic@>=0.2.0']
+      }
+    ]
+  });
+  await fs.writeFile(
+    path.join(paths.overridesRoot, 'patches', 'customer-service.override.ts'),
+    customerServiceOverride,
+    'utf8'
+  );
+  const ticketServiceOverridePath = path.join(paths.overridesRoot, 'patches', 'ticket-service.override.ts');
+  await fs.writeFile(ticketServiceOverridePath, ticketServiceOverride, 'utf8');
+
+  await composeWorkspace(workspaceRoot);
+  await expect(fs.readFile(customerServicePath, 'utf8')).resolves.toBe(customerServiceOverride);
+  await expect(fs.readFile(ticketServicePath, 'utf8')).resolves.toBe(ticketServiceOverride);
+
+  const { report } = await verifyWorkspace(workspaceRoot);
+  expect(report.summary.status).toBe('passed');
+
+  await lockWorkspace(workspaceRoot);
+  const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
+  expectGraphNode(graph, { id: 'override:customer-service-manual' });
+  expectGraphNode(graph, { type: 'pin' });
+  expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
+  expectGraphEdge(graph, {
+    from: 'policy:tenant-scope-required',
+    to: 'file:src/installed/entity/customer-service.ts',
+    type: 'connects_to'
+  });
+  expectGraphEdge(graph, {
+    from: 'file:src/installed/entity/customer-service.ts',
+    to: 'override:customer-service-manual',
+    type: 'originates_from'
+  });
+  const provenance = await readJson<{
+    artifacts: Array<{ path: string; originType: string; overrideStatus: string }>;
+  }>(provenancePath);
+  expect(
+    provenance.artifacts.some(
+      (artifact) =>
+        artifact.path === 'src/installed/entity/customer-service.ts' && artifact.originType === 'override' && artifact.overrideStatus === 'manual'
+    )
+  ).toBe(true);
+  expectReviewRegressionRisk(reviewSummary, {
+    kind: 'override-active',
+    blockId: 'entity/customer-basic',
+    message: 'Override active: customer-service-manual -> src/installed/entity/customer-service.ts'
+  });
+  expectReviewConflictHint(reviewSummary, {
+    kind: 'override-conflict',
+    relatedId: 'entity/customer-basic@>=0.2.0',
+    message: 'Override customer-service-manual conflicts with entity/customer-basic@>=0.2.0'
+  });
+  const ticketChangeSource = reviewSummary.changeSources.find((source) => source.path === 'src/installed/ticket/ticket-service.ts');
+
+  expect(ticketChangeSource).toMatchObject({
+    path: 'src/installed/ticket/ticket-service.ts',
+    originType: 'override',
+    originId: 'ticket-service-runtime-manual',
+    runtimeKind: 'service',
+    vertical: 'ticket',
+    relatedBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'ticket/basic']
+  });
+  expectReviewRegressionRisk(reviewSummary, {
+    kind: 'override-active',
+    blockId: 'ticket/basic',
+    message: 'Override active: ticket-service-runtime-manual -> src/installed/ticket/ticket-service.ts'
+  });
+  expectReviewConflictHint(reviewSummary, {
+    kind: 'override-conflict',
+    relatedId: 'worklog/basic@>=0.2.0',
+    message: 'Override ticket-service-runtime-manual conflicts with worklog/basic@>=0.2.0'
+  });
+  expectGraphEdge(graph, {
+    from: 'file:src/installed/ticket/ticket-service.ts',
+    to: 'override:ticket-service-runtime-manual',
+    type: 'originates_from'
+  });
+}, 120000);

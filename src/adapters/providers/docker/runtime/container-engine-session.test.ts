@@ -15,6 +15,8 @@ import {
 } from '../contract/daemon.ts';
 import {
   assertContainerEngineOperationScopeAdmission,
+  assertDockerCommandOperationAvailable,
+  LINUX_DOCKER_OPERATIONS,
   compileContainerEngineAdmissionProviderIdentity,
   compileContainerEngineOperationArguments,
   compileContainerEngineReadyProviderIdentity,
@@ -31,7 +33,15 @@ const endpoint = createDockerEndpointIdentity({
 });
 const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 
-test('Container Engine projection injects the retained endpoint outside caller arguments', () => {
+test('Container Engine operations bind the retained endpoint and platform capability', () => {
+  expect(LINUX_DOCKER_OPERATIONS).toEqual([]);
+  expect(() => assertDockerCommandOperationAvailable('linux', 'container-list'))
+    .toThrow('linux-cli-plugin-closure-unavailable');
+  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-build'))
+    .toThrow('linux-buildx-closure-unavailable');
+  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-bake'))
+    .toThrow('linux-buildx-closure-unavailable');
+  expect(() => assertDockerCommandOperationAvailable('win32', 'container-list')).not.toThrow();
   expect(compileContainerEngineOperationArguments(endpoint, {
     kind: 'container-list',
     arguments: ['--all']

@@ -186,7 +186,8 @@ const PREFLIGHT_FAILURE_BY_ERROR_CODE = new Map<string, UpgradeDiagnostics['fail
   ['UPGRADE-MIGRATION-013', 'migration-json-structure'],
   ['UPGRADE-MIGRATION-030', 'migration-json-structure'],
   ['UPGRADE-MIGRATION-015', 'migration-text-patterns'],
-  ['UPGRADE-CONFLICT-001', 'override-conflicts']
+  ['UPGRADE-CONFLICT-001', 'override-conflicts'],
+  ['UPGRADE-CONFLICT-002', 'override-conflicts']
 ]);
 
 const MIGRATION_FILE_OPERATION_FAILURE_CODES = new Set([

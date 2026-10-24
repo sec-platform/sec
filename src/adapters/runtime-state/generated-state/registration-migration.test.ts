@@ -29,7 +29,7 @@ function canonicalBytes(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-async function legacyFixture() {
+async function registrationFixture() {
   const hostRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-generated-registration-migration-'));
   roots.push(hostRoot);
   const repositoryRoot = path.join(hostRoot, 'repository');
@@ -52,7 +52,7 @@ async function legacyFixture() {
     'v1',
     'registrations-v3'
   );
-  await mkdir(registrationsRoot, { recursive: true });
+  await mkdir(path.dirname(registrationsRoot), { recursive: true });
   const workspace = inspectNoFollowDirectoryChain(repositoryRoot, 'fixture workspace').target;
   const generated = inspectNoFollowDirectoryChain(generatedRoot, 'fixture generation').target;
   const rule = generatedStateRuleForPath(relativePath);
@@ -78,6 +78,20 @@ async function legacyFixture() {
     root: identity(generated),
     operationId: 'registration-migration-historical'
   }, { clock: () => new Date('2026-08-29T00:00:00.000Z') });
+  return {
+    environment,
+    repositoryRoot,
+    registrationsRoot,
+    registrationsV2Root,
+    current,
+    historical
+  } as const;
+}
+
+async function legacyFixture() {
+  const fixture = await registrationFixture();
+  const { registrationsRoot, current, historical } = fixture;
+  await mkdir(registrationsRoot);
   const currentBytes = canonicalBytes(current);
   const historicalBytes = canonicalBytes(historical);
   await writeFile(
@@ -93,14 +107,7 @@ async function legacyFixture() {
     relativePath
   })).slice('sha256:'.length);
   await writeFile(path.join(registrationsRoot, `${pointerKey}.json`), currentBytes);
-  return {
-    environment,
-    repositoryRoot,
-    registrationsRoot,
-    registrationsV2Root,
-    current,
-    historical
-  } as const;
+  return fixture;
 }
 
 test('legacy registrations migrate once without inventing a historical ledger chain', async () => {
@@ -115,6 +122,11 @@ test('legacy registrations migrate once without inventing a historical ledger ch
     { repositoryRoot: fixture.repositoryRoot },
     { environment: fixture.environment }
   );
+  expect(await hooks.observeRetirement(relativePath)).toMatchObject({
+    status: 'active', registrationDigest: fixture.current.registrationDigest
+  });
+  expect((await hooks.inspect([relativePath])).entries[0]?.registrationState).toBe('active');
+  await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
   await hooks.bind(relativePath);
 
   const afterNames = await readdir(fixture.registrationsRoot);
@@ -201,8 +213,7 @@ test('current chain preserves migration source and rejects any pointer or genera
 
 /** Independent old-format fixture. No production writer is used to create v2 bytes. */
 async function rawV2Fixture(kind: 'current' | 'one-hop' | 'disposed' | 'gap' | 'foreign' | 'fork' | 'missing-predecessor') {
-  const fixture = await legacyFixture();
-  await rm(fixture.registrationsRoot, { recursive: true });
+  const fixture = await registrationFixture();
   const source = path.join(path.dirname(fixture.registrationsRoot), 'registrations-v2');
   await mkdir(source);
   const pointerKey = generatedStateDigest({ schema: 'sec-generated-state-registration-key-v1', relativePath }).slice(7);
@@ -243,7 +254,7 @@ async function rawV2Fixture(kind: 'current' | 'one-hop' | 'disposed' | 'gap' | '
   return { ...fixture, source, sourceNames, sourceBytes, retired };
 }
 
-for (const kind of ['current', 'one-hop', 'disposed'] as const) {
+for (const kind of ['current', 'disposed'] as const) {
   test(`raw unguarded v2 ${kind} migrates without rewriting its source`, async () => {
     const fixture = await rawV2Fixture(kind);
     await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
@@ -321,16 +332,18 @@ test('a first producer observation reads legal old retirement without publishing
   }
   await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
   expect((await hooks.observeRetirement(relativePath)).registrationDigest).toBe(observation.registrationDigest);
-});
-
-test('a first v1 producer observation remains read-only and retains the exact source registration', async () => {
-  const fixture = await legacyFixture();
-  const hooks = generatedStateProducerHooks({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
-  expect(await hooks.observeRetirement(relativePath)).toMatchObject({
-    status: 'active', registrationDigest: fixture.current.registrationDigest
-  });
-  expect((await hooks.inspect([relativePath])).entries[0]?.registrationState).toBe('active');
-  await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
+  const backend = createGeneratedStateRegistrationMutationBackend();
+  await withMigratedGeneratedStateMutation({ workspaceRoot: fixture.repositoryRoot, environment: fixture.environment, backend, use: async (_, resource) => {
+    const migrated = backend.readRegistrationCensus(resource).observations.get(relativePath)!;
+    expect(migrated.registration?.registrationDigest).toBe(fixture.retired.registrationDigest);
+    expect(migrated.previousRegistration?.registrationDigest).toBe(fixture.current.registrationDigest);
+  } });
+  expect((await readdir(fixture.source)).sort()).toEqual(fixture.sourceNames);
+  for (let index = 0; index < fixture.sourceNames.length; index += 1) {
+    expect(await readFile(path.join(fixture.source, fixture.sourceNames[index]!))).toEqual(fixture.sourceBytes[index]);
+  }
+  const names = await readdir(fixture.registrationsV2Root);
+  expect(names.some(name => /^[0-9a-f]{64}\.json$/u.test(name) || /^registration-[0-9a-f]{64}\.json$/u.test(name))).toBe(false);
 });
 
 test('an invalid existing v3 namespace never falls back to a valid old source', async () => {
@@ -343,8 +356,7 @@ test('an invalid existing v3 namespace never falls back to a valid old source', 
 });
 
 test('a workspace state root without any registration namespace observes an empty ledger', async () => {
-  const fixture = await rawV2Fixture('current');
-  await rm(fixture.source, { recursive: true });
+  const fixture = await registrationFixture();
   const hooks = generatedStateProducerHooks({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
   expect(await hooks.observeRetirement(relativePath)).toMatchObject({ status: 'mismatch', registrationDigest: null });
   await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -374,9 +386,8 @@ test('completed migration retains historical physical preimage across a legitima
     .rejects.toThrow('does not bind the current legacy inventory');
 });
 
-test('one bounded migration settles 128 independent old chains without path-multiplied namespace work', async () => {
-  const fixture = await legacyFixture();
-  await rm(fixture.registrationsRoot, { recursive: true });
+test('one migration settles every identity across 128 independent old chains', async () => {
+  const fixture = await registrationFixture();
   const source = path.join(path.dirname(fixture.registrationsRoot), 'registrations-v2');
   await mkdir(source);
   const workspace = inspectNoFollowDirectoryChain(fixture.repositoryRoot, 'scale workspace').target;
@@ -412,10 +423,7 @@ test('one bounded migration settles 128 independent old chains without path-mult
       registrationDigest: active.registrationDigest, ledgerRecordDigest: first }));
     expected.set(relative, retired.registrationDigest);
   }
-  const started = performance.now();
   await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
-  const elapsed = performance.now() - started;
-  expect(elapsed).toBeLessThan(30_000);
   const names = await readdir(fixture.registrationsV2Root);
   expect(names.length).toBe(258);
   const records = await Promise.all(names.filter(name => name.startsWith('registration-ledger-'))

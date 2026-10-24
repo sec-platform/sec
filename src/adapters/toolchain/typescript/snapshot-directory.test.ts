@@ -26,10 +26,21 @@ test('snapshot directory selection matches TypeScript on the same physical file 
     const includeCases = [undefined, [], ['src'], ['src/'], ['src/**/*'], ['**/*'],
       ['src/*'], ['src', 'other'], ['**/a?.ts'], ['packages/*/src']];
     const excludeCases = [undefined, [], ['src/skip'], ['**/skip'], ['**/*.d.ts'], ['node_modules']];
-    const extensionCases = [undefined, ['.ts'], ['.ts', '.tsx', '.js']];
-    const roots = ['', 'src', 'packages/pkg'];
-    for (const includes of includeCases) for (const excludes of excludeCases) {
-      for (const extensions of extensionCases) for (const child of roots) {
+    const patternCases: {
+      includes: string[] | undefined;
+      excludes: string[] | undefined;
+      extensions: string[] | undefined;
+    }[] = [
+      ...includeCases.map(includes => ({ includes, excludes: undefined, extensions: undefined })),
+      ...excludeCases.map(excludes => ({ includes: ['**/*'], excludes, extensions: ['.ts', '.tsx', '.js'] })),
+      { includes: ['src'], excludes: ['src/skip'], extensions: ['.ts'] },
+      { includes: ['src/**/*'], excludes: ['**/skip'], extensions: ['.ts'] },
+      { includes: ['**/a?.ts'], excludes: ['**/*.d.ts'], extensions: ['.ts'] }
+    ];
+    // Every pattern profile still exercises relative-root and traversal-depth
+    // interactions; the native matcher owns the remaining option combinations.
+    for (const { includes, excludes, extensions } of patternCases) {
+      for (const child of ['', 'src', 'packages/pkg']) {
         for (const depth of [undefined, 1, 2]) {
           const directory = path.join(root, child);
           const expected = ts.sys.readDirectory(directory, extensions, excludes, includes, depth).sort();
@@ -68,7 +79,7 @@ test('sealed directory inventory is insensitive to input order, duplicates and l
   const root = path.resolve('virtual-snapshot');
   const mutable = ['src/b.ts', 'src/a.ts', 'src/a.ts'];
   const read = createTypeScriptSnapshotDirectoryReader(mutable, root);
-  const expected = createTypeScriptSnapshotDirectoryReader(['src/a.ts', 'src/b.ts'], root)(root, ['.ts'], [], ['src']);
+  const expected = ['src/a.ts', 'src/b.ts'].map(file => path.join(root, file).replaceAll('\\', '/'));
   mutable.push('src/foreign.ts');
   const first = read(root, ['.ts'], [], ['src']);
   assert.deepEqual(first, expected);

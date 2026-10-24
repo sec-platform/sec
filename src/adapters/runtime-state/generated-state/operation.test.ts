@@ -44,7 +44,7 @@ function fixtureOwner(terminal: 'completed' | 'partial-residue'): GeneratedState
   return Object.freeze(owner);
 }
 
-test('generated-state keeps generic cleanup retired-only and consumes an owner receipt separately', async () => {
+test('generated-state keeps generic cleanup retired-only and requires terminal owner receipts', async () => {
   await withWorkspace(async (workspaceRoot) => {
     const plan = await runGeneratedStateOperation(
       ['plan', '--workspace', workspaceRoot],
@@ -57,6 +57,12 @@ test('generated-state keeps generic cleanup retired-only and consumes an owner r
       selected: [{ relativePath: '.tmp/fixture-owner-active' }]
     }]);
 
+    await expect(runGeneratedStateOperation(
+      ['cleanup', '--workspace', workspaceRoot],
+      workspaceRoot,
+      [fixtureOwner('partial-residue')]
+    )).rejects.toThrow('domain owner settlement is not terminal');
+
     const receipt = await runGeneratedStateOperation(
       ['cleanup', '--workspace', workspaceRoot],
       workspaceRoot,
@@ -66,15 +72,5 @@ test('generated-state keeps generic cleanup retired-only and consumes an owner r
       owner: 'fixture-domain-owner',
       terminal: 'completed'
     }]);
-  });
-});
-
-test('generated-state refuses a nonterminal domain-owner receipt before generic cleanup', async () => {
-  await withWorkspace(async (workspaceRoot) => {
-    await expect(runGeneratedStateOperation(
-      ['cleanup', '--workspace', workspaceRoot],
-      workspaceRoot,
-      [fixtureOwner('partial-residue')]
-    )).rejects.toThrow('domain owner settlement is not terminal');
   });
 });

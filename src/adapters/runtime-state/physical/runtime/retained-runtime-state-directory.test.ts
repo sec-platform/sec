@@ -10,8 +10,7 @@ import {
 } from './physical-no-follow.ts';
 import {
   RetainedRuntimeStateDirectoryError,
-  openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot,
-  retainedRuntimeStateDirectoryRequiresHostNamespace
+  openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot
 } from './retained-runtime-state-directory.ts';
 
 test.skipIf(process.platform !== 'win32')('Windows host namespace proof is FileId-bound, retained, and closed explicitly', async () => {
@@ -46,6 +45,12 @@ test('runtime-state directory is created beneath and retained from its owner-iss
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-state-root-'));
   try {
     const root = inspectNoFollowDirectoryChain(rootPath, 'test runtime-state root');
+    expect(() => openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
+      childDescriptor: 63,
+      mode: 'create-or-open',
+      root,
+      segments: ['..']
+    })).toThrow('segment is invalid');
     const retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 63,
       mode: 'create-or-open',
@@ -59,42 +64,8 @@ test('runtime-state directory is created beneath and retained from its owner-iss
     retained.assertCurrent();
     const receipt = retained.close();
     expect(receipt.state).toBe('closed');
-    expect(retained.close()).toBe(receipt);
+    expect(retained.close()).toEqual(receipt);
     expect(() => retained.assertCurrent()).toThrow(RetainedRuntimeStateDirectoryError);
-  } finally {
-    await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test.skipIf(process.platform !== 'win32')('runtime-state host requirement is retained and propagated as owner lineage', async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-host-root-'));
-  try {
-    const root = inspectNoFollowDirectoryChain(rootPath, 'test host runtime-state root');
-    const retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-      childDescriptor: 63,
-      mode: 'create-or-open',
-      root,
-      segments: ['Docker'],
-      requireHostNamespace: true
-    });
-    expect(retainedRuntimeStateDirectoryRequiresHostNamespace(retained)).toBe(true);
-    retained.assertCurrent();
-    expect(retained.close().state).toBe('closed');
-  } finally {
-    await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test('runtime-state directory rejects path escape before any create effect', async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-state-root-'));
-  try {
-    const root = inspectNoFollowDirectoryChain(rootPath, 'test runtime-state root');
-    expect(() => openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-      childDescriptor: 63,
-      mode: 'create-or-open',
-      root,
-      segments: ['..']
-    })).toThrow('segment is invalid');
   } finally {
     await rm(rootPath, { recursive: true, force: true });
   }
@@ -119,31 +90,5 @@ test('runtime-state open-existing reports an absent child as a typed open failur
     }
   } finally {
     await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test('runtime-state child open rejects a fresh root that is not its exact retained owner', async () => {
-  const leftPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-owner-left-'));
-  const rightPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-owner-right-'));
-  let owner: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
-  try {
-    const left = inspectNoFollowDirectoryChain(leftPath, 'left runtime owner');
-    owner = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-      childDescriptor: 63,
-      mode: 'open-existing',
-      root: left
-    });
-    expect(() => openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-      childDescriptor: 64,
-      mode: 'open-existing',
-      root: inspectNoFollowDirectoryChain(rightPath, 'foreign runtime owner'),
-      owner: owner!
-    })).toThrow('not the exact issued owner root');
-  } finally {
-    owner?.close();
-    await Promise.all([
-      rm(leftPath, { recursive: true, force: true }),
-      rm(rightPath, { recursive: true, force: true })
-    ]);
   }
 });

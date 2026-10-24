@@ -1,0 +1,91 @@
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { inspect } from 'node:util';
+import { formatFailure } from '../../../src/contracts/failure-format.ts';
+import { CodedFailure } from '../../../src/contracts/failure.ts';
+
+test('compiler failure formatting preserves existing JSON detail output', () => {
+  const details = { path: 'source.ts', line: 7, values: [true, null] };
+  const error = new CodedFailure('TEST-001', 'primary failure', details);
+  const primary = error.stack!;
+  const output = formatFailure(error);
+  assert.ok(output.startsWith(primary));
+  assert.deepEqual(JSON.parse(output.slice(primary.length)), {
+    path: 'source.ts', line: 7, values: [true, null]
+  });
+});
+
+test('diagnostic fallback does not invoke user inspection hooks or metadata getters', () => {
+  let reads = 0;
+  let inspections = 0;
+  const details: Record<PropertyKey, unknown> = { value: 1n };
+  Object.defineProperty(details, 'computed', { enumerable: true, get() { reads++; throw new Error('getter'); } });
+  details[inspect.custom] = () => { inspections++; throw new Error('inspect hook'); };
+  const error = new CodedFailure('TEST-005', 'primary fallback failure', details);
+  const output = formatFailure(error);
+  assert.ok(output.startsWith(error.stack!));
+  assert.match(output, /1n/u);
+  assert.equal(reads, 0);
+  assert.equal(inspections, 0);
+});
+
+test('a thrown null-prototype record can still be formatted', () => {
+  const error = Object.assign(Object.create(null), { code: 'THROWN', value: 7 });
+  const output = formatFailure(error);
+  assert.match(output, /THROWN/u);
+  assert.match(output, /7/u);
+});
+
+test('ordinary errors and primitive throws retain their existing presentation', () => {
+  const error = new Error('ordinary');
+  assert.equal(formatFailure(error), error.stack);
+  for (const value of [undefined, null, false, 0, 7n, 'text', Symbol('symbol')]) {
+    assert.equal(formatFailure(value), String(value));
+  }
+});
+
+test('a revoked thrown proxy cannot break diagnostic formatting', () => {
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+  assert.equal(typeof formatFailure(proxy), 'string');
+});
+
+test('unreadable details preserve the primary error instead of re-reading the accessor', () => {
+  const error = new CodedFailure('TEST-006', 'primary details access failure');
+  const primary = error.stack!;
+  let reads = 0;
+  Object.defineProperty(error, 'details', { get() { reads++; throw new Error('details unavailable'); } });
+  const output = formatFailure(error);
+  assert.ok(output.startsWith(primary));
+  assert.equal(reads, 1);
+});
+
+test('fallback formats the captured details rather than replacement carrier metadata', () => {
+  const error = new CodedFailure('TEST-007', 'primary captured-details failure');
+  const details = {
+    original: 'retained',
+    toJSON() {
+      Object.defineProperty(error, 'details', { value: { replacement: 'wrong' } });
+      throw new Error('serialization failed');
+    }
+  };
+  Object.defineProperty(error, 'details', { value: details, configurable: true });
+  const primary = error.stack!;
+  const output = formatFailure(error);
+  assert.ok(output.startsWith(primary));
+  assert.match(output, /\boriginal['"]?\s*:\s*(['"])retained\1/u);
+  assert.doesNotMatch(output, /\breplacement\b/u);
+  assert.doesNotMatch(output, /\bwrong\b/u);
+});
+
+test('invalid native Error stack observations preserve a string diagnostic', () => {
+  // A throwing getter and a present but non-string stack differ as malformed
+  // inputs, but share the same synchronous formatter fallback/qualification.
+  const throwing = new Error('primary unreadable stack');
+  Object.defineProperty(throwing, 'stack', { get() { throw new Error('stack unavailable'); } });
+  assert.equal(typeof formatFailure(throwing), 'string');
+
+  const malformed = new Error('runtime field');
+  Object.defineProperty(malformed, 'stack', { value: 7 });
+  assert.equal(typeof formatFailure(malformed), 'string');
+});

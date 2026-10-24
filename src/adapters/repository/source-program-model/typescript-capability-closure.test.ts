@@ -41,6 +41,9 @@ test('Source Program derives stable TypeScript API requirements from bound symbo
   );
 
   assertSourceProgramTypeScriptRequiredApiClosure(closure);
+  expect(() => assertSourceProgramTypeScriptRequiredApiClosure({
+    ...closure
+  } as SourceProgramTypeScriptRequiredApiClosure)).toThrow('not Source Program issued');
   expect(closure.unknowns).toEqual([]);
   expect(closure.requirements.map(({ apiPath, space }) => `${space}:${apiPath}`)).toEqual([
     'type:Program',
@@ -66,11 +69,4 @@ test('Source Program blocks dynamic and unstable TypeScript surfaces', () => {
     'typescript-computed-api-unresolved',
     'typescript-unstable-entrypoint'
   ]);
-});
-
-test('a structural closure cannot cross the Source Program issuer boundary', () => {
-  const closure = compile("import ts from 'typescript';\nexport const compilerVersion = ts.version;\n");
-  expect(() => assertSourceProgramTypeScriptRequiredApiClosure({
-    ...closure
-  } as SourceProgramTypeScriptRequiredApiClosure)).toThrow('not Source Program issued');
 });

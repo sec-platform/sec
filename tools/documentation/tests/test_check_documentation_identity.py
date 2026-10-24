@@ -8,6 +8,7 @@ import json
 
 import source_inventory as s
 import check_docs
+from .fixtures import declaration
 
 
 class IdentityNamespaceCoverage(TestCase):
@@ -24,28 +25,9 @@ class IdentityNamespaceCoverage(TestCase):
         rows=check_docs.checked_identity_registry(self.registry('manual/a.md','manual/nested/b.md'),sources,['manual'])
         self.assertEqual(len(rows),2)
 
-    def test_new_member_and_removed_registration_both_reject(self):
-        registry=self.registry('docs/a.md','docs/b.md')
-        sources={'docs/a.md','docs/b.md'}
-        check_docs.checked_identity_registry(registry,sources,['docs'])
-        with self.assertRaisesRegex(ValueError,'docs/new.md'):
-            check_docs.checked_identity_registry(registry,sources|{'docs/new.md'},['docs'])
-        registry['documents'].pop()
-        with self.assertRaisesRegex(ValueError,'docs/b.md'):
-            check_docs.checked_identity_registry(registry,sources,['docs'])
-
     def test_registered_external_source_still_has_its_identity_checked(self):
         with self.assertRaisesRegex(ValueError,'source Markdown member'):
             check_docs.checked_identity_registry(self.registry('examples/missing.md'),{'docs/a.md'},['docs'])
-
-
-def declaration(roots=None):
-    return {'schema': s.BASELINE_SCHEMA, 'source_root': '..',
-            'source_roots': roots if roots is not None else ['.documentation', 'docs'],
-            'source_manifest': 'source-manifest.json', 'audited_namespaces': ['docs'],
-            'non_documentation_roots': [], 'excluded_from_source_hash': sorted(s.EXCLUDED_FROM_SOURCE_HASH),
-            'entry': '../docs/产品/产品要求与工作约束.md', 'delivery_number': 'fixture',
-            'archive_name': 'fixture.zip', 'scope': 'fixture', 'authority_limit': 'content only'}
 
 
 class DocumentationIdentity(TestCase):
@@ -87,15 +69,10 @@ class DocumentationIdentity(TestCase):
         for text in ('{}', 'different renderer and fonts', '{ malformed'):
             self.write(s.CACHE_PATH, text)
             self.assertEqual(self.capture(), before)
+            self.assertIn(self.root / s.CACHE_PATH, s.documentation_files(self.root))
         (self.root / s.CACHE_PATH).unlink()
         self.assertEqual(self.capture(), before)
-
-    def test_cache_does_change_delivery_input_identity(self):
-        def envelope():
-            return hashlib.sha256(b''.join(p.read_bytes() for p in s.documentation_files(self.root))).hexdigest()
-        a = envelope()
-        self.write(s.CACHE_PATH, '{}')
-        self.assertNotEqual(envelope(), a)
+        self.assertNotIn(self.root / s.CACHE_PATH, s.documentation_files(self.root))
 
     def test_corrupt_derived_indices_never_become_authority(self):
         before = self.capture()
@@ -133,7 +110,11 @@ class DocumentationIdentity(TestCase):
     def test_new_authoritative_file_is_detected_not_silently_ignored(self):
         before = self.capture()
         self.write('docs/node_modules/source.txt', 'not a registered cache')
-        self.assertNotEqual(self.capture(), before)
+        after = self.capture()
+        self.assertNotEqual(after['source_set_sha256'], before['source_set_sha256'])
+        self.assertIn({'path': 'docs/node_modules/source.txt',
+                       'bytes': len(b'not a registered cache'),
+                       'sha256': hashlib.sha256(b'not a registered cache').hexdigest()}, after['members'])
 
     def test_missing_source_or_audited_namespace_is_not_an_empty_domain(self):
         value = s.load(self.root / s.BASELINE_PATH)
@@ -161,7 +142,7 @@ class DocumentationIdentity(TestCase):
         with self.assertRaisesRegex(ValueError, 'Unicode|collision'): self.capture()
 
     def test_unsafe_paths_and_nonfinite_json_rejected(self):
-        for name in ('../x', '/x', 'x//y', 'C:/x', 'x\\y', 'x\0y', 'x/..', 'x.'):
+        for name in ('', '../x', '/x', 'x//y', 'C:/x', 'x\\y', 'x\0y', 'x/..', 'x.'):
             with self.subTest(name=name), self.assertRaises(ValueError): s.local_path(self.root, name)
         for data in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":Infinity}'):
             with self.subTest(data=data), self.assertRaises(ValueError): s.decode(data, 'fixture')

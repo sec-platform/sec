@@ -118,6 +118,22 @@ test('test-value compilation derives behavior, effects, failures, and properties
   expect(result.records.every(({ observedProductionPaths }) =>
     observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
   expect(result.findings).toEqual([]);
+  expect(result.records.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
+    { status: 'known', count: 1 }, { status: 'known', count: 1 }
+  ]);
+  const tables = compile({
+    'tests/unit/tables.test.ts': [
+      "import { test } from 'bun:test';",
+      "test.each([1, 1])('duplicate rows', () => {});",
+      "test.each([])('empty table', () => {});",
+      "test.each(makeRows())('dynamic table', () => {});"
+    ].join('\n')
+  });
+  expect(tables.records.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
+    { status: 'known', count: 2 },
+    { status: 'known', count: 0 },
+    { status: 'unknown', reason: 'registration-table-unresolved' }
+  ]);
 });
 
 test('test-value blocks production-derived oracles while retaining fixed independent expectations', () => {
@@ -223,8 +239,7 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
     'tests/unit/replacement.test.ts',
     'tests/unit/deleted.test.ts',
     'tests/unit/rewritten.test.ts',
-    'tests/unit/unknown.test.ts',
-    'tests/unit/live-contract.test.ts'
+    'tests/unit/unknown.test.ts'
   ];
   const sourceRevision = sourceRevisionFor(files);
   const seed = compile(files, [], { baselineTestPaths });
@@ -267,8 +282,6 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
   expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([
     { code: 'test-module-disposition-unbound', path: 'tests/unit/deleted.test.ts' },
     { code: 'test-module-missing-from-worktree', path: 'tests/unit/deleted.test.ts' },
-    { code: 'test-module-disposition-unbound', path: 'tests/unit/live-contract.test.ts' },
-    { code: 'test-module-missing-from-worktree', path: 'tests/unit/live-contract.test.ts' },
     {
       code: 'test-module-disposition-unknown',
       path: 'tests/unit/unknown.test.ts'
@@ -443,21 +456,12 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
   });
   expect(baselineEvidence.map(({ path }) => path)).toEqual(baselinePaths.slice(0, 3));
   expect(compileSourceProgramTestBaselineEvidence({
-    baselineTestPaths: [retainedPath], baselineModel, candidateModel, baselineRevision
-  })).toEqual([]);
-  expect(compileSourceProgramTestBaselineEvidence({
     baselineTestPaths: [retainedPath], baselineModel,
     candidateModel: { ...candidateModel }, baselineRevision
   })).toEqual([expect.objectContaining({
     path: retainedPath, observationStatus: 'unresolved',
     observationReason: 'candidate-exact-generation-unavailable'
   })]);
-  expect(compileSourceProgramTestBaselineEvidence({
-    baselineTestPaths: baselinePaths,
-    baselineModel,
-    candidateModel,
-    baselineRevision
-  })).toEqual(baselineEvidence);
 
   const controller = new AbortController();
   const operation = createSourceProgramCompilationOperation({

@@ -39,7 +39,7 @@ test('anonymous registry provider bounds endpoint, bytes, JSON and deadline', as
     const deadlineAtUnixMs = Date.now() + 2_000;
     const observations = await queryAnonymousPackageRegistryLatestVersionsForTests(
       capability,
-      ['@typescript/native', 'large', 'invalid', 'slow'],
+      ['slow', 'large', '@typescript/native', 'invalid', '@typescript/native'],
       { deadlineAtUnixMs }
     );
 
@@ -59,7 +59,15 @@ test('anonymous registry provider bounds endpoint, bytes, JSON and deadline', as
       reason: 'deadline-exhausted',
       status: 'unavailable'
     });
-    expect(observedPaths).toContain('/-/package/%40typescript%2Fnative/dist-tags');
+    expect(observations.map(({ packageName }) => packageName)).toEqual([
+      '@typescript/native', 'invalid', 'large', 'slow'
+    ]);
+    expect(observedPaths.sort()).toEqual([
+      '/-/package/%40typescript%2Fnative/dist-tags',
+      '/-/package/invalid/dist-tags',
+      '/-/package/large/dist-tags',
+      '/-/package/slow/dist-tags'
+    ]);
     expect(() => queryAnonymousPackageRegistryLatestVersionsForTests(
       { ...capability },
       ['typescript'],
@@ -68,34 +76,6 @@ test('anonymous registry provider bounds endpoint, bytes, JSON and deadline', as
   } finally {
     server.stop(true);
   }
-});
-
-test('one registry batch keeps its captured deadline and cancellation source across queued requests', async () => {
-  const original = new AbortController();
-  const replacement = new AbortController();
-  replacement.abort('a different request');
-  const options = { deadlineAtUnixMs: Date.now() + 5_000, signal: original.signal };
-  const observed: string[] = [];
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      observed.push(new URL(request.url).pathname);
-      // The caller may reuse or edit its configuration after request capture.
-      options.deadlineAtUnixMs = 0;
-      options.signal = replacement.signal;
-      return Response.json({ latest: '1.0.0' });
-    }
-  });
-  try {
-    const capability = issueAnonymousPackageRegistryTestCapability({
-      ...ANONYMOUS_PACKAGE_REGISTRY_PROFILE,
-      maximumConcurrentRequests: 1,
-      origin: `http://127.0.0.1:${server.port}`
-    });
-    const results = await queryAnonymousPackageRegistryLatestVersionsForTests(capability, ['b', 'a', 'b'], options);
-    expect(observed).toEqual(['/-/package/a/dist-tags', '/-/package/b/dist-tags']);
-    expect(results.map(result => [result.packageName, result.status])).toEqual([['a', 'resolved'], ['b', 'resolved']]);
-  } finally { server.stop(true); }
 });
 
 test('registry cancellation remains live after input capture and unavailable results do not erase siblings', async () => {

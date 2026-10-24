@@ -250,9 +250,9 @@ export async function createRemovedDocumentationTestImpactFixture(
       [documentationPath, '# Docker fixture\n']
     ]);
     if (includeConsumer) {
-      sources.set('tests/unit/trusted-runtime-container.test.ts', [
+      sources.set('tests/unit/verification/trusted-runtime-container.test.ts', [
         "import { test } from 'bun:test';",
-        "import { dockerFixture } from '../../src/adapters/providers/docker/runtime/fixture.ts';",
+        "import { dockerFixture } from '../../../src/adapters/providers/docker/runtime/fixture.ts';",
         "test('docker owner', () => { if (!dockerFixture) throw new Error(); });",
         ''
       ].join('\n'));

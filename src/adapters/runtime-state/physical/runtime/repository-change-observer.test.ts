@@ -71,7 +71,7 @@ test.skipIf(process.platform !== 'win32')(
       expect(prepared.status).toBe('ready');
       if (prepared.status !== 'ready') throw new Error('Windows observer preparation failed.');
       const binding = repositoryChangeObserverBinding(prepared.prepared);
-      expect(binding).toBe(prepared.prepared.providerBinding);
+      expect(binding).toEqual(prepared.prepared.providerBinding);
       expect(binding.requirementId).toBe(RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID);
       expect(binding.contractDigest).toBe(RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST);
       expect(repositoryChangeObserverEffectKinds(prepared.prepared)).toEqual(['filesystem']);

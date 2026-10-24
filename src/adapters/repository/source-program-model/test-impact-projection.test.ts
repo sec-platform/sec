@@ -42,7 +42,7 @@ function fixture(sources: Readonly<Record<string, string>>) {
   return { repositoryCompilation, projection };
 }
 
-test('compact TestImpact projection binds the exact compilation purpose without copying full facts', () => {
+test('compact TestImpact projection retains exact bindings through its strict non-authoritative codec', () => {
   const { repositoryCompilation, projection } = fixture({
     'src/compiler/projection-fixture.ts': 'export const fixture = true;',
     'tests/unit/projection-fixture.test.ts': [
@@ -63,14 +63,18 @@ test('compact TestImpact projection binds the exact compilation purpose without 
     root: 'src/compiler'
   });
   expect('registrations' in projection).toBeFalse();
-  const fullConsumerPayloadBytes = Buffer.byteLength(JSON.stringify({
-    model: repositoryCompilation.typeScriptCompilation.model,
-    testObservations: repositoryCompilation.testObservations,
-    moduleGraph: repositoryCompilation.workspaceSnapshot.moduleGraph,
-    moduleMembership: repositoryCompilation.workspaceSnapshot.moduleMembership.descriptors
-  }));
-  expect(Buffer.byteLength(encodeTestImpactProjectionReceipt(projection), 'utf8'))
-    .toBeLessThan(fullConsumerPayloadBytes);
+
+  const encoded = encodeTestImpactProjectionReceipt(projection);
+  const parsed = parseTestImpactProjectionReceipt(encoded);
+  expect(parsed).toEqual(projection);
+  expect(() => assertIssuedTestImpactProjection(parsed)).toThrow('owner-issued');
+  expect(() => parseTestImpactProjectionReceipt(
+    encoded.replace('"schema":', '"schema":"duplicate","schema":')
+  )).toThrow('duplicate key');
+
+  const unknown = JSON.parse(encoded) as Record<string, unknown>;
+  unknown.unexpected = true;
+  expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();
 });
 
 test('compact projection retains compiler-observed test consumers as canonical observation edges', () => {
@@ -108,32 +112,6 @@ test('compact projection retains compiler-observed test consumers as canonical o
   outsideSnapshot.projectionDigest = sha256(unsigned);
   expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
     .toThrow('within its snapshot');
-});
-
-test('strict projection codec rejects ambiguity and parsed data cannot acquire process authority', () => {
-  const { projection } = fixture({
-    'src/compiler/codec-fixture.ts': 'export const codec = true;',
-    'tests/unit/codec-fixture.test.ts': "import '../../src/compiler/codec-fixture.ts';"
-  });
-  const encoded = encodeTestImpactProjectionReceipt(projection);
-  const parsed = parseTestImpactProjectionReceipt(encoded);
-  expect(parsed).toEqual(projection);
-  expect(() => assertIssuedTestImpactProjection(parsed)).toThrow('owner-issued');
-  expect(() => parseTestImpactProjectionReceipt(
-    encoded.replace('"schema":', '"schema":"duplicate","schema":')
-  )).toThrow('duplicate key');
-
-  const forged = JSON.parse(encoded) as Record<string, unknown>;
-  forged.testObservationDigest = rawSha256('foreign-observation');
-  const { projectionDigest: _discarded, ...unsigned } = forged;
-  forged.projectionDigest = sha256(unsigned);
-  const selfConsistentBytes = JSON.stringify(forged);
-  const decodedForgery = parseTestImpactProjectionReceipt(selfConsistentBytes);
-  expect(() => assertIssuedTestImpactProjection(decodedForgery)).toThrow('owner-issued');
-
-  const unknown = JSON.parse(encoded) as Record<string, unknown>;
-  unknown.unexpected = true;
-  expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();
 });
 
 test('changed exact source bytes produce a different TestImpact projection identity', () => {

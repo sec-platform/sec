@@ -120,33 +120,6 @@ function openTestProvider(root: string, processes = 2, outputBytes = 512 * 1024,
   return { operation, processSession, provider: resolution.capability };
 }
 
-test('GitConfigEffect performs exact replace-all readback and leaves the borrowed parent live', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-effect-'));
-  const targetPath = path.join(root, 'config');
-  await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n', 'utf8');
-  const { processSession, provider } = openTestProvider(root);
-  try {
-    const target = await issueGitConfigTargetCapability({ path: targetPath });
-    const receipt = await replaceAllGitConfigValue({
-      provider,
-      target,
-      key: 'core.hooksPath',
-      value: 'D:/canonical-hooks'
-    });
-    assertGitConfigEffectReceipt(receipt);
-    expect(receipt.writeOrdinal).toBe(1);
-    expect(receipt.readbackOrdinal).toBe(2);
-    expect(await fs.readFile(targetPath, 'utf8')).toContain('hooksPath = D:/canonical-hooks');
-    const providerReceipt = closeGitPhysicalProvider(provider);
-    assertGitPhysicalProviderReceipt(providerReceipt, provider);
-    expect(providerReceipt.processCount).toBe(2);
-    expect(() => processSession.cooperativeDeadlineAtUnixMs()).not.toThrow();
-  } finally {
-    processSession.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('GitConfigEffect rejects target ABA, structural origin copies and invalid key/value before child', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-negative-'));
   const targetPath = path.join(root, 'config');
@@ -215,65 +188,83 @@ test('GitConfigEffect rejects target ABA, structural origin copies and invalid k
 
 test('GitConfigEffect rejects insufficient parent process budget and cancelled provider admission with zero child', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-budget-'));
-  const targetPath = path.join(root, 'config');
-  await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n', 'utf8');
-  const limited = openTestProvider(root, 1);
-  let limitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
   try {
-    limitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
-    await expect(replaceAllGitConfigValue({
-      provider: limited.provider,
-      target: limitedTarget,
-      key: 'core.hooksPath',
-      value: 'value'
-    })).rejects.toThrow(/insufficient aggregate resources/u);
-    expect(limited.processSession.processCount).toBe(0);
-    closeGitPhysicalProvider(limited.provider);
-  } finally {
-    if (limitedTarget !== null) closeGitConfigTargetCapability(limitedTarget);
-    limited.processSession.close();
-  }
+    const targetPath = path.join(root, 'config');
+    await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n', 'utf8');
+    const limited = openTestProvider(root, 1);
+    let limitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
+    try {
+      limitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
+      await expect(replaceAllGitConfigValue({
+        provider: limited.provider,
+        target: limitedTarget,
+        key: 'core.hooksPath',
+        value: 'value'
+      })).rejects.toThrow(/insufficient aggregate resources/u);
+      expect(limited.processSession.processCount).toBe(0);
+    } finally {
+      try {
+        if (limitedTarget !== null) closeGitConfigTargetCapability(limitedTarget);
+      } finally {
+        try {
+          closeGitPhysicalProvider(limited.provider);
+        } finally {
+          limited.processSession.close();
+        }
+      }
+    }
 
-  const outputLimited = openTestProvider(root, 2, 1);
-  let outputLimitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
-  try {
-    outputLimitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
-    await expect(replaceAllGitConfigValue({
-      provider: outputLimited.provider,
-      target: outputLimitedTarget,
-      key: 'core.hooksPath',
-      value: 'value'
-    })).rejects.toThrow(/insufficient aggregate resources/u);
-    expect(outputLimited.processSession.processCount).toBe(0);
-    closeGitPhysicalProvider(outputLimited.provider);
-  } finally {
-    if (outputLimitedTarget !== null) closeGitConfigTargetCapability(outputLimitedTarget);
-    outputLimited.processSession.close();
-  }
+    const outputLimited = openTestProvider(root, 2, 1);
+    let outputLimitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
+    try {
+      outputLimitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
+      await expect(replaceAllGitConfigValue({
+        provider: outputLimited.provider,
+        target: outputLimitedTarget,
+        key: 'core.hooksPath',
+        value: 'value'
+      })).rejects.toThrow(/insufficient aggregate resources/u);
+      expect(outputLimited.processSession.processCount).toBe(0);
+    } finally {
+      try {
+        if (outputLimitedTarget !== null) closeGitConfigTargetCapability(outputLimitedTarget);
+      } finally {
+        try {
+          closeGitPhysicalProvider(outputLimited.provider);
+        } finally {
+          outputLimited.processSession.close();
+        }
+      }
+    }
 
-  const operation = testOperation();
-  const controller = new AbortController();
-  const cancelled = openProcessResourceSession({
-    operation,
-    requirementBindingContext: issueOperationRequirementBindingContext({
+    const operation = testOperation();
+    const controller = new AbortController();
+    const cancelled = openProcessResourceSession({
       operation,
-      requirementId: REQUIREMENT,
-      resourceCeilings: operation.plan.execution.aggregateBudgets
-    }),
-    signal: controller.signal
-  });
-  controller.abort();
-  const resolution = openGitPhysicalProvider({
-    cwd: root,
-    executablePath: gitExecutable(),
-    operation,
-    processSession: cancelled,
-    maximumExecutableBytes: 64 * 1024 * 1024
-  });
-  expect(resolution).toEqual({ status: 'unavailable', reason: 'deadline' });
-  expect(cancelled.processCount).toBe(0);
-  cancelled.close();
-  rmSync(root, { recursive: true, force: true });
+      requirementBindingContext: issueOperationRequirementBindingContext({
+        operation,
+        requirementId: REQUIREMENT,
+        resourceCeilings: operation.plan.execution.aggregateBudgets
+      }),
+      signal: controller.signal
+    });
+    try {
+      controller.abort();
+      const resolution = openGitPhysicalProvider({
+        cwd: root,
+        executablePath: gitExecutable(),
+        operation,
+        processSession: cancelled,
+        maximumExecutableBytes: 64 * 1024 * 1024
+      });
+      expect(resolution).toEqual({ status: 'unavailable', reason: 'deadline' });
+      expect(cancelled.processCount).toBe(0);
+    } finally {
+      cancelled.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('GitConfigEffect uses a provider-local process delta inside one borrowed parent aggregate', async () => {
@@ -312,9 +303,14 @@ test('GitConfigEffect uses a provider-local process delta inside one borrowed pa
       value: 'D:/canonical-hooks'
     });
     assertGitConfigEffectReceipt(receipt);
+    expect(receipt.writeOrdinal).toBe(2);
+    expect(receipt.readbackOrdinal).toBe(3);
+    expect(await fs.readFile(targetPath, 'utf8')).toContain('hooksPath = D:/canonical-hooks');
     const providerReceipt = closeGitPhysicalProvider(secondProvider);
+    assertGitPhysicalProviderReceipt(providerReceipt, secondProvider);
     expect(providerReceipt.processCount).toBe(2);
     expect(first.processSession.processCount).toBe(3);
+    expect(() => first.processSession.cooperativeDeadlineAtUnixMs()).not.toThrow();
   } finally {
     if (target !== null) closeGitConfigTargetCapability(target);
     if (secondProvider !== null) closeGitPhysicalProvider(secondProvider);
@@ -405,31 +401,6 @@ test('GitConfigEffect holds the actual target lock while real Git validates the 
   }
 });
 
-test('GitConfigEffect final native publication rejects changed byte preimage and preserves it', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-final-preimage-'));
-  const targetPath = path.join(root, 'config');
-  await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n');
-  const replacement = '[core]\n\trepositoryformatversion = 1\n\tforeign = retained\n';
-  const { processSession, provider } = openTestProvider(root);
-  const target = await issueGitConfigTargetCapability({ path: targetPath });
-  try {
-    const actor = createGitConfigEffectTestActorForTests({
-      async beforePublication() { await fs.writeFile(targetPath, replacement); }
-    });
-    await expect(replaceAllGitConfigValue({
-      provider, target, key: 'core.hooksPath', value: 'unpublished', testOnlyActor: actor
-    })).rejects.toThrow(/bytes changed|preimage/u);
-    expect(await fs.readFile(targetPath, 'utf8')).toBe(replacement);
-    expect(processSession.processCount).toBe(2);
-    expect(await fs.readdir(root)).toEqual(['config']);
-  } finally {
-    closeGitConfigTargetCapability(target);
-    closeGitPhysicalProvider(provider);
-    processSession.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('GitConfigEffect preserves primary preimage failure and independent cleanup residue', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-composite-'));
   const targetPath = path.join(root, 'config');
@@ -451,6 +422,7 @@ test('GitConfigEffect preserves primary preimage failure and independent cleanup
     const failures = (failure as ResourceCompositeSettlementError).failures;
     expect(failures.map(({ label }) => label)).toEqual(['git-config-effect', 'git-config-target-lock']);
     expect(String(failures[0]!.error)).toMatch(/bytes changed|preimage/u);
+    expect(processSession.processCount).toBe(2);
     expect(await fs.readFile(targetPath, 'utf8')).toBe(replacement);
     expect(await fs.readFile(`${targetPath}.lock`, 'utf8')).toBe('foreign lock replacement\n');
     expect((await fs.readdir(root)).sort()).toEqual(['config', 'config.lock']);

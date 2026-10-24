@@ -75,6 +75,7 @@ test('strict read and prepare preserve a dead local legacy record and its existi
     const recordIdentity = inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME);
     const namespaceIdentity = inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target;
     writeFileSync(path.join(root, NAMESPACE_LEAF, 'sentinel'), 'original namespace payload');
+    const payloadIdentity = inspectNoFollowOrdinaryFileEntry(namespaceIdentity, 'sentinel');
     expectBlocked(() => readPhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
     expectBlocked(() => preparePhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
     expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(legacyBytes);
@@ -82,6 +83,8 @@ test('strict read and prepare preserve a dead local legacy record and its existi
     expect(inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target).toEqual(namespaceIdentity);
     expect(readdirSync(root).sort()).toEqual([LEASE_NAME, NAMESPACE_LEAF].sort());
     expect(readFileSync(path.join(root, NAMESPACE_LEAF, 'sentinel'), 'utf8')).toBe('original namespace payload');
+    expect(readdirSync(namespaceIdentity.path)).toEqual(['sentinel']);
+    expect(inspectNoFollowOrdinaryFileEntry(namespaceIdentity, 'sentinel')).toEqual(payloadIdentity);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

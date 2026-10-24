@@ -1,4 +1,4 @@
-import { access, chmod, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { lstat, chmod, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -25,8 +25,7 @@ import {
   disposeUnclaimedDockerCommandProviderCapability,
   issueDockerCommandProviderCapability
 } from './command-provider.ts';
-import { assertDockerCommandOperationAvailable, compileLinuxDockerDaemonProbeArguments, LINUX_DOCKER_OPERATIONS, openContainerEngineSession } from './container-engine-session.ts';
-import { openLinuxDockerCommandProvider } from './linux-command-provider.ts';
+import { compileLinuxDockerDaemonProbeArguments, openContainerEngineSession } from './container-engine-session.ts';
 import { assertLinuxDockerEndpoint, openLinuxDockerEndpoint, type LinuxDockerEndpoint } from './linux-endpoint.ts';
 import { assertLinuxDockerRuntimeState, openLinuxDockerRuntimeState } from './linux-runtime-state.ts';
 
@@ -102,7 +101,7 @@ linuxTest('Linux private config is exclusive, descriptor-addressed and retired a
     first.assertCurrent();
     first.close();
     first.close();
-    await expect(access(root)).rejects.toBeDefined();
+    await expect(lstat(root)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     first.close();
     second.close();
@@ -134,8 +133,8 @@ linuxTest('Linux session refuses an unretained endpoint before executing a probe
       provider: fixture.capability, operation: operation(fixture.capability.providerIdentityDigest),
       cwd: fixture.root, availability: 'observe'
     })).rejects.toMatchObject({ code: 'SEC-DOCKER-COMMAND-OPERATION-UNAVAILABLE', reason: 'linux-endpoint-identity-unavailable' });
-    await expect(access(fixture.marker)).rejects.toBeDefined();
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
@@ -146,7 +145,7 @@ linuxTest('replaced daemon probe rejects provider admission and settles its priv
     await writeFile(replacement, '#!/bin/sh\nprintf attacker', { mode: 0o700 });
     await rename(replacement, fixture.probe);
     expect(() => claimDockerCommandProviderCapability(fixture.capability)).toThrow('changed before admission');
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -163,17 +162,12 @@ linuxTest('a Linux session rejects a different expected endpoint before any comm
         osType: 'linux', architecture: 'x86_64'
       })
     })).rejects.toThrow('differs from the installed provider endpoint');
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
-
-test('Linux installed provider rejects an unbound working directory before discovery', async () => {
-  await expect(openLinuxDockerCommandProvider({ workingDirectory: '.' }))
-    .rejects.toThrow(/working directory|platform/u);
-});
-
 
 test('Linux daemon probe disables ambient config, proxies and redirects and bounds the local request', () => {
   const deadline = Date.now() + 30_000;
@@ -255,7 +249,7 @@ linuxTest('sealed curl observes a local Engine without inherited curlrc or proxi
       cwd: unavailable.root, availability: 'observe'
     })).rejects.toMatchObject({ reason: 'endpoint-unavailable', phase: 'endpoint-observe' });
     expect(requests).toEqual(Array(4).fill({ method: 'GET', url: '/info', authorization: undefined }));
-    for (const fixture of fixtures) await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    for (const fixture of fixtures) await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     for (const [key, value] of Object.entries(old)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -294,26 +288,11 @@ linuxTest('Linux config cannot introduce credential helpers or ambient plugin di
 });
 
 
-test('Linux command-family admission refuses Docker CLI help/error reachability before transport', () => {
-  expect(LINUX_DOCKER_OPERATIONS).toEqual([]);
-  for (const kind of ['container-copy', 'container-create', 'container-exec', 'container-inspect',
-    'container-list', 'container-remove', 'container-run', 'container-start', 'image-inspect',
-    'image-list', 'image-remove', 'network-disconnect', 'volume-create', 'volume-inspect'] as const) {
-    expect(() => assertDockerCommandOperationAvailable('linux', kind))
-      .toThrow('linux-cli-plugin-closure-unavailable');
-    expect(() => assertDockerCommandOperationAvailable('win32', kind)).not.toThrow();
-  }
-  expect(() => assertDockerCommandOperationAvailable('linux', undefined)).toThrow('linux-cli-plugin-closure-unavailable');
-  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-build')).toThrow('linux-buildx-closure-unavailable');
-  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-bake')).toThrow('linux-buildx-closure-unavailable');
-});
-
-
 linuxTest('unclaimed Linux provider disposal settles the private state and retained command inputs', async () => {
   const fixture = await providerFixture();
   try {
     disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(() => claimDockerCommandProviderCapability(fixture.capability)).toThrow();
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });

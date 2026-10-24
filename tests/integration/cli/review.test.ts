@@ -1,0 +1,322 @@
+import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import { writeJson } from "../../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
+import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { ReviewSummaryInspectView } from '../../../src/application/review-summary-inspect.ts';
+import { formatReviewSummary } from '../../../src/entry/cli/review-summary-inspect.ts';
+import type { ReviewSummary } from '../../../src/assurance/verification/review/contract/types.ts';
+import { expectCliVariants } from '../../testkit/cli.ts';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
+
+const baseView: ReviewSummaryInspectView = {
+  formatVersion: '2',
+  chain: {
+    status: 'failed',
+    stageCount: 4,
+    passedStageCount: 2,
+    attentionStageCount: 1,
+    failedStageCount: 1,
+    stages: [
+      { id: 'verification', status: 'passed' },
+      { id: 'coverage', status: 'attention' },
+      { id: 'artifacts', status: 'failed' },
+      { id: 'review', status: 'passed' }
+    ]
+  },
+  ci: { status: 'failed', failureCount: 2, regressionRiskCount: 1, conflictHintCount: 0 },
+  impact: { blockCount: 2, runtimeEntryCount: 3, changeSourceCount: 4, installImpactCount: 1 },
+  coverage: null,
+  provenance: {
+    artifactCount: 3,
+    registryArtifactCount: 1,
+    generatedArtifactCount: 2,
+    unverifiedArtifactCount: 1
+  },
+  artifacts: {
+    artifactStatus: 'missing',
+    artifactCount: 0,
+    missingCount: 0,
+    missingReasonTypeCount: 0,
+    contractCount: 0,
+    uploadGroupCount: 0
+  }
+};
+
+test('CLI exposes review summary as text and JSON contracts', async () => {
+  // Preserve the two independent fixed-oracle cases alongside the populated
+  // CLI text/JSON contract on the same fast lane.
+  expect(formatReviewSummary(baseView).split('\n')).toContain('Coverage missing; blocks=missing');
+  const targetOnlyUpgrade = {
+    status: 'blocked',
+    blockId: 'ticket.basic',
+    toVersion: '0.3.0',
+    migrationCount: 1,
+    impactCount: 2,
+    requiresVerification: true
+  };
+  expect(formatReviewSummary({ ...baseView, upgrade: targetOnlyUpgrade }).split('\n')).toContain(
+    'Upgrade blocked; ticket.basic target 0.3.0; migrations=1; impacts=2; requiresVerification=true'
+  );
+
+  await withTempWorkspace(async (workspaceRoot) => {
+    const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
+    await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
+    const reviewSummary: ReviewSummary = {
+      formatVersion: '2',
+      ciSummary: {
+        status: 'attention',
+        failureCount: 1,
+        regressionRiskCount: 2,
+        conflictHintCount: 1,
+        impactedBlockCount: 1,
+        runtimeEntryCount: 1
+      },
+      chainSummary: {
+        status: 'attention',
+        stageCount: 4,
+        passedStageCount: 2,
+        attentionStageCount: 1,
+        failedStageCount: 1,
+        stageSummaries: [
+          { id: 'verification', status: 'passed', detail: 'lane=all; failed=none' },
+          { id: 'coverage', status: 'failed', detail: 'blocks=1/2' },
+          { id: 'artifacts', status: 'attention', detail: 'total=4; missing=1' },
+          { id: 'review', status: 'passed', detail: 'review-summary=generated' }
+        ]
+      },
+      artifactSummary: {
+        artifactStatus: 'attention',
+        artifactCount: 4,
+        governanceCount: 3,
+        contractCount: 1,
+        uploadGroupCount: 2,
+        missingCount: 1,
+        missingReasonTypeCount: 1
+      },
+      coverageSummary: {
+        status: 'failed',
+        acceptancePassedCount: 1,
+        blockCount: 2,
+        coveredBlockCount: 1,
+        uncoveredBlockCount: 1,
+        acceptancePassed: ['smoke'],
+        uncoveredBlocks: ['tenant/basic-workspace'],
+        blockSummaries: []
+      },
+      provenanceSummary: {
+        artifactCount: 5,
+        verifiedArtifactCount: 2,
+        unverifiedArtifactCount: 3,
+        overrideArtifactCount: 1,
+        registryArtifactCount: 2,
+        generatedArtifactCount: 2,
+        generatedPassCount: 2,
+        originSummaryCount: 0,
+        originSummaries: [],
+        overrideSummaryCount: 0,
+        overrideSummaries: [],
+        registrySummaryCount: 0,
+        registrySummaries: [],
+        generatedPassSummaries: [],
+        unverifiedArtifacts: ['src/installed/entity/customer-service.ts']
+      },
+      changeSourceCount: 1,
+      runtimeEntryCount: 1,
+      installImpactCount: 1,
+      changeSources: [
+        {
+          path: 'src/installed/entity/customer-service.ts',
+          originType: 'block',
+          originId: 'entity/customer-basic'
+        }
+      ],
+      runtimeEntries: [
+        {
+          path: 'src/installed/entity/customer-service.ts',
+          kind: 'service',
+          vertical: 'customer',
+          relatedBlocks: ['entity/customer-basic']
+        }
+      ],
+      verticalSlices: [],
+      installImpacts: [
+        {
+          blockId: 'entity/customer-basic',
+          actionKinds: ['copy'],
+          sourceRoots: ['files'],
+          targetPaths: ['src/installed/entity/customer-service.ts'],
+          verticals: ['customer'],
+          runtimeEntries: ['src/installed/entity/customer-service.ts']
+        }
+      ],
+      installImpactSummary: {
+        impactCount: 1,
+        blockCount: 1,
+        actionKindCount: 1,
+        sourceRootCount: 1,
+        targetPathCount: 1,
+        verticalCount: 1,
+        runtimeEntryCount: 1,
+        groupCount: 1,
+        blocks: ['entity/customer-basic'],
+        actionKinds: ['copy'],
+        sourceRoots: ['files'],
+        targetPaths: ['src/installed/entity/customer-service.ts'],
+        verticals: ['customer'],
+        runtimeEntries: ['src/installed/entity/customer-service.ts'],
+        groupSummaries: []
+      },
+      upgradeSummary: {
+        status: 'blocked',
+        blockId: 'auth/basic-session',
+        fromVersion: '0.1.0',
+        toVersion: '0.1.1',
+        preflightCheckCount: 1,
+        preflightEvidenceCount: 1,
+        migrationCount: 1,
+        migrationKindCounts: {
+          'file-replace': 1
+        },
+        requiresVerification: true,
+        requiresVerificationCount: 1,
+        impactCount: 1,
+        impacts: ['src/installed/auth/session.ts'],
+        sourceMigrationCount: 1,
+        verificationSummaries: [{ id: 'required', count: 1 }],
+        preflightSummaries: [{ group: 'migration', checkCount: 1, evidenceCount: 1 }],
+        migrationSummaries: [
+          {
+            id: 'mig-auth-session-refresh',
+            kind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            reason: 'Refresh auth session implementation.',
+            requiresVerification: true,
+            source: 'files/src/installed/auth/session.ts'
+          }
+        ],
+        migrationOperationCount: 1,
+        migrationOperationSummaries: [
+          {
+            id: 'mig-auth-session-refresh',
+            kind: 'file-replace',
+            target: 'src/installed/auth/session.ts',
+            role: 'file',
+            source: 'files/src/installed/auth/session.ts'
+          }
+        ],
+        diagnostics: {
+          status: 'blocked',
+          phase: 'apply',
+          failedCheck: 'migration-file-operations',
+          errorCode: 'UPGRADE-MIGRATION-016',
+          message: 'file-replace target "src/installed/auth/session.ts" is missing',
+          details: {
+            migrationId: 'mig-auth-session-refresh',
+            migrationKind: 'file-replace',
+            entry: 'migrations/auth-session-refresh.json',
+            entryId: 'mig-auth-session-refresh-entry',
+            entryKind: 'copy-file',
+            target: 'src/installed/auth/session.ts',
+            source: 'files/src/installed/auth/session.ts',
+            rollbackStatus: 'restored'
+          }
+        }
+      },
+      impactedBlocks: ['entity/customer-basic'],
+      failurePoints: [
+        {
+          lane: 'fast',
+          kind: 'policy',
+          message: 'Policy tenant-scope-required: missing tenant guard',
+          artifactPath: CI_ARTIFACT_FILES.policyReport
+        }
+      ],
+      regressionRisks: [
+        {
+          kind: 'coverage-gap',
+          message: 'Block tenant/basic-workspace has uncovered acceptance',
+          blockId: 'tenant/basic-workspace'
+        },
+        {
+          kind: 'override-active',
+          message: 'Block entity/customer-basic has active override',
+          blockId: 'entity/customer-basic'
+        }
+      ],
+      conflictHints: [
+        {
+          kind: 'upgrade-plan-present',
+          message: 'Upgrade plan needs review before merge',
+          relatedId: 'auth/basic-session'
+        }
+      ]
+    };
+    await writeJson(reviewSummaryPath, reviewSummary);
+
+    const reviewVariants = await expectCliVariants(workspaceRoot, ['review'], {
+      text: [
+        'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
+        'CI attention; failures=1; risks=2; conflicts=1',
+        'Impact blocks=1; runtime=1; changeSources=1; installImpacts=1',
+        'Coverage failed; blocks=1/2',
+        'Provenance artifacts=5; registry=2; generated=2; unverified=3',
+        'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2',
+        'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
+        'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true',
+        'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
+      ]
+    });
+    // Protect the complete persisted JSON contract, not only representative fields.
+    expect(reviewVariants.json).toEqual(reviewSummary);
+    expect(reviewVariants.compactJson).toEqual(reviewSummary);
+
+    const diagnosticVariants = await expectCliVariants(workspaceRoot, ['review', 'diagnostics'], {
+      text: [
+        'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
+        `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
+        'Blocks: entity/customer-basic, tenant/basic-workspace',
+        `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
+        'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; Block tenant/basic-workspace has uncovered acceptance',
+        'Diagnostic regression-risk:1; kind=override-active; block=entity/customer-basic; Block entity/customer-basic has active override',
+        'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
+      ]
+    });
+    const expectedDiagnostics = {
+      status: 'attention',
+      diagnosticCount: 4,
+      failureCount: 1,
+      regressionRiskCount: 2,
+      conflictHintCount: 1,
+      artifactPathCount: 1,
+      artifactPaths: [CI_ARTIFACT_FILES.policyReport],
+      blockCount: 2,
+      blocks: ['entity/customer-basic', 'tenant/basic-workspace'],
+      diagnostics: [
+        {
+          id: 'failure:0', category: 'failure', kind: 'policy', lane: 'fast',
+          message: 'Policy tenant-scope-required: missing tenant guard',
+          artifactPath: CI_ARTIFACT_FILES.policyReport
+        },
+        {
+          id: 'regression-risk:0', category: 'regression-risk', kind: 'coverage-gap',
+          message: 'Block tenant/basic-workspace has uncovered acceptance',
+          blockId: 'tenant/basic-workspace'
+        },
+        {
+          id: 'regression-risk:1', category: 'regression-risk', kind: 'override-active',
+          message: 'Block entity/customer-basic has active override',
+          blockId: 'entity/customer-basic'
+        },
+        {
+          id: 'conflict:0', category: 'conflict', kind: 'upgrade-plan-present',
+          message: 'Upgrade plan needs review before merge', relatedId: 'auth/basic-session'
+        }
+      ]
+    };
+    expect(diagnosticVariants.json).toEqual(expectedDiagnostics);
+    expect(diagnosticVariants.compactJson).toEqual(expectedDiagnostics);
+  });
+});

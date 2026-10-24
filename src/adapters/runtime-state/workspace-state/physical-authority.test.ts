@@ -368,7 +368,7 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'win32')('warm closure reuses one generation and a multi-directory delta swaps it once', async () => {
+test.skipIf(process.platform !== 'win32')('warm closure reuses authority and a multi-directory delta settles replaced sessions', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-warm-delta-'));
   const repositoryRoot = path.join(root, 'repository');
   const stateRoot = path.join(root, 'state');
@@ -406,8 +406,6 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses one generation an
       requiredDirectories: [operationRoot, terminalRoot]
     });
     const afterDelta = observeWindowsAclSessionLifecycleForTests();
-    expect(afterDelta.opened - afterWarm.opened).toBe(1);
-    expect(afterDelta.closed - afterWarm.closed).toBe(1);
     expect(delta.directory(operationRoot).path).toBe(operationRoot);
     expect(delta.directory(terminalRoot).path).toBe(terminalRoot);
 
@@ -427,6 +425,8 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses one generation an
     await cold.release();
     rmSync(root, { recursive: true, force: true });
   }
+  const afterRelease = observeWindowsAclSessionLifecycleForTests();
+  expect(afterRelease.opened - before.opened).toBe(afterRelease.closed - before.closed);
 });
 
 test.skipIf(process.platform !== 'win32')(

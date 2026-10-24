@@ -11,9 +11,16 @@ export async function runSuite() {
     company: ''
   });
 
-  assert.equal(created.tenantId, 'tenant-a');
-  assert.equal(created.email, 'sales@acme.test');
-  assert.equal(created.company, 'Unknown');
+  assert.deepEqual(created, {
+    id: 1,
+    tenantId: 'tenant-a',
+    name: 'Acme',
+    email: 'sales@acme.test',
+    phone: '4008009000',
+    company: 'Unknown'
+  });
+  assert.throws(() => createCustomer(db, tenantA, { name: '   ' }), /required/);
+  assert.equal(db.customers.length, 1);
 
   const tenantACustomers = listCustomers(db, tenantA);
   assert.equal(tenantACustomers.length, 1);

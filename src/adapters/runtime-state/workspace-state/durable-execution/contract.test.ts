@@ -210,7 +210,7 @@ test('exact parser rejects duplicate keys, unknown fields, digest drift and nonc
   }
   expect(() => parseDurableExecutionRecord(
     encoded.replace(digest('3'), digest('26'))
-  )).toThrow('digest does not match');
+  )).toThrow(expect.objectContaining({ kind: 'digest-mismatch' }));
   expect(() => parseDurableExecutionRecord(JSON.stringify({ ...attemptPrefix()[0] })))
-    .toThrow('bytes are not canonical');
+    .toThrow(expect.objectContaining({ kind: 'noncanonical-record' }));
 });

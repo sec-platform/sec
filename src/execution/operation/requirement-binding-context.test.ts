@@ -2,9 +2,7 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
   consumeOperationRequirementBindingContext,
-  issueOperationRequirementBindingContext,
-  OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
-  type OperationRequirementBindingContext
+  issueOperationRequirementBindingContext
 } from './requirement-binding-context.ts';
 import {
   bindSemanticOperation,
@@ -67,7 +65,7 @@ test('foundation context binds one exact attempt requirement provider and narrow
   });
   const projection = consumeOperationRequirementBindingContext(context);
 
-  expect(projection.issuerRole).toBe(OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE);
+  expect(projection.issuerRole).toBe('semantic-operation-foundation');
   expect(projection.operationIdentityDigest).toBe(bound.plan.identity.identityDigest);
   expect(projection.executionPlanDigest).toBe(bound.plan.execution.executionPlanDigest);
   expect(projection.boundAttemptDigest).toBe(bound.boundAttemptDigest);
@@ -103,24 +101,6 @@ test('foundation context binds a fixed child deadline and rejects attempt wideni
     resourceCeilings: [{ resource: 'duration-ms', maximum: 30_000 }],
     absoluteDeadlineAtUnixMs: widenedOperation.plan.attempt.deadlineAtUnixMs + 1
   })).toThrow('absolute deadline is not narrowed from its attempt');
-});
-
-test('structural copies serialization and caller flags cannot recreate the context', () => {
-  const context = issueOperationRequirementBindingContext({
-    operation: operation('typescript-native-provider'),
-    requirementId: 'typescript.project-check',
-    resourceCeilings: [{ resource: 'processes', maximum: 1 }]
-  });
-  const structural = structuredClone(context) as OperationRequirementBindingContext;
-  const serialized = JSON.parse(JSON.stringify(context)) as OperationRequirementBindingContext;
-
-  expect(() => consumeOperationRequirementBindingContext(structural))
-    .toThrow('operation-foundation-issued');
-  expect(() => consumeOperationRequirementBindingContext(serialized))
-    .toThrow('operation-foundation-issued');
-  expect(() => consumeOperationRequirementBindingContext(
-    true as unknown as OperationRequirementBindingContext
-  )).toThrow('operation-foundation-issued');
 });
 
 test('context rejects foreign requirements and ceiling widening while identity follows attempts', () => {

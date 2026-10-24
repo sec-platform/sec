@@ -78,7 +78,7 @@ test('physical generation retirement issues one exact terminal receipt after rel
     expect(await materialized.generation.retire()).toBe(receipt);
     assertPhysicalGenerationRetirementReceipt(receipt);
     expect(() => assertPhysicalGenerationRetirementReceipt({ ...receipt }))
-      .toThrow('was not issued by Runtime Physical');
+      .toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE' }));
     expect(receipt.root.path).toBe(path.resolve(root));
 
     await writeFile(path.join(root, 'after-retirement.txt'), 'owner-write-restored\n');
@@ -138,7 +138,7 @@ test('tree retirement preserves both sides of a root replacement ABA', async () 
       inventory,
       parent: inspectNoFollowDirectoryChain(parentPath, 'retirement ABA parent fixture').target,
       root
-    })).toThrow('identity changed');
+    })).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' }));
     expect(await readFile(path.join(displacedPath, 'owned.txt'), 'utf8')).toBe('owned\n');
     expect(await readFile(path.join(rootPath, 'replacement.txt'), 'utf8')).toBe('replacement\n');
   } finally {
@@ -187,7 +187,7 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows retirement deletes an exact owner-sealed tree without broad ACL restoration',
+  'Windows retirement deletes an exact owner-sealed tree after generation retirement',
   async () => {
     const parentPath = await mkdtemp(path.join(tmpdir(), 'sec-sealed-tree-retirement-'));
     const rootPath = path.join(parentPath, 'generation');

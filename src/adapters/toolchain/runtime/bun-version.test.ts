@@ -45,7 +45,7 @@ test('package-runner admission rejects a different executable and runtime genera
   );
 });
 
-test('projection readback rejects a package-manager generation that diverges from the owner', async () => {
+test('projection readback rejects divergent, duplicate and unsafe package metadata and accepts its repair', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-bun-generation-'));
   try {
     await Promise.all([
@@ -64,43 +64,24 @@ test('projection readback rejects a package-manager generation that diverges fro
     await expect(readCanonicalBunRuntimeProjection(root)).rejects.toThrow(
       'package.json packageManager does not project .bun-version'
     );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('projection readback rejects duplicate package metadata before projection', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-bun-generation-'));
-  try {
-    await Promise.all([
-      writeFile(path.join(root, '.bun-version'), '8.1.0\n', 'utf8'),
-      writeFile(
-        path.join(root, 'package.json'),
-        '{"packageManager":"bun@8.1.0","packageManager":"bun@8.1.0"}\n',
-        'utf8'
-      ),
-      writeFile(path.join(root, 'mise.toml'), '[tools]\nbun = "8.1.0"\n', 'utf8')
-    ]);
-
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      packageManager: 'bun@8.1.0',
+      scripts: { sec: '"$npm_execpath" ./entry.ts' }
+    }));
+    await expect(readCanonicalBunRuntimeProjection(root)).resolves.toEqual({
+      version: '8.1.0', packageManager: 'bun@8.1.0', miseVersion: '8.1.0'
+    });
+    await writeFile(
+      path.join(root, 'package.json'),
+      '{"packageManager":"bun@8.1.0","packageManager":"bun@8.1.0"}\n',
+      'utf8'
+    );
     await expect(readCanonicalBunRuntimeProjection(root)).rejects.toThrow('duplicate key');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('projection readback rejects package scripts that resolve Bun through PATH', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-bun-generation-'));
-  try {
-    await Promise.all([
-      writeFile(path.join(root, '.bun-version'), '8.1.0\n', 'utf8'),
-      writeFile(
-        path.join(root, 'package.json'),
-        '{"packageManager":"bun@8.1.0","scripts":{"typecheck":"bun ./src/check.ts"}}\n',
-        'utf8'
-      ),
-      writeFile(path.join(root, 'mise.toml'), '[tools]\nbun = "8.1.0"\n', 'utf8')
-    ]);
-
+    await writeFile(
+      path.join(root, 'package.json'),
+      '{"packageManager":"bun@8.1.0","scripts":{"typecheck":"bun ./src/check.ts"}}\n',
+      'utf8'
+    );
     await expect(readCanonicalBunRuntimeProjection(root)).rejects.toThrow(
       'package.json script "typecheck" resolves Bun through PATH'
     );

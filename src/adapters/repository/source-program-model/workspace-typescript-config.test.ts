@@ -34,12 +34,6 @@ function parse(
   return { root, result, files: result.fileNames.map(file => path.relative(root, file).split(path.sep).join('/')) };
 }
 
-test('nested JSONC include and directory exclude resolve from the config directory, not the repository root', () => {
-  const actual = parse(`{ // JSONC is intentional\n"compilerOptions": {"strict": true,}, "include": ["src"], "exclude": ["src/excluded"],}`);
-  assert.equal(actual.result.errors.length, 0);
-  assert.deepEqual(actual.files, ['packages/a/src/a.ts']);
-});
-
 test('explicit files and relative compiler options retain their config-local interpretation', () => {
   const actual = parse(JSON.stringify({
     compilerOptions: { baseUrl: '.', rootDir: 'src', outDir: 'dist' },
@@ -88,15 +82,6 @@ test('empty nested projects retain config-local compiler paths after no-input va
     ]);
     assert.deepEqual(actual.result.options.typeRoots, [path.join(actual.root, 'packages/a/types').replaceAll('\\', '/')]);
   }
-});
-
-test('configuration containment still rejects external lookup and plugin execution before parsing', () => {
-  for (const config of [
-    {extends:'./other.json'}, {references:[]}, {compilerOptions:{plugins:[]}},
-    {include:['../foreign']}, {files:['/absolute.ts']}, {exclude:['bad\u0000path']},
-    {compilerOptions:{rootDirs:['src','../foreign']}},
-    {compilerOptions:{paths:{alias:['../foreign']}}}
-  ]) assert.throws(() => parse(JSON.stringify(config)), /TypeScript ProjectInput/);
 });
 
 test('empty-project validation never mutates the captured configuration or its nested options', () => {

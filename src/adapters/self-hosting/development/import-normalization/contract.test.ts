@@ -164,34 +164,6 @@ test('subject compiler owns producer, exact-tree, config and toolchain identity'
   }
 });
 
-test('immutable observer rejects an input closure other than the Action closure', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-closure-'));
-  try {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    const candidateCommit = await commitFixture(
-      root,
-      'export function normalize(): void {}\n',
-      'closure'
-    );
-    const snapshot = await exactSnapshot(root, candidateCommit);
-    const candidate = await subject(root, candidateCommit);
-    expect(() => checkImmutableImportSnapshot({
-      projectRoot: root,
-      files: snapshot.files.map(({ path: relativePath, source }) => ({
-        relativePath,
-        source,
-        contentDigest: rawSha256(source)
-      })),
-      targetPaths: [],
-      expectedInputClosure: candidate.observationBlobs.slice(1)
-    })).toThrow('differs from its Action input closure');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test('empty owner selection settles before project parsing', () => {
   const source = '{not-json';
   const digest = rawSha256(source);
@@ -205,40 +177,6 @@ test('empty owner selection settles before project parsing', () => {
     status: 'canonical',
     files: []
   });
-});
-
-test('noncanonical candidate fails with a clean index', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-clean-index-'));
-  try {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    const baseCommit = await commitFixture(
-      root,
-      "import fs from 'node:fs';\nimport path from 'node:path';\nexport function normalize(): void { void fs; void path; }\n",
-      'clean-index-base'
-    );
-    const candidateCommit = await commitFixture(
-      root,
-      "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\nexport const cleanIndexCandidate = true;\n",
-      'clean-index-candidate'
-    );
-    expect(git(root, ['status', '--porcelain'])).toBe('');
-    const outcome = await verifyCandidate({
-      repositoryRoot: root,
-      candidateBase: baseCommit,
-      candidateCommit
-    });
-    expect(outcome.terminal?.status).toBe('failed');
-    git(root, ['update-ref', 'refs/remotes/origin/main', baseCommit]);
-    await withAuthorityGitReadSession({ cwd: root, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
-      const { checkStagedCandidateImportNormalization } = await import('./runtime.ts');
-      expect((await checkStagedCandidateImportNormalization({ session })).status)
-        .toBe('needs-import-transform');
-    });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });
 
 test('staged normalization shares the Source Program input boundary for template files', async () => {
@@ -334,6 +272,14 @@ test('terminal observes candidate A instead of staged index B', async () => {
       "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\nexport const candidateA = true;\n",
       'noncanonical-candidate'
     );
+
+    expect(git(root, ['status', '--porcelain'])).toBe('');
+    git(root, ['update-ref', 'refs/remotes/origin/main', baseCommit]);
+    await withAuthorityGitReadSession({ cwd: root, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+      const { checkStagedCandidateImportNormalization } = await import('./runtime.ts');
+      expect((await checkStagedCandidateImportNormalization({ session })).status)
+        .toBe('needs-import-transform');
+    });
 
     await writeFile(
       path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'kernel.ts'),

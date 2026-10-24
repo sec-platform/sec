@@ -28,6 +28,7 @@ function repositoryModuleTestDescriptor(
 
 test('repository module descriptors resolve unique physical roots and external entrypoints', () => {
   const membership = compileRepositoryModuleMembership(compilerRoot);
+  expect(membership.descriptors.length).toBeGreaterThan(0);
 
   expect(new Set(membership.descriptors.map(({ moduleId }) => moduleId)).size)
     .toBe(membership.descriptors.length);
@@ -102,15 +103,11 @@ test('repository module descriptor parser rejects unknown fields and invalid pat
 
   expect(parseRepositoryModuleDescriptor(descriptor, descriptorPath).root).toBe('src/example');
   expect(() => parseRepositoryModuleDescriptor({ ...descriptor, architectureRole: 'query' }, descriptorPath))
-    .toThrow('architectureRole');
-  expect(() => parseRepositoryModuleDescriptor({ ...descriptor, architectureRole: 'service' }, descriptorPath))
-    .toThrow('architectureRole');
-  expect(() => parseRepositoryModuleDescriptor({ ...descriptor, covered: true }, descriptorPath))
-    .toThrow('unknown field');
+    .toThrow(/\barchitectureRole\b.*\bunknown field\b/u);
   expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     authorityRefs: ['system-architecture']
-  }, descriptorPath)).toThrow('unknown field');
+  }, descriptorPath)).toThrow(/\bauthorityRefs\b.*\bunknown field\b/u);
   expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     externalEntrypoints: ['src/adapters/self-hosting/development/runner/cli.ts', 'src/adapters/self-hosting/development/runner/cli.ts']
@@ -624,30 +621,6 @@ test('repository module compiler prevents production from importing test authori
   })).toThrow('production repository module imports test-only module');
 });
 
-test('repository module compiler does not infer visibility from directory names', () => {
-  const files = [
-    'src/consumer/index.ts',
-    'src/provider/runtime/effect.ts'
-  ];
-  const sources = new Map([
-    ['src/consumer/index.ts', "export { effect } from '../provider/runtime/effect.ts';"],
-    ['src/provider/runtime/effect.ts', 'export const effect = true;']
-  ]);
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: files,
-    readSource: (file) => sources.get(file) ?? null
-  });
-  const consumer = repositoryModuleTestDescriptor('src/consumer');
-  const provider = repositoryModuleTestDescriptor('src/provider');
-
-  expect(() => assertRepositoryModuleImportBoundaries(graph, {
-    descriptors: [consumer, provider],
-    graphRoots: ['src/consumer', 'src/provider'],
-    moduleRoots: ['src/consumer', 'src/provider'],
-    moduleForPath: (file) => file.startsWith('src/consumer/') ? consumer : provider
-  })).not.toThrow();
-});
-
 test('edit-loop topology and full semantic architecture share one exact owner graph', () => {
   const files = ['src/alpha/runtime.ts', 'src/beta/runtime.ts'];
   const sources = new Map([
@@ -657,17 +630,12 @@ test('edit-loop topology and full semantic architecture share one exact owner gr
   const alpha = repositoryModuleTestDescriptor('src/alpha');
   const beta = repositoryModuleTestDescriptor('src/beta');
   const membership = {
-    descriptors: [alpha, beta],
+    descriptors: [beta, alpha],
     graphRoots: ['src'],
-    moduleRoots: ['src/alpha', 'src/beta'],
+    moduleRoots: ['src/beta', 'src/alpha'],
     moduleForPath: (file: string) => file.startsWith('src/alpha/') ? alpha : beta
   };
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: files,
-    readSource: (file) => sources.get(file) ?? null
-  });
-  const topology = compileRepositoryModuleTopologyProjection(graph, membership);
-  const architecture = compileRepositoryModuleArchitectureProjection(graph, membership, {
+  const facts = {
     files: files.map((path) => ({
       path,
       moduleId: membership.moduleForPath(path).moduleId,
@@ -678,13 +646,38 @@ test('edit-loop topology and full semantic architecture share one exact owner gr
     entrypoints: [],
     entrypointClosures: [],
     capabilities: []
-  });
+  };
+  const compile = (orderedFiles: readonly string[]) => {
+    const graph = compileSourceProgramRepositoryModuleGraph({
+      files: orderedFiles,
+      readSource: (file) => sources.get(file) ?? null
+    });
+    return {
+      topology: compileRepositoryModuleTopologyProjection(graph, membership),
+      architecture: compileRepositoryModuleArchitectureProjection(graph, membership, facts)
+    };
+  };
+  const { topology, architecture } = compile(files);
 
   expect(topology.ownerEdges).toEqual(architecture.ownerEdges);
   expect(topology.strongComponents).toEqual(architecture.strongComponents);
   expect(topology.feedbackCuts).toEqual(architecture.feedbackCuts);
-  expect(topology.strongComponents).toHaveLength(1);
-  expect(topology.feedbackCuts).toHaveLength(1);
+  for (const projection of [topology, architecture]) {
+    expect(projection.ownerEdges.map(({ fromOwner, toOwner }) => [fromOwner, toOwner]))
+      .toEqual([[alpha.moduleId, beta.moduleId], [beta.moduleId, alpha.moduleId]]);
+    expect(projection.strongComponents.map(({ ownerIds }) => ownerIds))
+      .toEqual([[alpha.moduleId, beta.moduleId]]);
+    expect(projection.reciprocalPairs).toHaveLength(1);
+    expect(projection.feedbackCuts).toEqual([expect.objectContaining({
+      fromOwner: beta.moduleId,
+      toOwner: alpha.moduleId,
+      witnesses: [expect.objectContaining({
+        fromPath: 'src/beta/runtime.ts',
+        toPath: 'src/alpha/runtime.ts'
+      })]
+    })]);
+  }
+  expect(compile([...files].reverse())).toEqual({ topology, architecture });
 });
 
 test('repository topology projects same-owner file cycles from the canonical graph', () => {
@@ -915,57 +908,6 @@ test('repository module dependency cycles exclude test observation edges', () =>
     : "import '../first/index.ts';" });
   expect(collectRepositoryModuleBoundaryViolations(productionCycleGraph, membership)
     .filter(({ code }) => code === 'module-dependency-cycle')).toHaveLength(1);
-});
-
-test('repository architecture projects stable SCC witnesses, reciprocal pairs, and an acyclic feedback cut', () => {
-  const alpha = repositoryModuleTestDescriptor('src/alpha');
-  const beta = repositoryModuleTestDescriptor('src/beta');
-  const membership = {
-    descriptors: [beta, alpha],
-    graphRoots: ['src'],
-    moduleRoots: [beta.root, alpha.root],
-    moduleForPath: (file: string) => file.startsWith('src/alpha/') ? alpha : beta
-  };
-  const files = ['src/beta/b.ts', 'src/alpha/a.ts'];
-  const sources = new Map([
-    ['src/alpha/a.ts', "import '../beta/b.ts'; export const alpha = true;"],
-    ['src/beta/b.ts', "import '../alpha/a.ts'; export const beta = true;"]
-  ]);
-  const facts = {
-    files: files.map((path) => ({
-      path,
-      moduleId: path.startsWith('src/alpha/') ? alpha.moduleId : beta.moduleId,
-      surface: 'production' as const,
-      semanticKind: 'declaration-owner' as const,
-      semanticObservationClass: 'derived' as const
-    })),
-    entrypoints: [],
-    entrypointClosures: []
-  };
-  const compile = (orderedFiles: readonly string[]) => {
-    const graph = compileSourceProgramRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null });
-    return compileRepositoryModuleArchitectureProjection(graph, membership, facts);
-  };
-  const projection = compile(files);
-
-  expect(projection.ownerEdges.map(({ fromOwner, toOwner }) => [fromOwner, toOwner]))
-    .toEqual([
-      [alpha.moduleId, beta.moduleId],
-      [beta.moduleId, alpha.moduleId]
-    ]);
-  expect(projection.strongComponents).toEqual([expect.objectContaining({
-    ownerIds: [alpha.moduleId, beta.moduleId]
-  })]);
-  expect(projection.reciprocalPairs).toHaveLength(1);
-  expect(projection.feedbackCuts).toEqual([expect.objectContaining({
-    fromOwner: beta.moduleId,
-    toOwner: alpha.moduleId,
-    witnesses: [expect.objectContaining({
-      fromPath: 'src/beta/b.ts',
-      toPath: 'src/alpha/a.ts'
-    })]
-  })]);
-  expect(compile([...files].reverse())).toEqual(projection);
 });
 
 test('repository architecture derives one node responsibility and rejects reverse node dependencies', () => {

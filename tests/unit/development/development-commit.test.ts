@@ -1,0 +1,898 @@
+import { spawnSync } from 'node:child_process';
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { expect, test } from 'bun:test';
+
+import { withWorkspaceWriteLease } from '../../../src/adapters/filesystem/write-lease.ts';
+import { createHostGitReadSessionForTests } from '../../../src/adapters/providers/git-read/runtime/session.ts';
+import { inspectNoFollowDirectoryChain } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { createRuntimeStateJournalFileSystem } from '../../../src/adapters/runtime-state/workspace-state/journal-filesystem.ts';
+import {
+  issueDevelopmentCommitAdmission,
+  type DevelopmentCommitAdmission,
+  type DevelopmentCommitRequest
+} from '../../../src/adapters/self-hosting/development/commit-admission/operation.ts';
+import {
+  acknowledgeDevelopmentCommitResult,
+  prepareDevelopmentCommitJournalsForLocalRefRetirement,
+  readDevelopmentCommitOutcome,
+  recoverDevelopmentCommit,
+  retireSupersededLocalDevelopmentCommitJournals,
+  runDevelopmentCommit,
+  settleDevelopmentCommitJournalsForRef
+} from '../../../src/adapters/self-hosting/development/commit/operation.ts';
+import { IMPORT_NORMALIZATION_OPERATION } from '../../../src/adapters/self-hosting/development/import-normalization/contract.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { canonicalJson } from '../../../src/contracts/canonical.ts';
+
+function git(root: string, args: readonly string[]): string {
+  const result = spawnSync('git', [...args], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (result.status !== 0) throw new Error(result.stderr);
+  return result.stdout.trim();
+}
+
+for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anchor-lost',
+  'legacy-applied', 'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
+  'carrier-retained', 'carrier-rejected'] as const) {
+  test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
+    const { root } = await fixture();
+    const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
+    const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
+    try {
+      git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
+      const originalBase = git(root, ['rev-parse', 'HEAD']);
+      const baseTree = git(root, ['rev-parse', 'HEAD^{tree}']);
+      const base = mode === 'anchor-lost'
+        ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'separately adopted anchor'])
+        : originalBase;
+      const changedTree = git(root, ['write-tree']);
+      const reviewedDefault = mode === 'reviewed-superseded' || mode === 'reviewed-rejected';
+      const retainedCarrier = mode === 'carrier-retained' || mode === 'carrier-rejected';
+      const target = git(root, ['commit-tree', mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
+        ? changedTree : baseTree, '-p', base, '-m', 'historical terminal attempt']);
+      const main = git(root, ['commit-tree', baseTree, '-p', mode === 'main-adopted' ? target : base,
+        '-m', 'later adopted main']);
+      git(root, ['checkout', '--quiet', '--detach', main]);
+      if (reviewedDefault) git(root, ['update-ref', 'refs/heads/main', main]);
+      const journalPath = path.join(root, '.git', 'sec-development-commit', `${'1'.repeat(64)}.json`);
+      await mkdir(path.dirname(journalPath));
+      const source = `${JSON.stringify(canonicalJson({
+        schema: 'sec-development-commit-journal-v1', operation: `sha256:${'1'.repeat(64)}`,
+        attempt: `sha256:${'2'.repeat(64)}`, ref: reviewedDefault ? 'refs/heads/main' : 'refs/heads/retired-topic', preimage: base,
+        target, object: target, tree: mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
+          ? changedTree : baseTree, terminal: mode === 'legacy-pending' ? null : 'applied'
+      }))}\n`;
+      if (mode === 'legacy-applied' || mode === 'legacy-pending' || reviewedDefault || retainedCarrier) {
+        await writeFile(journalPath, source);
+      } else {
+        const writer = createRuntimeStateJournalFileSystem(
+          inspectNoFollowDirectoryChain(path.join(root, '.git'), 'Merged journal fixture root').target);
+        expect(writer.createExclusiveFsync(journalPath, source)).toBe(true);
+      }
+      const unrelated = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'main without adoption anchor']);
+      const oldMerge = retainedCarrier
+        ? git(root, ['commit-tree', baseTree, '-m', 'merge discarded by default history rewrite']) : originalBase;
+      const carrierRepository = path.join(harness, 'carrier.git');
+      if (retainedCarrier) {
+        git(root, ['init', '--quiet', '--bare', carrierRepository]);
+        git(root, ['push', '--quiet', carrierRepository, `${target}:refs/pull/1/head`]);
+      }
+      const script = path.join(harness, 'case.ts');
+      await writeFile(script, `
+        import assert from 'node:assert/strict';
+        import { spawnSync } from 'node:child_process';
+        import * as fs from 'node:fs';
+        import { mock } from 'bun:test';
+        if (${retainedCarrier}) {
+          const authority = await import(${modulePath('../../../src/adapters/providers/git-read/authority.ts')});
+          const withOriginalSession = authority.withAuthorityGitReadSession;
+          let carrierReads = 0;
+          let carrierBehavior = ${JSON.stringify(mode)} === 'carrier-rejected' ? 'missing' : 'retained';
+          const carrierUpdate = value => {
+            const args = ['--git-dir', ${JSON.stringify(carrierRepository)}, 'update-ref'];
+            if (value === null) args.push('-d', 'refs/pull/1/head');
+            else args.push('refs/pull/1/head', value);
+            const result = spawnSync('git', args, { encoding: 'utf8', windowsHide: true });
+            assert.equal(result.status, 0, result.stderr);
+          };
+          globalThis.nextCarrierAttempt = () => {
+            carrierReads = 0; carrierBehavior = 'drift'; carrierUpdate(${JSON.stringify(target)});
+          };
+          mock.module(${modulePath('../../../src/adapters/providers/git-read/authority.ts')}, () => ({
+            ...authority,
+            withAuthorityGitReadSession: (input, execute) => withOriginalSession(input, session =>
+              execute({ ...session, run: async args => {
+                if (args[0] !== 'ls-remote') return session.run(args);
+                // Admit through the real provider grammar before replacing only its network endpoint.
+                const { gitReadCommandIsObservation } = await import(${modulePath('../../../src/adapters/providers/git-read/runtime/read-command.ts')});
+                assert.equal(gitReadCommandIsObservation(args), true);
+                // Real Git resolves the independently retained bare ref.
+                assert.deepEqual(args, ['ls-remote', '--exit-code', 'origin', 'refs/pull/1/head']);
+                carrierReads++;
+                if (carrierBehavior === 'missing') carrierUpdate(null);
+                if (carrierBehavior === 'drift' && carrierReads > 1) carrierUpdate(${JSON.stringify(originalBase)});
+                const result = spawnSync('git', ['ls-remote', '--exit-code', ${JSON.stringify(carrierRepository)},
+                  'refs/pull/1/head'], { encoding: 'utf8', windowsHide: true });
+                return { kind: 'completed', result: { code: result.status,
+                  stdout: Buffer.from(result.stdout), stderr: Buffer.from(result.stderr) } };
+              } }))
+          }));
+        }
+        const provider = await import(${modulePath('../../../src/adapters/providers/github-api/operation-session.ts')});
+        let mainReads = 0;
+        mock.module(${modulePath('../../../src/adapters/providers/github-api/operation-session.ts')}, () => ({
+          ...provider,
+          inspectGitHubApiCapability: () => ({ repository: 'example/repository' }),
+          async executeGitHubApiOperation(_capability, operation) {
+            if (operation.kind === 'repository') return { full_name: 'example/repository', default_branch: 'main' };
+            if (operation.kind === 'pull') return {
+              number: 1, state: 'closed', merged: true, merge_commit_sha: ${JSON.stringify(oldMerge)},
+              head: { ref: 'retired-topic', sha: ${JSON.stringify(retainedCarrier ? target : originalBase)}, repo: { full_name: 'example/repository' } },
+              base: { ref: 'main', repo: { full_name: 'example/repository' } }
+            };
+            if (operation.kind === 'git-ref' && operation.branch === 'retired-topic') {
+              throw new provider.GitHubApiProviderError('absent', 404);
+            }
+            if (operation.kind === 'git-ref' && operation.branch === 'main') {
+              mainReads++;
+              // Keep the PR merge reachable while removing the separately adopted journal anchor.
+              return { ref: 'refs/heads/main', object: { sha: ${JSON.stringify(mode)} === 'anchor-lost'
+                && mainReads > 1 ? ${JSON.stringify(unrelated)} : ${JSON.stringify(main)} } };
+            }
+            throw new Error('unexpected provider operation');
+          }
+        }));
+        const { retireMergedDevelopmentCommitJournals, retireReviewedHistoricalDefaultCommitJournal } = await import(
+          ${modulePath('../../../src/adapters/self-hosting/development/commit/operation.ts')});
+        const retire = () => retireMergedDevelopmentCommitJournals({
+          repositoryRoot: ${JSON.stringify(root)}, capability: {}, pullRequestNumber: 1
+        });
+        if (${reviewedDefault}) {
+          const reviewedRetire = review => retireReviewedHistoricalDefaultCommitJournal({
+            repositoryRoot: ${JSON.stringify(root)}, capability: {}, journalPath: ${JSON.stringify(journalPath)},
+            expectedTargetSha: ${JSON.stringify(target)}, reviewedMainSha: ${JSON.stringify(main)}, review
+          });
+          const subject = observation => {
+            assert.equal(Object.isFrozen(observation), true);
+            assert.equal(observation.ref, 'refs/heads/main');
+            assert.equal(observation.targetSha, ${JSON.stringify(target)});
+            assert.equal(observation.mainSha, ${JSON.stringify(main)});
+            assert.equal(observation.tree, ${JSON.stringify(changedTree)});
+          };
+          if (${JSON.stringify(mode)} === 'reviewed-superseded') {
+            const result = await reviewedRetire(async observation => {
+              subject(observation);
+              return { disposition: 'superseded', reference: 'fixture independent semantic review' };
+            });
+            assert.equal(result.disposition, 'historical-retention-released');
+            assert.equal(result.historicalLocalCas, 'unverified');
+            assert.equal(result.retired, 1);
+            assert.equal(result.targetSha, ${JSON.stringify(target)});
+            assert.equal(fs.existsSync(${JSON.stringify(journalPath)}), false);
+          } else {
+            await assert.rejects(() => reviewedRetire(async observation => {
+              subject(observation); return { disposition: 'retain', reference: 'retain independent obligation' };
+            }), /retention was not released/);
+            assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+            await assert.rejects(() => reviewedRetire(async observation => {
+              subject(observation);
+              const moved = spawnSync('git', ['update-ref', 'refs/heads/main', ${JSON.stringify(originalBase)}],
+                { cwd: ${JSON.stringify(root)}, encoding: 'utf8', windowsHide: true });
+              assert.equal(moved.status, 0, moved.stderr);
+              return { disposition: 'superseded', reference: 'review invalidated by local ref drift' };
+            }), /no longer binds the exact live and local default ref/);
+            assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+          }
+        } else if (${JSON.stringify(mode)} === 'carrier-rejected') {
+          await assert.rejects(retire, /exact retained pull carrier is absent or changed/);
+          assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+          globalThis.nextCarrierAttempt();
+          await assert.rejects(retire, /exact retained pull carrier is absent or changed/);
+          assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+        } else if (${JSON.stringify(mode)} === 'nonempty-unconsumed' || ${JSON.stringify(mode)} === 'anchor-lost'
+            || ${JSON.stringify(mode)} === 'legacy-pending') {
+          await assert.rejects(retire, ${JSON.stringify(mode)} === 'anchor-lost'
+            ? /adoption anchor is no longer/ : ${JSON.stringify(mode)} === 'legacy-pending'
+              ? /nonterminal or unknown journal consumers/ : /did not consume this exact journal target/);
+          assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+        } else {
+          assert.deepEqual(await retire(), { ref: 'refs/heads/retired-topic', observed: 1, retired: 1 });
+          assert.equal(fs.existsSync(${JSON.stringify(journalPath)}), false);
+        }
+      `);
+      const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8', windowsHide: true });
+      expect(result.status, result.stderr).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(harness, { recursive: true, force: true });
+    }
+  }, 30_000);
+}
+
+async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
+  root: string;
+  request: DevelopmentCommitRequest;
+}>> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  git(root, ['init', '--quiet']);
+  git(root, ['config', 'user.name', 'SEC Tests']);
+  git(root, ['config', 'user.email', 'tests@example.com']);
+  const moduleRoot = path.join(
+    root,
+    'src',
+    'adapters',
+    'self-hosting',
+    'development',
+    'import-normalization'
+  );
+  await mkdir(moduleRoot, { recursive: true });
+  await Promise.all([
+    writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{"noEmit":true}}\n'),
+    writeFile(path.join(moduleRoot, 'kernel.ts'), 'export function normalize(): void {}\n'),
+    writeFile(
+      path.join(moduleRoot, 'runtime.ts'),
+      "export { normalize as verifyCandidateImportNormalization } from './kernel.ts';\n"
+    ),
+    writeFile(path.join(moduleRoot, 'module.json'), `${JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
+      capabilityProviders: [{
+        capability: IMPORT_NORMALIZATION_OPERATION.capability,
+        operations: [IMPORT_NORMALIZATION_OPERATION.operation]
+      }]
+    })}\n`)
+  ]);
+  git(root, ['add', '--all']);
+  git(root, ['commit', '--quiet', '-m', 'base']);
+  await writeFile(path.join(root, 'next.txt'), 'next\n');
+  git(root, ['add', 'next.txt']);
+  return Object.freeze({
+    root,
+    request: Object.freeze({
+      repositoryRoot: path.resolve(root),
+      message: 'apply staged candidate\n',
+      author: Object.freeze({
+        name: 'SEC Tests',
+        email: 'tests@example.com',
+        date: '1700000100 +0000'
+      }),
+      committer: Object.freeze({
+        name: 'SEC Tests',
+        email: 'tests@example.com',
+        date: '1700000100 +0000'
+      })
+    })
+  });
+}
+
+test('development.commit consumes one exact staged admission before publishing its Git Effect', async () => {
+  const { root } = await fixture();
+  try {
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    const prepared = await issueDevelopmentCommitAdmission({
+      repositoryRoot: root,
+      message: 'apply staged candidate\n'
+    });
+    const { request } = prepared;
+    const before = Object.freeze({
+      head: preimage,
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    });
+    await expect(runDevelopmentCommit(
+      request,
+      { ...prepared.admission } as DevelopmentCommitAdmission
+    )).rejects.toThrow('foreign or structurally reproduced');
+    expect({
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    }).toEqual(before);
+
+    const result = await runDevelopmentCommit(request, prepared.admission);
+    expect(result.disposition).toBe('applied');
+    expect(result.preimage).toBe(preimage);
+    expect(git(root, ['rev-parse', 'HEAD'])).toBe(result.target);
+    expect(git(root, ['status', '--porcelain'])).toBe('');
+    await expect(runDevelopmentCommit(request, prepared.admission))
+      .rejects.toThrow('already been consumed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+// Mocks are confined to a child; the actual command, issuer, Git provider and journal
+// resources still perform their transitions. No parent cwd or module state changes.
+async function commitCommandCase(mode: 'short-write' | 'zero-write' | 'write-error' | 'journal-drift' | 'not-applied' | 'unknown' | 'repeated'): Promise<void> {
+  const { root } = await fixture('sec-development-commit-结果-');
+  const harness = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-command-'));
+  const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
+  try {
+    const script = path.join(harness, 'case.ts');
+    const report = path.join(harness, 'output.json');
+    await writeFile(script, `
+      import assert from 'node:assert/strict';
+      import { spawnSync } from 'node:child_process';
+      import * as fs from 'node:fs';
+      import path from 'node:path';
+      import { mock } from 'bun:test';
+      const root = ${JSON.stringify(root)};
+      const mode = ${JSON.stringify(mode)};
+      const originalWrite = fs.writeSync;
+      const git = (args) => {
+        const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+        assert.equal(result.status, 0, result.stderr);
+        return result.stdout.trim();
+      };
+      const provider = await import(${modulePath('../../../src/adapters/providers/git-read/runtime/session.ts')});
+      const originalCompareAndSwap = provider.compareAndSwapAuthorityDevelopmentCommitRef;
+      mock.module(${modulePath('../../../src/adapters/providers/git-read/runtime/session.ts')}, () => ({
+        ...provider,
+        async compareAndSwapAuthorityDevelopmentCommitRef(input) {
+          // A real Git lock makes the original provider fail without a ref transition.
+          const lock = path.join(root, '.git', input.contract.ref + '.lock');
+          if (mode === 'not-applied') fs.writeFileSync(lock, '', { flag: 'wx' });
+          try {
+            const settlement = await originalCompareAndSwap(input);
+            assert.equal(settlement.status, mode === 'not-applied' ? 'cas-conflict' : 'completed');
+            if (mode === 'unknown') {
+              // The real ref effect completes but an independently changed index prevents applied readback.
+              fs.writeFileSync(path.join(root, 'next.txt'), 'changed after ref transition\\n');
+              git(['add', 'next.txt']);
+            }
+            return settlement;
+          } finally {
+            if (mode === 'not-applied') fs.unlinkSync(lock);
+          }
+        }
+      }));
+      const owner = await import(${modulePath('../../../src/adapters/self-hosting/development/commit/operation.ts')});
+      const originalRun = owner.runDevelopmentCommit;
+      const originalAcknowledge = owner.acknowledgeDevelopmentCommitResult;
+      const originalRecover = owner.recoverDevelopmentCommit;
+      let issued;
+      let issuedSource;
+      let driftedSource;
+      let delivered = Buffer.alloc(0);
+      let writes = 0;
+      let acknowledgments = 0;
+      let returnedResults = 0;
+      const events = [];
+      const expectedOutput = [];
+      const outputFailure = new Error('injected stdout write failure');
+      mock.module(${modulePath('../../../src/adapters/self-hosting/development/commit/operation.ts')}, () => ({
+        ...owner,
+        async runDevelopmentCommit(...args) {
+          issued = await originalRun(...args);
+          assert.equal(Object.isFrozen(issued), true);
+          issuedSource = fs.readFileSync(issued.journalPath, 'utf8');
+          returnedResults++;
+          events.push('issued');
+          return issued;
+        },
+        async acknowledgeDevelopmentCommitResult(result) {
+          acknowledgments++;
+          assert.equal(result, issued, 'the original issued result must reach its owner');
+          assert.equal(delivered.toString('utf8'), JSON.stringify(result, null, 2) + '\\n');
+          assert.equal(fs.existsSync(result.journalPath), true);
+          assert.equal(events.at(-1), 'delivered');
+          events.push('acknowledge');
+          await originalAcknowledge(result);
+          events.push('retired');
+        }
+      }));
+      mock.module('node:fs', () => ({
+        ...fs,
+        writeSync(fd, buffer, offset, length, ...rest) {
+          if (fd !== 1) return originalWrite(fd, buffer, offset, length, ...rest);
+          assert.ok(issued, 'output must follow the real commit result');
+          assert.equal(acknowledgments, 0, 'acknowledgment must follow complete output');
+          assert.equal(fs.existsSync(issued.journalPath), true);
+          assert.equal(Buffer.isBuffer(buffer), true);
+          assert.equal(offset, delivered.byteLength);
+          assert.equal(length, buffer.byteLength - offset);
+          writes++;
+          if (writes === 2 && mode === 'zero-write') return 0;
+          if (writes === 2 && mode === 'write-error') throw outputFailure;
+          const written = originalWrite(fd, buffer, offset, Math.min(length, 7), ...rest);
+          delivered = Buffer.concat([delivered, buffer.subarray(offset, offset + written)]);
+          if (delivered.byteLength === buffer.byteLength) {
+            events.push('delivered');
+            if (mode === 'journal-drift') {
+              const journal = JSON.parse(issuedSource);
+              journal.terminal = 'unknown';
+              driftedSource = JSON.stringify(journal) + '\\n';
+              fs.writeFileSync(issued.journalPath, driftedSource);
+            }
+          }
+          return written;
+        }
+      }));
+      const { runDevelopmentCommitCommand } = await import(${modulePath('../../../src/adapters/self-hosting/development/runner/commit-command.ts')});
+      const count = mode === 'repeated' ? 13 : 1;
+      for (let index = 0; index < count; index++) {
+        if (index > 0) {
+          fs.writeFileSync(path.join(root, 'next.txt'), 'candidate ' + index + '\\n');
+          git(['add', 'next.txt']);
+        }
+        delivered = Buffer.alloc(0); writes = 0; acknowledgments = 0; events.length = 0;
+        let caught;
+        let code;
+        try { code = await runDevelopmentCommitCommand(['deliver candidate ' + index]); }
+        catch (error) { caught = error; }
+        expectedOutput.push(delivered.toString('utf8'));
+        const expectedDisposition = mode === 'unknown' || mode === 'not-applied' ? mode : 'applied';
+        assert.equal(issued.disposition, expectedDisposition);
+        assert.equal(git(['rev-parse', issued.ref]), mode === 'not-applied' ? issued.preimage : issued.target);
+        if (mode === 'zero-write' || mode === 'write-error') {
+          assert.equal(code, undefined);
+          if (mode === 'write-error') assert.equal(caught, outputFailure);
+          else assert.match(caught.message, /delivery made no progress/);
+          assert.equal(writes, 2);
+          assert.equal(delivered.byteLength, 7);
+          assert.equal(acknowledgments, 0);
+          assert.equal(fs.readFileSync(issued.journalPath, 'utf8'), issuedSource);
+        } else {
+          assert.equal(delivered.toString('utf8'), JSON.stringify(issued, null, 2) + '\\n');
+          assert.ok(writes > 1);
+          assert.ok(delivered.byteLength > delivered.toString('utf8').length);
+          if (mode === 'journal-drift') {
+            assert.equal(code, undefined);
+            assert.ok(caught, 'changed journal must fail the original acknowledgment');
+            assert.equal(acknowledgments, 1);
+            assert.notEqual(driftedSource, issuedSource);
+            assert.equal(fs.readFileSync(issued.journalPath, 'utf8'), driftedSource);
+          } else if (mode === 'not-applied' || mode === 'unknown') {
+            assert.equal(caught, undefined);
+            assert.equal(code, 1);
+            assert.equal(acknowledgments, 0);
+            assert.equal(fs.readFileSync(issued.journalPath, 'utf8'), issuedSource);
+            await assert.rejects(originalAcknowledge(issued), /requires applied readback/);
+            assert.equal(fs.readFileSync(issued.journalPath, 'utf8'), issuedSource);
+          } else {
+            assert.equal(caught, undefined);
+            assert.equal(code, 0);
+            assert.equal(acknowledgments, 1);
+            assert.deepEqual(events, ['issued', 'delivered', 'acknowledge', 'retired']);
+            assert.equal(fs.existsSync(issued.journalPath), false);
+            assert.equal(fs.existsSync(path.dirname(issued.journalPath)), false);
+            await assert.rejects(originalAcknowledge(issued), /owner-issued result/);
+          }
+        }
+        // These pre-retirement faults retain a recoverable journal, without replaying the commit.
+        if (mode === 'zero-write' || mode === 'write-error' || mode === 'journal-drift') {
+          await assert.rejects(originalAcknowledge(JSON.parse(JSON.stringify(issued))), /owner-issued result/);
+          const recovered = await originalRecover({ repositoryRoot: root, journalPath: issued.journalPath });
+          assert.equal(recovered.result.disposition, 'applied');
+          assert.equal(recovered.result.target, issued.target);
+          await originalAcknowledge(recovered.result);
+          assert.equal(fs.existsSync(issued.journalPath), false);
+          assert.equal(git(['rev-parse', issued.ref]), issued.target);
+        }
+      }
+      assert.equal(returnedResults, count);
+      if (mode === 'repeated') assert.equal(git(['rev-list', '--count', 'HEAD']), '14');
+      fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify(expectedOutput.join('')));
+    `);
+    const result = spawnSync(process.execPath, [script], {
+      cwd: root,
+      env: { ...process.env, SEC_STATE_HOME: path.join(harness, 'state'), SEC_CACHE_HOME: path.join(harness, 'cache') },
+      encoding: 'utf8', windowsHide: true, timeout: DEFAULT_TEST_TIMEOUT_MS
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(JSON.parse(await readFile(report, 'utf8')) as string);
+  } finally {
+    await rm(harness, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+for (const mode of ['short-write', 'zero-write', 'write-error', 'journal-drift', 'not-applied', 'unknown', 'repeated'] as const) {
+  test(`development commit CLI preserves original delivery and retirement boundaries: ${mode}`, async () => {
+    await commitCommandCase(mode);
+  }, DEFAULT_TEST_TIMEOUT_MS);
+}
+
+test('development.commit retires only the exact owner-issued applied journal after delivery', async () => {
+  const { root } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
+    const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    const source = await readFile(result.journalPath, 'utf8');
+    expect(source).toContain('"terminal":"applied"');
+    await expect(acknowledgeDevelopmentCommitResult({ ...result })).rejects.toThrow('owner-issued result');
+    expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+    await acknowledgeDevelopmentCommitResult(result);
+    await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(path.dirname(result.journalPath))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .toEqual({ ref: result.ref, observed: 0, retired: 0 });
+    const foreign = path.join(path.dirname(result.journalPath), `.sec-journal-guard-${'f'.repeat(64)}.lock`);
+    await mkdir(path.dirname(foreign));
+    await writeFile(foreign, '{}');
+    await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .rejects.toThrow('unrecognized owner residue');
+    expect(await readFile(foreign, 'utf8')).toBe('{}');
+    await expect(acknowledgeDevelopmentCommitResult(result)).rejects.toThrow('owner-issued result');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit classifies every exact-ref journal before retiring any', async () => {
+  const { root } = await fixture();
+  try {
+    await rm(fixtureReflogPath(root));
+    const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
+    const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', result.ref])).toBe(result.target);
+    const source = await readFile(result.journalPath, 'utf8');
+    const unknown = { ...JSON.parse(source) as Record<string, unknown>,
+      attempt: `sha256:${'a'.repeat(64)}`, target: 'b'.repeat(40), object: null, terminal: 'unknown' };
+    const unknownPath = path.join(path.dirname(result.journalPath), `${'a'.repeat(64)}.json`);
+    await writeFile(unknownPath, `${JSON.stringify(unknown)}\n`);
+    await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .rejects.toThrow('requires applied readback');
+    expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+    await rm(unknownPath);
+    expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .toEqual({ ref: result.ref, observed: 1, retired: 1 });
+    await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('development.commit retires verified applied attempts after a local ref rewrite', async () => {
+  const { root } = await fixture();
+  try {
+    await rm(fixtureReflogPath(root));
+    const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
+    const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', result.ref])).toBe(result.target);
+    const source = await readFile(result.journalPath, 'utf8');
+    git(root, ['reset', '--mixed', result.preimage]);
+    expect(git(root, ['rev-parse', result.ref])).toBe(result.preimage);
+    const unknown = { ...JSON.parse(source) as Record<string, unknown>, terminal: 'unknown' };
+    const unknownPath = path.join(path.dirname(result.journalPath), `${'a'.repeat(64)}.json`);
+    await writeFile(unknownPath, `${JSON.stringify(unknown)}\n`);
+    await expect(retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: result.ref }))
+      .rejects.toThrow('active or unknown');
+    expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+    await rm(unknownPath);
+    expect(await retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: result.ref }))
+      .toEqual({ ref: result.ref, observed: 1, retired: 1 });
+    await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(git(root, ['rev-parse', result.ref])).toBe(result.preimage);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('development.commit settles completed historical and current journals for one ref', async () => {
+  const { root } = await fixture();
+  try {
+    await rm(fixtureReflogPath(root));
+    const firstAdmission = await issueDevelopmentCommitAdmission({
+      repositoryRoot: root, message: 'first staged candidate\n'
+    });
+    const first = await runDevelopmentCommit(firstAdmission.request, firstAdmission.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', first.ref])).toBe(first.target);
+    await writeFile(path.join(root, 'later.txt'), 'later\n');
+    git(root, ['add', 'later.txt']);
+    const secondAdmission = await issueDevelopmentCommitAdmission({
+      repositoryRoot: root, message: 'second staged candidate\n'
+    });
+    const second = await runDevelopmentCommit(secondAdmission.request, secondAdmission.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', second.ref]).split(/\r?\n/u).slice(0, 2))
+      .toEqual([second.target, first.target]);
+    expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: second.ref }))
+      .toEqual({ ref: second.ref, observed: 2, retired: 2 });
+    await expect(lstat(first.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(second.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test('development.commit reports failed staged normalization without publishing the candidate', async () => {
+  const { root, request } = await fixture();
+  try {
+    const kernelPath = 'src/adapters/self-hosting/development/import-normalization/kernel.ts';
+    await writeFile(path.join(root, kernelPath),
+      "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\n");
+    git(root, ['add', '--', kernelPath]);
+    const before = {
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree'])
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(issueDevelopmentCommitAdmission({ request }))
+        .rejects.toThrow('Candidate import normalization blocked commit: failed; action sha256:');
+      expect({
+        head: git(root, ['rev-parse', 'HEAD']),
+        tree: git(root, ['write-tree'])
+      }).toEqual(before);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+function fixtureReflogPath(root: string): string {
+  const ref = git(root, ['symbolic-ref', 'HEAD']);
+  return path.resolve(root, git(root, ['rev-parse', '--git-path', `logs/${ref}`]));
+}
+
+for (const mode of [
+  'missing', 'wrong-old', 'zero-old',
+  'gap', 'later-move', 'later-return', 'extra-output', 'observation-failure'
+] as const) {
+  test(`development.commit reads the exact native reflog transition: ${mode}`, async () => {
+    const { root } = await fixture();
+    try {
+      const preimage = git(root, ['rev-parse', 'HEAD']);
+      const ref = git(root, ['symbolic-ref', 'HEAD']);
+      const tree = git(root, ['write-tree']);
+      const target = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'intended target']);
+      const other = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'unrelated target']);
+      const reflogPath = fixtureReflogPath(root);
+      if (mode !== 'gap') await rm(reflogPath);
+      git(root, ['update-ref', '--create-reflog', '-m', 'development.commit', ref, target, preimage]);
+      if (mode === 'wrong-old' || mode === 'zero-old' || mode === 'gap') {
+        const lines = (await readFile(reflogPath, 'utf8')).trimEnd().split('\n');
+        lines[lines.length - 1] = lines.at(-1)!.replace(
+          preimage, mode === 'zero-old' ? '0'.repeat(preimage.length) : other
+        );
+        await writeFile(reflogPath, `${lines.join('\n')}\n`);
+      }
+      if (mode === 'missing') await rm(reflogPath);
+      if (mode === 'later-move' || mode === 'later-return') {
+        git(root, ['update-ref', '-m', 'unrelated move', ref, other, target]);
+        if (mode === 'later-return') {
+          git(root, ['update-ref', '-m', 'unrelated return', ref, target, other]);
+        }
+      }
+      if (mode === 'gap') {
+        const native = spawnSync('git', [
+          'rev-parse', '--revs-only', '--end-of-options', `${ref}@{0}`, `${ref}@{1}`
+        ], { cwd: root, encoding: 'utf8', windowsHide: true });
+        // Native Git can return both expected OIDs with success despite a
+        // discontinuity. The diagnostic must not be discarded by readback.
+        expect(native.status).toBe(0);
+        expect(native.stdout.trim()).toBe(`${target}\n${preimage}`);
+        expect(native.stderr.length).toBeGreaterThan(0);
+      }
+      const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+      const before = {
+        ref: git(root, ['rev-parse', ref]),
+        reflog: await readFile(reflogPath, 'utf8').catch(() => null)
+      };
+      const hostSession = createHostGitReadSessionForTests({ cwd: root });
+      const session = Object.freeze({
+        ...hostSession,
+        run: async (args: readonly string[]) => {
+          const transitionRead = args[0] === 'rev-parse' && args[1] === '--revs-only';
+          if (transitionRead && mode === 'observation-failure') {
+            return Object.freeze({
+              kind: 'unresolved-git-read-session' as const,
+              reason: 'command-error' as const,
+              detail: 'independent predecessor observation failure'
+            });
+          }
+          const command = await hostSession.run(args);
+          return transitionRead && mode === 'extra-output' && command.kind === 'completed'
+            ? Object.freeze({ ...command, result: Object.freeze({
+              ...command.result,
+              stdout: Buffer.concat([Buffer.from(command.result.stdout), Buffer.from('\n')])
+            }) })
+            : command;
+        }
+      });
+      try {
+        const journal: Parameters<typeof readDevelopmentCommitOutcome>[0]['journal'] = Object.freeze({
+          schema: 'sec-development-commit-journal-v1',
+          operation: `sha256:${'1'.repeat(64)}`,
+          attempt: `sha256:${'2'.repeat(64)}`,
+          ref, preimage, target, object: target, tree, terminal: 'unknown'
+        });
+        const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
+        expect(readback.disposition).toBe('unknown');
+        expect(readback.operation).toBe(journal.operation);
+        expect(readback.attempt).toBe(journal.attempt);
+        expect(git(root, ['rev-parse', ref])).toBe(before.ref);
+        expect(await readFile(reflogPath, 'utf8').catch(() => null)).toBe(before.reflog);
+      } finally {
+        await hostSession.close?.();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const mode of ['recover', 'prepare-retirement'] as const) {
+  test(`development.commit preserves its first-entry transition consumer: ${mode}`, async () => {
+    const { root } = await fixture();
+    try {
+      const reflogPath = fixtureReflogPath(root);
+      await rm(reflogPath);
+      const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'first logged candidate\n' });
+      const first = await runDevelopmentCommit(prepared.request, prepared.admission);
+      expect(first.disposition).toBe('applied');
+      expect(git(root, ['rev-list', '--walk-reflogs', first.ref])).toBe(first.target);
+      const source = await readFile(first.journalPath, 'utf8');
+      if (mode === 'recover') {
+        const original = JSON.parse(source) as Record<string, unknown>;
+        const unknown = { ...original, terminal: 'unknown' };
+        await writeFile(first.journalPath, `${JSON.stringify(unknown)}\n`);
+        const reflog = await readFile(reflogPath, 'utf8');
+        const recovered = await recoverDevelopmentCommit({ repositoryRoot: root, journalPath: first.journalPath });
+        expect(recovered.result.disposition).toBe('applied');
+        expect(recovered.result.target).toBe(first.target);
+        expect(recovered.result.journalPath).toBe(first.journalPath);
+        expect(await readFile(first.journalPath, 'utf8')).toBe(source);
+        expect(await readFile(reflogPath, 'utf8')).toBe(reflog);
+        expect(git(root, ['rev-parse', first.ref])).toBe(first.target);
+      } else if (mode === 'prepare-retirement') {
+        const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+        const plan = await withWorkspaceWriteLease(commonDirectory, undefined, coordinatedLease =>
+          prepareDevelopmentCommitJournalsForLocalRefRetirement({
+            repositoryRoot: root, ref: first.ref, expectedHeadSha: first.target, coordinatedLease
+          }));
+        expect(plan.refState).toBe('present');
+        expect(plan.expectedHeadSha).toBe(first.target);
+        expect(await readFile(first.journalPath, 'utf8')).toBe(source);
+        expect(git(root, ['rev-parse', first.ref])).toBe(first.target);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+}
+
+for (const consumer of ['settle', 'retire-superseded', 'prepare-retirement'] as const) {
+  test(`development.commit rejects a false oldest preimage before journal effects: ${consumer}`, async () => {
+    const { root } = await fixture();
+    try {
+      const reflogPath = fixtureReflogPath(root);
+      await rm(reflogPath);
+      const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'first logged candidate\n' });
+      const first = await runDevelopmentCommit(prepared.request, prepared.admission);
+      const source = await readFile(first.journalPath, 'utf8');
+      const other = git(root, ['commit-tree', first.tree, '-p', first.preimage, '-m', 'false predecessor']);
+      const reflog = (await readFile(reflogPath, 'utf8')).replace(first.preimage, other);
+      await writeFile(reflogPath, reflog);
+      if (consumer === 'retire-superseded') git(root, ['reset', '--mixed', first.preimage]);
+      if (consumer === 'settle') {
+        await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: first.ref }))
+          .rejects.toThrow('requires applied readback');
+      } else if (consumer === 'retire-superseded') {
+        await expect(retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: first.ref }))
+          .rejects.toThrow('lacks its exact local ref transition');
+      } else {
+        const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+        await expect(withWorkspaceWriteLease(commonDirectory, undefined, coordinatedLease =>
+          prepareDevelopmentCommitJournalsForLocalRefRetirement({
+            repositoryRoot: root, ref: first.ref, expectedHeadSha: first.target, coordinatedLease
+          }))).rejects.toThrow('requires applied readback');
+      }
+      expect(await readFile(first.journalPath, 'utf8')).toBe(source);
+      expect(git(root, ['rev-parse', first.ref]))
+        .toBe(consumer === 'retire-superseded' ? first.preimage : first.target);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+}
+
+test('development.commit keeps a failed reflog observation unknown instead of authorizing another effect', async () => {
+  const { root } = await fixture();
+  try {
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['commit', '--quiet', '-m', 'detached target object']);
+    const target = git(root, ['rev-parse', 'HEAD']);
+    const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+    const ref = git(root, ['symbolic-ref', 'HEAD']);
+    git(root, ['reset', '--soft', preimage]);
+    const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+    const hostSession = createHostGitReadSessionForTests({ cwd: root });
+    const session = Object.freeze({
+      ...hostSession,
+      run: (args: readonly string[]) => args[0] === 'rev-list' && args[1] === '--walk-reflogs'
+        ? Promise.resolve(Object.freeze({
+          kind: 'unresolved-git-read-session' as const,
+          reason: 'command-error' as const,
+          detail: 'independent reflog observation failure'
+        }))
+        : hostSession.run(args)
+    });
+    try {
+      const journal: Parameters<typeof readDevelopmentCommitOutcome>[0]['journal'] = Object.freeze({
+        schema: 'sec-development-commit-journal-v1',
+        operation: `sha256:${'1'.repeat(64)}`,
+        attempt: `sha256:${'2'.repeat(64)}`,
+        ref,
+        preimage,
+        target,
+        object: target,
+        tree,
+        terminal: null
+      });
+      const readback = await readDevelopmentCommitOutcome({
+        session,
+        commonDirectory,
+        journal,
+        normal: null
+      });
+      expect(readback.disposition).toBe('unknown');
+    } finally {
+      await hostSession.close?.();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('development.commit rejects a real unfinished merge without publishing or consuming its state', async () => {
+  const { root, request } = await fixture();
+  try {
+    const base = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['commit', '--quiet', '-m', 'current branch delta']);
+    const currentBranch = git(root, ['symbolic-ref', '--short', 'HEAD']);
+    git(root, ['switch', '--quiet', '-c', 'incoming', base]);
+    await writeFile(path.join(root, 'incoming.txt'), 'incoming\n');
+    git(root, ['add', 'incoming.txt']);
+    git(root, ['commit', '--quiet', '-m', 'incoming delta']);
+    git(root, ['switch', '--quiet', currentBranch]);
+    git(root, ['merge', '--no-commit', '--no-ff', 'incoming']);
+    const gitDirectory = git(root, ['rev-parse', '--absolute-git-dir']);
+    const observe = async () => ({
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v']),
+      mergeHead: await readFile(path.join(gitDirectory, 'MERGE_HEAD'), 'utf8')
+    });
+    const before = await observe();
+    await expect(issueDevelopmentCommitAdmission({ request }))
+      .rejects.toThrow('unfinished Git operation: MERGE_HEAD');
+    expect(await observe()).toEqual(before);
+    await expect(lstat(path.join(gitDirectory, 'sec-development-commit')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit fences sequencer state introduced after admission', async () => {
+  const { root, request } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ request });
+    const gitDirectory = git(root, ['rev-parse', '--absolute-git-dir']);
+    await mkdir(path.join(gitDirectory, 'sequencer'));
+    const before = {
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    };
+    await expect(runDevelopmentCommit(request, prepared.admission))
+      .rejects.toThrow('unfinished Git operation: sequencer');
+    expect({
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    }).toEqual(before);
+    await expect(lstat(path.join(gitDirectory, 'sec-development-commit')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);

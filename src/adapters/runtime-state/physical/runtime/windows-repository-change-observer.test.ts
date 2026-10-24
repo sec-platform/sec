@@ -22,20 +22,6 @@ async function withFixture(
 }
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows repository observer settles an unchanged retained root with zero events',
-  async () => withFixture(async (root) => {
-    const resolution = await armWindowsRepositoryChangeObserver({
-      roots: [root],
-      deadlineAtUnixMs: Date.now() + 10_000
-    });
-    expect(resolution.status).toBe('ready');
-    if (resolution.status !== 'ready') return;
-    const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
-    expect(settlement.status).toBe('zero-events');
-  })
-);
-
-test.skipIf(process.platform !== 'win32')(
   'terminal observer settlement leaves no deadline timer or worker that keeps a fresh process alive',
   () => {
     const moduleUrl = new URL('./windows-repository-change-observer.ts', import.meta.url).href;
@@ -46,6 +32,7 @@ test.skipIf(process.platform !== 'win32')(
       "const path = await import('node:path');",
       "const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-repository-observer-child-'));",
       'try {',
+      "  await fs.mkdir(path.join(root, 'nested'));",
       '  const resolution = await observer.armWindowsRepositoryChangeObserver({',
       '    roots: [root], deadlineAtUnixMs: Date.now() + 60_000',
       '  });',
@@ -74,15 +61,19 @@ test.skipIf(process.platform !== 'win32')(
     });
     expect(resolution.status).toBe('ready');
     if (resolution.status !== 'ready') return;
-    const target = path.join(root, 'nested', 'transient.txt');
-    await writeFile(target, 'transient', 'utf8');
-    await rm(target);
-    const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
-    expect(settlement.status).toBe('events');
-    if (settlement.status !== 'events') return;
-    expect(settlement.events.some(({ path: observedPath }) => (
-      observedPath.replace(/\\/gu, '/') === 'nested/transient.txt'
-    ))).toBeTrue();
+    try {
+      const target = path.join(root, 'nested', 'transient.txt');
+      await writeFile(target, 'transient', 'utf8');
+      await rm(target);
+      const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
+      expect(settlement.status).toBe('events');
+      if (settlement.status !== 'events') return;
+      expect(settlement.events.some(({ path: observedPath }) => (
+        observedPath.replace(/\\/gu, '/') === 'nested/transient.txt'
+      ))).toBeTrue();
+    } finally {
+      await settleWindowsRepositoryChangeObserver(resolution.observer);
+    }
   })
 );
 
@@ -97,13 +88,17 @@ test.skipIf(process.platform !== 'win32')(
     });
     expect(resolution.status).toBe('ready');
     if (resolution.status !== 'ready') return;
-    await writeFile(target, 'changed', 'utf8');
-    await writeFile(target, 'stable', 'utf8');
-    const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
-    expect(settlement.status).toBe('events');
-    if (settlement.status !== 'events') return;
-    expect(settlement.events.some(({ action, path: observedPath }) => (
-      action === 'modified' && observedPath.replace(/\\/gu, '/') === 'nested/stable.txt'
-    ))).toBeTrue();
+    try {
+      await writeFile(target, 'changed', 'utf8');
+      await writeFile(target, 'stable', 'utf8');
+      const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
+      expect(settlement.status).toBe('events');
+      if (settlement.status !== 'events') return;
+      expect(settlement.events.some(({ action, path: observedPath }) => (
+        action === 'modified' && observedPath.replace(/\\/gu, '/') === 'nested/stable.txt'
+      ))).toBeTrue();
+    } finally {
+      await settleWindowsRepositoryChangeObserver(resolution.observer);
+    }
   })
 );

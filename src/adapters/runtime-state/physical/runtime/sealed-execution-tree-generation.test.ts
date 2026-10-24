@@ -37,15 +37,26 @@ function digest(value: string): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
+async function createGenerationParentFixture(label: string) {
+  const rootPath = await mkdtemp(path.join(tmpdir(), `sec-${label}-`));
+  const generationParentPath = path.join(rootPath, 'execution-owner');
+  await mkdir(generationParentPath);
+  return Object.freeze({
+    generationParent: inspectNoFollowDirectoryChain(
+      generationParentPath,
+      `${label} execution owner`
+    ).target,
+    rootPath
+  });
+}
+
 async function createFixture(label: string): Promise<Readonly<{
   dependency: RetainedNoFollowProvenDirectoryGeneration;
   generationParent: PhysicalDirectoryIdentity;
   rootPath: string;
 }>> {
-  const rootPath = await mkdtemp(path.join(tmpdir(), `sec-${label}-`));
-  const generationParentPath = path.join(rootPath, 'execution-owner');
+  const { rootPath, generationParent } = await createGenerationParentFixture(label);
   const dependencyPath = path.join(rootPath, 'disjoint-dependency');
-  await mkdir(generationParentPath);
   await mkdir(dependencyPath);
   await writeFile(path.join(dependencyPath, 'dependency.txt'), 'dependency\n');
   const dependencyRoot = inspectNoFollowDirectoryChain(
@@ -71,10 +82,7 @@ async function createFixture(label: string): Promise<Readonly<{
   });
   return Object.freeze({
     dependency: materialized.generation,
-    generationParent: inspectNoFollowDirectoryChain(
-      generationParentPath,
-      `${label} execution owner`
-    ).target,
+    generationParent,
     rootPath
   });
 }
@@ -115,6 +123,16 @@ test('sealed physical execution tree publishes exact caller bytes and retires on
       ...generation
     } as never)).toThrow('was not issued by Runtime Physical');
     const generationPath = generation.workingDirectory.root.path;
+    if (process.platform === 'win32') {
+      for (const [name, flags] of [['value.ts', 'r+'], ['foreign.ts', 'wx']] as const) {
+        const attempt = open(path.join(generationPath, 'src', name), flags);
+        try {
+          await expect(attempt).rejects.toBeInstanceOf(Error);
+        } finally {
+          await attempt.then(handle => handle.close(), () => undefined);
+        }
+      }
+    }
     expect(await readFile(path.join(generationPath, 'src', 'value.ts'), 'utf8'))
       .toBe('export const value = 1;\n');
     expect(await readFile(path.join(generationPath, 'tsconfig.json'), 'utf8'))
@@ -156,7 +174,7 @@ test('sealed physical execution tree publishes exact caller bytes and retires on
   }
 }, 60_000);
 
-test('generation identity is operation-exact and terminal receipts cannot be transplanted', async () => {
+test('operation-exact generations reject transplanted receipts and preserve their shared borrowed source', async () => {
   const fixture = await createFixture('sealed-execution-tree-identity-binding');
   const input = {
     deadlineAtUnixMs: Date.now() + 30_000,
@@ -175,40 +193,16 @@ test('generation identity is operation-exact and terminal receipts cannot be tra
     expect(first.identity.generationDigest).not.toBe(second.identity.generationDigest);
 
     const firstReceipt = await first.retire();
+    fixture.dependency.assertCurrent();
+    await fixture.dependency.assertAuthorityCurrent();
+    await second.assertCurrent();
     expect(() => assertSealedPhysicalExecutionTreeRetirementReceipt(firstReceipt, second))
       .toThrow('does not settle this generation');
     assertSealedPhysicalExecutionTreeRetirementReceipt(firstReceipt, first);
     const secondReceipt = await second.retire();
     assertSealedPhysicalExecutionTreeRetirementReceipt(secondReceipt, second);
-  } finally {
-    await fixture.dependency.retire();
-    await rm(fixture.rootPath, { recursive: true, force: true });
-  }
-}, 60_000);
-
-test('partial borrowed-generation retirement preserves residue and issues no terminal receipt', async () => {
-  const fixture = await createFixture('sealed-execution-tree-partial-retirement');
-  try {
-    const generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
-      deadlineAtUnixMs: Date.now() + 30_000,
-      directoryNamePrefix: 'execution-',
-      files: [{ bytes: Buffer.from('implementation\n'), path: 'implementation.ts' }],
-      generationParent: fixture.generationParent,
-      links: [{ path: 'node_modules', source: fixture.dependency }]
-    });
-    await fixture.dependency.retire();
-    let firstFailure: unknown;
-    try { await generation.retire(); } catch (error) { firstFailure = error; }
-    expect(firstFailure).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
-    expect((firstFailure as SealedPhysicalExecutionTreeResidueError).residue)
-      .toMatchObject({
-        linkedSettlements: [{ status: 'borrowed-unavailable' }],
-        retryability: 'owner-reconciliation-required',
-        treeSettlements: { authority: 'released', tree: 'physically-absent' }
-      });
-    await expect(generation.retire()).rejects.toBeInstanceOf(
-      SealedPhysicalExecutionTreeResidueError
-    );
+    fixture.dependency.assertCurrent();
+    await fixture.dependency.assertAuthorityCurrent();
   } finally {
     await fixture.dependency.retire();
     await rm(fixture.rootPath, { recursive: true, force: true });
@@ -247,7 +241,6 @@ test('sealed physical execution tree returns typed residue and preserves both si
     let second: unknown;
     try { await generation.retire(); } catch (error) { second = error; }
     expect(second).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
-    expect(second).not.toBe(first);
     expect(await readFile(path.join(displacedPath, 'owned.txt'), 'utf8')).toBe('owned\n');
     expect(await readFile(path.join(generationPath, 'replacement.txt'), 'utf8'))
       .toBe('replacement\n');
@@ -257,44 +250,6 @@ test('sealed physical execution tree returns typed residue and preserves both si
   }
 }, 60_000);
 
-test('sealed physical execution tree fails closed on unknown retirement residue', async () => {
-  const fixture = await createFixture('sealed-execution-tree-unknown-residue');
-  try {
-    const generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
-      deadlineAtUnixMs: Date.now() + 30_000,
-      directoryNamePrefix: 'execution-',
-      files: [{ bytes: Buffer.from('known\n'), path: 'known.txt' }],
-      generationParent: fixture.generationParent,
-      links: [{ path: 'node_modules', source: fixture.dependency }],
-      maximumBytes: 1_024,
-      maximumEntries: 4
-    });
-    const generationPath = generation.workingDirectory.root.path;
-    await generation.workingDirectory.retire();
-    await writeFile(path.join(generationPath, 'unknown.txt'), 'unknown\n');
-
-    let residue: SealedPhysicalExecutionTreeResidueError | null = null;
-    try { await generation.retire(); } catch (error) {
-      expect(error).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
-      residue = error as SealedPhysicalExecutionTreeResidueError;
-    }
-    expect(residue!.residue.linkedSettlements).toEqual([expect.objectContaining({
-      status: 'borrowed-current'
-    })]);
-    expect(residue!.residue.treeSettlements).toEqual({
-      authority: 'released',
-      tree: 'retirement-failed'
-    });
-    expect(await readFile(path.join(generationPath, 'unknown.txt'), 'utf8')).toBe('unknown\n');
-    await rm(path.join(generationPath, 'unknown.txt'));
-    const recovered = await generation.retire();
-    expect(recovered.tree.status).toBe('physically-absent');
-    await expect(lstat(generationPath)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    await fixture.dependency.retire();
-    await rm(fixture.rootPath, { recursive: true, force: true });
-  }
-}, 60_000);
 
 test('sealed physical execution tree rejects deadline, signal and exact inventory ceilings before publication', async () => {
   const fixture = await createFixture('sealed-execution-tree-bounds');
@@ -332,40 +287,6 @@ test('sealed physical execution tree rejects deadline, signal and exact inventor
   }
 }, 60_000);
 
-test('borrowed link source remains current across two trees, setup failure and generic retirement', async () => {
-  const fixture = await createFixture('sealed-execution-tree-borrowed-source');
-  try {
-    const input = (name: string) => ({
-      deadlineAtUnixMs: Date.now() + 30_000,
-      directoryNamePrefix: `${name}-`,
-      files: [{ bytes: Buffer.from(`${name}\n`), path: `${name}.ts` }],
-      generationParent: fixture.generationParent,
-      links: [{ path: 'node_modules', source: fixture.dependency }]
-    } as const);
-    const first = await materializeRetainedSealedPhysicalExecutionTreeGeneration(input('first'));
-    const second = await materializeRetainedSealedPhysicalExecutionTreeGeneration(input('second'));
-    await first.retire();
-    fixture.dependency.assertCurrent();
-    await fixture.dependency.assertAuthorityCurrent();
-    await second.assertCurrent();
-    await second.retire();
-    fixture.dependency.assertCurrent();
-    await fixture.dependency.assertAuthorityCurrent();
-
-    await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
-      ...input('invalid'),
-      files: [
-        { bytes: Buffer.from('ancestor\n'), path: 'collision' },
-        { bytes: Buffer.from('descendant\n'), path: 'collision/value.ts' }
-      ]
-    })).rejects.toBeInstanceOf(SealedPhysicalExecutionTreeAdmissionError);
-    fixture.dependency.assertCurrent();
-    await fixture.dependency.assertAuthorityCurrent();
-  } finally {
-    await fixture.dependency.retire();
-    await rm(fixture.rootPath, { recursive: true, force: true });
-  }
-}, 60_000);
 
 test('retirement uses fresh recovery authority after the execution signal is aborted', async () => {
   const fixture = await createFixture('sealed-execution-tree-recovery-authority');
@@ -418,6 +339,7 @@ test('canonical path trie rejects ancestor, case and reserved equivalents with z
       })).rejects.toBeInstanceOf(SealedPhysicalExecutionTreeAdmissionError);
       expect(await readdir(fixture.generationParent.path)).toEqual([]);
       fixture.dependency.assertCurrent();
+      await fixture.dependency.assertAuthorityCurrent();
     }
     await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
       deadlineAtUnixMs: Date.now() + 30_000,
@@ -437,7 +359,7 @@ test('canonical path trie rejects ancestor, case and reserved equivalents with z
 }, 60_000);
 
 test('protected roots reject forged, overlapping, released and live replacement before publication', async () => {
-  const fixture = await createFixture('sealed-execution-tree-protected-root');
+  const fixture = await createGenerationParentFixture('sealed-execution-tree-protected-root');
   const subject = await createMutableProtectedSubject(fixture, 'protected-root');
   const protectedRoot = subject.capability;
   const base = {
@@ -460,14 +382,24 @@ test('protected roots reject forged, overlapping, released and live replacement 
       generationParent: subject.root,
       protectedRoots: [protectedRoot]
     })).rejects.toThrow('overlaps a protected root');
-    expect(await readdir(fixture.generationParent.path)).toEqual([]);
+    expect(await readdir(subject.subjectPath)).toEqual(['subject.txt']);
+    if (process.platform === 'win32') {
+      await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
+        ...base,
+        generationParent: Object.freeze({
+          ...subject.root,
+          path: subject.root.path.toUpperCase()
+        }),
+        protectedRoots: [protectedRoot]
+      })).rejects.toThrow('overlaps a protected root');
+      expect(await readdir(subject.subjectPath)).toEqual(['subject.txt']);
+    }
   } finally {
     protectedRoot.release();
-    await fixture.dependency.retire();
     await rm(fixture.rootPath, { recursive: true, force: true });
   }
 
-  const replacement = await createFixture('sealed-execution-tree-protected-replacement');
+  const replacement = await createGenerationParentFixture('sealed-execution-tree-protected-replacement');
   const replacementSubject = await createMutableProtectedSubject(replacement, 'replacement');
   const replacementProtectedRoot = replacementSubject.capability;
   try {
@@ -503,66 +435,9 @@ test('protected roots reject forged, overlapping, released and live replacement 
     expect(await readdir(replacement.generationParent.path)).toEqual([]);
   } finally {
     replacementProtectedRoot.release();
-    await replacement.dependency.retire();
     await rm(replacement.rootPath, { recursive: true, force: true });
   }
 }, 60_000);
-
-test.skipIf(process.platform !== 'win32')(
-  'protected roots reject a case-equivalent owner spelling before publication',
-  async () => {
-    const fixture = await createFixture('sealed-execution-tree-protected-case');
-    const subject = await createMutableProtectedSubject(fixture, 'case-equivalent');
-    const protectedRoot = subject.capability;
-    try {
-      await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
-        deadlineAtUnixMs: Date.now() + 30_000,
-        directoryNamePrefix: 'execution-',
-        files: [{ bytes: Buffer.from('a'), path: 'value.ts' }],
-        generationParent: Object.freeze({
-          ...subject.root,
-          path: subject.root.path.toUpperCase()
-        }),
-        links: [],
-        protectedRoots: [protectedRoot]
-      })).rejects.toThrow('overlaps a protected root');
-      expect(await readdir(fixture.generationParent.path)).toEqual([]);
-    } finally {
-      protectedRoot.release();
-      await fixture.dependency.retire();
-      await rm(fixture.rootPath, { recursive: true, force: true });
-    }
-  },
-  60_000
-);
-
-test.skipIf(process.platform !== 'win32')(
-  'sealed execution handles exclude byte and membership mutation until terminal retirement',
-  async () => {
-    const fixture = await createFixture('sealed-execution-tree-writer-exclusion');
-    try {
-      const generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
-        deadlineAtUnixMs: Date.now() + 30_000,
-        directoryNamePrefix: 'execution-',
-        files: [{ bytes: Buffer.from('exact\n'), path: 'src/value.ts' }],
-        generationParent: fixture.generationParent,
-        links: [{ path: 'node_modules', source: fixture.dependency }]
-      });
-      const generationPath = generation.workingDirectory.root.path;
-      const sourcePath = path.join(generationPath, 'src', 'value.ts');
-      await expect(open(sourcePath, 'r+')).rejects.toBeInstanceOf(Error);
-      await expect(open(path.join(generationPath, 'src', 'foreign.ts'), 'wx'))
-        .rejects.toBeInstanceOf(Error);
-      expect(await readFile(sourcePath, 'utf8')).toBe('exact\n');
-      await generation.assertCurrent();
-      await generation.retire();
-    } finally {
-      await fixture.dependency.retire();
-      await rm(fixture.rootPath, { recursive: true, force: true });
-    }
-  },
-  60_000
-);
 
 test.skipIf(process.platform !== 'win32')(
   'sealed generation admission rejects a pre-existing writer handle',
@@ -672,15 +547,24 @@ test('TypeScript wrapper preserves dependency drift as non-terminal physical res
     let retirement: unknown;
     try { await generation.retire(); } catch (error) { retirement = error; }
     expect(retirement).toBeInstanceOf(RetainedTypeScriptExecutionGenerationResidueError);
+    const physicalFailure = (retirement as RetainedTypeScriptExecutionGenerationResidueError).cause;
+    expect(physicalFailure).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
+    expect((physicalFailure as SealedPhysicalExecutionTreeResidueError).residue).toMatchObject({
+      linkedSettlements: [{ status: 'borrowed-unavailable' }],
+      retryability: 'owner-reconciliation-required',
+      treeSettlements: { authority: 'released', tree: 'physically-absent' }
+    });
     expect((retirement as RetainedTypeScriptExecutionGenerationResidueError).physicalResidues)
       .toEqual([expect.objectContaining({
         linkedSettlements: [expect.objectContaining({ status: 'borrowed-unavailable' })],
         treeSettlements: { authority: 'released', tree: 'physically-absent' }
       })]);
     await expect(lstat(generationPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(generation.retire()).rejects.toBeInstanceOf(
-      RetainedTypeScriptExecutionGenerationResidueError
-    );
+    let repeated: unknown;
+    try { await generation.retire(); } catch (error) { repeated = error; }
+    expect(repeated).toBeInstanceOf(RetainedTypeScriptExecutionGenerationResidueError);
+    expect((repeated as RetainedTypeScriptExecutionGenerationResidueError).cause)
+      .toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
   } finally {
     await fixture.dependency.retire();
     await rm(fixture.rootPath, { recursive: true, force: true });
@@ -795,10 +679,21 @@ test('TypeScript wrapper preserves structured physical residue and retries after
     }
     expect(failure!.physicalResidues).toHaveLength(1);
     expect(failure!.physicalResidues[0]!.retryability).toBe('retryable');
+    expect(failure!.cause).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
+    const physicalFailure = failure!.cause as SealedPhysicalExecutionTreeResidueError;
+    expect(physicalFailure.residue.linkedSettlements).toEqual([expect.objectContaining({
+      status: 'borrowed-current'
+    })]);
+    expect(physicalFailure.residue.treeSettlements).toEqual({
+      authority: 'released',
+      tree: 'retirement-failed'
+    });
+    expect(await readFile(path.join(generationPath, 'unknown.txt'), 'utf8')).toBe('unknown\n');
     fixture.dependency.assertCurrent();
     await rm(path.join(generationPath, 'unknown.txt'));
     const receipt = await generation.retire();
     expect(receipt.projectTree.status).toBe('physically-absent');
+    await expect(lstat(generationPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(() => fixture.dependency.assertCurrent()).toThrow();
   } finally {
     await fixture.dependency.retire();

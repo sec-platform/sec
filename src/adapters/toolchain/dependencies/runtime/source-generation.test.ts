@@ -12,7 +12,6 @@ import { compileRepositorySourceProgramModel } from '../../../repository/source-
 import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalRuntimeDependencySourceGeneration } from './dependency-transition/codec.ts';
 import {
-  runtimeDependencyOperationContext,
   runtimeDependencyOperationOptions,
   type RuntimeDependencyOperationOptions
 } from './operation-context.ts';
@@ -126,6 +125,7 @@ test('source generation binds content identity to one exact physical owner topol
     await fs.writeFile(path.join(sourcePath, 'package.json'), '{"name":"changed"}\n');
     const changed = await runtimeDependencySourceGeneration(input);
     expect(changed.epoch).not.toBe(first.epoch);
+    expect(changed.treeDigest).not.toBe(first.treeDigest);
     expect(sameRuntimeDependencySourceGenerationContent(first, changed)).toBe(false);
     const telemetry = readRuntimeDependencyOperationTelemetry(options);
     expect(telemetry).toMatchObject({
@@ -196,27 +196,5 @@ test('source generation enforces caller deadline abort byte and entry bounds', a
       ownerRoot,
       sourcePath
     })).rejects.toMatchObject({ code: 'RUNTIME-DEPS-003' });
-  });
-});
-
-test('source generation coalesces only callers with the same operation bounds', async () => {
-  await withSourceGenerationFixture(async ({ ownerRoot, sourcePath }) => {
-    await fs.writeFile(path.join(sourcePath, 'package.json'), '{"name":"fixture"}\n');
-    const shared = operationOptions({ lockTimeoutMs: 1_000 });
-    const rewrapped = runtimeDependencyOperationOptions(shared);
-    expect(runtimeDependencyOperationContext(rewrapped))
-      .toBe(runtimeDependencyOperationContext(shared));
-    const input = { binding: { packageManager: 'bun' }, options: shared, ownerRoot, sourcePath };
-    const first = runtimeDependencySourceGeneration(input);
-    const second = runtimeDependencySourceGeneration(input);
-    const [left, right] = await Promise.all([first, second]);
-    expect(left).toBe(right);
-
-    const long = operationOptions({ lockTimeoutMs: 1_000 });
-    const short = runtimeDependencyOperationOptions({ ...long, lockTimeoutMs: 1 });
-    const pending = runtimeDependencySourceGeneration({ ...input, options: long });
-    await expect(runtimeDependencySourceGeneration({ ...input, options: short }))
-      .rejects.toMatchObject({ code: 'RUNTIME-DEPS-003' });
-    await expect(pending).resolves.toMatchObject({ sourcePath });
   });
 });

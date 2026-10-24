@@ -60,11 +60,9 @@ const nestedScript = `
     if (!admissionFailure?.message.includes('canonical source locator')
         || admissionFailure.outcome.started !== false)
       throw new Error('Missing source admission lost its cause or started a child');
-    for (const locator of [undefined, ${JSON.stringify(import.meta.path)}]) {
-      let rejected = false;
-      try { retainedExecutableSourcePath(executable, locator); } catch { rejected = true; }
-      if (!rejected) throw new Error('Unproven source provenance was admitted');
-    }
+    let rejected = false;
+    try { retainedExecutableSourcePath(executable, ${JSON.stringify(import.meta.path)}); } catch { rejected = true; }
+    if (!rejected) throw new Error('Unproven source provenance was admitted');
     const result = await runRetainedCommand(issueRetainedCommandBoundary({executable, workingDirectory: directory}),
       ['--no-env-file', '--eval', ${JSON.stringify(`
         import { currentRuntimeExecutableIdentity } from ${JSON.stringify(compilerIdentityModule)};

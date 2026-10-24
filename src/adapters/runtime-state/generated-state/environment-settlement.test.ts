@@ -22,13 +22,18 @@ function git(repositoryRoot: string, args: readonly string[]): string {
 
 function createRepository(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-environment-settlement-'));
-  git(root, ['init', '--quiet', '--initial-branch=main']);
-  git(root, ['config', 'user.name', 'SEC Test']);
-  git(root, ['config', 'user.email', 'sec-test@example.invalid']);
-  writeFileSync(path.join(root, 'tracked.txt'), 'base\n', 'utf8');
-  git(root, ['add', 'tracked.txt']);
-  git(root, ['commit', '--quiet', '-m', 'base']);
-  return root;
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['config', 'user.name', 'SEC Test']);
+    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
+    writeFileSync(path.join(root, 'tracked.txt'), 'base\n', 'utf8');
+    git(root, ['add', 'tracked.txt']);
+    git(root, ['commit', '--quiet', '-m', 'base']);
+    return root;
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 test.skipIf(process.platform !== 'win32')(

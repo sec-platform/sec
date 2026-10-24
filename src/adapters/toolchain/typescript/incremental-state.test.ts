@@ -76,13 +76,12 @@ test('expired or cancelled incremental admission creates no private tree or stab
   expect(await fs.readdir(expired.actionPrivateParent.path)).toEqual([]);
   await expect(fs.stat(expired.stableSeedFile)).rejects.toMatchObject({ code: 'ENOENT' });
 
-  const cancelled = await fixture('cancelled');
   const controller = new AbortController();
   controller.abort();
   await expect(prepareTypeScriptIncrementalState({
-    ...cancelled,
+    ...expired,
     signal: controller.signal
   })).rejects.toThrow('cancelled');
-  expect(await fs.readdir(cancelled.actionPrivateParent.path)).toEqual([]);
-  await expect(fs.stat(cancelled.stableSeedFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  expect(await fs.readdir(expired.actionPrivateParent.path)).toEqual([]);
+  await expect(fs.stat(expired.stableSeedFile)).rejects.toMatchObject({ code: 'ENOENT' });
 });

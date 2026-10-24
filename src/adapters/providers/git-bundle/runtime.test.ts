@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ResourceCompositeSettlementError } from '../../../execution/resource-settlement.ts';
 import { GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES, isGitCandidateBundleByteLength } from '../../runtime-state/physical/contract/git-bundle.ts';
@@ -90,7 +90,8 @@ describe('Git candidate bundle effect', () => {
       headSha: repository.headSha
     })).rejects.toThrow('file target must be absent');
     expect(readFileSync(occupied, 'utf8')).toBe('foreign\n');
-    expect(() => readFileSync(path.join(outputRoot, 'bundle-source.git'))).toThrow();
+    expect(() => lstatSync(path.join(outputRoot, 'bundle-source.git')))
+      .toThrow(expect.objectContaining({ code: 'ENOENT' }));
   });
 
   test('reads a linked worktree through its retained common directory instead of mutable pointer files', async () => {
@@ -116,20 +117,19 @@ describe('Git candidate bundle effect', () => {
   });
 
   test('rejects noncanonical revisions and forged retained capabilities before Git effects', async () => {
-    const repository = repositoryFixture();
     const outputRoot = temporaryRoot('invalid');
     await expect(createGitCandidateBundle({
-      sourceRoot: repository.root,
+      sourceRoot: path.join(outputRoot, 'unread-source'),
       temporaryRoot: outputRoot,
-      baseSha: repository.baseSha.toUpperCase(),
-      headSha: repository.headSha
+      baseSha: 'A'.repeat(40),
+      headSha: '2'.repeat(40)
     })).rejects.toThrow('input is not canonical');
     expect(() => closeGitCandidateBundle(Object.freeze({
       bundlePath: path.join(outputRoot, 'candidate.bundle'),
       bundleSize: 1,
       bundleDigest: `sha256:${'0'.repeat(64)}`,
-      baseSha: repository.baseSha,
-      headSha: repository.headSha,
+      baseSha: '1'.repeat(40),
+      headSha: '2'.repeat(40),
       objectFormat: 'sha1',
       materializationIdentityDigest: `sha256:${'1'.repeat(64)}`
     }))).toThrow('owner-issued retained capability');
@@ -223,16 +223,19 @@ describe('private candidate Git input lifetime', () => {
   });
 
   test('same HEAD and tree cannot hide tracked bytes, config, extra refs or replacement common-directory drift', async () => {
+    const repository = repositoryFixture();
     const mutations = process.platform === 'win32'
       ? ['source', 'config', 'ref', 'git-directory'] as const
       : ['source', 'config', 'ref', 'git-directory', 'source-mode', 'config-mode', 'root-mode'] as const;
     // POSIX mode bits are not a Windows ACL or native directory identity.
     for (const mutation of mutations) {
-      const repository = repositoryFixture();
       let entered = false;
+      let observedHead = '', observedTree = '', expectedTree = '';
+      let currentFailure: unknown;
       await expect(withGitCandidateCheckout({ sourceRoot: repository.root, ...repository,
         purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
         entered = true;
+        expectedTree = checkout.headTreeSha;
         if (mutation === 'root-mode') chmodSync(checkout.candidateRoot, 0o755);
         if (mutation === 'source-mode') chmodSync(path.join(checkout.candidateRoot, 'value.txt'), 0o755);
         if (mutation === 'config-mode') chmodSync(path.join(checkout.candidateRoot, '.git/config'), 0o700);
@@ -244,13 +247,15 @@ describe('private candidate Git input lifetime', () => {
           renameSync(path.join(checkout.candidateRoot, '.git'), path.join(checkout.candidateRoot, 'moved-git'));
           writeFileSync(path.join(checkout.candidateRoot, '.git'), 'gitdir: moved-git\n');
         }
-        {
-          expect(git(checkout.candidateRoot, ['rev-parse', 'HEAD'])).toBe(repository.headSha);
-          expect(git(checkout.candidateRoot, ['rev-parse', 'HEAD^{tree}'])).toBe(checkout.headTreeSha);
-        }
-        expect(() => assertGitCandidateCheckoutCurrent(checkout)).toThrow();
+        observedHead = git(checkout.candidateRoot, ['rev-parse', 'HEAD']);
+        observedTree = git(checkout.candidateRoot, ['rev-parse', 'HEAD^{tree}']);
+        try { assertGitCandidateCheckoutCurrent(checkout); }
+        catch (error) { currentFailure = error; }
       })).rejects.toThrow();
       expect(entered).toBe(true);
+      expect(observedHead).toBe(repository.headSha);
+      expect(observedTree).toBe(expectedTree);
+      expect(currentFailure).toBeInstanceOf(Error);
     }
   });
 
@@ -354,7 +359,7 @@ describe('private candidate Git input lifetime', () => {
     const recovery = Object.freeze({ parent, generation, baseSha: '1'.repeat(40), headSha: '2'.repeat(40),
       purpose: 'activation-static' as const, deadlineAtUnixMs: 1_000 });
     const error = new GitCandidateCheckoutCleanupUnknownError(recovery, failure);
-    expect(error.recovery).toBe(recovery);
+    expect(error.recovery).toEqual(recovery);
     expect(error.cause).toBe(failure);
     expect(error.failure).toBe(failure);
     expect(failure.errors).toEqual([primary, cleanup]);

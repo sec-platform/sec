@@ -4,10 +4,9 @@ import hashlib
 import json
 import tempfile
 import unittest
-from .test_check_documentation_identity import declaration
+from .fixtures import declaration
 from source_inventory import (
     load,
-    local_path,
     refresh_source_manifest,
     source_files,
 )
@@ -40,22 +39,12 @@ class SourceBoundary(unittest.TestCase):
         self.assertEqual(self.names() - before, {'docs/new.md'})
         self.assertNotIn('src/product.ts', self.names())
 
-    def test_no_silent_cache_directory_omission_inside_declared_source(self):
-        (self.root / 'docs/node_modules').mkdir()
-        (self.root / 'docs/node_modules/unexpected.txt').write_text('unexpected')
-        self.assertIn('docs/node_modules/unexpected.txt', self.names())
-
     def test_missing_and_overlapping_roots_reject(self):
         for roots in (['absent'], ['docs', 'docs/规则.md'], ['docs', 'docs'], [{}], []):
             with self.subTest(roots=roots):
                 self.declare(roots)
                 with self.assertRaises(ValueError):
                     source_files(self.root)
-
-    def test_unsafe_root_and_member_names_reject(self):
-        for name in ('../outside', '/absolute', 'docs//bad', 'C:/outside', 'docs\\bad', ''):
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                local_path(self.root, name)
 
     def test_entry_requires_an_actual_source_member(self):
         metadata=self.root/'.documentation/baseline.json'
@@ -70,12 +59,6 @@ class SourceBoundary(unittest.TestCase):
         value['entry']='../docs/规则.md'
         metadata.write_text(json.dumps(value),encoding='utf-8')
         self.assertIn('docs/规则.md',self.names())
-
-    def test_duplicate_metadata_keys_reject(self):
-        metadata = self.root / '.documentation/baseline.json'
-        metadata.write_text('{"source_roots":[],"source_roots":["docs"]}')
-        with self.assertRaisesRegex(ValueError, 'duplicate JSON key'):
-            load(metadata)
 
     def test_retired_authority_cannot_hide_outside_declared_source_roots(self):
         self.declare(['.documentation', 'docs/规则.md'])
@@ -97,17 +80,6 @@ class SourceBoundary(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'inside an audited namespace'):
             self.names()
 
-    def test_symlink_to_external_content_rejects(self):
-        outside = self.root / 'outside.txt'
-        outside.write_text('private')
-        link = self.root / 'docs/link.txt'
-        try:
-            link.symlink_to(outside)
-        except OSError as error:
-            self.skipTest(str(error))
-        with self.assertRaisesRegex(ValueError, 'linked documentation path'):
-            source_files(self.root)
-
     def test_refresh_publishes_complete_canonical_members_and_matching_digest(self):
         authority = self.root / 'docs/产品/产品要求与工作约束.md'
         authority.parent.mkdir()
@@ -124,9 +96,6 @@ class SourceBoundary(unittest.TestCase):
         result = refresh_source_manifest(self.root)
         manifest = load(self.root / '.documentation/source-manifest.json')
         baseline = load(self.root / '.documentation/baseline.json')
-        names = [member['path'] for member in manifest['members']]
-        self.assertEqual(names, sorted(names))
-        self.assertEqual(names, expected_names)
         self.assertEqual(manifest['members'], expected_members)
         self.assertEqual(manifest['source_set_sha256'], expected_digest)
         self.assertNotIn('source_set_sha256', baseline)

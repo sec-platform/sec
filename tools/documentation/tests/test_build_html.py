@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
-import hashlib
 import io
 import json
 import os
@@ -17,17 +16,23 @@ from unittest.mock import patch
 from html.parser import HTMLParser
 sys.dont_write_bytecode = True
 import build_html as b
-from .test_check_documentation_identity import declaration
+from .fixtures import declaration
 
 class Originals(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.current=None; self.files={}
+        self.current=None; self.files={}; self.links=[]; self.link=None
     def handle_starttag(self, tag, attrs):
         a=dict(attrs)
         if tag=='article':self.current=a.get('data-source-path')
+        if tag=='a':self.link=[a.get('href'), '']
         if tag=='a' and 'download' in a and self.current:
             self.files[self.current]=base64.b64decode(a['href'].split(',',1)[1],validate=True)
+    def handle_data(self,data):
+        if self.link is not None:self.link[1]+=data
+    def handle_endtag(self,tag):
+        if tag=='a' and self.link is not None:
+            self.links.append(tuple(self.link));self.link=None
 
 class PublicationSettlement(unittest.TestCase):
     def setUp(self):
@@ -139,18 +144,19 @@ class ReadingTests(unittest.TestCase):
             result=b.main(['--root',str(self.root),'--output',str(self.out),'--diagrams','source',*extra])
         self.assertEqual(result,0)
         return json.loads(output.getvalue())
-    def assert_publication_preserves_previous(self,*extra):
+    def assert_publication_preserves_previous(self,message,*extra,error=b.BuildError):
         self.out.write_bytes(b'previous edition')
-        with self.assertRaises((b.BuildError,ValueError,OSError,KeyError)):
+        with self.assertRaisesRegex(error,message):
             self.run_build('--replace',*extra)
         self.assertEqual(self.out.read_bytes(),b'previous edition')
         self.assertFalse(self.out.with_name(self.out.name+'.lock').exists())
     def test_original_bytes_all_members(self):
         self.write('examples/value.json','{ "名字": "😀", "n": "9007199254740993" }\n')
         self.write('examples/value.gift','export fn identity(x: Int) = x;\n')
+        before={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
         self.run_build();p=Originals();p.feed(self.out.read_text())
-        actual={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
-        self.assertEqual(p.files,actual)
+        self.assertEqual(before,{q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()})
+        self.assertEqual(p.files,before)
     def reference_book(self,sealed=False,**budgets):
         args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=sealed,
             max_file_bytes=budgets.get('max_file_bytes',16_000_000),max_total_bytes=budgets.get('max_total_bytes',80_000_000))
@@ -237,10 +243,6 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(originals.files['docs/design/control.sql'],(self.root/'docs/design/control.sql').read_bytes())
         self.assertIn('CREATE TABLE operation(id TEXT PRIMARY KEY);',text)
         self.assertNotIn('<script>unsafe()</script>',text)
-    def test_no_source_writes(self):
-        before={str(q):q.read_bytes()for q in self.root.rglob('*')if q.is_file()}
-        self.run_build()
-        self.assertEqual(before,{str(q):q.read_bytes()for q in self.root.rglob('*')if q.is_file()})
     def test_ordinary_reading_does_not_open_or_embed_local_projections(self):
         first=self.run_build()
         for name in ('.documentation/source-manifest.json','.documentation/requirements.json'):
@@ -260,31 +262,32 @@ class ReadingTests(unittest.TestCase):
         self.write('.documentation/source-manifest.json','{}')
         def changed(*args,**kwargs):self.write('README.md','# Changed after verification\n');return {}
         with patch.object(b.check_docs,'verify',side_effect=changed):
-            self.assert_publication_preserves_previous('--sealed')
+            self.assert_publication_preserves_previous('Input changed during build: README.md','--sealed')
     def test_sealed_reading_without_snapshot_does_not_publish(self):
-        self.assert_publication_preserves_previous('--sealed')
+        self.assert_publication_preserves_previous('Sealed reading requires a source snapshot','--sealed')
     def test_default_output_and_title_use_the_design_name(self):
         with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
             b.main(['--root',str(self.root),'--diagrams','source'])
         self.assertIn('<title>Gift 工程设计</title>',(self.home/'Gift.html').read_text())
     def test_source_mode_explicitly_unrendered(self):
+        (self.root/'.documentation/figures.json').write_bytes(b'\xffinvalid cache')
         self.write('docs/graph.md','# Graph\n\n```mermaid\nflowchart LR\n A-->B\n```\n')
         data=self.run_build();self.assertEqual(data['diagrams'],1);self.assertEqual(data['rendered'],0)
         self.assertIn('未渲染',self.out.read_text())
-    def test_missing_mermaid_does_not_publish(self):self.assert_publication_preserves_previous('--diagrams','required')
+    def test_missing_mermaid_does_not_publish(self):
+        self.assert_publication_preserves_previous('All diagrams are required','--diagrams','required','--mermaid-js','')
     def test_missing_file(self):
-        self.write('docs/主题.md','# 主题\n\n## 字段\n[x](not-here.md)\n');self.assert_publication_preserves_previous()
+        self.write('docs/主题.md','# 主题\n\n## 字段\n[x](not-here.md)\n');self.assert_publication_preserves_previous('Missing local target')
     def test_missing_fragment(self):
-        self.write('README.md','# Fixture\n[x](docs/主题.md#不存在)\n');self.assert_publication_preserves_previous()
+        self.write('README.md','# Fixture\n[x](docs/主题.md#不存在)\n');self.assert_publication_preserves_previous('Missing local fragment')
     def test_duplicate_explicit_anchor(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n<a id="same"></a>\n<a id="same"></a>\n');self.assert_publication_preserves_previous()
+        self.write('docs/主题.md','# 主题\n## 字段\n<a id="same"></a>\n<a id="same"></a>\n');self.assert_publication_preserves_previous('Ambiguous source anchors')
     def test_explicit_heading_collision(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n<a id="字段"></a>\n');self.assert_publication_preserves_previous()
-    def test_duplicate_headings_have_unique_ids(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n## 字段\n[第二](#字段-1)\n');self.run_build()
-        self.assertIn(b.fragment_id('docs/主题.md','字段-1'),self.out.read_text())
-    def test_duplicate_headings_across_docs_are_scoped(self):
+        self.write('docs/主题.md','# 主题\n## 字段\n<a id="字段"></a>\n');self.assert_publication_preserves_previous('Ambiguous source anchors')
+    def test_duplicate_headings_have_unique_ids_within_and_across_docs(self):
+        self.write('docs/主题.md','# 主题\n## 字段\n## 字段\n[第二](#字段-1)\n')
         self.write('docs/other.md','# 主题\n## 字段\n');self.run_build()
+        self.assertIn(b.fragment_id('docs/主题.md','字段-1'),self.out.read_text())
         audit=b.AuditHTML();audit.feed(self.out.read_text());self.assertEqual(len(audit.ids),len(set(audit.ids)))
     def test_outline_uses_real_commonmark_headings_and_scoped_targets(self):
         self.write('README.md','# Fixture\n')
@@ -322,14 +325,17 @@ class ReadingTests(unittest.TestCase):
     def test_chinese_encoded_links_and_directory(self):
         self.write('docs/group/README.md','# Group\n')
         self.write('README.md','# Fixture\n[x](docs/%E4%B8%BB%E9%A2%98.md#%E5%AD%97%E6%AE%B5)\n[y](docs/group/)\n')
-        self.run_build()
+        self.run_build();reader=Originals();reader.feed(self.out.read_text())
+        self.assertIn(('#'+b.fragment_id('docs/主题.md','字段'),'x'),reader.links)
+        self.assertIn(('#'+b.opaque('docs/group/README.md'),'y'),reader.links)
     def test_reference_style_table_and_details(self):
         self.write('docs/主题.md','# 主题\n## 字段\n<details>\n<summary>详细</summary>\n\n| 项 | 值 |\n|---|---|\n| a | b |\n\n</details>\n[返回][r]\n\n[r]: ../README.md\n')
         self.run_build();s=self.out.read_text();self.assertIn('<details>',s);self.assertIn('<table>',s)
+        reader=Originals();reader.feed(s);self.assertIn(('#'+b.opaque('README.md'),'返回'),reader.links)
     def test_unclosed_fence(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n```text\nunclosed\n');self.assert_publication_preserves_previous()
+        self.write('docs/主题.md','# 主题\n## 字段\n```text\nunclosed\n');self.assert_publication_preserves_previous('unclosed fenced code block',error=ValueError)
     def test_unsafe_scheme(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n<a href="javascript:alert(1)">x</a>\n');self.assert_publication_preserves_previous()
+        self.write('docs/主题.md','# 主题\n## 字段\n<a href="javascript:alert(1)">x</a>\n');self.assert_publication_preserves_previous('Unsupported/active URI')
     def test_raw_script_is_inert(self):
         self.write('docs/主题.md','# 主题\n## 字段\n<script>alert("bad")</script>\n');self.run_build()
         s=self.out.read_text();self.assertIn('&lt;script&gt;',s)
@@ -341,19 +347,23 @@ class ReadingTests(unittest.TestCase):
         self.write('docs/主题.md','# 主题\n## 字段\nType<T>\n');self.run_build()
         self.assertIn('Type&lt;T&gt;',self.out.read_text())
     def test_remote_image_rejected(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n![x](https://example.invalid/image.png)\n');self.assert_publication_preserves_previous()
+        self.write('docs/主题.md','# 主题\n## 字段\n![x](https://example.invalid/image.png)\n');self.assert_publication_preserves_previous('Expected local reference')
     def test_remote_link_not_fetched(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n[x](https://example.invalid/no-network)\n');r=self.run_build()
-        self.assertEqual(r['external_asset_requests'],0)
+        url='https://example.invalid/no-network'
+        self.write('docs/主题.md','# 主题\n## 字段\n[x]('+url+')\n')
+        with patch('socket.socket.connect',side_effect=AssertionError('Reading links must not open a network connection')):
+            self.run_build()
+        audit=b.AuditHTML();audit.feed(self.out.read_text())
+        self.assertIn(url,audit.links);self.assertFalse(audit.remote)
     def test_root_escape(self):
-        self.write('README.md','# Fixture\n[x](../secret.txt)\n');self.assert_publication_preserves_previous()
+        self.write('README.md','# Fixture\n[x](../secret.txt)\n');self.assert_publication_preserves_previous('Link escapes source root')
     def test_encoded_root_escape(self):
-        self.write('README.md','# Fixture\n[x](%2e%2e/secret.txt)\n');self.assert_publication_preserves_previous()
+        self.write('README.md','# Fixture\n[x](%2e%2e/secret.txt)\n');self.assert_publication_preserves_previous('Link escapes source root')
     def test_unknown_suffix_not_silently_dropped(self):
-        self.write('examples/input.unknown','independent content');self.assert_publication_preserves_previous()
+        self.write('examples/input.unknown','independent content');self.assert_publication_preserves_previous('Unclassified source file')
     def test_non_utf8_not_lossily_decoded(self):
-        (self.root/'docs/bad.md').write_bytes(b'\xff');self.assert_publication_preserves_previous()
-    def test_small_budget(self):self.assert_publication_preserves_previous('--max-file-bytes','2')
+        (self.root/'docs/bad.md').write_bytes(b'\xff');self.assert_publication_preserves_previous('Expected UTF-8')
+    def test_small_budget(self):self.assert_publication_preserves_previous('File budget exceeded','--max-file-bytes','2')
     def test_output_inside_source_refused(self):
         with self.assertRaises(b.BuildError):self.run_build('--output',str(self.root/'reading.html'))
         self.assertFalse((self.root/'reading.html').exists())
@@ -368,13 +378,13 @@ class ReadingTests(unittest.TestCase):
     def test_output_failure_preserves_old_file(self):
         self.out.write_bytes(b'previous edition')
         with patch.object(b.os,'replace',side_effect=OSError('simulated write failure')):
-            self.assert_publication_preserves_previous()
+            self.assert_publication_preserves_previous('simulated write failure',error=OSError)
         self.assertFalse(list(self.home.glob('.*.tmp')))
     def test_source_changes_before_publication(self):
         original=b.Book.build
         def change(book,*args):
             result=original(book,*args);(self.root/'docs/主题.md').write_text('# changed\n');return result
-        with patch.object(b.Book,'build',change):self.assert_publication_preserves_previous()
+        with patch.object(b.Book,'build',change):self.assert_publication_preserves_previous('Input changed during build')
     def test_output_changed_by_other_writer(self):
         original=b.Book.build;self.out.write_bytes(b'previous edition')
         def change(book,*args):
@@ -384,7 +394,7 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(self.out.read_bytes(),b'other writer')
     @unittest.skipIf(os.name=='nt','Symlink privilege depends on Windows configuration')
     def test_symlink_file_refused(self):
-        (self.root/'docs/link.md').symlink_to(self.root/'README.md');self.assert_publication_preserves_previous()
+        (self.root/'docs/link.md').symlink_to(self.root/'README.md');self.assert_publication_preserves_previous('linked documentation path',error=ValueError)
     @unittest.skipIf(os.name=='nt','Symlink privilege depends on Windows configuration')
     def test_symlink_root_refused(self):
         alias=self.home/'alias';alias.symlink_to(self.root,target_is_directory=True)

@@ -44,6 +44,13 @@ test('normalization producer evidence comes from the selected tool source, indep
   const files = candidate.files.map(({ path, source, contentDigest }) => ({
     relativePath: path, source, contentDigest: contentDigest as `sha256:${string}`
   }));
+  expect(() => checkImmutableImportSnapshot({
+    projectRoot: '/immutable-candidate', files,
+    targetPaths: [],
+    expectedInputClosure: files.slice(1).map(({ relativePath, contentDigest }) => ({
+      path: relativePath, digest: contentDigest
+    }))
+  })).toThrow('differs from its Action input closure');
   expect(checkImmutableImportSnapshot({
     projectRoot: '/immutable-candidate', files,
     targetPaths: [`${root}/kernel.ts`],

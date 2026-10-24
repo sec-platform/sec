@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -11,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { settleResourcesAsync, withAcquiredResource } from '../../../execution/resource-settlement.ts';
 import { createLocalContinuationCheckpoint } from '../../self-hosting/control/continuation/checkpoint.ts';
 import {
   clearActiveContinuation,
@@ -21,8 +23,16 @@ import {
 } from '../../self-hosting/control/continuation/runtime-store.ts';
 import { resolveSecRuntimeStateForRepository } from './paths.ts';
 
-function fixture() {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-'));
+async function withTemporaryRoot(prefix: string, run: (root: string) => Promise<void>): Promise<void> {
+  await withAcquiredResource({
+    operationLabel: 'runtime-state-fixture', resourceLabel: 'runtime-state-fixture-root',
+    acquire: () => mkdtempSync(path.join(tmpdir(), prefix)),
+    use: run,
+    release: root => rmSync(root, { recursive: true, force: true })
+  });
+}
+
+function fixture(root: string) {
   const repositoryRoot = path.join(root, 'repo');
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
@@ -51,8 +61,8 @@ function fixture() {
 }
 
 test('one admitted handoff becomes a reusable CAS object plus workspace locator and active pointer', async () => {
-  const value = fixture();
-  try {
+  await withTemporaryRoot('sec-runtime-state-', async root => {
+    const value = fixture(root);
     await persistActiveContinuationCheckpoint({
       layout: value.layout,
       repositoryRoot: value.repositoryRoot,
@@ -71,49 +81,18 @@ test('one admitted handoff becomes a reusable CAS object plus workspace locator 
     expect(located?.repository).toBe('sec-platform/sec');
     expect(located?.layout.repositoryKey).toBe(value.layout.repositoryKey);
     expect(located?.layout.workspaceKey).toBe(value.layout.workspaceKey);
-    expect(value.layout.continuationPointerPath.startsWith(value.stateRoot)).toBe(true);
-    expect(value.layout.continuationObjectRoot.startsWith(value.stateRoot)).toBe(true);
-    expect(value.layout.continuationPointerPath.startsWith(value.repositoryRoot)).toBe(false);
-    expect(value.layout.continuationObjectRoot.startsWith(value.repositoryRoot)).toBe(false);
-    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.stateRoot)).toBe(true);
-    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.repositoryRoot)).toBe(false);
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
-}, 30_000);
-
-test('active continuation object is retained, terminal pointer retirement makes it immediately GC eligible', async () => {
-  const value = fixture();
-  try {
-    await persistActiveContinuationCheckpoint({
-      layout: value.layout,
-      repositoryRoot: value.repositoryRoot,
-      checkpoint: value.checkpoint,
-      environment: value.environment
-    });
-    expect(await gcContinuationObjects({ layout: value.layout, repositoryRoot: value.repositoryRoot,
-      environment: value.environment, retentionMs: 0 }))
-      .toEqual({ scanned: 1, removed: 0, retained: 1 });
-    await clearActiveContinuation({
-      layout: value.layout,
-      repositoryRoot: value.repositoryRoot,
-      environment: value.environment
-    });
-    expect(await resolveSecRuntimeStateFromWorkspaceLocator({
-      repositoryRoot: value.repositoryRoot,
-      environment: value.environment
-    })).toBeNull();
-    expect(await gcContinuationObjects({ layout: value.layout, repositoryRoot: value.repositoryRoot,
-      environment: value.environment, retentionMs: 0 }))
-      .toEqual({ scanned: 1, removed: 1, retained: 0 });
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
+    expect(value.layout.continuationPointerPath.startsWith(value.stateRoot + path.sep)).toBe(true);
+    expect(value.layout.continuationObjectRoot.startsWith(value.stateRoot + path.sep)).toBe(true);
+    expect(value.layout.continuationPointerPath.startsWith(value.repositoryRoot + path.sep)).toBe(false);
+    expect(value.layout.continuationObjectRoot.startsWith(value.repositoryRoot + path.sep)).toBe(false);
+    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.stateRoot + path.sep)).toBe(true);
+    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.repositoryRoot + path.sep)).toBe(false);
+  });
 }, 30_000);
 
 test('same checkpoint is idempotent while digest-path byte conflict fails closed', async () => {
-  const value = fixture();
-  try {
+  await withTemporaryRoot('sec-runtime-state-', async root => {
+    const value = fixture(root);
     await persistActiveContinuationCheckpoint({
       layout: value.layout,
       repositoryRoot: value.repositoryRoot,
@@ -137,14 +116,12 @@ test('same checkpoint is idempotent while digest-path byte conflict fails closed
       checkpoint: value.checkpoint,
       environment: value.environment
     })).rejects.toThrow('CAS object bytes conflict');
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('corrupt workspace pointer fails safe and prevents collection of repository continuation objects', async () => {
-  const value = fixture();
-  try {
+  await withTemporaryRoot('sec-runtime-state-', async root => {
+    const value = fixture(root);
     await persistActiveContinuationCheckpoint({
       layout: value.layout,
       repositoryRoot: value.repositoryRoot,
@@ -152,64 +129,78 @@ test('corrupt workspace pointer fails safe and prevents collection of repository
       environment: value.environment
     });
     const pointer = JSON.parse(readFileSync(value.layout.continuationPointerPath, 'utf8')) as Record<string, unknown>;
-    writeFileSync(value.layout.continuationPointerPath, `${JSON.stringify({
+    const corruptPointer = `${JSON.stringify({
       ...pointer,
       pointerDigest: `sha256:${'0'.repeat(64)}`
-    })}\n`, 'utf8');
+    })}\n`;
+    writeFileSync(value.layout.continuationPointerPath, corruptPointer, 'utf8');
     await expect(loadActiveContinuationCheckpoint({ layout: value.layout,
       repositoryRoot: value.repositoryRoot, environment: value.environment })).rejects.toThrow();
     expect(await gcContinuationObjects({ layout: value.layout, repositoryRoot: value.repositoryRoot,
       environment: value.environment, retentionMs: 0 }))
       .toEqual({ scanned: 1, removed: 0, retained: 1 });
-    expect(readFileSync(value.layout.continuationPointerPath, 'utf8')).toContain('sha256:00000000');
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
+    expect(readFileSync(value.layout.continuationPointerPath, 'utf8')).toBe(corruptPointer);
+  });
+}, 30_000);
+
+test('unknown object-store entry vetoes the entire deletion pass, regardless of enumeration order', async () => {
+  await withTemporaryRoot('sec-runtime-unknown-entry-', async root => {
+    const value = fixture(root);
+    await persistActiveContinuationCheckpoint({ layout: value.layout,
+      repositoryRoot: value.repositoryRoot, checkpoint: value.checkpoint, environment: value.environment });
+    await clearActiveContinuation({ layout: value.layout,
+      repositoryRoot: value.repositoryRoot, environment: value.environment });
+    const objectPath = path.join(value.layout.continuationObjectRoot,
+      `${value.checkpoint.checkpointDigest.slice(7)}.json`);
+    mkdirSync(path.join(value.layout.continuationObjectRoot, 'zz-unknown-entry'));
+    const result = await gcContinuationObjects({ layout: value.layout,
+      repositoryRoot: value.repositoryRoot, environment: value.environment, retentionMs: 0 });
+    expect(result.removed).toBe(0); expect(result.retained).toBe(1);
+    expect(lstatSync(objectPath).isFile()).toBe(true);
+  });
 }, 30_000);
 
 test('physical Runtime State rejects a symlink or junction into the repository before writing', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-alias-'));
-  const repositoryRoot = path.join(root, 'repo');
-  const stateRoot = path.join(root, 'state-alias');
-  const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot, { recursive: true });
-  symlinkSync(repositoryRoot, stateRoot, process.platform === 'win32' ? 'junction' : 'dir');
-  const environment: NodeJS.ProcessEnv = {
-    ...process.env,
-    SEC_STATE_HOME: stateRoot,
-    SEC_CACHE_HOME: cacheRoot
-  };
-  const checkpoint = createLocalContinuationCheckpoint({
-    repository: 'sec-platform/sec',
-    prNumber: 496,
-    branch: 'integration/sec-static-convergence-20260818',
-    baseSha: '1'.repeat(40),
-    baseTreeSha: '2'.repeat(40),
-    headSha: '3'.repeat(40),
-    headTreeSha: '4'.repeat(40),
-    manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
-  });
-  const layout = resolveSecRuntimeStateForRepository({
-    repository: checkpoint.repository,
-    repositoryRoot,
-    environment
-  });
-  try {
+  await withTemporaryRoot('sec-runtime-alias-', async root => {
+    const repositoryRoot = path.join(root, 'repo');
+    const stateRoot = path.join(root, 'state-alias');
+    const cacheRoot = path.join(root, 'cache');
+    mkdirSync(repositoryRoot, { recursive: true });
+    symlinkSync(repositoryRoot, stateRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      SEC_STATE_HOME: stateRoot,
+      SEC_CACHE_HOME: cacheRoot
+    };
+    const checkpoint = createLocalContinuationCheckpoint({
+      repository: 'sec-platform/sec',
+      prNumber: 496,
+      branch: 'integration/sec-static-convergence-20260818',
+      baseSha: '1'.repeat(40),
+      baseTreeSha: '2'.repeat(40),
+      headSha: '3'.repeat(40),
+      headTreeSha: '4'.repeat(40),
+      manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
+    });
+    const layout = resolveSecRuntimeStateForRepository({
+      repository: checkpoint.repository,
+      repositoryRoot,
+      environment
+    });
     await expect(persistActiveContinuationCheckpoint({
       layout,
       repositoryRoot,
       checkpoint,
       environment
     })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    expect(readdirSync(repositoryRoot)).toEqual([]);
+  });
 }, 30_000);
 
-test('Runtime State mutation and GC serialize around one reachable CAS pointer', async () => {
-  const value = fixture();
-  try {
-    const [, collection] = await Promise.all([
+test('Runtime State mutation and GC preserve the active object until terminal pointer retirement', async () => {
+  await withTemporaryRoot('sec-runtime-state-', async root => {
+    const value = fixture(root);
+    const outcomes = await Promise.allSettled([
       persistActiveContinuationCheckpoint({
         layout: value.layout,
         repositoryRoot: value.repositoryRoot,
@@ -223,7 +214,13 @@ test('Runtime State mutation and GC serialize around one reachable CAS pointer',
         retentionMs: 0
       })
     ]);
-    expect(collection.removed).toBe(0);
+    const failures = outcomes.flatMap((outcome, index) => outcome.status === 'rejected'
+      ? [{ label: `continuation-operation:${index}`, error: outcome.reason }] : []);
+    await settleResourcesAsync({ primary: failures[0], cleanup: failures.slice(1)
+      .map(({ label, error }) => ({ label, settle: () => { throw error; } })) });
+    const collection = outcomes[1];
+    if (collection.status !== 'fulfilled') throw collection.reason;
+    expect(collection.value.removed).toBe(0);
     expect(await loadActiveContinuationCheckpoint({
       layout: value.layout,
       repositoryRoot: value.repositoryRoot,
@@ -237,7 +234,20 @@ test('Runtime State mutation and GC serialize around one reachable CAS pointer',
       );
       expect(lstatSync(objectPath).mode & 0o077).toBe(0);
     }
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
+    expect(await gcContinuationObjects({ layout: value.layout, repositoryRoot: value.repositoryRoot,
+      environment: value.environment, retentionMs: 0 }))
+      .toEqual({ scanned: 1, removed: 0, retained: 1 });
+    await clearActiveContinuation({
+      layout: value.layout,
+      repositoryRoot: value.repositoryRoot,
+      environment: value.environment
+    });
+    expect(await resolveSecRuntimeStateFromWorkspaceLocator({
+      repositoryRoot: value.repositoryRoot,
+      environment: value.environment
+    })).toBeNull();
+    expect(await gcContinuationObjects({ layout: value.layout, repositoryRoot: value.repositoryRoot,
+      environment: value.environment, retentionMs: 0 }))
+      .toEqual({ scanned: 1, removed: 1, retained: 0 });
+  });
 }, 30_000);
