@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { access, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import {
   runStagedIndexOnlyImportOrganizer,
@@ -37,11 +37,15 @@ function source(order: 'sorted' | 'unsorted'): string {
   ].join('\n');
 }
 
-async function prepareSnapshotCandidate(prefix: string): Promise<Readonly<{
-  repoRoot: string;
-  candidateBase: string;
-}>> {
-  const repoRoot = await mkdtemp(path.join(tmpdir(), prefix));
+// The two staged workflows have the exact same tracked source commit.
+// Cache only this immutable Git base; each case owns an independent index,
+// worktree, candidate snapshot, generated-state journal and cleanup.
+type OrganizerGitBase = Readonly<{ root: string; candidateBase: string }>;
+let organizerGitBase: Promise<OrganizerGitBase> | undefined;
+
+async function buildOrganizerGitBase(): Promise<OrganizerGitBase> {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-shared-base-'));
+  try {
   git(repoRoot, ['init', '--quiet']);
   git(repoRoot, ['config', 'user.email', 'tests@example.com']);
   git(repoRoot, ['config', 'user.name', 'SEC Tests']);
@@ -62,12 +66,64 @@ async function prepareSnapshotCandidate(prefix: string): Promise<Readonly<{
   ]);
   git(repoRoot, ['add', '--all']);
   git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
-  const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    return Object.freeze({
+      root: repoRoot,
+      candidateBase: String(git(repoRoot, ['rev-parse', 'HEAD'])).trim()
+    });
+  } catch (error) {
+    try { await rm(repoRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Import organizer source and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+afterAll(async () => {
+  if (organizerGitBase === undefined) return;
+  const settled = await Promise.allSettled([organizerGitBase]);
+  if (settled[0]?.status === 'fulfilled') {
+    await rm(settled[0].value.root, { recursive: true, force: true });
+  }
+  organizerGitBase = undefined;
+});
+
+async function copyOrganizerGitBase(prefix: string): Promise<Readonly<{
+  repoRoot: string;
+  candidateBase: string;
+}>> {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), prefix));
+  try {
+    const base = await (organizerGitBase ??= buildOrganizerGitBase());
+    await cp(base.root, repoRoot, { recursive: true });
+    return Object.freeze({ repoRoot, candidateBase: base.candidateBase });
+  } catch (error) {
+    try { await rm(repoRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Import organizer copy and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+async function prepareSnapshotCandidate(prefix: string): Promise<Readonly<{
+  repoRoot: string;
+  candidateBase: string;
+}>> {
+  const { repoRoot, candidateBase } = await copyOrganizerGitBase(prefix);
   const fixturePath = path.join(repoRoot, 'fixture.ts');
-  await writeFile(fixturePath, source('unsorted'));
-  git(repoRoot, ['add', 'fixture.ts']);
-  await writeFile(fixturePath, `${source('unsorted')}// unstaged owner bytes\n`);
-  return Object.freeze({ repoRoot, candidateBase });
+  try {
+    await writeFile(fixturePath, source('unsorted'));
+    git(repoRoot, ['add', 'fixture.ts']);
+    await writeFile(fixturePath, `${source('unsorted')}// unstaged owner bytes\n`);
+    return Object.freeze({ repoRoot, candidateBase });
+  } catch (error) {
+    try { await rm(repoRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Snapshot candidate preparation and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 test('staged organizer fast sentinel preserves working bytes while normalizing the index', async () => {
@@ -265,32 +321,20 @@ async function prepareSynchronizedCandidate(prefix: string): Promise<Readonly<{
   fixturePath: string;
   stagedBytes: Buffer;
 }>> {
-  const repoRoot = await mkdtemp(path.join(tmpdir(), prefix));
-  git(repoRoot, ['init', '--quiet']);
-  git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-  git(repoRoot, ['config', 'user.name', 'SEC Tests']);
-  git(repoRoot, ['config', 'core.autocrlf', 'false']);
-  await Promise.all([
-    writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
-      compilerOptions: {
-        allowImportingTsExtensions: true,
-        module: 'ESNext',
-        moduleResolution: 'Bundler',
-        noEmit: true,
-        target: 'ES2022'
-      },
-      include: ['**/*.ts']
-    }, null, 2)}\n`, 'utf8'),
-    writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
-    writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8')
-  ]);
-  git(repoRoot, ['add', '--all']);
-  git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+  const { repoRoot } = await copyOrganizerGitBase(prefix);
   const fixturePath = path.join(repoRoot, 'fixture.ts');
   const stagedBytes = Buffer.from(source('unsorted'));
-  await writeFile(fixturePath, stagedBytes);
-  git(repoRoot, ['add', 'fixture.ts']);
-  return Object.freeze({ repoRoot, fixturePath, stagedBytes });
+  try {
+    await writeFile(fixturePath, stagedBytes);
+    git(repoRoot, ['add', 'fixture.ts']);
+    return Object.freeze({ repoRoot, fixturePath, stagedBytes });
+  } catch (error) {
+    try { await rm(repoRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Synchronized candidate preparation and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 test('synchronized staged apply publishes exact bytes to index and worktree without presenting source', async () => {
