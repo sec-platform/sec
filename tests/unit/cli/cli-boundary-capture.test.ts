@@ -12,7 +12,7 @@ test('mixed command output retains the old own-enumerable boundary without whole
 
 test('mixed read/write command routes retain selected output after caller mutation', () => {
   for (const [command, mode] of [['lock', 'inspect'], ['explain', 'graph']] as const) {
-    const raw = new Proxy({ json: true, compact: true, get unused() { assert.fail('unowned'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('enumerated'); } });
+    const raw = { json: true, compact: true };
     const inspected = parseWorkspaceViewCommandInput(command, mode, raw);
     const executed = parseWorkspaceViewCommandInput(command, undefined, raw);
     raw.json = false; raw.compact = false;

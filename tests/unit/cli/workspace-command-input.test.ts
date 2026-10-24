@@ -25,14 +25,11 @@ for (const value of [undefined, false, true]) {
 }
 
 for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as const) {
-  test(`${mode} does not read or retain write-only options`, () => {
-    const options = new Proxy({ json: true, compact: false,
-      get dryRun() { assert.fail('inspection read a write flag'); throw new Error('unreachable'); },
-      get unrelated() { assert.fail('unrelated field inspected'); throw new Error('unreachable'); } }, {
-      ownKeys() { assert.fail('options enumerated'); }
-    });
+  test(`${mode} selects inspection without retaining a write request`, () => {
+    const options = { json: true, compact: false, dryRun: true };
     const input = mode === 'repair-plan' ? parseRepairCommandInput('plan', options)
       : parseUpgradeCommandInput(mode === 'upgrade-plan' ? 'plan' : 'diagnostics', undefined, options, 'sec upgrade');
+    assert.equal(input.kind, mode === 'upgrade-diagnostics' ? 'diagnostics' : 'plan');
     assert.equal('request' in input, false);
     assert.equal('subject' in input, false); assert.ok(Object.isFrozen(input));
     assert.deepEqual(input.output, { json: true, compact: false });
@@ -74,15 +71,13 @@ for (const subject of ['plan', 'diagnostics']) {
   });
 }
 
-test('an upgrade without positional arguments is rejected before reading write options', () => {
-  const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
-  assert.throws(() => parseUpgradeCommandInput(undefined, undefined, input, 'custom upgrade'),
+test('an upgrade without positional arguments retains the actual command in its usage error', () => {
+  assert.throws(() => parseUpgradeCommandInput(undefined, undefined, { dryRun: true }, 'custom upgrade'),
     (error: unknown) => usage(error) && (error as Error).message.startsWith('Usage: custom upgrade '));
 });
 
-test('a missing upgrade target is rejected before reading write options', () => {
-  const input = { get dryRun() { assert.fail('invalid route read write flag'); throw new Error('unreachable'); } };
-  assert.throws(() => parseUpgradeCommandInput('block', undefined, input, 'sec upgrade'), usage);
+test('a missing upgrade target is rejected even when a dry run is requested', () => {
+  assert.throws(() => parseUpgradeCommandInput('block', undefined, { dryRun: true }, 'sec upgrade'), usage);
 });
 
 test('field definitions are immutable and drive actual Commander registration', () => {

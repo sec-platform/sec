@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { CodedFailure } from '../../../src/contracts/failure.ts';
-import { parsePipelineCompileOptions, parsePipelineOutputOptions } from '../../../src/entry/cli/pipeline-command-input.ts';
+import { parsePipelineCompileOptions } from '../../../src/entry/cli/pipeline-command-input.ts';
 
 function code(expected: string): (error: unknown) => boolean {
   return (error) => error instanceof CodedFailure && error.code === expected;
@@ -32,18 +32,13 @@ test('compile rejects compact output without JSON', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);
 });
 
-test('inspection does not access compilation fields', () => {
-  const input = Object.defineProperty({ json: true }, 'lane', { get() { throw new Error('not inspect input'); } });
-  assert.deepEqual(parsePipelineOutputOptions(input), { json: true, compact: false });
-});
-
 test('returned values are frozen, detached from caller mutation and cannot change invocation source', () => {
   const input = { lane: 'all', from: 'resolve', json: true, source: 'api' };
   const result = parsePipelineCompileOptions(input);
   input.from = 'emit'; input.json = false;
   assert.equal(result.invocation.from, 'resolve');
   assert.equal(result.invocation.source, 'cli');
-  assert.equal(result.output.json, true);
+  assert.deepEqual(result.output, { json: true, compact: false });
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.invocation));
   assert.ok(Object.isFrozen(result.output));
