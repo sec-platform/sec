@@ -1,12 +1,12 @@
-import { expect } from 'bun:test';
+import { afterAll, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHostGitReadSessionForTests, type GitReadSessionResolution } from '../../../../src/adapters/providers/git-read/test/session.ts';
 import { installGitHooksForTest as installGitHooksImplementation } from '../../../../src/adapters/self-hosting/development/hooks/install.ts';
-import { settleWorkspaceCallback } from '../../../testkit/workspace-cleanup.ts';
+import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../../testkit/workspace-cleanup.ts';
 
 
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
@@ -203,16 +203,80 @@ async function prepareManagedHookSource(repoRoot: string, commitMessage: string)
   git(repoRoot, ['commit', '--quiet', '-m', commitMessage]);
 }
 
+// Immutable native Git source preparation is shared within a test process.
+// Every test still owns a separate physical copy of .git, the index, refs,
+// reflogs and worktree. Non-default git-init inputs retain their own setup.
+async function preparedTemplateRoot(
+  prefix: string,
+  prepare: (root: string) => Promise<void>
+): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  return settleWorkspaceCallback(async () => {
+    await prepare(root);
+    return root;
+  }, async () => {
+    // settleWorkspaceCallback would also clean successful preparation; this
+    // wrapper deliberately uses cleanup only on failure below.
+  }).catch(async (primary: unknown) => {
+    return settleWorkspaceCallback(async () => { throw primary; },
+      () => rm(root, { recursive: true, force: true }));
+  });
+}
+
+let defaultSourceTemplate: Promise<string> | undefined;
+let canonicalRemoteTemplate: Promise<string> | undefined;
+
+function defaultManagedRepositoryTemplate(): Promise<string> {
+  return defaultSourceTemplate ??= preparedTemplateRoot('sec-hooks-base-', async root => {
+    git(root, ['init', '--quiet', '-b', 'main']);
+    await prepareManagedHookSource(root, 'managed hook fixture');
+  });
+}
+
+function canonicalRemoteRepositoryTemplate(): Promise<string> {
+  return canonicalRemoteTemplate ??= preparedTemplateRoot('sec-hooks-remote-base-', async root => {
+    const repository = path.join(root, 'repo');
+    const remote = path.join(root, 'origin.git');
+    await mkdir(repository);
+    git(repository, ['init', '--quiet', '-b', 'main']);
+    await prepareManagedHookSource(repository, 'canonical remote fixture');
+    git(repository, ['init', '--bare', '--quiet', remote]);
+    git(repository, ['remote', 'add', 'origin', remote]);
+    git(repository, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
+    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    git(repository, ['fetch', '--quiet', 'origin']);
+    git(repository, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+  });
+}
+
+afterAll(async () => {
+  const pending = [defaultSourceTemplate, canonicalRemoteTemplate].filter(
+    (promise): promise is Promise<string> => promise !== undefined
+  );
+  const settled = await Promise.allSettled(pending);
+  await settleWorkspaceCleanups(settled.flatMap(result =>
+    result.status === 'fulfilled'
+      ? [() => rm(result.value, { recursive: true, force: true })]
+      : []
+  ));
+});
+
 export async function withRepository(
   run: (repoRoot: string) => Promise<void>,
   initArgs: readonly string[] = []
 ): Promise<void> {
-  const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-hooks-install-'));
+  const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-hooks-'));
+  const repoRoot = path.join(ownerRoot, 'r');
   return settleWorkspaceCallback(async () => {
-    git(repoRoot, ['init', '--quiet', '-b', 'main', ...initArgs]);
-    await prepareManagedHookSource(repoRoot, 'managed hook fixture');
+    if (initArgs.length === 0) {
+      await cp(await defaultManagedRepositoryTemplate(), repoRoot, { recursive: true });
+    } else {
+      await mkdir(repoRoot);
+      git(repoRoot, ['init', '--quiet', '-b', 'main', ...initArgs]);
+      await prepareManagedHookSource(repoRoot, 'managed hook fixture');
+    }
     await run(repoRoot);
-  }, () => rm(repoRoot, { recursive: true, force: true }));
+  }, () => rm(ownerRoot, { recursive: true, force: true }));
 }
 
 export async function withCanonicalRemoteRepository(
@@ -222,15 +286,12 @@ export async function withCanonicalRemoteRepository(
   const repoRoot = path.join(root, 'repo');
   const remoteRoot = path.join(root, 'origin.git');
   return settleWorkspaceCallback(async () => {
-    await mkdir(repoRoot);
-    git(repoRoot, ['init', '--quiet', '-b', 'main']);
-    await prepareManagedHookSource(repoRoot, 'canonical remote fixture');
-    git(repoRoot, ['init', '--bare', '--quiet', remoteRoot]);
-    git(repoRoot, ['remote', 'add', 'origin', remoteRoot]);
-    git(repoRoot, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
-    git(remoteRoot, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-    git(repoRoot, ['fetch', '--quiet', 'origin']);
-    git(repoRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+    const source = await canonicalRemoteRepositoryTemplate();
+    await cp(path.join(source, 'repo'), repoRoot, { recursive: true });
+    await cp(path.join(source, 'origin.git'), remoteRoot, { recursive: true });
+    // Git's remote URL contains an absolute original path. Rebind it to
+    // this case's own copied bare origin before any consumer can inspect it.
+    git(repoRoot, ['remote', 'set-url', 'origin', remoteRoot]);
     await run(repoRoot, remoteRoot);
   }, () => rm(root, { recursive: true, force: true }));
 }
