@@ -945,29 +945,6 @@ test('removed issuer tests do not leave a phantom host requirement in the snapsh
   expect(budget.fastTestHostRequirements).toEqual([]);
 });
 
-test.serial('unsupported issuer invocation is accounted once without a child or a successful skip', async () => {
-  const file = 'tests/unit/verification/verification-action-github-provider.test.ts';
-  testExecutionHostOverride = { os: 'win32', arch: 'x64' };
-  const errors: string[] = [];
-  console.error = (message?: unknown) => { errors.push(String(message)); };
-  expect(await runFastTests([file])).toBe(1);
-  expect(devCommandCalls).toEqual([]);
-  expect(devCommandEnvironments).toEqual([]);
-  const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-  expect(receipts).toHaveLength(1);
-  const receipt = JSON.parse(receipts[0]!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length));
-  expect(receipt).toMatchObject({
-    schema: 'sec-fast-test-failure-receipt-v3', replayAuthority: 'none-diagnostic-only',
-    failures: [{ kind: 'environment-unsupported', selectedTestFiles: [file],
-      result: { status: 'unsupported', reasonCode: 'platform-unsupported', disposition: 'not-executed' },
-      hostObservation: { observedHost: { os: 'win32', arch: 'x64' },
-        hostRequirements: [{ file, os: 'linux', arch: 'x64' }],
-        unmetRequirements: [{ file, os: 'linux', arch: 'x64' }] } }]
-  });
-  expect(receipt.failures[0].terminal).toBeUndefined();
-  expect(receipt.failures[0].hostObservation.policyDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
-
 for (const laterExitCode of [0, 7]) {
   test.serial(`unsupported issuer does not suppress a later independent wave or clear nonzero result (${laterExitCode})`, async () => {
     const file = 'tests/unit/verification/verification-action-github-provider.test.ts';
@@ -981,11 +958,20 @@ for (const laterExitCode of [0, 7]) {
     ]);
     expect(code).toBe(laterExitCode === 0 ? 1 : laterExitCode);
     expect(devCommandCalls.flatMap(({ args }) => invocationTestFiles(args))).toEqual([ordinary]);
+    expect(devCommandEnvironments).toHaveLength(1);
     const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX))
       .map((message) => JSON.parse(message.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)));
     expect(receipts).toHaveLength(laterExitCode === 0 ? 1 : 2);
-    expect(receipts[0]).toMatchObject({ batchIndex: 0,
-      failures: [{ kind: 'environment-unsupported', selectedTestFiles: [file] }] });
+    expect(receipts[0]).toMatchObject({
+      schema: 'sec-fast-test-failure-receipt-v3', replayAuthority: 'none-diagnostic-only', batchIndex: 0,
+      failures: [{ kind: 'environment-unsupported', selectedTestFiles: [file],
+        result: { status: 'unsupported', reasonCode: 'platform-unsupported', disposition: 'not-executed' },
+        hostObservation: { observedHost: { os: 'linux', arch: 'arm64' },
+          hostRequirements: [{ file, os: 'linux', arch: 'x64' }],
+          unmetRequirements: [{ file, os: 'linux', arch: 'x64' }] } }]
+    });
+    expect(receipts[0].failures[0].terminal).toBeUndefined();
+    expect(receipts[0].failures[0].hostObservation.policyDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     if (laterExitCode !== 0) expect(receipts[1]).toMatchObject({ batchIndex: 1,
       failures: [{ kind: 'observed-command-failure', selectedTestFiles: [ordinary],
         terminal: { kind: 'exited', exitCode: laterExitCode } }] });

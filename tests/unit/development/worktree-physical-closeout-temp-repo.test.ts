@@ -337,14 +337,14 @@ test('common-dir writer excludes worktree unregister and evidence retirement unt
   }
 }, 30_000);
 
-test('closeout retires only an empty ignored documentation coordination leaf', async () => {
+test('empty ignored documentation coordination retirement requires native writer exclusion', async () => {
   const value = fixture({ documentationCoordination: true });
   const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
   try {
     mkdirSync(path.dirname(lock));
     writeFileSync(lock, '');
     expect(git(value.target, ['check-ignore', '-v', '.tmp/documentation-projection.lock'])).toContain('.tmp/');
-    const authorization = await prepareWorktreePhysicalCloseout({
+    const preparation = prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -352,6 +352,15 @@ test('closeout retires only an empty ignored documentation coordination leaf', a
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     }, worktreePhysicalCloseoutOperations);
+    if (process.platform !== 'win32') {
+      await expect(preparation).rejects.toThrow('requires native open-writer exclusion; this host capability is unavailable');
+      expect(readFileSync(lock, 'utf8')).toBe('');
+      expect(readFileSync(path.join(value.target, 'tracked.txt'), 'utf8')).toBe('main\n');
+      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
+      expect(existsSync(path.join(value.repository, '.git', 'sec-worktree-closeout'))).toBeFalse();
+      return;
+    }
+    const authorization = await preparation;
     expect(existsSync(lock)).toBeFalse();
     expect(existsSync(authorization.authorizationPath)).toBeTrue();
     expect((await executeWorktreePhysicalCloseout({

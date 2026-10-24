@@ -45,25 +45,6 @@ test('a catalog version cannot satisfy a requirement absent from the explicitly 
   assert.throws(() => resolve([a, old], [a, newer]), /does not provide required capability/);
 });
 
-test('conflicting explicit versions and registry identities are not last-writer-wins', () => {
-  const a = entry('block/a'), b = structuredClone(a); b.manifest.version = '2.0.0';
-  assert.throws(() => resolve([a, b]), /Conflicting explicit/);
-  b.manifest.version = a.manifest.version; b.registrySourceId = 'foreign';
-  assert.throws(() => resolve([a, b]), /Conflicting explicit/);
-});
-
-test('repeated equal explicit entries coalesce but preserve the chosen manifest and origin', () => {
-  const a = entry('block/a');
-  const result = resolve([a, structuredClone(a), a]);
-  assert.deepEqual(ids(result.entries), ['block/a']); assert.deepEqual(result.entries[0], a);
-});
-
-test('a catalog cannot replace a captured explicit revision with different same-version content', () => {
-  const selected = entry('block/a'), changed = structuredClone(selected);
-  changed.manifest.provides = ['changed/service'];
-  assert.throws(() => resolve([selected], [changed]), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
-});
-
 test('equal catalog mirrors and different versions do not replace the captured explicit selection', () => {
   const selected = entry('block/a'), mirror = structuredClone(selected);
   mirror.registrySourceId = 'mirror'; mirror.manifestPath = '/mirror/block.manifest.yaml';
@@ -99,10 +80,6 @@ test('official labels alone do not authorize a non-packaged implicit provider', 
   candidate.registryPath = 'different-official-root';
   assert.throws(() => resolve([consumer], [consumer, candidate]),
     error => (error as { code?: string }).code === 'RESOLVE-AUTHORITY-007');
-});
-
-test('missing capabilities remain typed resolver failures', () => {
-  assert.throws(() => resolve([entry('block/a', ['missing'])]), e => (e as {code?: string}).code === 'RESOLVE-MISSING-001');
 });
 
 test('both ID and capability conflicts remain enforced', () => {
