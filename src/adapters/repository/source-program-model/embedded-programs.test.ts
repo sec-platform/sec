@@ -57,9 +57,17 @@ test('workflow executable values compile into addressed programs, capabilities a
 });
 
 test('repository module graph consumes embedded imports instead of parsing YAML as TypeScript', () => {
+  const repeatedImport = workflowSource + `
+  another:
+    steps:
+      - uses: actions/github-script@0123456789012345678901234567890123456789
+        with:
+          script: |
+            require('node:crypto');
+`;
   const graph = compileSourceProgramRepositoryModuleGraph({
     files: [workflowPath],
-    readSource: (repositoryPath) => repositoryPath === workflowPath ? workflowSource : null,
+    readSource: (repositoryPath) => repositoryPath === workflowPath ? repeatedImport : null,
     readEmbeddedLanguageImports: sourceProgramModuleImports
   });
 

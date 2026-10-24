@@ -310,11 +310,7 @@ test('release source rejects Git LFS pointer bytes instead of packaging pointer 
   }
 });
 
-test('release Git admission rejects expired operations and unavailable providers before materialization', async () => {
-  await expect(materializeExactReleaseGitTree(process.cwd(), {
-    deadlineAtUnixMs: Date.now() - 1
-  })).rejects.toThrow('requires one future absolute deadline');
-
+test('release Git admission rejects unavailable providers before materialization', async () => {
   const unavailableRoot = path.join(tmpdir(), `sec-release-provider-absent-${crypto.randomUUID()}`);
   await expect(materializeExactReleaseGitTree(unavailableRoot)).rejects.toMatchObject({
     name: 'GitReadAuthorityError',

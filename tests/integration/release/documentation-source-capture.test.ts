@@ -206,12 +206,10 @@ test.serial('an absent selected attachment never hides a missing source ancestor
       if (parentMissing && args[0] === path.join(root, '.documentation')) throw missingParent;
       return nativeStat(...args);
     }) as typeof fs.lstat);
-    const write = spyOn(fs, 'writeFile');
     try {
       await expect(materializeDocumentationPackage(root, target)).rejects.toBe(missingParent);
-      expect(write).not.toHaveBeenCalled();
+      expect(await fs.readdir(target)).toEqual([]);
     } finally {
-      write.mockRestore();
       lstat.mockRestore();
     }
   });

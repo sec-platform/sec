@@ -74,7 +74,11 @@ test('application consumer cannot promote a TypeScript pin without Source Progra
     expect(decision.status).toBe('unresolved');
     expect(decision.packages.find(({ declaredName }) => declaredName === 'typescript')).toMatchObject({
       reason: 'newer-release-observed',
+      roles: ['typescript-authoring-compiler-api'],
       status: 'unresolved'
+    });
+    expect(decision.packages.find(({ declaredName }) => declaredName === '@typescript/native')).toMatchObject({
+      status: 'up-to-date'
     });
     expect(decision.packages.some(({ status }) => status === 'upgrade-required')).toBeFalse();
     expect(decision.packages.some(({ reason }) => reason === 'lock-entry-missing')).toBeFalse();

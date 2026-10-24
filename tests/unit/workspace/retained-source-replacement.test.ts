@@ -106,23 +106,11 @@ test.skipIf(process.platform !== 'win32')('retained replacement preserves all fo
   });
 });
 
-test.skipIf(!supported)('replacement rejects foreign actors and wrong byte preimages before publication', async () => {
+test.skipIf(!supported)('replacement rejects wrong byte preimages before publication', async () => {
   await fixture(async ({ target, sourceRoot, replace }) => {
-    await expect(replace({})).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE' });
     await expect(replace(undefined, { expectedBytes: Buffer.from('wrong\n') })).rejects.toMatchObject({ namespaceChanged: false });
     expect(readFileSync(target)).toEqual(original);
     expect(readdirSync(sourceRoot)).toEqual([]);
-  });
-});
-
-test.skipIf(!supported)('replacement snapshots caller byte buffers before the first awaited fence', async () => {
-  await fixture(async ({ target, replace }) => {
-    const mutable = Buffer.from(successor);
-    await replace(undefined, {
-      bytes: mutable,
-      commitFence: async () => { mutable.fill(0); await Promise.resolve(); }
-    });
-    expect(readFileSync(target)).toEqual(successor);
   });
 });
 

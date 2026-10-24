@@ -30,24 +30,58 @@ import type { VerificationEvidence } from '../../../src/execution/verification/s
 
 import { expect, spyOn, test } from 'bun:test';
 import * as physicalNoFollow from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, createCiVerificationNativeHostedExecutionEnvironment, createCiVerificationNativeLocalExecutionEnvironment, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
 
-test('hosted environment data accepts both canonical profiles and rejects forged profile fields', () => {
+test('closed environment profiles preserve historical data without accepting unresolved native content', () => {
+  expect(createCiVerificationNativeProviderRevision('local')).toBeNull();
+  expect(createCiVerificationNativeProviderRevision('hosted')).toBeNull();
+  expect(() => createCiVerificationNativeLocalExecutionEnvironment())
+    .toThrow('native execution environment content is unresolved');
+  expect(() => createCiVerificationNativeHostedExecutionEnvironment())
+    .toThrow('native execution environment content is unresolved');
+  expect(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS).toEqual([
+    CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT
+  ]);
+  const revisions = CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS.map(
+    (value) => value.executionEnvironmentRevision
+  );
+  expect(new Set(revisions).size).toBe(revisions.length);
   for (const environment of [CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT]) {
-    expect(parseCiVerificationHostedExecutionEnvironment(JSON.parse(JSON.stringify(environment)))).toEqual(environment);
-    expect(resolveCiVerificationHostedExecutionEnvironment(environment.executionEnvironmentRevision)).toEqual(environment);
+    expect(parseCiVerificationHostedExecutionEnvironment(JSON.parse(JSON.stringify(environment)))).toBe(environment);
+    expect(resolveCiVerificationHostedExecutionEnvironment(environment.executionEnvironmentRevision)).toBe(environment);
     expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, runnerImage: 'caller-image' })).toThrow();
     expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, authority: true })).toThrow();
   }
+  const historical = CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT;
+  for (const candidate of [
+    { ...historical, executionEnvironmentRevision:
+      `github-actions:github-hosted:linux:x64:native-verification-unit-v1:execution-policy-sha256:${'a'.repeat(64)}` },
+    { ...historical, runnerImage: null },
+    { ...historical, toolchainRevision: 'bun@0.0.0' },
+    { ...historical, nativeRuntimeManifestDigest: `sha256:${'b'.repeat(64)}` }
+  ]) {
+    expect(() => parseCiVerificationHostedExecutionEnvironment(candidate)).toThrow(/hosted execution environment/);
+  }
+  expect(() => resolveCiVerificationHostedExecutionEnvironment('sec-linux-native-verification-unit-v1'))
+    .toThrow(/hosted execution environment/);
   expect(() => resolveCiVerificationHostedExecutionEnvironment('caller-provider')).toThrow();
   expect(CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision).not.toBe(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision);
+  expect(createCiVerificationLocalExecutionEnvironment({
+    os: 'linux', arch: 'x64', bunVersion: '1.4.0'
+  })).toEqual({
+    contractRevision: 'sec-ci-verification-action-environment-v2',
+    kind: 'local', os: 'linux', arch: 'x64', runnerImage: null,
+    toolchainRevision: 'bun@1.4.0',
+    executionEnvironmentRevision: 'local-dev-runner:linux:x64:bun-1.4.0:action-producer-v2'
+  });
 });
 
 import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../../helpers/ci-verification-fixtures.ts';
 
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, createCiVerificationNativeProviderRevision } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest } from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';

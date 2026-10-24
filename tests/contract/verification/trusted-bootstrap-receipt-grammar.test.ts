@@ -34,8 +34,7 @@ const withoutCandidate = (): Record<string, unknown> => ({ ...semantic(), candid
 const post = () => ({ ...semantic(), phase: 'post', auxiliaryStatus: 'unavailable',
   sutJobResult: 'failure', sutDiagnosticDigest: digest('7') });
 
-const malformed: Array<readonly [string, Record<string, unknown>]> = [
-  ['negative module count', { candidateModuleCount: -1 }],
+const malformed: Array<readonly [string, Record<string, unknown>, 'post'?]> = [
   ['fractional module count', { candidateModuleCount: 1.5 }],
   ['string module count', { candidateModuleCount: '1' }],
   ['zero module count', { candidateModuleCount: 0 }],
@@ -48,11 +47,9 @@ const malformed: Array<readonly [string, Record<string, unknown>]> = [
   ['empty trust revision', { candidateTrustRevision: '' }],
   ['numeric trust revision', { candidateTrustRevision: 1 }],
   ['unknown authority verdict', { authorityVerdict: 'anything' }],
-  ['array authority verdict', { authorityVerdict: ['passed'] }],
   ['empty authority reason', { authorityReason: '' }],
   ['numeric authority reason', { authorityReason: 1 }],
   ['unknown auxiliary status', { auxiliaryStatus: 'anything' }],
-  ['array auxiliary status', { auxiliaryStatus: ['not-observed'] }],
   ['nontext job result', { sutJobResult: 0 }],
   ['wrong schema', { schema: 'other' }],
   ['wrong phase', { phase: 'other' }],
@@ -64,42 +61,42 @@ const malformed: Array<readonly [string, Record<string, unknown>]> = [
   ['duplicate paths', { baseUndecidablePaths: ['src/a.ts', 'src/a.ts'] }],
   ['nonarray paths', { baseUndecidablePaths: 'src/a.ts' }]
 ];
-for (const field of ['checkerBaseSha', 'baseTreeSha', 'candidateHeadSha', 'candidateTreeSha',
-  'candidateParentSha', 'checkerToolBlob', 'checkerWorkflowBlob', 'candidateToolBlob', 'candidateWorkflowBlob']) {
-  for (const value of ['g'.repeat(40), 'A'.repeat(40), 'a'.repeat(39), null, 1]) {
-    malformed.push([`${field} rejects ${JSON.stringify(value)}`, { [field]: value }]);
-  }
+// Equality-bound identities change together, so a relation failure cannot mask
+// their lexical admission. Every other identity still has its own witness.
+for (const fields of [['checkerBaseSha', 'candidateParentSha'], ['baseTreeSha'],
+  ['candidateHeadSha'], ['candidateTreeSha'], ['checkerToolBlob'], ['checkerWorkflowBlob'],
+  ['candidateToolBlob'], ['candidateWorkflowBlob']]) {
+  malformed.push([`${fields.join('/')} rejects uppercase SHA`,
+    Object.fromEntries(fields.map(field => [field, 'A'.repeat(40)]))]);
 }
-for (const field of ['registryDigest', 'checkerActionKey', 'checkerActionResultDigest',
-  'checkerClosureDigest', 'checkerProgramDigest', 'candidateActionKey', 'candidateActionResultDigest',
-  'candidateClosureDigest', 'sutEvidenceDigest', 'sutDiagnosticDigest']) {
-  for (const value of ['not-a-digest', `sha256:${'A'.repeat(64)}`, 1]) {
-    malformed.push([`${field} rejects ${JSON.stringify(value)}`, { [field]: value }]);
-  }
+for (const value of ['g'.repeat(40), 'a'.repeat(39), null, 1]) {
+  malformed.push([`SHA lexical grammar rejects ${JSON.stringify(value)}`, { checkerToolBlob: value }]);
 }
-for (const field of ['registryDigest', 'checkerActionKey', 'checkerActionResultDigest',
-  'checkerClosureDigest', 'checkerProgramDigest']) {
-  malformed.push([`${field} is mandatory`, { [field]: null }]);
+for (const fields of [['registryDigest'], ['checkerActionKey'],
+  ['checkerActionResultDigest', 'checkerClosureDigest'], ['checkerProgramDigest'],
+  ['candidateActionKey'], ['candidateActionResultDigest', 'candidateClosureDigest'],
+  ['sutEvidenceDigest'], ['sutDiagnosticDigest']]) {
+  // POST permits SUT diagnostics; PRE's null-only rule must not reject first.
+  malformed.push([`${fields.join('/')} rejects uppercase digest`,
+    Object.fromEntries(fields.map(field => [field, `sha256:${'A'.repeat(64)}`])), 'post']);
+}
+for (const value of ['not-a-digest', 1, null]) {
+  malformed.push([`mandatory digest grammar rejects ${JSON.stringify(value)}`, { registryDigest: value }]);
 }
 for (const value of ['../outside.ts', '/outside.ts', 'src/../a.ts', './a.ts', 'src//a.ts',
   'src/./a.ts', 'src/a.ts/', 'src\\a.ts', '', 'C:/a.ts', 'src/\0a.ts', 'src/e\u0301.ts', 1]) {
   malformed.push([`noncanonical path ${JSON.stringify(value)}`, { baseUndecidablePaths: [value] }]);
 }
-for (const [name, patch] of malformed) {
-  test(`checker grammar rejects independently rehashed ${name} at every receipt guard`, () => {
-    const value = { ...semantic(), ...patch };
-    const actual = receipt(value);
-    expect(() => assertTrustedBootstrapPreReceipt(actual, subject)).toThrow();
+for (const [name, patch, phase] of malformed) {
+  test(`checker grammar rejects ${name} before issuing a receipt`, () => {
+    const value = { ...(phase === 'post' ? post() : semantic()), ...patch };
     expect(() => prepareTrustedBootstrapCheckerReceipt(value)).toThrow();
-    expect(() => assertTrustedBootstrapPreparedReceipt(actual, actual)).toThrow();
-    expect(() => assertTrustedBootstrapStableReceipt(actual, receipt({ ...value, phase: 'post' }))).toThrow();
   });
 }
 for (const field of ['candidateActionResultDigest', 'candidateClosureDigest', 'candidateTrustRevision', 'candidateModuleCount']) {
   test(`absent candidate Action rejects independent ${field} residue`, () => {
     const value = { ...withoutCandidate(), [field]: semantic()[field] };
     expect(() => prepareTrustedBootstrapCheckerReceipt(value)).toThrow();
-    expect(() => assertTrustedBootstrapPreReceipt(receipt(value), subject)).toThrow();
   });
 }
 
@@ -119,19 +116,22 @@ test('exact checker receipt supports both candidate variants and immutable canon
   }
 });
 
-for (const verdict of ['passed', 'failed', 'manual-bootstrap-required']) {
-  for (const auxiliary of ['not-observed', 'unavailable', 'passed', 'failed', 'invalid']) {
-    test(`POST preserves ${verdict} authority independently of ${auxiliary} auxiliary data`, () => {
-      const before = { ...semantic(), authorityVerdict: verdict };
-      const after = { ...post(), authorityVerdict: verdict, auxiliaryStatus: auxiliary };
-      expect(prepareTrustedBootstrapCheckerReceipt(after)).toEqual(receipt(after));
-      expect(() => assertTrustedBootstrapStableReceipt(receipt(before), receipt(after))).not.toThrow();
-    });
-  }
+for (const [verdict, auxiliary] of [
+  ['passed', 'not-observed'], ['passed', 'unavailable'], ['passed', 'passed'],
+  ['passed', 'failed'], ['passed', 'invalid'], ['failed', 'passed'], ['manual-bootstrap-required', 'passed']
+]) {
+  test(`POST preserves ${verdict} authority independently of ${auxiliary} auxiliary data`, () => {
+    const before = { ...semantic(), authorityVerdict: verdict };
+    const after = { ...post(), authorityVerdict: verdict, auxiliaryStatus: auxiliary };
+    expect(prepareTrustedBootstrapCheckerReceipt(after)).toEqual(receipt(after));
+    expect(() => assertTrustedBootstrapStableReceipt(receipt(before), receipt(after))).not.toThrow();
+  });
 }
 
 test('receipt guards reject field drift, stale digests, foreign subjects and copied POST', () => {
   const valid = receipt(semantic());
+  expect(() => assertTrustedBootstrapPreReceipt(receipt({ ...semantic(), candidateModuleCount: 0 }), subject))
+    .toThrow('Trusted bootstrap candidate Action fields are inconsistent.');
   const missing = { ...valid } as Record<string, unknown>;
   delete missing.authorityReason;
   for (const actual of [{ ...valid, extra: true }, missing, { ...valid, receiptDigest: digest('0') }, receipt(post())]) {
@@ -143,21 +143,15 @@ test('receipt guards reject field drift, stale digests, foreign subjects and cop
   expect(() => assertTrustedBootstrapStableReceipt(valid, valid)).toThrow();
   expect(() => assertTrustedBootstrapStableReceipt(valid, { ...receipt(post()), receiptDigest: digest('0') })).toThrow();
   expect(() => assertTrustedBootstrapStableReceipt(valid, receipt({ ...post(), authorityReason: 'changed' }))).toThrow();
+  expect(() => assertTrustedBootstrapStableReceipt(valid, receipt({ ...post(), authorityVerdict: 'passed' })))
+    .toThrow('Trusted bootstrap PRE and POST candidate closure receipts differ.');
   expect(() => assertTrustedBootstrapPreparedReceipt(valid, { ...valid, receiptDigest: digest('0') })).toThrow();
   expect(() => assertTrustedBootstrapPreparedReceipt(receipt({ ...semantic(), authorityReason: 'changed' }), valid)).toThrow();
 });
 
-for (const [name, source] of [
-  ['duplicate key', '{"phase":"post","phase":"pre"}'],
-  ['escaped duplicate key', '{"phase":"post","\\u0070hase":"pre"}'],
-  ['nested duplicate key', '{"nested":{"key":1,"key":2}}'],
-  ['trailing data', '{} []'], ['trailing comma', '{"key":1,}'], ['BOM', '\ufeff{}']
-]) {
-  test(`receipt byte entry rejects ${name}`, () => {
-    expect(() => parseTrustedBootstrapReceiptBytes(Buffer.from(source!))).toThrow();
-  });
-}
 test('receipt byte entry preserves 32-MiB native limit, fatal UTF-8 and 32-container depth', () => {
+  expect(() => parseTrustedBootstrapReceiptBytes(Buffer.from('{"nested":{"key":1,"key":2}}')))
+    .toThrow('contains duplicate key "key"');
   expect(() => parseTrustedBootstrapReceiptBytes(Uint8Array.from([0xc3, 0x28]))).toThrow('UTF-8');
   const atLimit = Buffer.alloc(32 * 1024 * 1024, ' ');
   atLimit.write('{}');

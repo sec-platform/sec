@@ -13,7 +13,6 @@ import {
   projectStatusContinuation,
   promoteRollingPlan,
   renderActivePointer,
-  renderCommittedCandidateReplanRollingPlan,
   requiresCommittedCandidateProjectionRefresh
 } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
@@ -342,6 +341,10 @@ test('MainHealth topology is compiled and rendered atomically instead of slicing
   });
   expect(rendered).not.toContain('Legacy prose');
   expect(rendered).not.toContain('Legacy candidate prose');
+  expect(() => parseRollingPlan(rendered.replace(
+    `### 1. ${candidates[0]}`,
+    '### 1. drifted-candidate-v1'
+  ))).toThrow('headings do not equal the digest-bound machine projection');
 });
 
 test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
@@ -492,87 +495,6 @@ stableFacts:
   })).toThrow('preserve immutable active and ordered candidate topology');
 });
 
-test('committed replan binds immutable source bytes and emits one canonical full document', () => {
-  const sourceManifest = Buffer.from('immutable source manifest', 'utf8');
-  const sourceManifestDigest = rawSha256(sourceManifest);
-  const pointerSource = `---
-schema: sec-active-work-package-pointer-v2
-status: conditional
-last-reviewed: 2026-08-20
----
-
-# Active fixture
-
-\`\`\`yaml
-selectionMode: exact-manifest-not-on-default-branch-v1
-defaultBranchRef: refs/remotes/origin/main
-defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/${activePackageId}.md
-manifestDigest: ${sourceManifestDigest}
-digestBytes: git-blob
-unavailableDefaultRef: unresolved
-matchingDefaultBlob: none
-\`\`\`
-`;
-  const authority = {
-    kind: 'committed-candidate-replan' as const,
-    sourceHead: 'c'.repeat(40),
-    sourceTree: 'd'.repeat(40),
-    sourceManifestDigest,
-    sourcePointerRevision: rawSha256(pointerSource),
-    sourceRollingRevision: rawSha256(legacyRollingPlanSource())
-  };
-  const rendered = renderCommittedCandidateReplanRollingPlan({
-    currentPointerSource: pointerSource,
-    currentRollingPlanSource: legacyRollingPlanSource(),
-    currentManifestBytes: sourceManifest,
-    authority,
-    targetManifestPath: `config/repository/work-packages/${activePackageId}.md`,
-    targetManifestDigest: rawSha256('next manifest'),
-    targetPackageId: activePackageId,
-    targetTracking: 'issue-1',
-    exactMain,
-    exactMainTree,
-    reviewedOn: '2026-08-21'
-  });
-  const projection = parseRollingMachineProjection(rendered)!;
-  expect(projection).toMatchObject({
-    exactMain,
-    exactMainTree,
-    authority,
-    active: { packageId: activePackageId, tracking: 'issue-1' }
-  });
-  expect(rendered).not.toContain('Legacy prose');
-  expect(() => renderCommittedCandidateReplanRollingPlan({
-    currentPointerSource: pointerSource,
-    currentRollingPlanSource: `${legacyRollingPlanSource()}drift`,
-    currentManifestBytes: sourceManifest,
-    authority,
-    targetManifestPath: `config/repository/work-packages/${activePackageId}.md`,
-    targetManifestDigest: rawSha256('next manifest'),
-    targetPackageId: activePackageId,
-    targetTracking: 'issue-1',
-    exactMain,
-    exactMainTree,
-    reviewedOn: '2026-08-21'
-  })).toThrow('does not bind the immutable source bytes');
-  assertRollingMachineBaseBinding({
-    projection,
-    exactMain,
-    exactMainTree
-  });
-  expect(() => assertRollingMachineBaseBinding({
-    projection,
-    exactMain: 'e'.repeat(40),
-    exactMainTree
-  })).toThrow('exact live default revision');
-  expect(() => assertRollingMachineBaseBinding({
-    projection,
-    exactMain,
-    exactMainTree: 'f'.repeat(40)
-  })).toThrow('exact live default tree');
-});
-
 test('required same-package freeze compiles the committed replan instead of accepting caller prose', () => {
   const manifestPath = `config/repository/work-packages/${activePackageId}.md`;
   const sourceManifest = Buffer.from(`---
@@ -659,12 +581,16 @@ stableFacts:
   });
   expect(result.retiredManifestPath).toBeNull();
   expect(parseRollingMachineProjection(result.rollingPlanSource)).toMatchObject({
+    exactMain,
+    exactMainTree,
     authority,
     active: {
       packageId: activePackageId,
+      tracking: 'issue-1',
       manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest)
     }
   });
+  expect(result.rollingPlanSource).not.toContain('Legacy prose');
   const refreshedAuthority = {
     ...authority,
     sourceHead: 'e'.repeat(40),
@@ -747,6 +673,18 @@ stableFacts:
   expect(() => createFreezeProjection({
     spec,
     currentPointerSource: pointerSource,
+    currentRollingPlanSource: `${legacyRollingPlanSource()}drift`,
+    currentManifestBytes: sourceManifest,
+    committedCandidateReplanProjection: authority,
+    manifestPath,
+    manifestBytes: targetManifest,
+    baseSha: exactMain,
+    baseTreeSha: exactMainTree,
+    reviewedOn: '2026-08-21'
+  })).toThrow('does not bind the immutable source bytes');
+  expect(() => createFreezeProjection({
+    spec,
+    currentPointerSource: pointerSource,
     currentRollingPlanSource: legacyRollingPlanSource(),
     currentManifestBytes: sourceManifest,
     requestedRollingPlanSource: `${result.rollingPlanSource}\ncaller prose\n`,
@@ -758,29 +696,6 @@ stableFacts:
     reviewedOn: '2026-08-21'
   })).toThrow('must equal the canonical transition renderer exactly');
 });
-
-test('heading drift is rejected against the digest-bound machine topology', () => {
-  const repairPackageId = 'main-health-repair-v1';
-  const rendered = activateMainHealthRepairRollingPlan({
-    source: legacyRollingPlanSource(),
-    packageId: repairPackageId,
-    manifestPath: `config/repository/work-packages/${repairPackageId}.md`,
-    manifestDigest: rawSha256('repair-manifest'),
-    mainSha: exactMain,
-    mainTreeSha: exactMainTree,
-    healthRevision: rawSha256('health'),
-    ledgerDigest: rawSha256('ledger'),
-    decisionDigest: rawSha256('decision'),
-    failureFingerprints: [rawSha256('failure')],
-    publishedActivePackageId: activePackageId,
-    reviewedOn: '2026-08-21'
-  });
-  expect(() => parseRollingPlan(rendered.replace(
-    `### 1. ${candidates[0]}`,
-    '### 1. drifted-candidate-v1'
-  ))).toThrow('headings do not equal the digest-bound machine projection');
-});
-
 
 function statusContinuationFixture() {
   return {

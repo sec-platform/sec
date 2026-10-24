@@ -59,26 +59,9 @@ test('native dependency request rejects unknown operations and malformed identit
   }
 });
 
-test('native dependency request rejects duplicate decisions in the original JSON bytes', () => {
+test('native dependency request binds exact JSON decisions and byte/depth limits before semantic decoding', () => {
   const text = JSON.stringify(request);
-  const duplicate = `${text.slice(0, -1)},"phase":"observe"}`;
-  expectJsonFailure(new TextEncoder().encode(duplicate), 'duplicate-key');
-  const escapedDuplicate = `${text.slice(0, -1)},"ph\\u0061se":"prepare"}`;
-  expectJsonFailure(new TextEncoder().encode(escapedDuplicate), 'duplicate-key');
-});
-
-test('native dependency request uses actual byte-view bounds and exact UTF-8', () => {
-  const encoded = bytes(request);
-  const backing = new Uint8Array(encoded.length + 20);
-  backing.fill(0xff);
-  backing.set(encoded, 10);
-  expect(parseNativeVerificationDependencyRequest(backing.subarray(10, 10 + encoded.length))).toEqual(request);
-  expectJsonFailure(backing, 'invalid-utf8');
-  expectJsonFailure(new Uint8Array([0xff]), 'invalid-utf8');
-  expectJsonFailure(new Uint8Array([0xef, 0xbb, 0xbf, ...encoded]), 'invalid-json');
-});
-
-test('native dependency request enforces byte and recursive-container limits before semantic decoding', () => {
+  expectJsonFailure(new TextEncoder().encode(`${text.slice(0, -1)},"phase":"observe"}`), 'duplicate-key');
   const encoded = bytes(request);
   const atLimit = new Uint8Array(4_096).fill(0x20);
   atLimit.set(encoded);

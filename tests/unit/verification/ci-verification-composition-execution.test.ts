@@ -77,6 +77,20 @@ test('composition gates execute through the same Action runner and preserve prod
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-'));
   try {
     const plan = buildCiVerificationActionPlanClosure({ candidate, gates });
+    const variants: readonly (readonly CiVerificationProducerGate[])[] = [
+      gates.map((gate, index) => index === 0 ? { ...gate, environment: { 'ci-env-v1:environment': digest('8') } } : gate),
+      [...gates].reverse()
+    ];
+    for (const variant of variants) {
+      expect(buildCiVerificationActionPlanClosure({ candidate, gates: variant }).actionPlanDigest)
+        .not.toBe(plan.actionPlanDigest);
+    }
+    const forgedArgv = gates.map((gate, index) => index === 0
+      ? { ...gate, argv: [...gate.argv, '--forged'] }
+      : gate);
+    expect(() => buildCiVerificationActionPlanClosure({ candidate, gates: forgedArgv })).toThrow(
+      /outside the canonical producer-owned grammar/
+    );
     const calls: Array<{ id: string; argv: readonly string[] }> = [];
     const result = await CodexDevelopmentExecuteCiActionClosure({
       repositoryRoot: root,
@@ -183,24 +197,6 @@ test('composition rejects a plain structural process result without an owner-iss
   }
 });
 
-test('composition environment and topology drift change the digest while forged argv is rejected', () => {
-  const baseline = buildCiVerificationActionPlanClosure({ candidate, gates });
-  const variants: readonly (readonly CiVerificationProducerGate[])[] = [
-    gates.map((gate, index) => index === 0 ? { ...gate, environment: { 'ci-env-v1:environment': digest('8') } } : gate),
-    [...gates].reverse()
-  ];
-  for (const variant of variants) {
-    expect(buildCiVerificationActionPlanClosure({ candidate, gates: variant }).actionPlanDigest)
-      .not.toBe(baseline.actionPlanDigest);
-  }
-  const forgedArgv = gates.map((gate, index) => index === 0
-    ? { ...gate, argv: [...gate.argv, '--forged'] }
-    : gate);
-  expect(() => buildCiVerificationActionPlanClosure({ candidate, gates: forgedArgv })).toThrow(
-    /outside the canonical producer-owned grammar/
-  );
-});
-
 // The transport fixture is deliberately historical data. It never executes the
 // private producer or obtains its live issuer relations.
 function historicalSourceActionFixture() {
@@ -266,6 +262,10 @@ test('source Action transport consumes the exact completed gate without a second
     expect(execution.failed).toBe(false);
     expect(execution.gates).toHaveLength(2);
     expect(execution.gates[1]).toEqual(sourceAction.gate);
+    const transported = parseTrustedRuntimeSourceProgramActionRecord(JSON.parse(JSON.stringify(sourceAction)));
+    expect(transported.gate.result.status).toBe('passed');
+    expect(() => assertTrustedRuntimeSourceProgramAction(sourceAction)).toThrow('exact live isolated producer handoff');
+    expect(() => assertTrustedRuntimeSourceProgramAction(transported)).toThrow('exact live isolated producer handoff');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -284,9 +284,9 @@ test('source Action transport rejects another Session, subject, or altered full 
   expect(() => parseTrustedRuntimeSourceProgramActionRecord({ ...sourceAction, skip: true })).toThrow('unknown or missing fields');
 });
 
-test('source acceptance v1 retains its predecessor and v2 explicitly has none', () => {
-  const legacy = parseSourceProgramTransitionAcceptanceRecord(historicalAcceptanceFixture(false));
-  const first = parseSourceProgramTransitionAcceptanceRecord(historicalAcceptanceFixture(true));
+test('historical source acceptance preserves v1/v2 origin without recovering live authority', () => {
+  const legacy = parseSourceProgramTransitionAcceptanceRecord(JSON.parse(JSON.stringify(historicalAcceptanceFixture(false))));
+  const first = parseSourceProgramTransitionAcceptanceRecord(JSON.parse(JSON.stringify(historicalAcceptanceFixture(true))));
   expect(legacy).toHaveProperty('predecessorDisposition', 'superseded-nonterminal');
   expect(legacy).not.toHaveProperty('schema');
   expect(legacy).not.toHaveProperty('origin');
@@ -298,16 +298,7 @@ test('source acceptance v1 retains its predecessor and v2 explicitly has none', 
     predecessorActionOutputDigest: digest('fake-predecessor') })).toThrow('unknown or missing fields');
   expect(() => parseSourceProgramTransitionAcceptanceRecord({ ...first, origin: 'legacy-requalification' }))
     .toThrow('invalid qualified origin');
-});
-
-test('canonical historical source records and JSON clones never recover live host authority', () => {
-  const { sourceAction } = historicalSourceActionFixture();
-  const transported = parseTrustedRuntimeSourceProgramActionRecord(JSON.parse(JSON.stringify(sourceAction)));
-  expect(transported.gate.result.status).toBe('passed');
-  expect(() => assertTrustedRuntimeSourceProgramAction(sourceAction)).toThrow('exact live isolated producer handoff');
-  expect(() => assertTrustedRuntimeSourceProgramAction(transported)).toThrow('exact live isolated producer handoff');
-  for (const first of [false, true]) {
-    const record = parseSourceProgramTransitionAcceptanceRecord(JSON.parse(JSON.stringify(historicalAcceptanceFixture(first))));
+  for (const record of [legacy, first]) {
     expect(() => assertSourceProgramTransitionQualification(record)).toThrow('live isolated host qualification');
   }
 });

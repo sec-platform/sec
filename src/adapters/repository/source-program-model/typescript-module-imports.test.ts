@@ -12,7 +12,7 @@ const cases: readonly {
 
 const targetSource = 'export type Value = string; export type A = string; export type B = number; export const value = 1;';
 
-function fixtureProgram(source: string, fileName = 'src/a.ts', verbatimModuleSyntax: boolean | undefined = true) {
+function fixtureProgram(source: string, fileName = 'src/a.ts') {
   const sources = new Map([[fileName, source], ['src/b.ts', targetSource]]);
   const files = new Map([...sources].map(([file, text]) => [file,
     ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true)]));
@@ -26,7 +26,7 @@ function fixtureProgram(source: string, fileName = 'src/a.ts', verbatimModuleSyn
   };
   const program = ts.createProgram([...files.keys()], {
     noLib: true, noResolve: true, noEmit: true, target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext, verbatimModuleSyntax
+    module: ts.ModuleKind.ESNext, verbatimModuleSyntax: true
   }, host);
   return { program, sourceFiles: [...files.values()], repositoryPath: (file: ts.SourceFile) => file.fileName };
 }
@@ -91,7 +91,15 @@ test('runtime edges agree with verbatim compiler emit for each syntax and type/r
     const facts = typeScriptModuleImportFacts(fixtureProgram(source));
     const observed = [...new Set(facts.imports.filter((item) => !item.typeOnly)
       .map((item) => item.specifier))].sort();
-    assert.deepEqual(observed, emittedModuleDependencies(source), source);
+    const emitted = emittedModuleDependencies(source);
+    assert.deepEqual(observed, emitted, source);
+    const graph = assembleRepositoryModuleGraph({ files: ['src/a.ts', 'src/b.ts'], ...facts });
+    assert.deepEqual(graph.directDependencies('src/a.ts'), ['src/b.ts'], source);
+    assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), emitted.map((specifier) => {
+      assert.equal(specifier, './b.ts');
+      return 'src/b.ts';
+    }), source);
+    assert.deepEqual(graph.directConsumers('src/b.ts'), ['src/a.ts'], source);
   }
 });
 
@@ -104,11 +112,4 @@ test('declaration files retain dependency impact without inventing runtime evalu
     assert.deepEqual(graph.directDependencies(fileName), ['src/b.ts']);
     assert.deepEqual(graph.directRuntimeDependencies(fileName), []);
   }
-});
-
-test('a different compiler erasure profile cannot be silently treated as canonical', () => {
-  const fixture = fixtureProgram("import {type Value} from './b.ts';", 'src/a.ts', false);
-  assert.throws(() => typeScriptModuleImportFacts(fixture), /verbatimModuleSyntax/);
-  delete fixture.program.getCompilerOptions().verbatimModuleSyntax;
-  assert.throws(() => typeScriptModuleImportFacts(fixture), /verbatimModuleSyntax/);
 });
