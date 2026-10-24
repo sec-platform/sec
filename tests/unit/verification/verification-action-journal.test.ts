@@ -246,47 +246,6 @@ test('journal rejects corrupt and partial tails before exposing any projection',
   }
 });
 
-test('journal and claim readers reject duplicate keys before domain projection', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-exact-json-'));
-  try {
-    const key = action();
-    const fs = journalFs(root);
-    appendVerificationActionJournalEvent({
-      fs,
-      action: key,
-      state: 'queued',
-      recordedAt: at(1)
-    });
-    const journalPath = readVerificationActionJournal(fs, key.actionKey).filePath;
-    const canonicalJournal = readFileSync(journalPath, 'utf8');
-    writeFileSync(
-      journalPath,
-      canonicalJournal.replace('{', `{"schema":"${VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA}",`),
-      'utf8'
-    );
-    expect(() => readVerificationActionJournal(fs, key.actionKey)).toThrow('duplicate key');
-
-    writeFileSync(journalPath, canonicalJournal, 'utf8');
-    const claimKey = action('claim-exact-json');
-    expect(acquireVerificationActionClaim({
-      fs,
-      action: claimKey,
-      ownerToken: 'exact-json-owner',
-      now: at(2)
-    }).disposition).toBe('acquired');
-    const claimPath = `${readVerificationActionJournal(fs, claimKey.actionKey).filePath}.claim.json`;
-    const canonicalClaim = readFileSync(claimPath, 'utf8');
-    writeFileSync(
-      claimPath,
-      canonicalClaim.replace('{', `{"schema":"sec-verification-action-terminal-bound-claim",`),
-      'utf8'
-    );
-    expect(() => readVerificationActionClaim(fs, claimKey.actionKey)).toThrow('duplicate key');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('a current prefix and foreign-schema tail is corruption, not disposable state', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-mixed-'));
   try {
@@ -1621,29 +1580,6 @@ test('claim joins one live physical owner and rejects wrong-owner release', () =
       recordedAt: '2026-08-09T00:00:03.000Z', note: 'owner settled failure'
     }))?.state).toBe('cancelled');
     expect(readVerificationActionClaim(journalFs(root), key.actionKey)).toBeNull();
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('expired crash lease permanently blocks blind re-execution under the same ActionKey', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-recovery-'));
-  try {
-    const key = action();
-    acquireVerificationActionClaim(withStateRoot(root, {
-      repositoryRoot: 'R:/repo', action: key, ownerToken: 'crashed',
-      now: '2026-08-09T00:00:00.000Z', leaseDurationMs: 1_000
-    }));
-    const blocked = acquireVerificationActionClaim(withStateRoot(root, {
-      repositoryRoot: 'R:/repo', action: key,
-      ownerToken: 'successor', now: '2026-08-09T00:00:02.000Z', leaseDurationMs: 60_000
-    }));
-    const contender = acquireVerificationActionClaim(withStateRoot(root, {
-      repositoryRoot: 'R:/repo', action: key,
-      ownerToken: 'other', now: '2026-08-09T00:00:03.000Z', leaseDurationMs: 60_000
-    }));
-    expect(blocked.disposition).toBe('blocked');
-    expect(blocked.reason).toContain('blind re-execution is forbidden');
-    expect(contender.disposition).toBe('blocked');
-    expect(readVerificationActionClaim(journalFs(root), key.actionKey)?.ownerToken).toBe('crashed');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

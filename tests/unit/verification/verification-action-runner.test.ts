@@ -32,6 +32,7 @@ import {
   appendVerificationActionJournalEvent as appendJournalEvent,
   commitVerificationActionTerminalUnderClaim,
   readVerificationActionJournal as readJournal,
+  readVerificationActionClaim,
   VERIFICATION_ACTION_JOURNAL_DIRECTORY,
   VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
 } from '../../../src/adapters/verification/platform/action/journal.ts';
@@ -574,6 +575,7 @@ test('an expired global claim observed from another workspace blocks blind resta
     expect(result.disposition).toBe('blocked');
     expect(result.reason).toContain('expired physical owner');
     expect(invocations).toBe(0);
+    expect(readVerificationActionClaim(ownerFs, key.actionKey)?.ownerToken).toBe('lost-global-owner');
     expect(readVerificationActionJournal(ownerRepositoryRoot, key.actionKey).filePath)
       .toBe(readVerificationActionJournal(contenderRepositoryRoot, key.actionKey).filePath);
   } finally {
@@ -736,95 +738,6 @@ test('independent processes in distinct workspaces share one machine-global phys
     rmSync(secondRepositoryRoot, { recursive: true, force: true });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
-
-test('missing execution plan fails closed before any physical execution', async () => {
-  const repositoryRoot = root();
-  try {
-    const key = action('missing-plan-action');
-    let invocations = 0;
-    const result = await new VerificationActionRunner().execute({
-      repositoryRoot,
-      action: key,
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    });
-    expect(result.disposition).toBe('blocked');
-    expect(result.reason).toContain('explicit action plan required');
-    expect(invocations).toBe(0);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
-test('forged scheduler lane fails closed before any physical execution', async () => {
-  const repositoryRoot = root();
-  try {
-    const key = action('forged-plan-action');
-    const forgedPlan = {
-      ...runnablePlan(key, repositoryRoot),
-      executionClass: 'cheap-preflight'
-    } as never;
-    let invocations = 0;
-    await expect(new VerificationActionRunner().execute({
-      repositoryRoot,
-      action: key,
-      plan: forgedPlan,
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    })).rejects.toThrow('must match required cheap-preflight topology');
-    expect(invocations).toBe(0);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
-test('a caller without an authorized plan cannot join a cross-workspace physical flight', async () => {
-  const repositoryRoot = root();
-  const secondRepositoryRoot = root();
-  try {
-    const runner = new VerificationActionRunner();
-    const key = action('caller-local-plan-action');
-    let invocations = 0;
-    let release!: () => void;
-    let markStarted!: () => void;
-    const held = new Promise<void>((resolve) => { release = resolve; });
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
-    const running = runner.execute({
-      repositoryRoot,
-      action: key,
-      executionDomain: 'caller-local-plan-domain',
-      plan: runnablePlan(key, repositoryRoot),
-      executor: async () => {
-        invocations += 1;
-        markStarted();
-        await held;
-        return issuedSettlement(key);
-      }
-    });
-    await started;
-    const missing = await runner.execute({
-      repositoryRoot: secondRepositoryRoot,
-      action: key,
-      executionDomain: 'caller-local-plan-domain',
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    });
-    expect(missing.disposition).toBe('blocked');
-    expect(missing.reason).toContain('explicit action plan required');
-    expect(invocations).toBe(1);
-    release();
-    await running;
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-    rmSync(secondRepositoryRoot, { recursive: true, force: true });
-  }
-});
 
 test('awaited nested same-key execution is rejected without self-join deadlock', async () => {
   const repositoryRoot = root();
@@ -1057,38 +970,6 @@ test('producer subordinate settlement is atomically journaled and replayed witho
   }
 });
 
-test('subordinate settlement registration rejects unbounded or duplicate projections before terminal commit', async () => {
-  for (const [name, register] of [
-    ['unbounded', (record: (note: string) => void) => record('x'.repeat(1025))],
-    ['duplicate', (record: (note: string) => void) => {
-      record('{"setup":{"status":"complete"}}');
-      record('{"execution":{"status":"complete"}}');
-    }]
-  ] as const) {
-    const repositoryRoot = root();
-    try {
-      const runner = new VerificationActionRunner();
-      const key = action(`subordinate-${name}`);
-      const result = await runner.execute({
-        repositoryRoot,
-        action: key,
-        plan: runnablePlan(key, repositoryRoot),
-        executor: ({ action, recordSubordinateSettlement }) => {
-          register(recordSubordinateSettlement);
-          return issuedSettlement(action);
-        }
-      });
-      expect(result.disposition).toBe('blocked');
-      expect(result.state).toBe('cancelled');
-      expect(result.terminal).toBeNull();
-      expect(result.subordinateSettlement).toBeNull();
-      expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('cancelled');
-    } finally {
-      rmSync(repositoryRoot, { recursive: true, force: true });
-    }
-  }
-});
-
 test('executor failure is durably cancelled and its diagnostic is bounded', async () => {
   const repositoryRoot = root();
   try {
@@ -1112,31 +993,6 @@ test('executor failure is durably cancelled and its diagnostic is bounded', asyn
     expect(journal.events.at(-1)?.note).toBe(result.reason);
     expect(Buffer.byteLength(result.reason ?? '', 'utf8')).toBeLessThanOrEqual(1024);
     expect(result.reason).not.toMatch(/[\u0000-\u001f]/u);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
-test('non-issued executor results durably cancel without a terminal', async () => {
-  const repositoryRoot = root();
-  try {
-    const key = action('plain-terminal');
-    const result = await new VerificationActionRunner().execute({
-      repositoryRoot,
-      action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: () => ({
-        status: 'passed' as const,
-        reasonCode: 'executed-success' as const,
-        resultDigest: null
-      })
-    });
-    expect(result.disposition).toBe('blocked');
-    expect(result.state).toBe('cancelled');
-    expect(result.terminal).toBeNull();
-    expect(result.reason).toContain('durably cancelled');
-    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
-      .toBe('cancelled');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }

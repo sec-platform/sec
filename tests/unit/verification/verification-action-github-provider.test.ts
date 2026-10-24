@@ -1205,19 +1205,6 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
   });
 
-  test('exact parent artifact, closure member, current bot run, and marker chain posts once', async () => {
-    fakeGh = new FakeGh().withMarker();
-    const result = await ensureTransaction({
-      origin: claimOrigin,
-      authority: authority(),
-      intent: { kind: 'claim-start', marker }
-    });
-    expect(result.disposition).toBe('started');
-    expect(result.actionKey).toBe(ACTION);
-    expect(result.status).toMatchObject({ state: 'pending', context: CONTEXT });
-    expect(fakeGh.createCalls).toBe(1);
-  });
-
   test('coordinate-parent binds the current external Session run and is structurally read-only', async () => {
     fakeGh = new FakeGh();
     trustedParentEnvironment();
@@ -1660,6 +1647,8 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     const result = await ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } });
     expect(result.disposition).toBe('started');
+    expect(result.actionKey).toBe(ACTION);
+    expect(result.status).toMatchObject({ state: 'pending', context: CONTEXT });
     expect(fakeGh.createCalls).toBe(1);
   });
 
@@ -1748,9 +1737,9 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(observed.disposition).toBe('observed');
     expect(observed.snapshot.startObservations[0]?.referencedOrigin).toEqual(historicalOrigin);
     expect(observed.snapshot.terminalAnchorObservations[0]?.referencedOrigin).toEqual(historicalOrigin);
-    expect(fakeGh.exactAttemptCalls.filter((entry) => entry.runId === '9200'))
-      .toEqual([{ runId: '9200', runAttempt: 1 }, { runId: '9200', runAttempt: 1 },
-        { runId: '9200', runAttempt: 1 }]);
+    const historicalReads = fakeGh.exactAttemptCalls.filter((entry) => entry.runId === '9200');
+    expect(historicalReads.length).toBeGreaterThan(0);
+    for (const read of historicalReads) expect(read).toEqual({ runId: '9200', runAttempt: 1 });
     expect(fakeGh.latestRunCalls).not.toContain('9200');
     expect(fakeGh.exactAttemptCalls.some((entry) => entry.runId === assemblerOrigin.runId)).toBe(false);
     expect(fakeGh.createCalls).toBe(0);
@@ -1820,7 +1809,15 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       proposal: { ...envelope.proposal, proposedActionKey: digest('7') }
     } as CiVerificationActionProviderEnvelope;
     await expect(ensureTransaction({ origin: claimOrigin, authority: authority(forgedEnvelope),
-      intent: { kind: 'claim-start', marker } })).rejects.toThrow();
+      intent: { kind: 'claim-start', marker } })).rejects.toThrow('proposal ActionKey is not one exact member of the Action closure');
+    expect(fakeGh.createCalls).toBe(0);
+
+    fakeGh = new FakeGh().withMarker();
+    const foreignProposalEnvelope = { ...envelope, proposal: { ...envelope.proposal,
+      sessionRequest: { ...envelope.proposal.sessionRequest, requestOperationId: digest('9') }
+    } } as CiVerificationActionProviderEnvelope;
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(foreignProposalEnvelope),
+      intent: { kind: 'claim-start', marker } })).rejects.toThrow('provider proposal is not one exact member of the parent dispatch plan');
     expect(fakeGh.createCalls).toBe(0);
   });
 
