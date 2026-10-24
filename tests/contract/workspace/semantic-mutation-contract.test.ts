@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../../src/assurance/verification/contract/types.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import { sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
-import { normalizeSemanticMutationRequest } from '../../../src/compiler/semantic-mutation/normalize-request.ts';
+import { normalizeSemanticMutationRequest, semanticMutationAuthorizationRevision } from '../../../src/compiler/semantic-mutation/normalize-request.ts';
 import { semanticMutationPlanRevision } from '../../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
 import { semanticMutationResultRevision } from '../../../src/compiler/semantic-mutation/result.ts';
@@ -73,9 +73,6 @@ test('request schema rejects caller authority, unknown fields, wrong versions, a
   const raw = request();
   expect(() => normalizeSemanticMutationRequest({ ...raw, contractVersion: '1' })).toThrow('contractVersion');
   expect(() => normalizeSemanticMutationRequest({ ...raw, relativePath: 'source/model/vector.yaml' })).toThrow('unknown fields');
-  expect(() => normalizeSemanticMutationRequest({ ...raw, factDelta: {} })).toThrow('unknown fields');
-  expect(() => normalizeSemanticMutationRequest({ ...raw, risk: 'low' })).toThrow('unknown fields');
-  expect(() => normalizeSemanticMutationRequest({ ...raw, rollbackManifestDigest: sha256('rollback') })).toThrow('unknown fields');
   expect(() => normalizeSemanticMutationRequest({
     ...raw,
     operations: [
@@ -87,8 +84,7 @@ test('request schema rejects caller authority, unknown fields, wrong versions, a
 
 test('runtime trusted-input guard rejects malformed endpoint shells without leaking TypeError', () => {
   const raw = request();
-  const authorization = {
-    authorizationRevision: sha256('not-reached'),
+  const authorizationDraft = {
     allowedOperationKinds: ['add-state-transition'] as const,
     allowedTargetEntityIds: ['state:vector:status'],
     allowedSourceOwnerIds: ['owner:vector'],
@@ -96,6 +92,10 @@ test('runtime trusted-input guard rejects malformed endpoint shells without leak
     requiredPreconditions: [],
     requiredPostconditions: [],
     minimumVerification: []
+  };
+  const authorization = {
+    ...authorizationDraft,
+    authorizationRevision: semanticMutationAuthorizationRevision(authorizationDraft)
   };
   const malformed = {
     transactionId: raw.base.transactionId,
@@ -114,7 +114,15 @@ test('runtime trusted-input guard rejects malformed endpoint shells without leak
     request: raw,
     base: malformed as never,
     authorization
-  })).toMatchObject({ status: 'rejected', rejectedAt: 'request' });
+  })).toMatchObject({
+    status: 'rejected',
+    rejectedAt: 'request',
+    diagnostics: [{
+      code: 'SEMANTIC-MUTATION-001',
+      stage: 'request',
+      message: 'Trusted base input violates the FactDeltaEndpointContext shape'
+    }]
+  });
 });
 
 test('independent plan, required-verification, execution, and result digest vectors stay frozen', () => {

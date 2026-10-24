@@ -284,10 +284,10 @@ test('completed native main absorption retires its proof and preparation without
 }, 30_000);
 
 test('retirement rejects copied settlement and unknown family consumer before the first delete', async () => {
-  for (const mode of ['copy', 'sidecar'] as const) {
-    const value = fixture();
-    try {
-      const settlement = await completed(value);
+  const value = fixture();
+  try {
+    const settlement = await completed(value);
+    for (const mode of ['copy', 'sidecar'] as const) {
       if (mode === 'sidecar') writeFileSync(`${value.bundlePath}.consumer.json`, '{}\n', 'utf8');
       const candidate = mode === 'copy' ? { ...settlement.completed } : settlement.completed;
       await expect(retireWithGitHubObservation(value, {
@@ -298,9 +298,9 @@ test('retirement rejects copied settlement and unknown family consumer before th
       expect(existsSync(value.bundlePath)).toBe(true);
       expect(existsSync(`${value.bundlePath}.sha256`)).toBe(true);
       expect(existsSync(`${value.bundlePath}.preparation.json`)).toBe(true);
-    } finally {
-      rmSync(path.dirname(value.root), { recursive: true, force: true });
     }
+  } finally {
+    rmSync(path.dirname(value.root), { recursive: true, force: true });
   }
 }, 30_000);
 

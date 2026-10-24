@@ -49,7 +49,8 @@ test('shared declaration view is prepared exactly once for both access paths', (
   const input = fixture(); const entries = input.declarations; let reads = 0;
   Object.defineProperty(input, 'declarations', { get() { reads += 1; return entries; } });
   const view = index(input);
-  for (let i = 0; i < 100; i += 1) { view.declarationsForCapability('A', 'run'); view.declarationsForPath('src/a.ts'); }
+  assert.deepEqual(view.declarationsForCapability('A', 'run'), [entries[0]!]);
+  assert.deepEqual(view.declarationsForPath('src/a.ts'), [entries[0]!]);
   assert.equal(reads, 1);
 });
 

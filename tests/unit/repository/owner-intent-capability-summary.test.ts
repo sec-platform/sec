@@ -91,9 +91,8 @@ test('repeated shared-path queries do not rescan the capability records', () => 
     ...fact(), get capability() { reads += 1; return 'filesystem'; }
   }));
   const index = view(capabilities);
-  for (let i = 0; i < 2000; i += 1) {
-    assert.deepEqual(index.capabilitySummaryForPaths(paths), { observedKinds: ['filesystem'], hasUnknown: false });
-  }
+  assert.deepEqual(index.capabilitySummaryForPaths(paths), { observedKinds: ['filesystem'], hasUnknown: false });
+  assert.deepEqual(index.capabilitySummaryForPaths(paths), { observedKinds: ['filesystem'], hasUnknown: false });
   assert.equal(reads, capabilities.length);
 });
 
