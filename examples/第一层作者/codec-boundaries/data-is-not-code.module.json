@@ -1,0 +1,43 @@
+{
+  "schema": "gift.author-module/compact-design-draft",
+  "moduleId": "module:codec_data_boundary",
+  "definitions": {
+    "Bool": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "bool"
+        }
+      }
+    },
+    "Label": {
+      "core:type": "text"
+    }
+  },
+  "exports": [
+    "Bool",
+    "Label"
+  ],
+  "annotations": {
+    "exampleData": {
+      "all": [
+        1,
+        2
+      ],
+      "core:type": "text",
+      "kind": "intent:goal",
+      "op": "call",
+      "ref": "local:NotALink",
+      "payload": {
+        "not": false
+      }
+    },
+    "unicodeKeys": {
+      "客户编号": "literal wire key",
+      "": "empty data key",
+      "a/b": "not a JSON Pointer segment without escaping",
+      "~": "literal tilde"
+    }
+  }
+}

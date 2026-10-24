@@ -1,0 +1,86 @@
+{
+  "purpose": "设计数学向量，不是Gift运行输入格式或验证签章",
+  "unbounded_encoding": "本文件null仅为数学记录的无有限上界；实际作者类型为UpperBound.Unbounded(unit)",
+  "vectors": [
+    {
+      "lower": "3",
+      "upper": null,
+      "threshold": "3",
+      "evaluations": {
+        "AtLeast": "AllSatisfy",
+        "AtMost": "Undetermined",
+        "Exactly": "Undetermined"
+      }
+    },
+    {
+      "lower": "3",
+      "upper": "3",
+      "threshold": "3",
+      "evaluations": {
+        "AtLeast": "AllSatisfy",
+        "AtMost": "AllSatisfy",
+        "Exactly": "AllSatisfy"
+      }
+    },
+    {
+      "lower": "0",
+      "upper": null,
+      "threshold": "0",
+      "evaluations": {
+        "AtLeast": "AllSatisfy",
+        "AtMost": "Undetermined",
+        "Exactly": "Undetermined"
+      }
+    },
+    {
+      "lower": "0",
+      "upper": "0",
+      "threshold": "0",
+      "evaluations": {
+        "AtLeast": "AllSatisfy",
+        "AtMost": "AllSatisfy",
+        "Exactly": "AllSatisfy"
+      }
+    },
+    {
+      "lower": "4",
+      "upper": null,
+      "threshold": "3",
+      "evaluations": {
+        "AtLeast": "AllSatisfy",
+        "AtMost": "AllViolate",
+        "Exactly": "AllViolate"
+      }
+    },
+    {
+      "lower": "0",
+      "upper": "2",
+      "threshold": "3",
+      "evaluations": {
+        "AtLeast": "AllViolate",
+        "AtMost": "AllSatisfy",
+        "Exactly": "AllViolate"
+      }
+    },
+    {
+      "lower": "2",
+      "upper": "5",
+      "threshold": "3",
+      "evaluations": {
+        "AtLeast": "Undetermined",
+        "AtMost": "Undetermined",
+        "Exactly": "Undetermined"
+      }
+    },
+    {
+      "lower": "2",
+      "upper": "1",
+      "threshold": "3",
+      "evaluations": {
+        "AtLeast": "InvalidInput",
+        "AtMost": "InvalidInput",
+        "Exactly": "InvalidInput"
+      }
+    }
+  ]
+}

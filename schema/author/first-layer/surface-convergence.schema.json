@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:surface-convergence",
+  "title": "Finite precise surface examples — design-only, not all author grammar",
+  "$defs": {
+    "Value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bound": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "bound"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "var": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "var"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "literal": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "Int"
+                },
+                "value": {
+                  "type": "string",
+                  "pattern": "^(0|-?[1-9][0-9]*)$"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ]
+            }
+          },
+          "required": [
+            "literal"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "of": {
+              "$ref": "#/$defs/Value"
+            }
+          },
+          "required": [
+            "field",
+            "of"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "sub"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Value"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "op",
+            "args"
+          ]
+        }
+      ]
+    },
+    "RuntimeDefault": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case": {
+          "const": "runtime-default"
+        },
+        "argument": {
+          "type": "string"
+        },
+        "providedRepresentation": {
+          "const": "Option<Int>"
+        },
+        "absent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "readOnce": {
+              "const": "monotonic-now"
+            },
+            "bind": {
+              "type": "string"
+            },
+            "then": {
+              "$ref": "#/$defs/Value"
+            }
+          },
+          "required": [
+            "readOnce",
+            "bind",
+            "then"
+          ]
+        },
+        "explicitNull": {
+          "const": "reject"
+        },
+        "evaluationOrder": {
+          "const": [
+            "deadline",
+            "provided-timeout",
+            "clock-if-absent"
+          ]
+        },
+        "clockEpoch": {
+          "const": "same-as-deadline"
+        }
+      },
+      "required": [
+        "case",
+        "argument",
+        "providedRepresentation",
+        "absent",
+        "explicitNull",
+        "evaluationOrder",
+        "clockEpoch"
+      ]
+    },
+    "DependentDomain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case": {
+          "const": "dependent-domain"
+        },
+        "outer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bind": {
+              "type": "string"
+            },
+            "domain": {
+              "const": "Departments"
+            }
+          },
+          "required": [
+            "bind",
+            "domain"
+          ]
+        },
+        "inner": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bind": {
+              "type": "string"
+            },
+            "domain": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ref": {
+                  "const": "Members"
+                },
+                "arguments": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "department": {
+                      "$ref": "#/$defs/Value"
+                    }
+                  },
+                  "required": [
+                    "department"
+                  ]
+                }
+              },
+              "required": [
+                "ref",
+                "arguments"
+              ]
+            }
+          },
+          "required": [
+            "bind",
+            "domain"
+          ]
+        },
+        "requirement": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ref": {
+              "const": "Approved"
+            },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "person": {
+                  "$ref": "#/$defs/Value"
+                },
+                "threshold": {
+                  "$ref": "#/$defs/Value"
+                }
+              },
+              "required": [
+                "person",
+                "threshold"
+              ]
+            }
+          },
+          "required": [
+            "ref",
+            "arguments"
+          ]
+        },
+        "emptyDomain": {
+          "const": "vacuous-unless-independent-existence"
+        },
+        "domainBasis": {
+          "const": "same-captured-snapshot"
+        }
+      },
+      "required": [
+        "case",
+        "outer",
+        "inner",
+        "requirement",
+        "emptyDomain",
+        "domainBasis"
+      ]
+    },
+    "Choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case": {
+          "const": "choice-rule"
+        },
+        "eligible": {
+          "const": "hard-feasible-and-Pareto-nondominated"
+        },
+        "comparison": {
+          "const": "all-same-subject-workload-units"
+        },
+        "tieRule": {
+          "const": "rotate-stable-id-order"
+        },
+        "state": {
+          "const": "last-accepted-choice"
+        },
+        "update": {
+          "const": "only-at-authorized-acceptance"
+        },
+        "unknownComparison": {
+          "const": "retain-incomparable"
+        },
+        "empty": {
+          "const": "NoEligibleCandidate"
+        }
+      },
+      "required": [
+        "case",
+        "eligible",
+        "comparison",
+        "tieRule",
+        "state",
+        "update",
+        "unknownComparison",
+        "empty"
+      ]
+    },
+    "Arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case": {
+          "const": "call-arguments"
+        },
+        "callee": {
+          "const": "AmountAtLeast"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "amount": {
+              "$ref": "#/$defs/Value"
+            },
+            "minimum": {
+              "$ref": "#/$defs/Value"
+            }
+          },
+          "required": [
+            "amount",
+            "minimum"
+          ]
+        },
+        "evaluation": {
+          "const": "left-to-right-once-from-captured-values"
+        },
+        "failure": {
+          "const": "original-typed-failure-not-false"
+        }
+      },
+      "required": [
+        "case",
+        "callee",
+        "arguments",
+        "evaluation",
+        "failure"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/RuntimeDefault"
+    },
+    {
+      "$ref": "#/$defs/DependentDomain"
+    },
+    {
+      "$ref": "#/$defs/Choice"
+    },
+    {
+      "$ref": "#/$defs/Arguments"
+    }
+  ]
+}

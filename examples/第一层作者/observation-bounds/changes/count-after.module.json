@@ -1,0 +1,55 @@
+{
+  "schema": "gift.author-module/compact-design-draft",
+  "moduleId": "module:count-inquiry",
+  "imports": {
+    "counts": {
+      "workspace": "module:count-envelope"
+    }
+  },
+  "definitions": {
+    "ClassifyCount": {
+      "intent:goal": {
+        "roles": {
+          "query": "counts:CountQuery",
+          "evaluation": "counts:Evaluation"
+        },
+        "clauses": {
+          "answer": {
+            "achieve": {
+              "counts:Exactly": {
+                "query": "query",
+                "evaluation": "evaluation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "CountApi": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "evaluate",
+            "input": {
+              "tag": "nominal",
+              "ref": "counts:CountQuery"
+            },
+            "output": {
+              "tag": "nominal",
+              "ref": "counts:Evaluation"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "never"
+            },
+            "effects": []
+          }
+        ]
+      }
+    }
+  },
+  "exports": [
+    "ClassifyCount",
+    "CountApi"
+  ]
+}

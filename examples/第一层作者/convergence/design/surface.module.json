@@ -1,0 +1,176 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:surface-convergence",
+  "imports": {},
+  "definitions": {
+    "申请审批": {
+      "core:type": "bool"
+    },
+    "精确三分之一": {
+      "core:constant": {
+        "type": {
+          "rational": true
+        },
+        "literal": {
+          "numerator": "1",
+          "denominator": "3"
+        }
+      }
+    },
+    "大数量": {
+      "core:constant": {
+        "type": "int",
+        "literal": "9007199254740993"
+      }
+    },
+    "未知协议变体": {
+      "core:type": {
+        "wireVariant": {
+          "known": {
+            "A": "text",
+            "B": "int"
+          },
+          "unknown": "preserve-raw-frame",
+          "encoding": "tagged-json-frame",
+          "duplicates": "reject-known-preserve-unknown"
+        }
+      }
+    },
+    "运行缺省": {
+      "extension:definition": {
+        "dialectRef": "surface",
+        "bodySchemaRef": "urn:gift:design-schema:surface-convergence",
+        "bindingRef": "surface:Interpret",
+        "payload": {
+          "case": "runtime-default",
+          "argument": "timeout",
+          "providedRepresentation": "Option<Int>",
+          "absent": {
+            "readOnce": "monotonic-now",
+            "bind": "now",
+            "then": {
+              "op": "sub",
+              "args": [
+                {
+                  "role": "deadline"
+                },
+                {
+                  "var": "now"
+                }
+              ]
+            }
+          },
+          "explicitNull": "reject",
+          "evaluationOrder": [
+            "deadline",
+            "provided-timeout",
+            "clock-if-absent"
+          ],
+          "clockEpoch": "same-as-deadline"
+        }
+      }
+    },
+    "部门审批": {
+      "extension:definition": {
+        "dialectRef": "surface",
+        "bodySchemaRef": "urn:gift:design-schema:surface-convergence",
+        "bindingRef": "surface:Interpret",
+        "payload": {
+          "case": "dependent-domain",
+          "outer": {
+            "bind": "d",
+            "domain": "Departments"
+          },
+          "inner": {
+            "bind": "p",
+            "domain": {
+              "ref": "Members",
+              "arguments": {
+                "department": {
+                  "bound": "d"
+                }
+              }
+            }
+          },
+          "requirement": {
+            "ref": "Approved",
+            "arguments": {
+              "person": {
+                "bound": "p"
+              },
+              "threshold": {
+                "field": "requiredCount",
+                "of": {
+                  "bound": "d"
+                }
+              }
+            }
+          },
+          "emptyDomain": "vacuous-unless-independent-existence",
+          "domainBasis": "same-captured-snapshot"
+        }
+      }
+    },
+    "有权轮转": {
+      "extension:definition": {
+        "dialectRef": "surface",
+        "bodySchemaRef": "urn:gift:design-schema:surface-convergence",
+        "bindingRef": "surface:Interpret",
+        "payload": {
+          "case": "choice-rule",
+          "eligible": "hard-feasible-and-Pareto-nondominated",
+          "comparison": "all-same-subject-workload-units",
+          "tieRule": "rotate-stable-id-order",
+          "state": "last-accepted-choice",
+          "update": "only-at-authorized-acceptance",
+          "unknownComparison": "retain-incomparable",
+          "empty": "NoEligibleCandidate"
+        }
+      }
+    },
+    "准确参数": {
+      "extension:definition": {
+        "dialectRef": "surface",
+        "bodySchemaRef": "urn:gift:design-schema:surface-convergence",
+        "bindingRef": "surface:Interpret",
+        "payload": {
+          "case": "call-arguments",
+          "callee": "AmountAtLeast",
+          "arguments": {
+            "amount": {
+              "field": "total",
+              "of": {
+                "role": "order"
+              }
+            },
+            "minimum": {
+              "literal": {
+                "type": "Int",
+                "value": "100"
+              }
+            }
+          },
+          "evaluation": "left-to-right-once-from-captured-values",
+          "failure": "original-typed-failure-not-false"
+        }
+      }
+    }
+  },
+  "dialects": {
+    "surface": {
+      "languageId": "gift.surface-convergence",
+      "constraint": "design-surface-contract-closure"
+    }
+  },
+  "exports": {
+    "申请审批": {
+      "definitionId": "申请审批"
+    },
+    "精确三分之一": {
+      "definitionId": "精确三分之一"
+    },
+    "大数量": {
+      "definitionId": "大数量"
+    }
+  }
+}

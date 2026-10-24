@@ -1,0 +1,44 @@
+diff --git a/design/choice.module.json b/design/choice.module.json
+--- a/design/choice.module.json
++++ b/design/choice.module.json
+@@ -53,6 +53,10 @@
+             "name": "selected"
+           },
+           "then": {
++            "op": "var",
++            "name": "keep"
++          },
++          "otherwise": {
+             "op": "if",
+             "condition": {
+               "op": "var",
+@@ -84,29 +88,6 @@
+                 },
+                 "value": true
+               }
+-            }
+-          },
+-          "otherwise": {
+-            "op": "if",
+-            "condition": {
+-              "op": "var",
+-              "name": "keep"
+-            },
+-            "then": {
+-              "op": "literal",
+-              "type": {
+-                "tag": "scalar",
+-                "name": "bool"
+-              },
+-              "value": false
+-            },
+-            "otherwise": {
+-              "op": "literal",
+-              "type": {
+-                "tag": "scalar",
+-                "name": "bool"
+-              },
+-              "value": true
+             }
+           }
+         }

@@ -1,0 +1,11 @@
+--- a/design/reservation.module.json
++++ b/design/reservation.module.json
+@@ -18,7 +18,7 @@
+         "clauses": {
+           "admission_and_settlement": {
+             "achieve": {
+-              "reservation:NoOversell": {
++              "reservation:KeepOneFree": {
+                 "before": "before",
+                 "request": "request",
+                 "outcome": "outcome",

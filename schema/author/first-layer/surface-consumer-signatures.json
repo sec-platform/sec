@@ -1,0 +1,12 @@
+{
+  "status": "DESIGN_SIGNATURES_NOT_EXECUTABLE_SUPPLY",
+  "namespace": "surface",
+  "exports": {
+    "Interpret": {
+      "input": "payload admitted by surface-convergence.schema.json plus surface-inputs.json exact type domains",
+      "result": "a fixed typed source elaboration or conditional semantic plan; no implicit current authorization",
+      "owner": "SEMANTICS.md#surface",
+      "implementation": "NOT_IMPLEMENTED"
+    }
+  }
+}

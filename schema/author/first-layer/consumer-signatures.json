@@ -1,0 +1,51 @@
+{
+  "status": "DESIGN_SIGNATURES_NOT_EXECUTABLE_SUPPLY",
+  "namespace": "sem",
+  "exports": {
+    "Interpret": {
+      "input": "a payload admitted by semantic-convergence.schema.json and its profile-specific typing rules",
+      "result": "Profile-indexed interpreted declaration. ModelContract returns the existing Rule-declaration role; other profiles use resultRoles. Never a bare Boolean authorization or product completion.",
+      "owner": "SEMANTICS.md#consumer",
+      "effects": "none for interpretation; external methods require separate admitted execution",
+      "implementation": "NOT_IMPLEMENTED",
+      "resultRoles": {
+        "finite-observation": "model declaration with typed named formulas, not product satisfaction",
+        "observation-game": "strategy problem with observation and quantifier scope",
+        "stable-ground": "logic program plus nonmonotonic query domain",
+        "finite-probability": "joint probability model",
+        "borel-kernel": "measure and conditional kernel model",
+        "acyclic-scm": "causal model, not an identification conclusion",
+        "hybrid-real": "hybrid trace model",
+        "finite-quantum": "state and instrument model",
+        "explicit-system-f": "typed declaration bundle after profile typing",
+        "predicative-dependent": "typed declaration bundle with explicit assumptions",
+        "deep-handlers": "control/effect declaration bundle after capture checks",
+        "subobject-dispatch": "object model and method declarations",
+        "read-visibility": "history and a consistency predicate",
+        "norm-transition": "policy/event model with separate obligation occurrences",
+        "semantic-presentation": "typed theory or model class, never assumed consistent",
+        "model-contract": "existing Requirement Rule declaration with exactly one formal on:subjectTypeRef, not a Boolean judgment"
+      },
+      "profileContracts": {
+        "model-contract": {
+          "input": "ModelContract payload; linked subject type and exact finite-observation specifications/claim selectors",
+          "resultRole": "existing Requirement Rule declaration; one formal on:subjectTypeRef; independent obligations retained per source occurrence",
+          "requiredResolvedDependencies": [
+            "subject declaration",
+            "specification definition bytes and interpretation",
+            "selected formula and transitive symbols",
+            "observable vocabulary and fixed environment"
+          ],
+          "doesNotReturn": [
+            "product PASS",
+            "implementation binding",
+            "permission",
+            "execution receipt"
+          ],
+          "owner": "SEMANTICS.md#model-contract-use",
+          "effects": "pure linking only; no external evaluation"
+        }
+      }
+    }
+  }
+}

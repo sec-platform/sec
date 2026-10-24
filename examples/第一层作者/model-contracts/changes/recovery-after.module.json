@@ -1,0 +1,51 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:recovery-requirements",
+  "imports": {
+    "contracts": {
+      "mode": "workspace",
+      "moduleId": "module:system-contracts"
+    }
+  },
+  "definitions": {
+    "Recovery": {
+      "kind": "req:composite",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "service": {
+            "type": {
+              "ref": {
+                "import": "contracts",
+                "export": "TransitionSystem"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "service": {
+            "subject": "service"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "contracts",
+              "export": "RecoveryInevitable"
+            },
+            "fields": {
+              "on": {
+                "subject": "service"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Recovery": {
+      "definitionId": "Recovery"
+    }
+  }
+}

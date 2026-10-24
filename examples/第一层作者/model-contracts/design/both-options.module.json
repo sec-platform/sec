@@ -1,0 +1,62 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:both-options",
+  "imports": {
+    "contracts": {
+      "mode": "workspace",
+      "moduleId": "module:system-contracts"
+    }
+  },
+  "definitions": {
+    "BothOptions": {
+      "kind": "req:composite",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "service": {
+            "type": {
+              "ref": {
+                "import": "contracts",
+                "export": "TransitionSystem"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "service": {
+            "subject": "service"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "contracts",
+              "export": "ZeroPossible"
+            },
+            "fields": {
+              "on": {
+                "subject": "service"
+              }
+            }
+          },
+          {
+            "require": {
+              "import": "contracts",
+              "export": "OnePossible"
+            },
+            "fields": {
+              "on": {
+                "subject": "service"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "BothOptions": {
+      "definitionId": "BothOptions"
+    }
+  }
+}

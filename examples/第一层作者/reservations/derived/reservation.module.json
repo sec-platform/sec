@@ -1,0 +1,56 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:capacity-business",
+  "imports": {
+    "reservation": {
+      "mode": "workspace",
+      "moduleId": "module:reservation-semantics"
+    }
+  },
+  "definitions": {
+    "ReservationRules": {
+      "kind": "intent:goal",
+      "body": {
+        "roles": {
+          "before": {
+            "typeRef": "reservation:State",
+            "cardinality": "one"
+          },
+          "request": {
+            "typeRef": "reservation:Request",
+            "cardinality": "one"
+          },
+          "outcome": {
+            "typeRef": "reservation:Outcome",
+            "cardinality": "one"
+          },
+          "after": {
+            "typeRef": "reservation:State",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "admission_and_settlement",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "reservation:NoOversell",
+              "bindings": {
+                "before": "before",
+                "request": "request",
+                "outcome": "outcome",
+                "after": "after"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "ReservationRules": {
+      "definitionId": "ReservationRules"
+    }
+  }
+}

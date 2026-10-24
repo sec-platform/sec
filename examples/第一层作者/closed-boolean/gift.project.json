@@ -1,0 +1,16 @@
+{
+  "schema": "gift.project/2",
+  "projectId": "example:first_layer_choice",
+  "sourceScopes": [
+    {
+      "root": "design",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "*.module.json"
+      ]
+    }
+  ]
+}

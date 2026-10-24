@@ -1,0 +1,438 @@
+{
+  "status": "DESIGN_COUNTEREXAMPLES_NOT_ACTIVITY_SOURCE_OR_PRODUCT_TEST",
+  "cases": {
+    "wrong-remedy-target": {
+      "profile": "norm-transition",
+      "parties": [
+        "Issuer",
+        "A",
+        "B",
+        "C"
+      ],
+      "issuer": "Issuer",
+      "obligations": [
+        {
+          "id": "O",
+          "debtor": "A",
+          "beneficiary": "C",
+          "action": "deliver",
+          "deadline": "5",
+          "remedyAction": "repair",
+          "remedyDelay": "2"
+        }
+      ],
+      "authority": [
+        {
+          "actor": "Issuer",
+          "power": "transfer",
+          "obligation": "O"
+        },
+        {
+          "actor": "Issuer",
+          "power": "release",
+          "obligation": "O"
+        }
+      ],
+      "events": [
+        {
+          "id": "e1",
+          "time": "1",
+          "kind": "accept-transfer",
+          "actor": "B",
+          "obligation": "O",
+          "from": "A",
+          "generation": "0"
+        },
+        {
+          "id": "e2",
+          "time": "2",
+          "kind": "transfer",
+          "actor": "Issuer",
+          "obligation": "O",
+          "to": "B",
+          "acceptanceEvent": "e1"
+        },
+        {
+          "id": "e3",
+          "time": "6",
+          "kind": "advance"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": "O",
+          "action": "repair"
+        }
+      ]
+    },
+    "missing-acceptance": {
+      "profile": "norm-transition",
+      "parties": [
+        "Issuer",
+        "A",
+        "B",
+        "C"
+      ],
+      "issuer": "Issuer",
+      "obligations": [
+        {
+          "id": "O",
+          "debtor": "A",
+          "beneficiary": "C",
+          "action": "deliver",
+          "deadline": "5",
+          "remedyAction": "repair",
+          "remedyDelay": "2"
+        }
+      ],
+      "authority": [
+        {
+          "actor": "Issuer",
+          "power": "transfer",
+          "obligation": "O"
+        },
+        {
+          "actor": "Issuer",
+          "power": "release",
+          "obligation": "O"
+        }
+      ],
+      "events": [
+        {
+          "id": "e1",
+          "time": "1",
+          "kind": "accept-transfer",
+          "actor": "B",
+          "obligation": "O",
+          "from": "A",
+          "generation": "0"
+        },
+        {
+          "id": "e2",
+          "time": "2",
+          "kind": "transfer",
+          "actor": "Issuer",
+          "obligation": "O",
+          "to": "B",
+          "acceptanceEvent": "missing"
+        },
+        {
+          "id": "e3",
+          "time": "6",
+          "kind": "advance"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": {
+            "remedyOf": "O",
+            "deadline": "5"
+          },
+          "action": "repair"
+        }
+      ]
+    },
+    "stale-generation": {
+      "profile": "norm-transition",
+      "parties": [
+        "Issuer",
+        "A",
+        "B",
+        "C"
+      ],
+      "issuer": "Issuer",
+      "obligations": [
+        {
+          "id": "O",
+          "debtor": "A",
+          "beneficiary": "C",
+          "action": "deliver",
+          "deadline": "5",
+          "remedyAction": "repair",
+          "remedyDelay": "2"
+        }
+      ],
+      "authority": [
+        {
+          "actor": "Issuer",
+          "power": "transfer",
+          "obligation": "O"
+        },
+        {
+          "actor": "Issuer",
+          "power": "release",
+          "obligation": "O"
+        }
+      ],
+      "events": [
+        {
+          "id": "e1",
+          "time": "1",
+          "kind": "accept-transfer",
+          "actor": "B",
+          "obligation": "O",
+          "from": "A",
+          "generation": "1"
+        },
+        {
+          "id": "e2",
+          "time": "2",
+          "kind": "transfer",
+          "actor": "Issuer",
+          "obligation": "O",
+          "to": "B",
+          "acceptanceEvent": "e1"
+        },
+        {
+          "id": "e3",
+          "time": "6",
+          "kind": "advance"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": {
+            "remedyOf": "O",
+            "deadline": "5"
+          },
+          "action": "repair"
+        }
+      ]
+    },
+    "same-event-retry": {
+      "profile": "norm-transition",
+      "parties": [
+        "Issuer",
+        "A",
+        "B",
+        "C"
+      ],
+      "issuer": "Issuer",
+      "obligations": [
+        {
+          "id": "O",
+          "debtor": "A",
+          "beneficiary": "C",
+          "action": "deliver",
+          "deadline": "5",
+          "remedyAction": "repair",
+          "remedyDelay": "2"
+        }
+      ],
+      "authority": [
+        {
+          "actor": "Issuer",
+          "power": "transfer",
+          "obligation": "O"
+        },
+        {
+          "actor": "Issuer",
+          "power": "release",
+          "obligation": "O"
+        }
+      ],
+      "events": [
+        {
+          "id": "e1",
+          "time": "1",
+          "kind": "accept-transfer",
+          "actor": "B",
+          "obligation": "O",
+          "from": "A",
+          "generation": "0"
+        },
+        {
+          "id": "e2",
+          "time": "2",
+          "kind": "transfer",
+          "actor": "Issuer",
+          "obligation": "O",
+          "to": "B",
+          "acceptanceEvent": "e1"
+        },
+        {
+          "id": "e3",
+          "time": "6",
+          "kind": "advance"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": {
+            "remedyOf": "O",
+            "deadline": "5"
+          },
+          "action": "repair"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": {
+            "remedyOf": "O",
+            "deadline": "5"
+          },
+          "action": "repair"
+        }
+      ]
+    },
+    "same-id-different-payload": {
+      "profile": "norm-transition",
+      "parties": [
+        "Issuer",
+        "A",
+        "B",
+        "C"
+      ],
+      "issuer": "Issuer",
+      "obligations": [
+        {
+          "id": "O",
+          "debtor": "A",
+          "beneficiary": "C",
+          "action": "deliver",
+          "deadline": "5",
+          "remedyAction": "repair",
+          "remedyDelay": "2"
+        }
+      ],
+      "authority": [
+        {
+          "actor": "Issuer",
+          "power": "transfer",
+          "obligation": "O"
+        },
+        {
+          "actor": "Issuer",
+          "power": "release",
+          "obligation": "O"
+        }
+      ],
+      "events": [
+        {
+          "id": "e1",
+          "time": "1",
+          "kind": "accept-transfer",
+          "actor": "B",
+          "obligation": "O",
+          "from": "A",
+          "generation": "0"
+        },
+        {
+          "id": "e2",
+          "time": "2",
+          "kind": "transfer",
+          "actor": "Issuer",
+          "obligation": "O",
+          "to": "B",
+          "acceptanceEvent": "e1"
+        },
+        {
+          "id": "e3",
+          "time": "6",
+          "kind": "advance"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": {
+            "remedyOf": "O",
+            "deadline": "5"
+          },
+          "action": "repair"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": {
+            "remedyOf": "O",
+            "deadline": "5"
+          },
+          "action": "deliver"
+        }
+      ]
+    },
+    "same-time-declared-order": {
+      "profile": "norm-transition",
+      "parties": [
+        "Issuer",
+        "A",
+        "B",
+        "C"
+      ],
+      "issuer": "Issuer",
+      "obligations": [
+        {
+          "id": "O",
+          "debtor": "A",
+          "beneficiary": "C",
+          "action": "deliver",
+          "deadline": "5",
+          "remedyAction": "repair",
+          "remedyDelay": "2"
+        }
+      ],
+      "authority": [
+        {
+          "actor": "Issuer",
+          "power": "transfer",
+          "obligation": "O"
+        },
+        {
+          "actor": "Issuer",
+          "power": "release",
+          "obligation": "O"
+        }
+      ],
+      "events": [
+        {
+          "id": "z-accept",
+          "time": "1",
+          "kind": "accept-transfer",
+          "actor": "B",
+          "obligation": "O",
+          "from": "A",
+          "generation": "0"
+        },
+        {
+          "id": "a-transfer",
+          "time": "1",
+          "kind": "transfer",
+          "actor": "Issuer",
+          "obligation": "O",
+          "to": "B",
+          "acceptanceEvent": "z-accept"
+        },
+        {
+          "id": "e3",
+          "time": "6",
+          "kind": "advance"
+        },
+        {
+          "id": "e4",
+          "time": "7",
+          "kind": "perform",
+          "actor": "B",
+          "obligation": {
+            "remedyOf": "O",
+            "deadline": "5"
+          },
+          "action": "repair"
+        }
+      ]
+    }
+  }
+}

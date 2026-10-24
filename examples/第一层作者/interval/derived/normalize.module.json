@@ -1,0 +1,72 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:interval-tool",
+  "imports": {
+    "intervals": {
+      "mode": "workspace",
+      "moduleId": "module:interval-spec"
+    }
+  },
+  "definitions": {
+    "Normalize": {
+      "kind": "intent:goal",
+      "body": {
+        "roles": {
+          "input": {
+            "typeRef": "intervals:IntervalSequence",
+            "cardinality": "one"
+          },
+          "outcome": {
+            "typeRef": "intervals:Outcome",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "canonical_result",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "intervals:CanonicalTouch",
+              "bindings": {
+                "input": "input",
+                "outcome": "outcome"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "NormalizeApi": {
+      "kind": "core:interface",
+      "body": {
+        "operations": [
+          {
+            "name": "normalize",
+            "input": {
+              "tag": "nominal",
+              "ref": "intervals:IntervalSequence"
+            },
+            "output": {
+              "tag": "nominal",
+              "ref": "intervals:Outcome"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "never"
+            },
+            "effects": []
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Normalize": {
+      "definitionId": "Normalize"
+    },
+    "NormalizeApi": {
+      "definitionId": "NormalizeApi"
+    }
+  }
+}

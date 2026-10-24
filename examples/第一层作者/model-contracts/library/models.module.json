@@ -1,0 +1,326 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:property-models",
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-contract-closure"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "RecoverySpec": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "finite-observation",
+          "states": [
+            {
+              "id": "s",
+              "labels": [],
+              "values": {}
+            },
+            {
+              "id": "ok",
+              "labels": [
+                "good"
+              ],
+              "values": {}
+            }
+          ],
+          "initial": [
+            "s"
+          ],
+          "edges": [
+            [
+              "s",
+              "s"
+            ],
+            [
+              "s",
+              "ok"
+            ],
+            [
+              "ok",
+              "ok"
+            ]
+          ],
+          "deadlock": "reject",
+          "fairness": "none",
+          "knowledgePartitions": {},
+          "claims": {
+            "RecoveryAlwaysPossible": {
+              "op": "AG",
+              "args": [
+                {
+                  "op": "EF",
+                  "args": [
+                    {
+                      "atom": "good"
+                    }
+                  ]
+                }
+              ]
+            },
+            "RecoveryInevitable": {
+              "op": "AF",
+              "args": [
+                {
+                  "atom": "good"
+                }
+              ]
+            }
+          }
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "RecoveryRemoved": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "finite-observation",
+          "states": [
+            {
+              "id": "s",
+              "labels": [],
+              "values": {}
+            }
+          ],
+          "initial": [
+            "s"
+          ],
+          "edges": [
+            [
+              "s",
+              "s"
+            ]
+          ],
+          "deadlock": "reject",
+          "fairness": "none",
+          "knowledgePartitions": {},
+          "claims": {}
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "RecoveryForced": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "finite-observation",
+          "states": [
+            {
+              "id": "s",
+              "labels": [],
+              "values": {}
+            },
+            {
+              "id": "ok",
+              "labels": [
+                "good"
+              ],
+              "values": {}
+            }
+          ],
+          "initial": [
+            "s"
+          ],
+          "edges": [
+            [
+              "s",
+              "ok"
+            ],
+            [
+              "ok",
+              "ok"
+            ]
+          ],
+          "deadlock": "reject",
+          "fairness": "none",
+          "knowledgePartitions": {},
+          "claims": {}
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "ChoiceSpec": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "finite-observation",
+          "states": [
+            {
+              "id": "start",
+              "labels": [],
+              "values": {}
+            },
+            {
+              "id": "zero",
+              "labels": [
+                "zero"
+              ],
+              "values": {}
+            },
+            {
+              "id": "one",
+              "labels": [
+                "one"
+              ],
+              "values": {}
+            }
+          ],
+          "initial": [
+            "start"
+          ],
+          "edges": [
+            [
+              "start",
+              "zero"
+            ],
+            [
+              "start",
+              "one"
+            ],
+            [
+              "zero",
+              "zero"
+            ],
+            [
+              "one",
+              "one"
+            ]
+          ],
+          "deadlock": "reject",
+          "fairness": "none",
+          "knowledgePartitions": {},
+          "claims": {
+            "ZeroPossible": {
+              "op": "EF",
+              "args": [
+                {
+                  "atom": "zero"
+                }
+              ]
+            },
+            "OnePossible": {
+              "op": "EF",
+              "args": [
+                {
+                  "atom": "one"
+                }
+              ]
+            }
+          }
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "OnlyZero": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "finite-observation",
+          "states": [
+            {
+              "id": "start",
+              "labels": [],
+              "values": {}
+            },
+            {
+              "id": "zero",
+              "labels": [
+                "zero"
+              ],
+              "values": {}
+            }
+          ],
+          "initial": [
+            "start"
+          ],
+          "edges": [
+            [
+              "start",
+              "zero"
+            ],
+            [
+              "zero",
+              "zero"
+            ]
+          ],
+          "deadlock": "reject",
+          "fairness": "none",
+          "knowledgePartitions": {},
+          "claims": {}
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "OnlyOne": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "finite-observation",
+          "states": [
+            {
+              "id": "start",
+              "labels": [],
+              "values": {}
+            },
+            {
+              "id": "one",
+              "labels": [
+                "one"
+              ],
+              "values": {}
+            }
+          ],
+          "initial": [
+            "start"
+          ],
+          "edges": [
+            [
+              "start",
+              "one"
+            ],
+            [
+              "one",
+              "one"
+            ]
+          ],
+          "deadlock": "reject",
+          "fairness": "none",
+          "knowledgePartitions": {},
+          "claims": {}
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    }
+  },
+  "exports": {
+    "RecoverySpec": {
+      "definitionId": "RecoverySpec"
+    },
+    "RecoveryRemoved": {
+      "definitionId": "RecoveryRemoved"
+    },
+    "RecoveryForced": {
+      "definitionId": "RecoveryForced"
+    },
+    "ChoiceSpec": {
+      "definitionId": "ChoiceSpec"
+    },
+    "OnlyZero": {
+      "definitionId": "OnlyZero"
+    },
+    "OnlyOne": {
+      "definitionId": "OnlyOne"
+    }
+  }
+}

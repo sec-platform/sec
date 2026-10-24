@@ -1,0 +1,11 @@
+--- a/design/recovery.module.json
++++ b/design/recovery.module.json
+@@ -31,7 +31,7 @@
+           {
+             "require": {
+               "import": "contracts",
+-              "export": "RecoveryPossible"
++              "export": "RecoveryInevitable"
+             },
+             "fields": {
+               "on": {

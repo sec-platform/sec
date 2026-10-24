@@ -1,0 +1,42 @@
+{
+  "schema": "gift.author-module/compact-design-draft",
+  "moduleId": "module:publication_new_source",
+  "imports": {
+    "logic": {
+      "workspace": "module:surface_logic"
+    }
+  },
+  "definitions": {
+    "CanPublish": {
+      "intent:goal": {
+        "roles": {
+          "editorApproved": "logic:Bool",
+          "reviewerApproved": "logic:Bool",
+          "publishAllowed": "logic:Bool"
+        },
+        "clauses": {
+          "decision_relation": {
+            "achieve": {
+              "iff": [
+                {
+                  "logic:IsTrue": {
+                    "value": "publishAllowed"
+                  }
+                },
+                {
+                  "logic:Both": {
+                    "left": "editorApproved",
+                    "right": "reviewerApproved"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": [
+    "CanPublish"
+  ]
+}

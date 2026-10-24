@@ -1,0 +1,27 @@
+{
+  "purpose": "local verifiable closure for the design supply digest, not production trust",
+  "digestAlgorithm": "sha256(prefix || sorted(length64be(nameUTF8)||nameUTF8||length64be(bytes)||bytes)); prefix UTF8 Gift design supply content closure plus NUL",
+  "members": [
+    {
+      "path": "SEMANTICS.md",
+      "bytes": 65987,
+      "sha256": "1c6ef9a7b247856ffc066480bc10761bc2b62a020b536fb04cc429afff5af9fb"
+    },
+    {
+      "path": "surface-consumer-signatures.json",
+      "bytes": 440,
+      "sha256": "bea464a4ed2f554cca136e4d97da08f016eb84ff0fecb12ec907fd736f73314a"
+    },
+    {
+      "path": "surface-convergence.schema.json",
+      "bytes": 8432,
+      "sha256": "f0af7bbd609e18c1c2ed813f0cfce56783397cc2553cd700998fea15dfcd24e2"
+    },
+    {
+      "path": "surface-inputs.json",
+      "bytes": 2187,
+      "sha256": "d6dd6a12731f9a67cf849b26c62966f1da068fb15357acc9f7f5b21110fc7104"
+    }
+  ],
+  "digest": "sha256:4f2ccd2e5cd8d4f258a431cd884017c58447f27af551a7cb5642b60e4b474e8a"
+}

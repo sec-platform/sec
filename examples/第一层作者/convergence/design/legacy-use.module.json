@@ -1,0 +1,70 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "example:network-use-calibration",
+  "namespace": "example.network.use",
+  "dialects": {
+    "req": {
+      "languageId": "gift.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "rules": {
+      "mode": "workspace",
+      "moduleId": "example:network-rule-calibration"
+    }
+  },
+  "definitions": {
+    "NetworkPolicy": {
+      "kind": "req:composite",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "selectedRootEffects": {
+            "type": {
+              "ref": {
+                "import": "rules",
+                "export": "EffectBoundary"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "effects": {
+            "subject": "selectedRootEffects"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "rules",
+              "export": "Network"
+            },
+            "fields": {
+              "on": {
+                "subject": "selectedRootEffects"
+              },
+              "policy": {
+                "enum": {
+                  "import": "rules",
+                  "export": "OriginAndPurposeGrant"
+                }
+              },
+              "background": {
+                "enum": {
+                  "import": "rules",
+                  "export": "DeniedUnlessGranted"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "NetworkPolicy": {
+      "definitionId": "NetworkPolicy"
+    }
+  }
+}

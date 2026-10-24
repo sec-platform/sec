@@ -1,0 +1,45 @@
+{
+  "schema": "gift.author-module/compact-design-draft",
+  "moduleId": "module:job_lifecycle",
+  "definitions": {
+    "JobLifecycle": {
+      "state:machine": {
+        "states": [
+          "Queued",
+          "Running",
+          "Succeeded",
+          "Failed",
+          "Cancelled"
+        ],
+        "initial": "Queued",
+        "events": [
+          "Start",
+          "Complete",
+          "Fail",
+          "Cancel",
+          "Retry"
+        ],
+        "transitions": {
+          "table": {
+            "Queued": {
+              "Start": "Running",
+              "Cancel": "Cancelled"
+            },
+            "Running": {
+              "Complete": "Succeeded",
+              "Fail": "Failed",
+              "Cancel": "Cancelled"
+            },
+            "Failed": {
+              "Retry": "Queued"
+            }
+          }
+        },
+        "missingTransition": "reject"
+      }
+    }
+  },
+  "exports": [
+    "JobLifecycle"
+  ]
+}

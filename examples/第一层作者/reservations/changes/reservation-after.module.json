@@ -1,0 +1,36 @@
+{
+  "schema": "gift.author-module/compact-design-draft",
+  "moduleId": "module:capacity-business",
+  "imports": {
+    "reservation": {
+      "workspace": "module:reservation-semantics"
+    }
+  },
+  "definitions": {
+    "ReservationRules": {
+      "intent:goal": {
+        "roles": {
+          "before": "reservation:State",
+          "request": "reservation:Request",
+          "outcome": "reservation:Outcome",
+          "after": "reservation:State"
+        },
+        "clauses": {
+          "admission_and_settlement": {
+            "achieve": {
+              "reservation:KeepOneFree": {
+                "before": "before",
+                "request": "request",
+                "outcome": "outcome",
+                "after": "after"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": [
+    "ReservationRules"
+  ]
+}

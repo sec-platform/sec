@@ -1,0 +1,20 @@
+--- a/design/publication.module.json
++++ b/design/publication.module.json
+@@ -19,7 +19,7 @@
+             "achieve": {
+               "implies": [
+                 {
+-                  "logic:Both": {
++                  "logic:Either": {
+                     "left": "editorApproved",
+                     "right": "reviewerApproved"
+                   }
+@@ -41,7 +41,7 @@
+                   }
+                 },
+                 {
+-                  "logic:Both": {
++                  "logic:Either": {
+                     "left": "editorApproved",
+                     "right": "reviewerApproved"
+                   }

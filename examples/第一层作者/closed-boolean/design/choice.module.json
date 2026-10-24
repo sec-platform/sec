@@ -1,0 +1,198 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:first_layer_choice",
+  "definitions": {
+    "Bool": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "bool"
+        }
+      }
+    },
+    "RelationBody": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "selected",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "available",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "keep",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "var",
+            "name": "selected"
+          },
+          "then": {
+            "op": "if",
+            "condition": {
+              "op": "var",
+              "name": "available"
+            },
+            "then": {
+              "op": "var",
+              "name": "keep"
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "var",
+                "name": "keep"
+              },
+              "then": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "otherwise": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              }
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "var",
+              "name": "keep"
+            },
+            "then": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "value": false
+            },
+            "otherwise": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "value": true
+            }
+          }
+        }
+      }
+    },
+    "KeepRelation": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "relation",
+        "parameters": [
+          {
+            "name": "selected",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          },
+          {
+            "name": "available",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          },
+          {
+            "name": "keep",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "local:RelationBody"
+      }
+    },
+    "KeepGoal": {
+      "kind": "intent:goal",
+      "body": {
+        "roles": {
+          "selected": {
+            "typeRef": "local:Bool",
+            "cardinality": "one"
+          },
+          "available": {
+            "typeRef": "local:Bool",
+            "cardinality": "one"
+          },
+          "keep": {
+            "typeRef": "local:Bool",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "keep_exactly",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:KeepRelation",
+              "bindings": {
+                "selected": "selected",
+                "available": "available",
+                "keep": "keep"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Bool": {
+      "definitionId": "Bool"
+    },
+    "KeepRelation": {
+      "definitionId": "KeepRelation"
+    },
+    "KeepGoal": {
+      "definitionId": "KeepGoal"
+    }
+  }
+}

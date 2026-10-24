@@ -1,0 +1,114 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:system-contracts",
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-contract-closure"
+    }
+  },
+  "imports": {
+    "models": {
+      "mode": "workspace",
+      "moduleId": "module:property-models"
+    }
+  },
+  "definitions": {
+    "TransitionSystem": {
+      "kind": "req:subject",
+      "name": "TransitionSystem",
+      "body": {
+        "roles": {}
+      }
+    },
+    "RecoveryPossible": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "model-contract",
+          "subjectTypeRef": "local:TransitionSystem",
+          "requirements": [
+            {
+              "id": "recovery",
+              "specificationRef": "models:RecoverySpec",
+              "claim": "RecoveryAlwaysPossible"
+            }
+          ]
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "RecoveryInevitable": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "model-contract",
+          "subjectTypeRef": "local:TransitionSystem",
+          "requirements": [
+            {
+              "id": "recovery",
+              "specificationRef": "models:RecoverySpec",
+              "claim": "RecoveryInevitable"
+            }
+          ]
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "ZeroPossible": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "model-contract",
+          "subjectTypeRef": "local:TransitionSystem",
+          "requirements": [
+            {
+              "id": "choice-zero",
+              "specificationRef": "models:ChoiceSpec",
+              "claim": "ZeroPossible"
+            }
+          ]
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    },
+    "OnePossible": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+        "payload": {
+          "profile": "model-contract",
+          "subjectTypeRef": "local:TransitionSystem",
+          "requirements": [
+            {
+              "id": "choice-one",
+              "specificationRef": "models:ChoiceSpec",
+              "claim": "OnePossible"
+            }
+          ]
+        },
+        "bindingRef": "sem:Interpret"
+      }
+    }
+  },
+  "exports": {
+    "TransitionSystem": {
+      "definitionId": "TransitionSystem"
+    },
+    "RecoveryPossible": {
+      "definitionId": "RecoveryPossible"
+    },
+    "RecoveryInevitable": {
+      "definitionId": "RecoveryInevitable"
+    },
+    "ZeroPossible": {
+      "definitionId": "ZeroPossible"
+    },
+    "OnePossible": {
+      "definitionId": "OnePossible"
+    }
+  }
+}

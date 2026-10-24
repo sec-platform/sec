@@ -1,0 +1,82 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:publication_decision",
+  "imports": {
+    "logic": {
+      "mode": "workspace",
+      "moduleId": "module:surface_logic"
+    }
+  },
+  "definitions": {
+    "CanPublish": {
+      "kind": "intent:goal",
+      "body": {
+        "roles": {
+          "editorApproved": {
+            "typeRef": "logic:Bool",
+            "cardinality": "one"
+          },
+          "reviewerApproved": {
+            "typeRef": "logic:Bool",
+            "cardinality": "one"
+          },
+          "publishAllowed": {
+            "typeRef": "logic:Bool",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "sufficient",
+            "modality": "achieve",
+            "formula": {
+              "op": "implies",
+              "if": {
+                "op": "call",
+                "meaningRef": "logic:Both",
+                "bindings": {
+                  "left": "editorApproved",
+                  "right": "reviewerApproved"
+                }
+              },
+              "then": {
+                "op": "call",
+                "meaningRef": "logic:IsTrue",
+                "bindings": {
+                  "value": "publishAllowed"
+                }
+              }
+            }
+          },
+          {
+            "id": "necessary",
+            "modality": "achieve",
+            "formula": {
+              "op": "implies",
+              "if": {
+                "op": "call",
+                "meaningRef": "logic:IsTrue",
+                "bindings": {
+                  "value": "publishAllowed"
+                }
+              },
+              "then": {
+                "op": "call",
+                "meaningRef": "logic:Both",
+                "bindings": {
+                  "left": "editorApproved",
+                  "right": "reviewerApproved"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "CanPublish": {
+      "definitionId": "CanPublish"
+    }
+  }
+}

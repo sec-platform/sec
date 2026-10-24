@@ -1,0 +1,55 @@
+{
+  "schema": "gift.author-module/compact-design-draft",
+  "moduleId": "module:interval-tool",
+  "imports": {
+    "intervals": {
+      "workspace": "module:interval-spec"
+    }
+  },
+  "definitions": {
+    "Normalize": {
+      "intent:goal": {
+        "roles": {
+          "input": "intervals:IntervalSequence",
+          "outcome": "intervals:Outcome"
+        },
+        "clauses": {
+          "canonical_result": {
+            "achieve": {
+              "intervals:CanonicalTouch": {
+                "input": "input",
+                "outcome": "outcome"
+              }
+            }
+          }
+        }
+      }
+    },
+    "NormalizeApi": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "normalize",
+            "input": {
+              "tag": "nominal",
+              "ref": "intervals:IntervalSequence"
+            },
+            "output": {
+              "tag": "nominal",
+              "ref": "intervals:Outcome"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "never"
+            },
+            "effects": []
+          }
+        ]
+      }
+    }
+  },
+  "exports": [
+    "Normalize",
+    "NormalizeApi"
+  ]
+}

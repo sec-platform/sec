@@ -1,0 +1,115 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "example:network-rule-calibration",
+  "namespace": "example.network",
+  "dialects": {
+    "req": {
+      "languageId": "gift.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {},
+  "definitions": {
+    "t:EffectBoundary": {
+      "kind": "req:subject",
+      "name": "EffectBoundary",
+      "body": {
+        "roles": {}
+      }
+    },
+    "v:OriginAndPurposeGrant": {
+      "kind": "req:enum-value",
+      "name": "OriginAndPurposeGrant",
+      "body": {}
+    },
+    "v:DeniedUnlessGranted": {
+      "kind": "req:enum-value",
+      "name": "DeniedUnlessGranted",
+      "body": {}
+    },
+    "t:NetworkPolicy": {
+      "kind": "req:value-type",
+      "name": "NetworkPolicy",
+      "body": {
+        "enumMembers": [
+          {
+            "definitionId": "v:OriginAndPurposeGrant"
+          },
+          {
+            "definitionId": "v:DeniedUnlessGranted"
+          }
+        ]
+      }
+    },
+    "r:Network": {
+      "kind": "req:rule",
+      "name": "Network",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "definitionId": "t:EffectBoundary"
+                  }
+                }
+              ]
+            },
+            "meaning": "产品根内全部网络作用，含生成依赖和扩展"
+          },
+          "policy": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                {
+                  "definitionId": "v:OriginAndPurposeGrant"
+                }
+              ]
+            },
+            "meaning": "按主体/来源/目的/时间授权"
+          },
+          "background": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "allowed": [
+                {
+                  "definitionId": "v:DeniedUnlessGranted"
+                }
+              ]
+            },
+            "meaning": "后台联网默认拒绝，用户可明示授予目的"
+          }
+        },
+        "semantics": {
+          "source": "../../../../schema/author/first-layer/SEMANTICS.md",
+          "section": "legacy",
+          "scope": "本地校准的完整Network解释；不是原IDE全工程迁移"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "EffectBoundary": {
+      "definitionId": "t:EffectBoundary"
+    },
+    "OriginAndPurposeGrant": {
+      "definitionId": "v:OriginAndPurposeGrant"
+    },
+    "DeniedUnlessGranted": {
+      "definitionId": "v:DeniedUnlessGranted"
+    },
+    "NetworkPolicy": {
+      "definitionId": "t:NetworkPolicy"
+    },
+    "Network": {
+      "definitionId": "r:Network"
+    }
+  }
+}

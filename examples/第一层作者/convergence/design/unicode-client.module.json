@@ -1,0 +1,26 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:unicode-client",
+  "imports": {
+    "作者库": {
+      "mode": "workspace",
+      "moduleId": "module:surface-convergence"
+    }
+  },
+  "definitions": {
+    "审批结果": {
+      "core:type": {
+        "nominal": {
+          "space": "import",
+          "alias": "作者库",
+          "export": "申请审批"
+        }
+      }
+    }
+  },
+  "exports": {
+    "申请审批结果": {
+      "definitionId": "审批结果"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+--- a/design/count.module.json
++++ b/design/count.module.json
+@@ -16,7 +16,7 @@
+         "clauses": {
+           "answer": {
+             "achieve": {
+-              "counts:AtLeast": {
++              "counts:Exactly": {
+                 "query": "query",
+                 "evaluation": "evaluation"
+               }

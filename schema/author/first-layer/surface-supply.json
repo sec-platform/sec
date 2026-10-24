@@ -1,0 +1,28 @@
+{
+  "schema": "gift.author-dialect-supply/1",
+  "dialect": {
+    "languageId": "gift.surface-convergence",
+    "revision": "design-surface-contract-closure",
+    "digest": "sha256:4f2ccd2e5cd8d4f258a431cd884017c58447f27af551a7cb5642b60e4b474e8a"
+  },
+  "issuer": "design-specification-not-a-runtime-authority",
+  "definitionKinds": [
+    {
+      "kind": "extension:definition",
+      "bodySchemaRef": "urn:gift:design-schema:surface-convergence",
+      "resultTypeRef": "surface-consumer-signatures.json#/exports/Interpret/result",
+      "consumerRef": "surface-consumer-signatures.json#/exports/Interpret"
+    }
+  ],
+  "decoderRef": "SEMANTICS.md#consumer",
+  "interpreterRef": "SEMANTICS.md#consumer",
+  "typeRulesRef": "SEMANTICS.md#surface",
+  "effectRulesRef": "SEMANTICS.md#consumers",
+  "compositionRef": "SEMANTICS.md#consumer",
+  "migrationRef": "SEMANTICS.md#legacy",
+  "evidenceObligations": [
+    "SEMANTICS.md#consumers"
+  ],
+  "loweringRefs": [],
+  "requiresCapabilities": []
+}

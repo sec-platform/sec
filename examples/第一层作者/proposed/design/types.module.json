@@ -1,0 +1,39 @@
+{
+  "schema": "gift.author-module/compact-design-draft",
+  "moduleId": "module:job_data",
+  "definitions": {
+    "TaskId": {
+      "core:type": "text"
+    },
+    "Task": {
+      "core:type": {
+        "record": {
+          "id": "local:TaskId",
+          "title": "text",
+          "note": {
+            "type": "text",
+            "optional": true
+          },
+          "enabled": "bool"
+        },
+        "open": false
+      }
+    },
+    "RetryLimit": {
+      "core:constant": {
+        "type": {
+          "uint": {
+            "bits": 32,
+            "overflow": "checked"
+          }
+        },
+        "literal": "3"
+      }
+    }
+  },
+  "exports": [
+    "TaskId",
+    "Task",
+    "RetryLimit"
+  ]
+}

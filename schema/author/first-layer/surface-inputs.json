@@ -1,0 +1,59 @@
+{
+  "status": "DESIGN_TYPED_INPUTS",
+  "models": {
+    "Departments": {
+      "type": "Sequence<Department>",
+      "Department": {
+        "requiredCount": "Nat",
+        "members": "Sequence<Person>"
+      },
+      "Person": {
+        "approvals": "Nat"
+      },
+      "Members": "d.members from the same captured value",
+      "Approved": "p.approvals >= k, using exact Nat comparison",
+      "example": [
+        {
+          "requiredCount": "2",
+          "members": [
+            {
+              "approvals": "2"
+            },
+            {
+              "approvals": "3"
+            }
+          ]
+        },
+        {
+          "requiredCount": "1",
+          "members": []
+        }
+      ]
+    },
+    "AmountAtLeast": {
+      "signature": "(amount:Int, minimum:Int)->Bool",
+      "definition": "amount >= minimum",
+      "order": {
+        "total": "120"
+      },
+      "minimum": "100"
+    },
+    "RuntimeDefault": {
+      "input": "deadline:Int, provided:Absent|Present(Int), same-epoch now read only when Absent",
+      "failure": "explicit null or negative result rejected by this profile; clock read failure propagates"
+    },
+    "Choice": {
+      "input": "fixed eligible candidate identities, qualified partial comparison, last accepted identity or None",
+      "identityOrder": "Unicode scalar lexicographic order of exact stable identifiers; no normalization",
+      "stateOwner": "the existing authorized application adoption boundary, not author source"
+    },
+    "WireFrame": {
+      "knownShape": "UTF-8 JSON object {tag:string,payload:value}; A payload Text; B payload exact Int token",
+      "dispatch": "a bounded lexical scanner first confirms a single top-level tag; ambiguous or repeated tag is a format error",
+      "unknown": "all other tags retain original complete bytes; payload content may contain duplicate keys, which are not decoded into a map",
+      "known": "strict duplicate rejection throughout the interpreted known branch",
+      "exampleUnknownUtf8": "{\"tag\":\"C\",\"payload\":{\"x\":1,\"x\":2}}",
+      "withoutRawFrameBoundaries": "do not mutate a sibling inside that frame; retain full bytes or obtain explicit takeover"
+    }
+  }
+}

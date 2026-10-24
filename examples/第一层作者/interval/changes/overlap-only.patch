@@ -1,0 +1,11 @@
+--- a/design/normalize.module.json
++++ b/design/normalize.module.json
+@@ -16,7 +16,7 @@
+         "clauses": {
+           "canonical_result": {
+             "achieve": {
+-              "intervals:CanonicalTouch": {
++              "intervals:CanonicalOverlap": {
+                 "input": "input",
+                 "outcome": "outcome"
+               }

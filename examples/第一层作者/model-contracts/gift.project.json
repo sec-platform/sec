@@ -1,0 +1,26 @@
+{
+  "schema": "gift.project/2",
+  "projectId": "example:model-contract-use",
+  "sourceScopes": [
+    {
+      "root": "design",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "*.module.json"
+      ]
+    },
+    {
+      "root": "library",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "*.module.json"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:job_data",
+  "definitions": {
+    "TaskId": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "text"
+        }
+      }
+    },
+    "Task": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "id": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:TaskId"
+              }
+            },
+            "title": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            },
+            "note": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              },
+              "optional": true
+            },
+            "enabled": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            }
+          },
+          "open": false
+        }
+      }
+    },
+    "RetryLimit": {
+      "kind": "core:constant",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "uint",
+          "bits": 32,
+          "overflow": "checked"
+        },
+        "value": {
+          "op": "literal",
+          "type": {
+            "tag": "scalar",
+            "name": "uint",
+            "bits": 32,
+            "overflow": "checked"
+          },
+          "value": "3"
+        }
+      }
+    }
+  },
+  "exports": {
+    "TaskId": {
+      "definitionId": "TaskId"
+    },
+    "Task": {
+      "definitionId": "Task"
+    },
+    "RetryLimit": {
+      "definitionId": "RetryLimit"
+    }
+  }
+}

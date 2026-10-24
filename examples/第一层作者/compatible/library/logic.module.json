@@ -1,0 +1,224 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:surface_logic",
+  "definitions": {
+    "Bool": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "bool"
+        }
+      }
+    },
+    "IdentityBody": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "var",
+          "name": "value"
+        }
+      }
+    },
+    "BothBody": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            }
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "var",
+            "name": "left"
+          },
+          "then": {
+            "op": "var",
+            "name": "right"
+          },
+          "otherwise": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "value": false
+          }
+        }
+      }
+    },
+    "EitherBody": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            }
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "var",
+            "name": "left"
+          },
+          "then": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "value": true
+          },
+          "otherwise": {
+            "op": "var",
+            "name": "right"
+          }
+        }
+      }
+    },
+    "IsTrue": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "local:IdentityBody"
+      }
+    },
+    "Both": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "local:BothBody"
+      }
+    },
+    "Either": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "local:EitherBody"
+      }
+    }
+  },
+  "exports": {
+    "Bool": {
+      "definitionId": "Bool"
+    },
+    "IsTrue": {
+      "definitionId": "IsTrue"
+    },
+    "Both": {
+      "definitionId": "Both"
+    },
+    "Either": {
+      "definitionId": "Either"
+    }
+  }
+}

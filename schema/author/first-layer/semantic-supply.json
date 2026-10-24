@@ -1,0 +1,30 @@
+{
+  "schema": "gift.author-dialect-supply/1",
+  "dialect": {
+    "languageId": "gift.semantic-convergence",
+    "revision": "design-contract-closure",
+    "digest": "sha256:bb536e9f44828bd23204f75a13e0f1f32057b8d2eceb8ab0b0dc92f903a487b6"
+  },
+  "issuer": "design-specification-not-a-runtime-authority",
+  "definitionKinds": [
+    {
+      "kind": "extension:definition",
+      "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
+      "resultTypeRef": "consumer-signatures.json#/exports/Interpret/result",
+      "consumerRef": "consumer-signatures.json#/exports/Interpret"
+    }
+  ],
+  "decoderRef": "SEMANTICS.md#consumer",
+  "interpreterRef": "SEMANTICS.md#consumer",
+  "typeRulesRef": "SEMANTICS.md#terms",
+  "effectRulesRef": "SEMANTICS.md#consumers",
+  "compositionRef": "SEMANTICS.md#consumer",
+  "migrationRef": "SEMANTICS.md#legacy",
+  "evidenceObligations": [
+    "SEMANTICS.md#consumers",
+    "SEMANTICS.md#model-contract-use",
+    "SEMANTICS.md#qualification-transfer"
+  ],
+  "loweringRefs": [],
+  "requiresCapabilities": []
+}

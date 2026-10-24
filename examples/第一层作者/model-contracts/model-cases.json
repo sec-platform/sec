@@ -1,0 +1,129 @@
+{
+  "status": "MATHEMATICAL_CALIBRATION_NOT_AUTHOR_PROTOCOL_OR_EXECUTION_EVIDENCE",
+  "stepPolicy": "exact-one-step",
+  "cases": [
+    {
+      "candidate": "RecoverySpec",
+      "specification": "RecoverySpec",
+      "claims": [
+        "RecoveryAlwaysPossible"
+      ],
+      "stateRelation": [
+        [
+          "s",
+          "s"
+        ],
+        [
+          "ok",
+          "ok"
+        ]
+      ]
+    },
+    {
+      "candidate": "RecoveryRemoved",
+      "specification": "RecoverySpec",
+      "claims": [
+        "RecoveryAlwaysPossible"
+      ],
+      "stateRelation": [
+        [
+          "s",
+          "s"
+        ]
+      ]
+    },
+    {
+      "candidate": "RecoveryForced",
+      "specification": "RecoverySpec",
+      "claims": [
+        "RecoveryAlwaysPossible",
+        "RecoveryInevitable"
+      ],
+      "stateRelation": [
+        [
+          "s",
+          "s"
+        ],
+        [
+          "ok",
+          "ok"
+        ]
+      ]
+    },
+    {
+      "candidate": "RecoverySpec",
+      "specification": "RecoverySpec",
+      "claims": [
+        "RecoveryInevitable"
+      ],
+      "stateRelation": [
+        [
+          "s",
+          "s"
+        ],
+        [
+          "ok",
+          "ok"
+        ]
+      ]
+    },
+    {
+      "candidate": "OnlyZero",
+      "specification": "ChoiceSpec",
+      "claims": [
+        "ZeroPossible",
+        "OnePossible"
+      ],
+      "stateRelation": [
+        [
+          "start",
+          "start"
+        ],
+        [
+          "zero",
+          "zero"
+        ]
+      ]
+    },
+    {
+      "candidate": "OnlyOne",
+      "specification": "ChoiceSpec",
+      "claims": [
+        "ZeroPossible",
+        "OnePossible"
+      ],
+      "stateRelation": [
+        [
+          "start",
+          "start"
+        ],
+        [
+          "one",
+          "one"
+        ]
+      ]
+    },
+    {
+      "candidate": "ChoiceSpec",
+      "specification": "ChoiceSpec",
+      "claims": [
+        "ZeroPossible",
+        "OnePossible"
+      ],
+      "stateRelation": [
+        [
+          "start",
+          "start"
+        ],
+        [
+          "zero",
+          "zero"
+        ],
+        [
+          "one",
+          "one"
+        ]
+      ]
+    }
+  ]
+}

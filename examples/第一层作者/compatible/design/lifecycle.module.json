@@ -1,0 +1,94 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:job_lifecycle",
+  "definitions": {
+    "JobLifecycle": {
+      "kind": "state:machine",
+      "body": {
+        "states": [
+          "Queued",
+          "Running",
+          "Succeeded",
+          "Failed",
+          "Cancelled"
+        ],
+        "initial": "Queued",
+        "events": [
+          {
+            "name": "Start",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Complete",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Fail",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Cancel",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Retry",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        ],
+        "transitions": [
+          {
+            "from": "Queued",
+            "event": "Start",
+            "to": "Running"
+          },
+          {
+            "from": "Queued",
+            "event": "Cancel",
+            "to": "Cancelled"
+          },
+          {
+            "from": "Running",
+            "event": "Complete",
+            "to": "Succeeded"
+          },
+          {
+            "from": "Running",
+            "event": "Fail",
+            "to": "Failed"
+          },
+          {
+            "from": "Running",
+            "event": "Cancel",
+            "to": "Cancelled"
+          },
+          {
+            "from": "Failed",
+            "event": "Retry",
+            "to": "Queued"
+          }
+        ],
+        "missingTransition": "reject"
+      }
+    }
+  },
+  "exports": {
+    "JobLifecycle": {
+      "definitionId": "JobLifecycle"
+    }
+  }
+}

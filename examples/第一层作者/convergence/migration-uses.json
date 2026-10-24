@@ -1,0 +1,79 @@
+{
+  "schema": "gift.design-calibration/rule-use",
+  "status": "DESIGN_CALIBRATION_NOT_NEW_RUNTIME_PROTOCOL",
+  "moduleImport": {
+    "rules": {
+      "workspace": "example:network-rule-calibration"
+    }
+  },
+  "before": {
+    "declaration": {
+      "import": "rules",
+      "export": "Network"
+    },
+    "subject": {
+      "name": "selectedRootEffects",
+      "type": {
+        "import": "rules",
+        "export": "EffectBoundary"
+      }
+    },
+    "values": {
+      "on": {
+        "subject": "selectedRootEffects"
+      },
+      "policy": {
+        "enum": {
+          "import": "rules",
+          "export": "OriginAndPurposeGrant"
+        }
+      },
+      "background": {
+        "enum": {
+          "import": "rules",
+          "export": "DeniedUnlessGranted"
+        }
+      }
+    },
+    "expectedStrength": "require",
+    "expectedImplementation": "unbound"
+  },
+  "after": {
+    "declaration": {
+      "import": "rules",
+      "export": "Network"
+    },
+    "subject": {
+      "name": "selectedRootEffects",
+      "type": {
+        "import": "rules",
+        "export": "EffectBoundary"
+      }
+    },
+    "values": {
+      "on": {
+        "subject": "selectedRootEffects"
+      },
+      "policy": {
+        "enum": {
+          "import": "rules",
+          "export": "OriginAndPurposeGrant"
+        }
+      },
+      "background": {
+        "enum": {
+          "import": "rules",
+          "export": "DeniedUnlessGranted"
+        }
+      }
+    },
+    "expectedStrength": "require",
+    "expectedImplementation": "unbound"
+  },
+  "mapping": "all four kinds, exports, field meaning and typed ref targets unchanged under the selected requirement-body interpreter",
+  "sourceProvenance": {
+    "policy": "sec-platform/sec@0acb144733f106beefc3609d721817816a2e3e8a:examples/结构化工作台/contracts/policy.json",
+    "valueType": "same revision:examples/成品形态/contracts/spec.json",
+    "notClaimed": "byte-copy of entire original project or completed production migration"
+  }
+}
