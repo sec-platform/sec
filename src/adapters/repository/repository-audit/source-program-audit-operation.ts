@@ -283,6 +283,7 @@ export interface CompileWholeSourceProgramAuditOperationInput {
       readonly count: number;
       readonly digest: string;
       readonly paths: readonly string[];
+      readonly potentialExpansion?: SourceProgramTestPotentialExpansionSummary;
     }>;
     readonly recordsWithUnknownSemantics: number;
     readonly semanticClasses: Readonly<Record<string, number>>;
@@ -627,6 +628,44 @@ export function compileSourceProgramAuditTestObligationsSourceProgramProjection(
   });
 }
 
+type SourceProgramTestPotentialExpansionSummary = Readonly<{
+  status: 'observed';
+  knownPotentialInstances: number;
+  unknownExpansionFamilies: number;
+}> | Readonly<{
+  status: 'unavailable';
+  reason: 'no-expansion-observations' | 'missing-expansion-observation'
+    | 'invalid-expansion-observation' | 'count-overflow';
+}>;
+
+function summarizeTestPotentialExpansion(
+  records: SourceProgramTestValueCompilation['records']
+): SourceProgramTestPotentialExpansionSummary {
+  if (records.length === 0) return Object.freeze({ status: 'unavailable', reason: 'no-expansion-observations' });
+  let knownPotentialInstances = 0;
+  let unknownExpansionFamilies = 0;
+  for (const { potentialExpansion } of records) {
+    if (potentialExpansion === undefined) {
+      return Object.freeze({ status: 'unavailable', reason: 'missing-expansion-observation' });
+    }
+    if (potentialExpansion?.status === 'known'
+        && Number.isSafeInteger(potentialExpansion.count) && potentialExpansion.count >= 0) {
+      knownPotentialInstances += potentialExpansion.count;
+      if (!Number.isSafeInteger(knownPotentialInstances)) {
+        return Object.freeze({ status: 'unavailable', reason: 'count-overflow' });
+      }
+    } else if (potentialExpansion?.status === 'unknown' && [
+      'registration-source-unresolved', 'registration-context-unresolved',
+      'registration-condition-unresolved', 'registration-table-unresolved'
+    ].includes(potentialExpansion.reason)) {
+      unknownExpansionFamilies++;
+    } else {
+      return Object.freeze({ status: 'unavailable', reason: 'invalid-expansion-observation' });
+    }
+  }
+  return Object.freeze({ status: 'observed', knownPotentialInstances, unknownExpansionFamilies });
+}
+
 export function compileSourceProgramAuditTestValueProjection(
   compilation: SourceProgramTestValueCompilation,
   full: boolean
@@ -640,6 +679,7 @@ export function compileSourceProgramAuditTestValueProjection(
     findingsDigest: sha256(compilation.findings.map(finding => sha256(finding)).sort(compareCodeUnits)),
     candidateRegistrationCensus: Object.freeze({
       count: compilation.records.length,
+      potentialExpansion: summarizeTestPotentialExpansion(compilation.records),
       digest: sha256(compilation.records.map(({ testId, path, span }) => ({ testId, path, span }))),
       paths: full
         ? Object.freeze([...new Set(compilation.records.map(({ path }) => path))]
@@ -1157,6 +1197,8 @@ export function compileSourceProgramAuditOperationInput(
         // complete discovery across source forms, languages or runtime inputs.
         completeness: 'not-established',
         runtimeExpansion: 'not-observed',
+        potentialExpansion: input.testValue.candidateRegistrationCensus.potentialExpansion
+          ?? Object.freeze({ status: 'unavailable', reason: 'missing-expansion-observation' }),
         count: input.testValue.candidateRegistrationCensus.count,
         digest: input.testValue.candidateRegistrationCensus.digest,
         ...(full ? {

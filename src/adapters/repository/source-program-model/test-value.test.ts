@@ -118,6 +118,22 @@ test('test-value compilation derives behavior, effects, failures, and properties
   expect(result.records.every(({ observedProductionPaths }) =>
     observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
   expect(result.findings).toEqual([]);
+  expect(result.records.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
+    { status: 'known', count: 1 }, { status: 'known', count: 1 }
+  ]);
+  const tables = compile({
+    'tests/unit/tables.test.ts': [
+      "import { test } from 'bun:test';",
+      "test.each([1, 1])('duplicate rows', () => {});",
+      "test.each([])('empty table', () => {});",
+      "test.each(makeRows())('dynamic table', () => {});"
+    ].join('\n')
+  });
+  expect(tables.records.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
+    { status: 'known', count: 2 },
+    { status: 'known', count: 0 },
+    { status: 'unknown', reason: 'registration-table-unresolved' }
+  ]);
 });
 
 test('test-value blocks production-derived oracles while retaining fixed independent expectations', () => {

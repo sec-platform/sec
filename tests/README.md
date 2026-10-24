@@ -46,3 +46,15 @@
 - 域内专属 fixture 跟随其消费者；共享准备不在模块加载时执行有副作用的工作。
 - [测试预算](../src/adapters/verification/platform/test-impact/contract/budget.ts) 拥有 slow suite、宿主和预算声明；[fast 策略](../src/adapters/self-hosting/development/runner/fast-test-policy.ts) 拥有排除项、隔离与资源分组。移动文件须同步真实消费者，不改变 suite 身份、频率或平台要求。
 - 测试价值、合并与退役判据见[测试设计](../.agents/skills/test-design/SKILL.md)。此页只导航，不另建测试清单、执行器或审计台账；静态整理不表示测试运行通过。
+
+## 核对数量与保留依据
+
+“测试声明”是源码中的真实注册调用或测试方法，不是要求再维护一份同名清单。注册点、参数展开后的实例、间接 suite、Python 方法、类型级模块和生成模板不是同一种计数单位；循环内一个注册点也不一定只产生一个运行实例。
+
+在允许执行原审计命令的环境，可用 `bun src/bootstrap/engineering/repository-audit.ts --worktree-source-program --json` 取得绑定当前源码快照的 Source Program 报告。该命令会计算编译事实并使用受管 worker，不是轻量缓存查询；禁止产品执行、缺依赖或无对应运行资格时，不应为了刷新数字偷偷运行。
+
+报告原 `testValue.candidateRegistrationCensus` 的 `count` 是该 Source Program 测试表面上已识别的静态注册点数，不是全仓或 runner 实例总数。`potentialExpansion` 在有静态依据时分别给出已知潜在实例小计和展开未知族数；缺失、非法或无观察时明确不可用。潜在数量只在注册到达且输入构造成功的前提下成立；重复参数不去重，未知族数不当未知实例数。`completeness` 与 `runtimeExpansion` 保留未建立／未观察状态，不能据小计反推完整发现。
+
+Python 方法、类型级模块、间接 suite、未物化模板及目标工程的实际发现结果按各自入口另行核对，不拿本投影未覆盖的类别当作零。保存的报告只对其源码与发现条件绑定有效；源码或配置改变后，旧数字及相交保留判断须重新核对，不能只看 HEAD 是否相同。
+
+“有注册”“已读”“有断言”和“当前应保留”是不同结论。每条被认定应保留的测试须能定位到独立保障、判错依据及删除后失去的差额；共享理由须明确映射到具体条目，文件级审阅不能自动批准全部条目。未评估、缺证据或已过期的项明确保留为未决，不以 `retained-unassessed`、一次审计成功或字段齐全证明所有测试必要。机器计数不代替这些语义判断。

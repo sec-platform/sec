@@ -271,6 +271,40 @@ test('compiler observations bind current-Bun local TypeScript program argv', () 
 
 test('conditional, table and fixture factories register only their returned cases', () => {
   const projection = compileFixture({
+    'tests/expansion.test.ts': [
+      "import { test, describe as suite } from 'bun:test';",
+      "import * as native from 'bun:test';",
+      "test('direct', () => {});",
+      "test.each([[1], [1], [2]])('duplicates', () => {});",
+      "test.each([])('empty', () => {});",
+      "test.each([{ value: 1 }, { value: -2 }])('objects', () => {});",
+      "const table = [[1]]; test.each(table)('table variable', () => {});",
+      "test.each([...table])('spread', () => {});",
+      "test.each([, 1])('hole', () => {});",
+      "test.each([{ get value() { return 1; } }])('getter', () => {});",
+      "test.each([{ ['value']: 1 }])('computed', () => {});",
+      "test.each([makeValue()])('call input', () => {});",
+      "test.each(makeTable())('factory input', () => {});",
+      "const captured = test.each([[1]]); captured('captured table', () => {});",
+      "const each = test.each; each([[1]])('captured factory', () => {});",
+      "test.each([[1]]).each([[2]])('two tables', () => {});",
+      "if (true) test('if context', () => {});",
+      "for (const value of [1, 2]) test('loop context', () => {});",
+      "function registerLater() { test('function context', () => {}); }",
+      "[1].forEach(() => { test('callback context', () => {}); });",
+      "test('outer test', () => { test('nested test', () => {}); });",
+      "suite('plain describe', function () { test('describe context', () => {}); });",
+      "suite('recursive describe', function repeat() { test('recursive describe context', () => {}); if (condition) repeat(); });",
+      "suite('recursive outer describe', function repeat() { suite('ordinary inner describe', () => { test('nested recursive describe context', () => {}); }); if (condition) repeat(); });",
+      "for (const value of [1, 2]) suite('loop describe', () => { test('loop describe context', () => {}); });",
+      "function describeLater() { suite('deferred describe', () => { test('function describe context', () => {}); }); }",
+      "native.describe('namespace describe', () => { test.each([[1], [2]])('namespace describe context', () => {}); });",
+      "suite.each([[1]])('table describe', () => { test('describe table context', () => {}); });",
+      "suite('async describe', async () => { test('async describe context', () => {}); });",
+      "suite('generator describe', function* () { test('generator describe context', () => {}); });",
+      "function shadow(suite: any) { suite('fake describe', () => { test('shadowed describe context', () => {}); }); }",
+      "if (true) suite('conditional describe', () => { test('conditional describe context', () => {}); });"
+    ].join('\n'),
     'tests/modifiers.test.ts': [
       "import { test, it, expect } from 'vitest';",
       "test.runIf(true)('conditional', () => { expect(1).toBe(1); });",
@@ -310,7 +344,8 @@ test('conditional, table and fixture factories register only their returned case
       "test('ordinary imported function', () => {});"
     ].join('\n')
   });
-  expect(projection.registrations.map(({ kind, title }) => ({ kind, title }))).toEqual([
+  expect(projection.registrations.filter(({ path }) => path !== 'tests/expansion.test.ts')
+    .map(({ kind, title }) => ({ kind, title }))).toEqual([
     { kind: 'test.runIf', title: 'conditional' },
     { kind: 'it.for', title: 'table' },
     { kind: 'test.each', title: 'each' },
@@ -323,6 +358,56 @@ test('conditional, table and fixture factories register only their returned case
     { kind: 'test', title: 'returned value' },
     { kind: 'it', title: 'namespace' },
     { kind: 'test', title: 'import alias' }
+  ]);
+  const known = (count: number) => ({ status: 'known', count });
+  const tableUnknown = { status: 'unknown', reason: 'registration-table-unresolved' };
+  const contextUnknown = { status: 'unknown', reason: 'registration-context-unresolved' };
+  expect(projection.registrations.filter(({ path }) => path === 'tests/expansion.test.ts')
+    .map(({ title, potentialExpansion }) => [title, potentialExpansion])).toEqual([
+    ['direct', known(1)],
+    ['duplicates', known(3)],
+    ['empty', known(0)],
+    ['objects', known(2)],
+    ['table variable', tableUnknown],
+    ['spread', tableUnknown],
+    ['hole', tableUnknown],
+    ['getter', tableUnknown],
+    ['computed', tableUnknown],
+    ['call input', tableUnknown],
+    ['factory input', tableUnknown],
+    ['captured table', tableUnknown],
+    ['captured factory', tableUnknown],
+    ['two tables', tableUnknown],
+    ['if context', contextUnknown],
+    ['loop context', contextUnknown],
+    ['function context', contextUnknown],
+    ['callback context', contextUnknown],
+    ['outer test', known(1)],
+    ['nested test', contextUnknown],
+    ['describe context', known(1)],
+    ['recursive describe context', contextUnknown],
+    ['nested recursive describe context', contextUnknown],
+    ['loop describe context', contextUnknown],
+    ['function describe context', contextUnknown],
+    ['namespace describe context', known(2)],
+    ['describe table context', contextUnknown],
+    ['async describe context', contextUnknown],
+    ['generator describe context', contextUnknown],
+    ['shadowed describe context', contextUnknown],
+    ['conditional describe context', contextUnknown]
+  ]);
+  expect(projection.registrations.filter(({ path }) => path === 'tests/modifiers.test.ts')
+    .map(({ title, potentialExpansion }) => [title, potentialExpansion])).toEqual([
+    ['conditional', { status: 'unknown', reason: 'registration-condition-unresolved' }],
+    ['table', known(1)],
+    ['each', known(1)],
+    ['fixture', { status: 'unknown', reason: 'registration-source-unresolved' }],
+    ['skipped', known(1)],
+    ['todo', known(1)],
+    ['bound alias', { status: 'unknown', reason: 'registration-condition-unresolved' }],
+    ['generic table', { status: 'unknown', reason: 'registration-condition-unresolved' }],
+    ['asserted registrar', known(1)],
+    ['returned value', contextUnknown]
   ]);
 });
 
@@ -516,6 +601,9 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
   ]);
   const effect = projection.registrations.find(({ kind }) => kind === 'registerEffect');
   expect(effect).toBeDefined();
+  expect(effect?.potentialExpansion).toEqual({ status: 'unknown', reason: 'registration-source-unresolved' });
+  expect(projection.registrations[1]?.potentialExpansion)
+    .toEqual({ status: 'unknown', reason: 'registration-context-unresolved' });
   expect(effect?.registrationProvenance.map(({ operation }) => operation)).toEqual(['registerEffect']);
   expect(effect?.supervisorPolicyProvenance.map(({ operation }) => operation)).toContain('compilePolicy');
   expect(effect?.terminalProvenance.map(({ operation }) => operation)).toContain('issueTerminal');

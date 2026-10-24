@@ -18,6 +18,7 @@ import {
   type SourceProgramTestContractCensusUnresolvedReason,
   type SourceProgramTestDefinitionContext,
   type SourceProgramTestDefinitionInputs,
+  type SourceProgramTestPotentialExpansion,
   type SourceProgramTestSemanticClass
 } from './test-observations.ts';
 import { isCompiledTypeScriptSourceProgramModel } from './typescript.ts';
@@ -153,6 +154,7 @@ export interface SourceProgramTestRegistration {
   readonly title: string | null;
   readonly span: SourceProgramSpan;
   readonly registrationContentDigest: string;
+  readonly potentialExpansion: SourceProgramTestPotentialExpansion;
   readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
@@ -852,6 +854,7 @@ export function compileSourceProgramTestValue(
         title: registration.title,
         span: registration.span,
         registrationContentDigest: registration.registrationContentDigest,
+        potentialExpansion: registration.potentialExpansion,
         semanticClasses: registration.semanticClasses,
         observedProductionPaths: registration.observedProductionPaths,
         capabilityOperations: registration.capabilityOperations,

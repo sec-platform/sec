@@ -20,6 +20,7 @@ import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, type SourceProgramModel 
 import { compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot } from '../source-program-model/producer-closure.ts';
 import { compileVirtualRepositorySourceProgramCompilation, compileVirtualRepositorySourceProgramTestObligationsCompilation } from '../source-program-model/repository-compilation.ts';
 import { querySourceProgramModel } from '../source-program-model/typescript.ts';
+import type { SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
 import { acquireWorkingTreeWorkspaceSourceSnapshot, compileVirtualWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
 import type { RepositoryAuditLoadedImplementationEvidence } from './loaded-implementation.ts';
 import {
@@ -551,12 +552,52 @@ describe('Source Program audit domain operation', () => {
         scope: 'source-program-test-surface',
         completeness: 'not-established',
         runtimeExpansion: 'not-observed',
+        potentialExpansion: { status: 'unavailable', reason: 'no-expansion-observations' },
         count: facts.testValue.candidateRegistrationCensus.count,
         digest: facts.testValue.candidateRegistrationCensus.digest,
         ...(full ? { paths: facts.testValue.candidateRegistrationCensus.paths } : {})
       });
       assert.equal(testValue.recordsWithUnknownSemantics, facts.testValue.recordsWithUnknownSemantics);
     }
+    const tableCompilation = (expansions: readonly unknown[]): SourceProgramTestValueCompilation => ({
+      ...facts.testValue,
+      dispositions: [], findings: [], definitionInputs: [], definitionContext: null,
+      records: expansions.map((potentialExpansion, index) => ({
+        testId: digest(index), path: 'tests/table.test.ts', owner: null,
+        kind: 'test.each', title: 'table',
+        span: { start: index, end: index + 1, startLine: 1, startColumn: index, endLine: 1, endColumn: index + 1 },
+        registrationContentDigest: digest(index), potentialExpansion,
+        semanticClasses: [], observedProductionPaths: [], capabilityOperations: [],
+        assertionCount: 0, unknowns: [], definitionInputDigest: digest('table-input')
+      }))
+    } as unknown as SourceProgramTestValueCompilation);
+    for (const [expansions, expected] of [
+      [[{ status: 'known', count: 2 }, { status: 'known', count: 0 },
+        { status: 'unknown', reason: 'registration-table-unresolved' }],
+      { status: 'observed', knownPotentialInstances: 2, unknownExpansionFamilies: 1 }],
+      [[undefined], { status: 'unavailable', reason: 'missing-expansion-observation' }],
+      [[{ status: 'known', count: -1 }], { status: 'unavailable', reason: 'invalid-expansion-observation' }],
+      [[{ status: 'known', count: 1.5 }], { status: 'unavailable', reason: 'invalid-expansion-observation' }],
+      [[{ status: 'unknown', reason: 'foreign' }], { status: 'unavailable', reason: 'invalid-expansion-observation' }],
+      [[{ status: 'known', count: Number.MAX_SAFE_INTEGER }, { status: 'known', count: 1 }],
+      { status: 'unavailable', reason: 'count-overflow' }]
+    ] as const) {
+      const census = compileSourceProgramAuditTestValueProjection(tableCompilation(expansions), false)
+        .candidateRegistrationCensus;
+      assert.deepEqual(census.potentialExpansion, expected);
+      assert.equal(census.count, expansions.length);
+      const report = compileSourceProgramAuditOperationInput({
+        ...facts, testValue: { ...facts.testValue, candidateRegistrationCensus: census }
+      }).projection.testValue as { candidateRegistrationCensus: { potentialExpansion: unknown } };
+      assert.deepEqual(report.candidateRegistrationCensus.potentialExpansion, expected);
+    }
+    const { potentialExpansion: _expansion, ...legacyCensus } = facts.testValue.candidateRegistrationCensus;
+    const legacy = compileSourceProgramAuditOperationInput({
+      ...facts, testValue: { ...facts.testValue, candidateRegistrationCensus: legacyCensus }
+    });
+    assert.deepEqual((legacy.projection.testValue as { candidateRegistrationCensus: { potentialExpansion: unknown } })
+      .candidateRegistrationCensus.potentialExpansion,
+    { status: 'unavailable', reason: 'missing-expansion-observation' });
   });
 
   test('uses one reduction discriminant and returns the parent-issued patch candidate', () => {
