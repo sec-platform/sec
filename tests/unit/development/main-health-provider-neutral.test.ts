@@ -184,23 +184,39 @@ test('direct Actions MainHealth derives producer identity independently of the o
     sourceRef: `.github/workflows/merge-gate.yml@${MAIN}`
   };
   const producer = actionsCheck({ id: 77, workflowRunId: '123' });
-  expect(createObservedMainHealthInput({ ...input, checks: [producer] })).toMatchObject({
+  const exact = createObservedMainHealthInput({ ...input, checks: [producer] });
+  expect(exact).toMatchObject({
     status: 'healthy',
     allowedLanes: ['ordinary'],
+    owner: null,
+    repairWorkPackage: null,
+    failureFingerprints: [],
     producer: {
       sourceRunId: '123',
       sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
       trustRevision: MAIN
     }
   });
+  expect(createObservedMainHealthInput({ ...input, checks: [
+    actionsCheck({ id: 79, appId: 1 }),
+    producer,
+    actionsCheck({ id: 80, conclusion: 'skipped', workflowRunId: '31683485879',
+      workflowRunDisplayTitle: 'activate prepare PR #376' }),
+    actionsCheck({ id: 81, conclusion: 'skipped',
+      workflowRunDisplayTitle: `SEC main health ${MAIN} operation sha256:${'a'.repeat(64)}` })
+  ] })).toEqual(exact);
   for (const checks of [
     [],
     [actionsCheck({ workflowRunId: null })],
-    [producer, actionsCheck({ id: 78, workflowRunId: '124' })]
+    [producer, actionsCheck({ id: 78, workflowRunId: '124' })],
+    [actionsCheck({ status: 'in_progress', conclusion: null })],
+    [actionsCheck({ conclusion: 'forged-terminal' })],
+    [actionsCheck({ status: 'forged-status', conclusion: 'failure' })]
   ]) {
     expect(createObservedMainHealthInput({ ...input, checks })).toMatchObject({
       status: 'locked',
-      allowedLanes: []
+      allowedLanes: [],
+      failureFingerprints: [expect.stringMatching(/^sha256:/)]
     });
   }
 });
@@ -224,9 +240,10 @@ test('hosted registry does not enroll same-App near matches before producer prov
 });
 
 test('terminal non-success remains degraded and routes only to repair', () => {
-  const ledger = compileHosted([actionsCheck({ conclusion: 'failure' })])[0]!;
+  const ledger = createMainHealthLedger(compileHosted([actionsCheck({ conclusion: 'failure' })])[0]!);
   expect(ledger.status).toBe('degraded');
   expect(ledger.allowedLanes).toEqual(['repair']);
-  expect(ledger.failureFingerprints).toHaveLength(1);
-  expect(ledger.repairWorkPackage).not.toBeNull();
+  expect(ledger.owner).toBe('ci-verification-maintainer');
+  expect(ledger.failureFingerprints).toEqual([expect.stringMatching(/^sha256:/)]);
+  expect(ledger.repairWorkPackage).toContain('default-branch-health-repair-');
 });

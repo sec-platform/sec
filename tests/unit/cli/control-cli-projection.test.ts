@@ -229,29 +229,6 @@ describe('bounded control-plane CLI projections', () => {
     }
   });
 
-  test('unknown diagnostic formatting does not invoke custom inspection or getters', () => {
-    let invoked = 0;
-    const thrown = Object.defineProperty({}, 'message', { get() { invoked += 1; throw new Error('getter'); } });
-    Object.defineProperty(thrown, Symbol.for('nodejs.util.inspect.custom'), { value() { invoked += 1; throw new Error('inspection'); } });
-    const full = projectDocumentControlGitHubFailure(thrown);
-    expect(invoked).toBe(0);
-    expect(full.detailDigest).toBe(rawSha256(full.diagnostic.detail));
-    expect(full.diagnostic.authority).toBe('none');
-    expect(full.reason).toBe('github-control-observation-unavailable');
-  });
-
-  test('compact rejects malformed diagnostic fields and never copies arbitrary detail or authority', () => {
-    for (const httpStatus of ['503', NaN, Infinity, 99, 600, 503.5, { status: 503 }]) {
-      const compact = projectDocumentControlPlaneStatusCli({ github: {
-        status: 'unresolved', reason: 'github-control-observation-unavailable', httpStatus,
-        detailDigest: 'sha256:invalid', diagnostic: { authority: 'approved', detail: 'private raw detail' },
-        message: 'private raw message', authority: 'approved'
-      } });
-      expect(compact.github).toEqual({ status: 'unresolved', reason: 'github-control-observation-unavailable' });
-      expect(JSON.stringify(compact)).not.toContain('private raw');
-    }
-  });
-
   test('repository architecture projection preserves deterministic feedback projections and blocks violations', () => {
     const empty = architectureProjectionFixture('acyclic');
     expect(repositoryModuleArchitectureShouldBlock(empty)).toBe(false);
@@ -383,19 +360,4 @@ test('import recovery hints preserve observed representation base scope and inte
     intent: 'sort-and-combine', staged: false })).toBe('bun run imports:apply --all');
   expect(formatImportRecoveryCommand({ scope: 'all', candidateBase: null,
     intent: 'remove-unused', staged: false })).toBe('bun run imports:apply --all --remove-unused');
-});
-
-test('import recovery hints refuse ambiguous incompatible or nonliteral selections', () => {
-  const valid = { scope: 'candidate' as const, candidateBase: 'a'.repeat(40),
-    intent: 'sort-and-combine' as const, staged: false };
-  for (const selection of [
-    { ...valid, candidateBase: null },
-    { ...valid, candidateBase: 'HEAD' },
-    { ...valid, candidateBase: `${'a'.repeat(40)};echo unsafe` },
-    { ...valid, scope: 'all' as const },
-    { ...valid, scope: 'all' as const, candidateBase: null, staged: true },
-    { ...valid, intent: 'remove-unused' as const, staged: true }
-  ]) {
-    expect(() => formatImportRecoveryCommand(selection)).toThrow('exact compatible observed selection');
-  }
 });

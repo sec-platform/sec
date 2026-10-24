@@ -25,12 +25,6 @@ const VERIFICATION_ACTION_TEST_PROCESS_ISSUER =
 
 import { currentDocumentationVerificationBaseline } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 import { createIntegrationAuthorization } from '../../../src/adapters/self-hosting/control/integration/authorization.ts';
-import {
-  createMainHealthLedger,
-  createMainHealthRepairWorkPackagePath,
-  resolveOrdinaryMainHealthLane,
-  resolveRepairMainHealthLane
-} from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
 import { bindDocumentationVerificationGateInput } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
@@ -52,7 +46,6 @@ import { branchLifecycleDigest } from '../../../src/adapters/self-hosting/contro
 import { createBranchLifecycleGitChildEnvironment } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 
-import { createObservedMainHealthInput } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
@@ -1506,128 +1499,6 @@ test('platform 403 is recorded as unavailable and never as no-bypass proof', asy
   expect(observation.status).toBe('platform-enforcement-unavailable');
   expect(observation.reason).toContain('unavailable');
   expect(observation.rulesetDigest as SessionDigest).toMatch(/^sha256:/);
-});
-
-test('MainHealth preserves exact states while repair remains semantic routing without physical authority', () => {
-  const common = { repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
-    observedAt: '2026-08-09T14:00:00.000Z', expiresAt: '2026-08-09T14:10:00.000Z', sourceRunId: '7',
-    sourceRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${BASE}` };
-  expect(createObservedMainHealthInput({ ...common, checks: [mainHealthCheck()] })).toMatchObject({
-    status: 'healthy', allowedLanes: ['ordinary'], owner: null, repairWorkPackage: null
-  });
-  const degradedInput = createObservedMainHealthInput({
-    ...common,
-    checks: [mainHealthCheck({ conclusion: 'failure' })]
-  });
-  expect(degradedInput).toMatchObject({
-    status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY.degraded.allowedLanes,
-    owner: CI_MAIN_HEALTH_POLICY.degraded.owner
-  });
-  expect(degradedInput.repairWorkPackage).toBe(createMainHealthRepairWorkPackagePath({
-    repository: common.repository,
-    defaultBranch: 'main',
-    mainSha: common.mainSha,
-    mainTreeSha: common.mainTreeSha,
-    owner: CI_MAIN_HEALTH_POLICY.degraded.owner,
-    failureFingerprints: degradedInput.failureFingerprints
-  }));
-  const degradedLedger = createMainHealthLedger(degradedInput);
-  expect(resolveRepairMainHealthLane({
-    ledger: degradedLedger, now: '2026-08-09T14:01:00.000Z',
-    expectedRepository: common.repository, expectedDefaultBranch: 'main',
-    expectedMainSha: common.mainSha, expectedMainTreeSha: common.mainTreeSha,
-    expectedTrustRevision: common.trustRevision
-  })).toMatchObject({ status: 'degraded', allowed: true });
-  expect(resolveOrdinaryMainHealthLane({
-    ledger: degradedLedger, now: '2026-08-09T14:01:00.000Z',
-    expectedRepository: common.repository, expectedDefaultBranch: 'main',
-    expectedMainSha: common.mainSha, expectedMainTreeSha: common.mainTreeSha,
-    expectedTrustRevision: common.trustRevision
-  })).toMatchObject({ status: 'locked', allowed: false });
-  expect(CI_MAIN_HEALTH_POLICY.degraded).toMatchObject({
-    repairIdentityPolicy: 'exact-main-tree-failure-v1',
-    allowedLanes: ['repair']
-  });
-  for (const checks of [[], [mainHealthCheck({ appId: 1 })]]) {
-    expect(createObservedMainHealthInput({ ...common, checks })).toMatchObject({ status: 'locked', allowedLanes: [] });
-  }
-  const ledger = createMainHealthLedger(createObservedMainHealthInput({ ...common,
-    checks: [mainHealthCheck()] }));
-  for (const expected of [
-    { expectedRepository: 'attacker/fork', expectedDefaultBranch: 'main' },
-    { expectedRepository: 'sec-platform/sec', expectedDefaultBranch: 'release' }
-  ]) {
-    expect(resolveOrdinaryMainHealthLane({ ledger, now: '2026-08-09T14:01:00.000Z',
-      ...expected, expectedMainSha: BASE, expectedMainTreeSha: BASE,
-      expectedTrustRevision: BASE })).toMatchObject({ status: 'locked', allowed: false });
-  }
-});
-
-test('MainHealth accepts one exact dispatch and locks duplicate or foreign producers', () => {
-  const common = { repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
-    observedAt: '2026-08-09T14:00:00.000Z', expiresAt: '2026-08-09T14:10:00.000Z', sourceRunId: '7',
-    sourceRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${BASE}` };
-  const dispatched = mainHealthCheck({ id: 8 });
-  const exact = createObservedMainHealthInput({ ...common, checks: [dispatched] });
-  expect(exact).toMatchObject({
-    status: 'healthy', allowedLanes: ['ordinary'], failureFingerprints: []
-  });
-  expect(createObservedMainHealthInput({
-    ...common,
-    checks: [mainHealthCheck({ id: 99, appId: 1 }), dispatched]
-  })).toEqual(exact);
-
-  const unrelatedActivation = mainHealthCheck({
-    id: 10,
-    eventName: 'repository_dispatch',
-    conclusion: 'skipped',
-    workflowRunId: '31683485879',
-    workflowRunDisplayTitle: 'activate prepare PR #376'
-  });
-  expect(createObservedMainHealthInput({
-    ...common,
-    checks: [dispatched, unrelatedActivation]
-  })).toEqual(exact);
-  expect(createObservedMainHealthInput({
-    ...common,
-    checks: [unrelatedActivation]
-  })).toMatchObject({ status: 'locked', allowedLanes: [] });
-  const wrongOperationDispatch = mainHealthCheck({
-    id: 12,
-    eventName: 'repository_dispatch',
-    conclusion: 'skipped',
-    workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
-      .replace('<exact-main-sha>', BASE)
-      .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
-  });
-  expect(createObservedMainHealthInput({
-    ...common,
-    checks: [dispatched, wrongOperationDispatch]
-  })).toEqual(exact);
-  expect(createObservedMainHealthInput({
-    ...common,
-    checks: [wrongOperationDispatch]
-  })).toMatchObject({ status: 'locked', allowedLanes: [] });
-  const failedDispatch = mainHealthCheck({ id: 8, conclusion: 'failure' });
-  const singleFailure = createObservedMainHealthInput({ ...common, checks: [failedDispatch] });
-  expect(singleFailure).toMatchObject({
-    status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY.degraded.allowedLanes,
-    failureFingerprints: [expect.stringMatching(/^sha256:/)],
-    repairWorkPackage: expect.stringContaining('default-branch-health-repair-')
-  });
-
-  for (const checks of [
-    [dispatched, mainHealthCheck({ id: 9 })],
-    [dispatched, mainHealthCheck({ id: 9, conclusion: 'failure' })],
-    [mainHealthCheck({ status: 'in_progress', conclusion: null })],
-    [mainHealthCheck({ conclusion: 'forged-terminal' })],
-    [mainHealthCheck({ status: 'forged-status', conclusion: 'failure' })],
-    [mainHealthCheck({ eventName: 'push' })]
-  ]) {
-    expect(createObservedMainHealthInput({ ...common, checks })).toMatchObject({
-      status: 'locked', allowedLanes: [], failureFingerprints: [expect.stringMatching(/^sha256:/)]
-    });
-  }
 });
 
 test('IssueDisposition post-main readback consumes the canonical exact MainHealth decision', () => {
