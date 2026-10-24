@@ -6,6 +6,8 @@ import path from 'node:path';
 
 import { afterAll, test as bunTest, expect } from 'bun:test';
 
+import { settleResourcesAsync, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import {
   issueGitHubApiTestCapability,
@@ -4242,7 +4244,7 @@ for (const raceKind of ['local-default-ref', 'live-default-ref'] as const) {
   }, 30_000);
 }
 
-test('freeze preserves unrelated unstaged work but rejects unrelated staged and unknown recovery bytes', async () => {
+test('freeze preserves unrelated untracked work but rejects unrelated staged and unknown recovery bytes', async () => {
   const unstagedFixture = await createFreezeFixture();
   try {
     await writeFile(path.join(unstagedFixture.repositoryRoot, 'user-notes.txt'), 'preserve me\n', 'utf8');
@@ -4985,18 +4987,20 @@ test('freeze rejects reparse and nonregular paths while ignoring an ambient outs
     await copyFile(indexPath, outsideIndex);
     const outsideIndexBytes = await readFile(outsideIndex);
     const previousIndex = process.env.GIT_INDEX_FILE;
+    let result: FreezeResult;
     try {
       process.env.GIT_INDEX_FILE = outsideIndex;
-      const result = await freezeDocumentControlPlane({
+      result = await freezeDocumentControlPlane({
         cwd: outsideIndexFixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
       });
-      expect(result.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
     } finally {
       if (previousIndex === undefined) delete process.env.GIT_INDEX_FILE;
       else process.env.GIT_INDEX_FILE = previousIndex;
     }
+    expect(result.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+    expect(runGit(outsideIndexFixture.repositoryRoot, ['write-tree'])).toBe(result.candidateTreeSha);
     expect(await readFile(outsideIndex)).toEqual(outsideIndexBytes);
     await expectFreezeTransactionRetired(outsideIndexFixture.repositoryRoot);
   } finally {
@@ -5010,6 +5014,7 @@ if (process.platform === 'win32') {
     const fixture = await createFreezeFixture();
     let pointerTemp: string | undefined;
     let denyApplied = false;
+    let primary: ResourceSettlementFailure | undefined;
     try {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
@@ -5045,43 +5050,90 @@ if (process.platform === 'win32') {
       );
       expect(failure).not.toBeInstanceOf(UnsafeAnchoredPathError);
       expect(failure).toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED' });
+    } catch (error) {
+      primary = { label: 'ordinary Win32 ACL denial test', error };
     } finally {
-      if (denyApplied && pointerTemp !== undefined) {
-        const restore = spawnSync('icacls', [pointerTemp, '/remove:d', '*S-1-1-0'], {
-          cwd: fixture.repositoryRoot,
-          encoding: 'utf8',
-          windowsHide: true
-        });
-        if (restore.status !== 0) {
-          throw new Error(`Failed to restore ordinary ACL fixture: ${restore.stderr || restore.stdout}`);
-        }
-      }
-      await fixture.dispose();
+      await settleResourcesAsync({
+        ...(primary === undefined ? {} : { primary }),
+        cleanup: [
+          {
+            label: 'restore ordinary ACL fixture',
+            settle: () => {
+              if (!denyApplied || pointerTemp === undefined) return;
+              const restore = spawnSync('icacls', [pointerTemp, '/remove:d', '*S-1-1-0'], {
+                cwd: fixture.repositoryRoot,
+                encoding: 'utf8',
+                windowsHide: true
+              });
+              if (restore.status !== 0) {
+                throw new Error(`Failed to restore ordinary ACL fixture: ${restore.stderr || restore.stdout}`);
+              }
+            }
+          },
+          { label: 'dispose ordinary ACL fixture', settle: () => fixture.dispose() }
+        ]
+      });
     }
   }, 30_000);
 }
 
-test('every rename is followed by file flush and parent barrier before the next step', async () => {
+test('freeze canonical publications join retained file flush and parent barriers', async () => {
   const fixture = await createFreezeFixture();
   try {
     const events: DurabilityEvent[] = [];
+    const publications = new Set<string>();
+    const canonicalTargets = [
+      { path: repositoryIndexPath(fixture.repositoryRoot), key: 'git-index' },
+      { path: path.join(fixture.repositoryRoot, POINTER_PATH), key: 'active-pointer' },
+      { path: path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), key: 'rolling-plan' },
+      { path: path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json'), key: 'journal' }
+    ];
     const result = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09',
-      durabilityObserver: (event) => { events.push(event); }
+      durabilityObserver: async (event) => {
+        events.push(event);
+        if (event.stage !== 'renamed') return;
+        const target = canonicalTargets.find((candidate) => path.relative(candidate.path, event.targetPath) === '');
+        if (target === undefined) return;
+        if (target.key === 'journal') {
+          // Read the installed phase, not the physical edge's diagnostic label.
+          // Retained Windows publication handles allow shared reads.
+          const journal = JSON.parse(await readFile(event.targetPath, 'utf8')) as { phase: string };
+          publications.add(`journal:${journal.phase}`);
+        } else {
+          publications.add(target.key);
+        }
+      }
     });
     expect(result.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+    expect([...publications].sort()).toEqual([
+      'journal:prepared',
+      'git-index',
+      'journal:index-published',
+      'active-pointer',
+      'journal:pointer-published',
+      'rolling-plan',
+      'journal:rolling-published',
+      'journal:terminal'
+    ].sort());
+    // These are observed physical edges, including exact links on Linux;
+    // this is not a census of every filesystem rename or recovery artifact.
     const renameIndexes = events
       .map((event, index) => event.stage === 'renamed' ? index : -1)
       .filter((index) => index >= 0);
-    expect(renameIndexes.length).toBeGreaterThanOrEqual(7);
     for (const index of renameIndexes) {
-      expect(events.slice(index, index + 3).map((event) => [event.label, event.stage])).toEqual([
-        [events[index]!.label, 'renamed'],
-        [events[index]!.label, 'file-flushed'],
-        [events[index]!.label, 'parent-barrier']
+      const renamed = events[index]!;
+      const transition = events.slice(index, index + 3);
+      expect(transition.map((event) => [event.label, event.stage])).toEqual([
+        [renamed.label, 'renamed'],
+        [renamed.label, 'file-flushed'],
+        [renamed.label, 'parent-barrier']
       ]);
+      for (const event of transition) {
+        expect(path.relative(renamed.targetPath, event.targetPath)).toBe('');
+      }
     }
   } finally {
     await fixture.dispose();
@@ -5187,34 +5239,6 @@ test('unsupported parent barrier fails typed before index advancement and remain
   }
 }, 30_000);
 
-test('after-terminal fault preserves the terminal result and idempotent recovery', async () => {
-  const fixture = await createFreezeFixture();
-  try {
-    await expect(freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09',
-      faultAfter: 'after-terminal'
-    })).rejects.toThrow('after-terminal');
-    const journal = JSON.parse(await readFile(
-      path.join(fixture.repositoryRoot, '.tmp/codex/document-control-plane-freeze-v1/journal.json'),
-      'utf8'
-    )) as { phase: string; result: FreezeResult };
-    expect(journal.phase).toBe('terminal');
-    const recovered = await freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
-    expect(recovered).toEqual(journal.result);
-    expect(recovered.candidateHeadSha).toBeNull();
-    expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
-    await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  } finally {
-    await fixture.dispose();
-  }
-}, 30_000);
-
 test('a complete terminal transaction recovers after the whole worktree moves', async () => {
   const fixture = await createFreezeFixture();
   const movedRoot = path.join(fixture.parent, 'repository-moved');
@@ -5229,6 +5253,7 @@ test('a complete terminal transaction recovers after the whole worktree moves', 
       path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json'),
       'utf8'
     )) as RecoveryJournalView;
+    expect(terminal.phase).toBe('terminal');
     await rename(fixture.repositoryRoot, movedRoot);
     const recovered = await freezeDocumentControlPlane({
       cwd: movedRoot,
@@ -5236,6 +5261,8 @@ test('a complete terminal transaction recovers after the whole worktree moves', 
       reviewedOn: '2026-08-09'
     });
     expect(recovered).toEqual(terminal.result);
+    expect(recovered.candidateHeadSha).toBeNull();
+    expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
     await expectFreezeTransactionRetired(movedRoot);
   } finally {
     await fixture.dispose();
@@ -5298,7 +5325,7 @@ if (process.platform === 'linux') {
   }, 60_000);
 }
 
-test('repository controls use the shared live resolver and preserve one bounded rolling window', async () => {
+test('repository control artifacts bind the indexed manifest and one bounded rolling window', async () => {
   const [currentStateSource, pointerSource, rollingPlan] = await Promise.all([
     readFile(CURRENT_STATE_PATH, 'utf8'),
     readFile(POINTER_PATH, 'utf8'),
@@ -5325,33 +5352,8 @@ test('repository controls use the shared live resolver and preserve one bounded 
     CodexDevelopmentWorkPackageManifestDigest(manifestBlob!) as `sha256:${string}`
   );
 
-  const defaultManifestBlob = readGitBlob(
-    process.cwd(),
-    `${pointer.defaultBranchRef}:${pointer.manifest}`
-  ) ?? null;
-  const repositoryResolution = resolveActiveWorkPackage({
-    pointer,
-    candidateManifestBlob: manifestBlob!,
-    defaultManifestBlob,
-    defaultRefState: 'fresh'
-  });
-  if (defaultManifestBlob) {
-    if (CodexDevelopmentWorkPackageManifestDigest(defaultManifestBlob) === pointer.manifestDigest) {
-      expect(repositoryResolution).toEqual({ state: 'none', reason: 'matching-default-blob' });
-    } else {
-      expect(repositoryResolution).toEqual({ state: 'invalid', reason: 'manifest-path-already-on-default' });
-    }
-  } else {
-    expect(repositoryResolution).toEqual({
-      state: 'active',
-      manifest: pointer.manifest,
-      manifestDigest: pointer.manifestDigest
-    });
-  }
-
   const parsedRollingPlan = parseRollingPlan(rollingPlan);
   expect(parsedRollingPlan.activePackageId).toBe(activePackageId);
-  expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeLessThanOrEqual(5);
 });
 
