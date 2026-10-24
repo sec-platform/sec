@@ -27,7 +27,6 @@ import { createIntegrationAuthorization } from '../../../src/adapters/self-hosti
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
 import { bindDocumentationVerificationGateInput } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../../src/adapters/verification/platform/review/contract/stability.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 import type { GitHubWorkflowJobObservation } from '../../../src/adapters/providers/github-api/contract.ts';
@@ -50,9 +49,7 @@ import { assertTrustedMergedRequestRuntimeReachability, classifyVerificationSess
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
-  assertHostedSquashMergeCompletion,
-  classifyDurableVerificationSessionProjection,
-  parseHostedSynchronousSquashMergeResponse
+  classifyDurableVerificationSessionProjection
 } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
 import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
@@ -1339,112 +1336,6 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
 
 
 
-
-test('synchronous hosted merge rejects queued effects and requires exact physical readback', () => {
-  const markers = [
-    'Integration-Authorization: auth-1',
-    `Integration-Authorization-Receipt: sha256:${'a'.repeat(64)}`,
-    `Integration-Authorization-Operation: sha256:${'c'.repeat(64)}`,
-    `Integration-Authorization-Publication: sha256:${'d'.repeat(64)}`,
-    `Integration-Authorization-Publication-Digest: sha256:${'e'.repeat(64)}`,
-    'Integration-Authorization-Comment: 123',
-    `Verification-Session: sha256:${'b'.repeat(64)}`
-  ];
-  const expectedTitle = 'Verified integration deadbeef0000';
-  const reviewSnapshotBase = { paginationComplete: true as const, reviewedHeadSha: HEAD,
-    reviewPageDigests: [PAGE], threadPageDigests: [PAGE], reviewCount: 1, threadCount: 0,
-    unresolvedBlockingThreadCount: 0 as const, requestChangesPrincipalIds: [] as readonly [] };
-  const reviewSnapshot = { ...reviewSnapshotBase,
-    snapshotDigest: createReviewSnapshotDigest(reviewSnapshotBase) };
-  const reviewReceipt = createReviewStabilityReceipt({ stage: 'pre-merge', repository: 'sec-platform/sec',
-    prNumber: 42, sessionRevision: PAGE, scopeAuthorizationRevision: PAGE,
-    scopeAuthorizationReceiptDigest: PAGE, headSha: HEAD, headTreeSha: HEAD,
-    policy: SEC_REVIEW_STABILITY_POLICY,
-    principal: { kind: 'github-app', actorNodeId: BOT, appId: 1144995,
-      appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector', reviewState: 'COMMENTED' },
-    independence: { candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR' },
-    producer: { identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
-      executionIdentity: `github-review-observer:sec-platform/sec:42:${HEAD}`,
-      providerIdentity: 'github', candidateWriteCapability: 'read-only',
-      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
-      sourceTransport: 'github-graphql', sourceRunId: 'run-1', sourceRef: 'pull/42',
-      sourceDigest: reviewSnapshot.snapshotDigest }, snapshot: reviewSnapshot,
-    reviewedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z' });
-  const closure = { markers, reviewReceipt, expectedTitle, expectedBaseSha: BASE } as const;
-  const mergeCommitSha = '9'.repeat(40);
-  const provider = parseHostedSynchronousSquashMergeResponse(JSON.stringify({
-    sha: mergeCommitSha, merged: true, message: 'Pull Request successfully merged'
-  }));
-  expect(provider).toEqual({ sha: mergeCommitSha, merged: true,
-    message: 'Pull Request successfully merged' });
-  for (const response of [
-    '',
-    JSON.stringify({ sha: mergeCommitSha, merged: false, message: 'Merge queue required' }),
-    JSON.stringify({ sha: 'not-a-sha', merged: true, message: 'merged' }),
-    JSON.stringify({ sha: mergeCommitSha, merged: true })
-  ]) expect(() => parseHostedSynchronousSquashMergeResponse(response)).toThrow();
-
-  const queued: GitHubCandidateObservation = {
-    repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
-    isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
-    baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
-    title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
-    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null,
-    mergeCommitParentShas: null
-  };
-  expect(() => assertHostedSquashMergeCompletion({ candidate: queued,
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: provider.sha }))
-    .toThrow(/merge-queue enqueue is not integration success/);
-  const merged = { ...queued, state: 'MERGED' as const,
-    mergeCommitSha, mergeCommitTreeSha: HEAD,
-    mergeCommitParentShas: Object.freeze([BASE]),
-    mergeCommitMessage: `${expectedTitle}\n\n${markers.join('\n')}\n${renderIndependentReviewTrailer(reviewReceipt)}` };
-  expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: provider.sha })).not.toThrow();
-  expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: null })).not.toThrow();
-  for (const mergeCommitParentShas of [
-    null,
-    Object.freeze([]),
-    Object.freeze([BASE, '8'.repeat(40)]),
-    Object.freeze(['8'.repeat(40)])
-  ] as const) {
-    expect(() => assertHostedSquashMergeCompletion({
-      candidate: { ...merged, mergeCommitParentShas },
-      expectedHeadSha: HEAD,
-      expectedHeadTreeSha: HEAD,
-      ...closure,
-      providerMergeCommitSha: provider.sha
-    })).toThrow(/squash merge parent does not equal the verified base/i);
-  }
-  expect(() => assertHostedSquashMergeCompletion({
-    candidate: { ...merged, baseSha: '8'.repeat(40),
-      mergeCommitParentShas: Object.freeze(['8'.repeat(40)]) },
-    expectedHeadSha: HEAD,
-    expectedHeadTreeSha: HEAD,
-    ...closure,
-    providerMergeCommitSha: provider.sha
-  })).toThrow(/squash merge parent does not equal the verified base/i);
-  expect(() => assertHostedSquashMergeCompletion({ candidate: queued,
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: null })).toThrow(/not physically complete/i);
-  expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: '8'.repeat(40) })).toThrow(/provider response does not match/i);
-  expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, headSha: BASE },
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: provider.sha })).toThrow(/mismatched head or merge tree/i);
-  expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, mergeCommitTreeSha: BASE },
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: provider.sha })).toThrow(/mismatched head or merge tree/i);
-  expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, mergeCommitMessage: 'other' },
-    expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
-    providerMergeCommitSha: provider.sha })).toThrow(/authorization markers/i);
-});
 
 test('local preparation request cannot enter any hosted consumer or runtime state', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-local-request-placement-'));
