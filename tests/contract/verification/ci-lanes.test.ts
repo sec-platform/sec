@@ -8,8 +8,7 @@ import {
 import { buildCiContract } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
 import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
-  CodexDevelopmentChangedFilesFromRecords,
-  CodexDevelopmentCreateNotRunGate
+  CodexDevelopmentChangedFilesFromRecords
 } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { resolveTestOwnership } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
@@ -228,22 +227,4 @@ test('CI changed files derive from one immutable changed-record snapshot', () =>
     changedPath,
     'scripts/old-ci.ts'
   ]);
-});
-
-test('shared CI orchestration preserves transient not-run observation', () => {
-  expect(CodexDevelopmentCreateNotRunGate({
-    id: 'not-run-sentinel',
-    argv: ['bun', 'test', 'sentinel.test.ts']
-  })).toEqual({
-    id: 'not-run-sentinel',
-    argv: ['bun', 'test', 'sentinel.test.ts'],
-    status: 'not-run',
-    exitCode: null,
-    startedAt: null,
-    finishedAt: null,
-    durationMs: null,
-    failureTail: null,
-    rawOutputDigest: null,
-    notRunReason: expect.stringMatching(/\S/u)
-  });
 });

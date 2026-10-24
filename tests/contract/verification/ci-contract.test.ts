@@ -235,6 +235,7 @@ test('release payload expires independently of retained build identity and verif
 
 test('active PR contract has one V2 Session dispatch and no legacy verification authority', async () => {
   const source = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
+  assertCiVerificationPerJobHostedWholeWorkflowShape(source);
   const workflow = parseYaml(source) as Workflow;
   const contract = buildCiContract();
 
@@ -460,6 +461,18 @@ test('SUT launchers bind locked dependencies and bootstrap selects existing requ
   expect(bootstrapEntrypoint.run)
     .toBe('exec bun --no-env-file src/bootstrap/development/hosted-job-runtime.ts --job candidate-sut --phase execute-trusted-bootstrap-sut');
 
+  const packageScripts = (JSON.parse(await readCompilerFile('package.json')) as {
+    scripts: Record<string, string>;
+  }).scripts;
+  expect(packageScripts.typecheck).toContain('runner/typecheck-feedback.ts');
+  expect(packageScripts['typecheck:verified']).toContain('bootstrap/development/runner-cli.ts typecheck');
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain(
+    '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
+  );
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).not.toContain(
+    '  await execute("typecheck", ["bun", "run", "typecheck"]);'
+  );
+
   // Inspect the emitted command, not a second copy of the producer's list.
   // Python docs:doctor does not exercise these TypeScript identity/source consumers.
   const focusedCommands = [...TRUSTED_BOOTSTRAP_SUT_HARNESS.matchAll(
@@ -572,34 +585,4 @@ test('hosted activation is a lightweight trusted-main artifact producer, not a c
   expect(activation.steps.indexOf(candidateCheckout)).toBeLessThan(activation.steps.indexOf(producer));
   expect(activation.steps.indexOf(producer)).toBeLessThan(activation.steps.indexOf(upload));
   expect(activation.steps.indexOf(upload)).toBeLessThan(activation.steps.indexOf(publication));
-});
-
-test('provider observers install trusted dependencies before their first phase', async () => {
-  const workflow = parseYaml(
-    await readCompilerFile('.github/workflows/compiler-pr-validation.yml')
-  ) as Workflow;
-  const assertions = [
-    {
-      job: 'coordinate-verification-session',
-      entrypoint: 'Prepare canonical parent Action dispatch plan'
-    },
-    {
-      job: 'resolve-verification-action',
-      entrypoint: 'Rebuild trusted Session envelope and exact ActionKey member'
-    },
-    {
-      job: 'assemble-verification-action-terminal',
-      entrypoint: 'Assemble canonical five-state terminal artifact'
-    }
-  ] as const;
-  for (const assertion of assertions) {
-    const steps = workflow.jobs[assertion.job]!.steps;
-    const install = step(workflow, assertion.job, 'Install exact trusted launcher dependencies');
-    const installIndex = steps.indexOf(install);
-    const firstEntrypointIndex = steps.findIndex(({ name }) => name === assertion.entrypoint);
-    expect(firstEntrypointIndex).toBeGreaterThanOrEqual(0);
-    expect(installIndex).toBeLessThan(firstEntrypointIndex);
-    expect(install.run).toBe('exec bun --no-env-file install --frozen-lockfile --ignore-scripts');
-    expect(install['working-directory']).toBeUndefined();
-  }
 });

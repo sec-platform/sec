@@ -4,7 +4,6 @@ import { parse as parseYaml } from 'yaml';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../../src/adapters/verification/platform/ci/verification.ts';
 import { slowTestSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../../src/adapters/verification/platform/trust/compiler.ts';
 import {
@@ -12,7 +11,6 @@ import {
   matchSecTrustedBootstrapPath,
   parseSecTrustedBootstrapRegistry,
   SEC_TCB_CLOSURE_RUNTIME_PATH,
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../../src/adapters/verification/platform/trust/contract/root.ts';
 import {
@@ -97,24 +95,6 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
-});
-
-test('retired shared dependency projection is outside static verifier trust', () => {
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.staticDirectoryPaths).not.toContain('.shared-deps/');
-});
-
-test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
-  const packageScripts = (JSON.parse(await readCompilerFile('package.json')) as {
-    scripts: Record<string, string>;
-  }).scripts;
-  expect(packageScripts.typecheck).toContain('runner/typecheck-feedback.ts');
-  expect(packageScripts['typecheck:verified']).toContain('bootstrap/development/runner-cli.ts typecheck');
-  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain(
-    '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
-  );
-  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).not.toContain(
-    '  await execute("typecheck", ["bun", "run", "typecheck"]);'
-  );
 });
 
 test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {

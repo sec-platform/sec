@@ -654,6 +654,7 @@ test('canonical trust-root registry and closure preserve exact privilege boundar
   expect(parsed).toEqual(SEC_TRUSTED_BOOTSTRAP_REGISTRY);
   expect(registrySource()).not.toContain('causalRuntimePaths');
   expect(parsed.reviewedSutEdges).toEqual([]);
+  expect(parsed.staticDirectoryPaths).not.toContain('.shared-deps/');
   expect(parsed.reviewedBoundaryEdges).toEqual([
     'src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts'
   ]);
