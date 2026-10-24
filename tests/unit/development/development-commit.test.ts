@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import { withWorkspaceWriteLease } from '../../../src/adapters/filesystem/write-lease.ts';
 import { createHostGitReadSessionForTests } from '../../../src/adapters/providers/git-read/runtime/session.ts';
@@ -216,11 +216,14 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
   }, 30_000);
 }
 
-async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
-  root: string;
-  request: DevelopmentCommitRequest;
-}>> {
-  const root = await mkdtemp(path.join(tmpdir(), prefix));
+// A single staged Git source tree is the immutable fixture input. Cases copy
+// .git, its index and source bytes independently so each retains real effects,
+// reflogs, CAS preimages and its own failure/cleanup lifecycle.
+let developmentCommitTemplate: Promise<string> | undefined;
+
+async function createDevelopmentCommitTemplate(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-source-'));
+  try {
   git(root, ['init', '--quiet']);
   git(root, ['config', 'user.name', 'SEC Tests']);
   git(root, ['config', 'user.email', 'tests@example.com']);
@@ -253,7 +256,34 @@ async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
   git(root, ['commit', '--quiet', '-m', 'base']);
   await writeFile(path.join(root, 'next.txt'), 'next\n');
   git(root, ['add', 'next.txt']);
-  return Object.freeze({
+    return root;
+  } catch (error) {
+    try { await rm(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Commit fixture source and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+afterAll(async () => {
+  if (developmentCommitTemplate === undefined) return;
+  const result = await Promise.allSettled([developmentCommitTemplate]);
+  if (result[0]?.status === 'fulfilled') {
+    await rm(result[0].value, { recursive: true, force: true });
+  }
+  developmentCommitTemplate = undefined;
+});
+
+async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
+  root: string;
+  request: DevelopmentCommitRequest;
+}>> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  try {
+    const source = await (developmentCommitTemplate ??= createDevelopmentCommitTemplate());
+    await cp(source, root, { recursive: true });
+    return Object.freeze({
     root,
     request: Object.freeze({
       repositoryRoot: path.resolve(root),
@@ -270,6 +300,14 @@ async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
       })
     })
   });
+}
+  } catch (error) {
+    try { await rm(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Commit fixture copy and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 test('development.commit consumes one exact staged admission before publishing its Git Effect', async () => {
