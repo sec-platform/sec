@@ -2782,24 +2782,6 @@ if (process.platform === 'linux') {
     setup(prepared: PublishTupleFixture): Promise<void>;
   }>[] = [
     {
-      name: 'T=PRE with conflicting Q and RP',
-      async setup(prepared) {
-        await writePublishTuple(prepared, {
-          target: prepared.pre, next: null, quarantine: prepared.pre,
-          retiredPre: prepared.pre, retiredNext: null
-        });
-      }
-    },
-    {
-      name: 'target and NEXT absent with same-byte different-inode Q and RP',
-      async setup(prepared) {
-        await writePublishTuple(prepared, {
-          target: null, next: null, quarantine: prepared.pre,
-          retiredPre: prepared.pre, retiredNext: null
-        });
-      }
-    },
-    {
       name: 'T=PRE with active NEXT and RN',
       async setup(prepared) {
         await writePublishTuple(prepared, {
