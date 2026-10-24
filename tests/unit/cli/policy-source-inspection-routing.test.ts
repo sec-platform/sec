@@ -61,14 +61,25 @@ test('policy sources routes retained policy evidence through application and ent
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
     const projected = projectPolicySources(report);
-    const text = await expectCliSuccess(workspaceRoot, ['policy', 'sources']);
-    for (const line of [
-      'Policy sources passed',
-      'sources=3; policies=4',
-      'Source official; path=a; policies=official:a, official:b',
-      'Source official; path=z; policies=official:z',
-      'Source project; path=b; policies=project:b'
-    ]) expect(text.stdout.split(/\r?\n/u)).toContain(line);
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['policy', 'sources']);
+    const lines = stdout.split(/\r?\n/u);
+    const header = lines.find(line => line.startsWith('Policy sources '));
+    expect(header).toContain('Policy sources passed');
+    const counts = lines.find(line => line.includes('sources=3'));
+    expect(counts).toContain('policies=4');
+    const rows = lines.filter(line => line.startsWith('Source '));
+    const expected = [
+      ['official', 'a', ['official:a', 'official:b']],
+      ['official', 'z', ['official:z']],
+      ['project', 'b', ['project:b']]
+    ] as const;
+    expect(rows).toHaveLength(expected.length);
+    for (const [scope, sourcePath, policyIds] of expected) {
+      const matches = rows.filter(line => line.startsWith(`Source ${scope};`) && line.includes(`path=${sourcePath};`));
+      expect(matches).toHaveLength(1);
+      for (const policy of policyIds) expect(matches[0]).toContain(policy);
+    }
+
     const json = await expectCliJson(workspaceRoot, ['policy', 'sources', '--json']);
     expect(json).toEqual(projected);
   });

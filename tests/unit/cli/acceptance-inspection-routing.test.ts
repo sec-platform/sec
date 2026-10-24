@@ -103,20 +103,23 @@ test('acceptance inspection routes retained coverage through application and ent
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
     const coverageText = await expectCliSuccess(workspaceRoot, ['acceptance']);
-    for (const line of [
-      'Acceptance coverage passed; acceptancePassed=2; blocks=1/2; uncoveredBlocks=1',
-      'Uncovered blocks: beta',
-      'Block alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
-      'Block beta; declared=2; coveredBy=none; uncovered=true'
-    ]) expect(coverageText.stdout.split(/\r?\n/u)).toContain(line);
     const targetsText = await expectCliSuccess(workspaceRoot, ['acceptance', 'blocks']);
-    for (const line of [
-      'Acceptance coverage blocks passed',
-      'targets=2; covered=1; uncovered=1',
-      'Uncovered: beta',
-      'Target alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
-      'Target beta; declared=2; coveredBy=none; uncovered=true'
-    ]) expect(targetsText.stdout.split(/\r?\n/u)).toContain(line);
+    function expectFields(stdout: string, prefix: string, fields: readonly string[]) {
+      const rows = stdout.split(/\r?\n/u).filter(line => line.startsWith(prefix));
+      expect(rows).toHaveLength(1);
+      for (const field of fields) expect(rows[0]).toContain(field);
+    }
+    expectFields(coverageText.stdout, 'Acceptance coverage passed', [
+      'acceptancePassed=2', 'blocks=1/2', 'uncoveredBlocks=1'
+    ]);
+    expectFields(coverageText.stdout, 'Uncovered blocks:', ['beta']);
+    expectFields(coverageText.stdout, 'Block alpha;', ['declared=1', 'coveredBy=acceptance:a', 'uncovered=false']);
+    expectFields(coverageText.stdout, 'Block beta;', ['declared=2', 'coveredBy=none', 'uncovered=true']);
+    expectFields(targetsText.stdout, 'Acceptance coverage blocks passed', []);
+    expectFields(targetsText.stdout, 'targets=2', ['covered=1', 'uncovered=1']);
+    expectFields(targetsText.stdout, 'Uncovered:', ['beta']);
+    expectFields(targetsText.stdout, 'Target alpha;', ['declared=1', 'coveredBy=acceptance:a', 'uncovered=false']);
+    expectFields(targetsText.stdout, 'Target beta;', ['declared=2', 'coveredBy=none', 'uncovered=true']);
 
     const json = await expectCliJson(workspaceRoot, ['acceptance', '--json']);
     expect(json).toEqual(report);
