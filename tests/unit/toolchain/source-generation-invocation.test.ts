@@ -17,9 +17,12 @@ function fixture() {
 }
 function input(f: ReturnType<typeof fixture>) { return { ownerRoot: f.root, sourcePath: path.join(f.root,'a'), binding: { selected:'a' }, options:f.options }; }
 
-test('in-flight key, physical scan and issued result use the same captured input', async () => {
+test('read-only observation captures one input for its physical scan and same-context in-flight join', async () => {
   const f=fixture(); try {
-    const request=input(f), same=input(f), expectedDigest=generatedStateDigest(request.binding);
+    const options=new Proxy({...f.options,get generatedStateLifecycle(){assert.fail('unused lifecycle'); throw new Error('unreachable');},get beforeCommit(){assert.fail('write fence'); throw new Error('unreachable');}},
+      {ownKeys(){assert.fail('options enumerated');}});
+    const request=new Proxy({...input(f),options,get unrelated(){assert.fail('unrelated input'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('input enumerated');}});
+    const same=input(f), expectedDigest=generatedStateDigest(request.binding);
     const first=runtimeDependencySourceGeneration(request);
     request.sourcePath=path.join(f.root,'b'); request.binding.selected='b';
     const second=runtimeDependencySourceGeneration(same);
@@ -47,15 +50,6 @@ test.serial('relative paths bind before callbacks or the deferred scan can chang
     process.chdir(tmpdir());
     const result=await pending;assert.equal(result.ownerRoot,f.root);assert.equal(result.sourcePath,path.join(f.root,'a'));
   }finally{process.chdir(original);rmSync(f.root,{recursive:true,force:true});}
-});
-
-test('read-only source observation neither enumerates input nor propagates install capabilities', async () => {
-  const f=fixture();try{
-    const options=new Proxy({...f.options,get generatedStateLifecycle(){assert.fail('unused lifecycle'); throw new Error('unreachable');},get beforeCommit(){assert.fail('write fence'); throw new Error('unreachable');}},
-      {ownKeys(){assert.fail('options enumerated');}});
-    const request=new Proxy({...input(f),options,get unrelated(){assert.fail('unrelated input'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('input enumerated');}});
-    assert.equal((await runtimeDependencySourceGeneration(request)).sourcePath,path.join(f.root,'a'));
-  }finally{rmSync(f.root,{recursive:true,force:true});}
 });
 
 test('required input fields are sampled once before scan scheduling', async () => {

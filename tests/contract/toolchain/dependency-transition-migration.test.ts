@@ -776,43 +776,6 @@ for (const failure of ['foreign-bytes', 'released-only', 'unknown-residue'] as c
   });
 }
 
-test('coordination cutover rejects a released-only legacy consumer chain', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-released-only-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
-  try {
-    const consumers = path.join(targetJournalRoot(root), 'consumers');
-    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
-    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
-    await mkdir(consumers);
-    const identity = inspectNoFollowDirectoryChain(root, 'released-only consumer fixture root').target;
-    const unsigned = Object.freeze({
-      schema: 'sec-compiler-dependency-consumer-v1',
-      previousRecordDigest: generatedStateDigest('missing-acquisition'),
-      leaseId: generatedStateDigest('released-only-consumer'),
-      generationDigest: generatedStateDigest('released-only-generation'),
-      generationPath: root,
-      generationPhysical: Object.freeze({
-        device: identity.device,
-        inode: identity.inode,
-        objectId: identity.objectId
-      }),
-      phase: 'released' as const
-    });
-    const record = Object.freeze({ ...unsigned, recordDigest: generatedStateDigest(canonicalJson(unsigned)) });
-    const name = `consumer-${record.leaseId.slice('sha256:'.length)}-released.json`;
-    const bytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
-    await writeFile(path.join(consumers, name), bytes);
-    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
-      .rejects.toThrow('invalid consumer chain');
-    expect(await readFile(path.join(consumers, name))).toEqual(bytes);
-    expect(await readdir(path.join(runtimeRoots.workspaceStateRoot,
-      'compiler-dependency-coordination', 'v1', 'consumers'))).toEqual([]);
-  } finally {
-    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test('coordination cutover rejects a same-lease pair with a foreign predecessor', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-foreign-pair-'));
   const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
@@ -865,6 +828,8 @@ test('coordination cutover rejects a same-lease pair with a foreign predecessor'
     await expect(lstat(marker)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(path.join(consumers, acquiredName))).toEqual(acquiredBytes);
     expect(await readFile(path.join(consumers, releasedName))).toEqual(releasedBytes);
+    expect(await readdir(path.join(runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination', 'v1', 'consumers'))).toEqual([]);
   } finally {
     await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });

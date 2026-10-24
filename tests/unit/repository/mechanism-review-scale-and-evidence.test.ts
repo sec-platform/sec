@@ -60,6 +60,8 @@ test('known requirement differences remain visible alongside unrelated unresolve
   const result = review({ ...facts(), dependencies: [dependency(), dependency({ requirement: '^2', observationClass: 'derived' }), dependency({ requirement: 'unresolved', observationClass: 'unknown' })] });
   assert.equal(result.coverage.unresolvedDependencies, 1);
   assert.deepEqual(result.findings[0]!.related, ['^1', '^2']);
+  assert.equal(result.findings[0]!.disposition, 'review-required');
+  assert.equal(result.findings[0]!.sites[0]!.start, null);
 });
 
 test('a resolved module-initialization call needs no enclosing declaration', () => {
@@ -127,11 +129,17 @@ test('repeated startup effects share one review context and retain every distinc
     observationId: `effect-${index}`, owningDeclarationObservationId: null,
     span: { start: index * 10, end: index * 10 + 8 }
   }));
-  const result = review({ ...facts(), capabilities });
+  const result = review({ ...facts(), capabilities: [...capabilities, capabilities[0]!, capabilities[0]!] });
   assert.equal(result.coverage.findingUnit, 'rule-subject-context');
+  assert.equal(result.coverage.scannedCapabilities, 2002);
   assert.equal(result.counts['module-initialization-effect'], 1);
-  assert.equal(result.findings[0]!.sites.length, capabilities.length);
-  assert.deepEqual(new Set(result.findings[0]!.sites.map((site) => site.observationId)), new Set(capabilities.map((item) => item.observationId)));
+  assert.equal(result.findings[0]!.disposition, 'review-required');
+  assert.equal(result.findings[0]!.sites.length, 2000);
+  assert.deepEqual(new Set(result.findings[0]!.sites.map((site) => site.observationId)),
+    new Set(Array.from({ length: 2000 }, (_, index) => `effect-${index}`)));
+  assert.deepEqual(result.findings[0]!.sites.find((site) => site.observationId === 'effect-0'), {
+    path: 'src/a.ts', contentDigest: 'a-bytes', start: 0, end: 8, observationId: 'effect-0'
+  });
 });
 
 test('repeated self calls are grouped by their exact declaration without dropping locations', () => {
@@ -140,14 +148,6 @@ test('repeated self calls are grouped by their exact declaration without droppin
   assert.equal(result.counts['direct-recursive-call'], 1);
   assert.equal(result.findings[0]!.sites.length, 2000);
   assert.equal(new Set(result.findings[0]!.sites.map((site) => site.start)).size, 2000);
-});
-
-test('duplicate observations do not inflate distinct evidence sites', () => {
-  const record = capability({ owningDeclarationObservationId: null });
-  const result = review({ ...facts(), capabilities: [record, record, record] });
-  assert.equal(result.coverage.scannedCapabilities, 3);
-  assert.equal(result.counts['module-initialization-effect'], 1);
-  assert.equal(result.findings[0]!.sites.length, 1);
 });
 
 test('arbitrary operation vocabulary of 4096 remains complete', () => {
@@ -203,6 +203,9 @@ test('effect category and operation remain distinct roles in a review context', 
   assert.deepEqual(new Set(result.findings.map((finding) => finding.related.join(','))), new Set([
     'capability:filesystem,operation:process', 'capability:process,operation:filesystem'
   ]));
+  assert.deepEqual(result.findings.find((finding) => finding.related.includes('capability:filesystem'))!.sites, [{
+    path: 'src/a.ts', contentDigest: 'a-bytes', start: 1, end: 8, observationId: 'first'
+  }]);
 });
 
 test('unresolved dependency evidence retains package, requirement, scope and exact manifest identity', () => {
@@ -239,6 +242,7 @@ test('invalid ownership and unknown transport remain different unresolved reason
   ] });
   assert.deepEqual(new Set(result.unknowns.map((record) => record.reason)), new Set(['ownership-inconsistent', 'transport-unresolved']));
   assert.equal(result.coverage.unresolvedCapabilities, 2);
+  assert.deepEqual(result.findings, []);
 });
 
 test('unresolved target and malformed source relation remain different call frontiers', () => {
@@ -275,6 +279,7 @@ test('all unresolved counters reconcile to retained fact occurrences', () => {
   const total = result.unknowns.reduce((sum, record) => sum + record.occurrences, 0);
   assert.equal(total, result.coverage.unresolvedCapabilities + result.coverage.unresolvedCallReferences + result.coverage.unresolvedDependencies + result.coverage.unlocatedRecords);
   assert.equal(total, 6);
+  assert.equal(result.coverage.unlocatedRecords, 3);
 });
 
 test('unknown frontiers are deterministic under record reordering', () => {

@@ -19,12 +19,17 @@ const commit = () => ({ tree, parents: [parent], message: 'Commit message', auth
 // functions. These tests do not issue a Git capability or assert an actual write.
 test('commit capture reads each scalar once and keeps independent immutable parents and identities', () => {
   const input = commit(), reads: string[] = [];
+  let refReads = 0;
   const view = Object.fromEntries(Object.entries(input).map(([key, value]) => [key, value]));
   for (const key of ['message', 'tree', 'target'] as const) Object.defineProperty(view, key, {
     get() { reads.push(key); return input[key]; }
   });
+  Object.defineProperty(view, 'ref', {
+    get() { reads.push('ref'); return ++refReads === 1 ? 'refs/heads/feature' : 'refs/heads/bad..ref'; }
+  });
   const captured = captureGitDevelopmentCommitContract(view as ReturnType<typeof commit>)!;
-  assert.deepEqual(reads.sort(), ['message', 'target', 'tree']);
+  assert.deepEqual(reads.sort(), ['message', 'ref', 'target', 'tree']);
+  assert.equal(captured.ref, 'refs/heads/feature');
   input.parents[0] = target; input.author.name = 'Later'; input.message = 'Later';
   assert.deepEqual(captured.parents, [parent]); assert.equal(captured.author.name, 'Maintainer');
   assert.equal(captured.message, 'Commit message');

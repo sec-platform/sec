@@ -235,7 +235,7 @@ describe('compiler dependency installation', () => {
     }));
 
   effectfulTest(test,
-    'explicit public generation reuse registers a foreign compiler target with its canonical owner',
+    'explicit public generation reuse rejects invalid sources before canonical-owner publication and repeat reuse',
     { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
       cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
     effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-explicit-owner-', async (ownerRoot, ownerOperation) => {
@@ -246,11 +246,46 @@ describe('compiler dependency installation', () => {
         await installCompilerDependencyFixture(command.cwd, 'explicit-source');
         return { code: 0, stdout: 'ok', stderr: '' };
       } }, ownerRoot);
+      let consumerInputsRestored = true;
       await withCompilerTestConsumer(effectful, 'sec-cdep-explicit-target-', async (consumerRoot, operation) => {
         await writeCompilerDependencyRoot(consumerRoot);
         const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
         const publicOptions = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
           installMode: 'prebound-only' as const, signal: operation.signal };
+        // Both refusals precede source retention and target publication. Keep
+        // their requests otherwise valid, then restore the exact input bytes
+        // before exercising the first genuine publication and its repeat.
+        await expect(target.ensureCompilerDepsReadyFromGeneration({ ...source.executionGenerationAuthority }, publicOptions))
+          .rejects.toThrow();
+        const parent = inspectNoFollowDirectoryChain(consumerRoot).target;
+        const original = physicalNoFollow.inspectNoFollowOrdinaryFileEntry(parent, 'bun.lock');
+        if (original === null) throw new Error('Consumer lock preimage is absent.');
+        const incompatibleBytes = Buffer.from('different-lock\n');
+        await settleWorkspaceCallback(async () => {
+          consumerInputsRestored = false;
+          await fs.writeFile(path.join(consumerRoot, 'bun.lock'), incompatibleBytes);
+          await expect(target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, publicOptions))
+            .rejects.toThrow('incompatible canonical inputs');
+          await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+          await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+          const inventory = await operation.generatedStateLifecycle.inspect!(['node_modules']);
+          expect(inventory.entries[0]!.registrationDigest).toBeNull();
+        }, async () => {
+          physicalNoFollow.assertSameNoFollowDirectoryIdentity(parent);
+          const files = physicalNoFollow.retainNoFollowFileTransaction(consumerRoot, 'Explicit reuse input restoration');
+          await settleWorkspaceCallback(async () => {
+            expect(files.rootIdentity).toMatchObject({ path: parent.path,
+              device: parent.device, inode: parent.inode, objectId: parent.objectId });
+            const current = files.observe('bun.lock', 'Injected incompatible consumer lock');
+            if (current === null) throw new Error('Injected consumer lock is absent.');
+            expect(current.identity).toEqual({ device: original.device, inode: original.inode });
+            if (!Buffer.from(current.bytes).equals(Buffer.from(original.bytes!))) {
+              expect(Buffer.from(current.bytes)).toEqual(incompatibleBytes);
+              await files.rewriteExact('bun.lock', current, original.bytes!, 'Restore compatible consumer input');
+            }
+          }, async () => { files.dispose(); });
+          consumerInputsRestored = true;
+        });
         Object.defineProperty(publicOptions, 'generatedStateLifecycle', {
           enumerable: true,
           get() { throw new Error('Public generation reuse must not read a caller lifecycle'); }
@@ -270,34 +305,7 @@ describe('compiler dependency installation', () => {
         expect(repeated.executionGenerationAuthority.generationDigest)
           .toBe(source.executionGenerationAuthority.generationDigest);
         expect(installs).toBe(1);
-      });
-    }));
-
-  effectfulTest(test,
-    'explicit public generation reuse rejects forged and incompatible sources before target publication',
-    { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
-    effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-explicit-owner-reject-', async (ownerRoot, ownerOperation) => {
-      await writeCompilerDependencyRoot(ownerRoot);
-      const source = await ensureCompilerDepsReady({ ...ownerOperation, materialize: async (_args, command) => {
-        await installCompilerDependencyFixture(command.cwd, 'explicit-source-rejection');
-        return { code: 0, stdout: 'ok', stderr: '' };
-      } }, ownerRoot);
-      await withCompilerTestConsumer(effectful, 'sec-cdep-explicit-target-reject-', async (consumerRoot, operation) => {
-        await writeCompilerDependencyRoot(consumerRoot);
-        const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
-        const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
-          installMode: 'prebound-only' as const, signal: operation.signal };
-        await expect(target.ensureCompilerDepsReadyFromGeneration({ ...source.executionGenerationAuthority }, request))
-          .rejects.toThrow();
-        await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'different-lock\n');
-        await expect(target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, request))
-          .rejects.toThrow('incompatible canonical inputs');
-        await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
-        await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
-        const inventory = await operation.generatedStateLifecycle.inspect!(['node_modules']);
-        expect(inventory.entries[0]!.registrationDigest).toBeNull();
-      });
+      }, () => consumerInputsRestored);
     }));
 
   for (const interference of ['same-byte-directory', 'directory-alias'] as const) {

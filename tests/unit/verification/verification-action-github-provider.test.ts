@@ -1854,8 +1854,12 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   };
 
   for (const slot of actionSlots) {
-    test(`${slot.name} artifact retains its successful upload after later publisher failure or cancellation`, async () => {
-      for (const conclusion of [null, 'success', 'failure', 'cancelled', 'timed_out']) {
+    test(`${slot.name} artifact preserves its successful upload across publisher settlement`, async () => {
+      // Start owns the shared settlement classes. Every real payload reader
+      // also retains the late-timeout witness for its own immutable upload.
+      const conclusions = slot.name === 'start'
+        ? [null, 'success', 'failure', 'cancelled', 'timed_out'] : ['timed_out'];
+      for (const conclusion of conclusions) {
         const job = isolatedSlot(slot);
         expect(Object.hasOwn(job, 'run_attempt')).toBe(false);
         if (conclusion === 'success') job.run_attempt = 1;
@@ -1882,13 +1886,17 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     test(`${slot.name} artifact cannot borrow a different slot, attempt or producer with correct bytes`, async () => {
       const forgeries: Array<(job: Record<string, unknown>) => string | void> = [
         job => { job.name = 'coordinate-verification-session'; },
+        job => { (job.steps as Record<string, unknown>[])[slot.producerIndex]!.conclusion = 'failure'; },
+        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.conclusion = 'skipped'; },
+        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.name = 'Upload a different slot'; }
+      ];
+      // The slot-specific bindings above enter one common publisher/census
+      // predicate; its remaining rejection classes need only one carrier.
+      if (slot.name === 'start') forgeries.push(
         job => { job.head_sha = HEAD; },
         job => { job.run_id = Number(PARENT_RUN_ID); },
         job => { job.run_attempt = 2; }, job => { job.run_attempt = null; },
         job => { job.conclusion = 'skipped'; },
-        job => { (job.steps as Record<string, unknown>[])[slot.producerIndex]!.conclusion = 'failure'; },
-        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.conclusion = 'skipped'; },
-        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.name = 'Upload a different slot'; },
         job => { const steps = job.steps as Record<string, unknown>[];
           // Number 1 is unique in every slot fixture, so only ordering is invalid.
           steps[slot.uploadIndex]!.number = 1;
@@ -1898,7 +1906,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
         job => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...job }); },
         job => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...job, id: Number(job.id) + 10 }); },
         job => { job.completed_at = '2026-08-09T01:00:00Z'; }
-      ];
+      );
       for (const forge of forgeries) {
         const job = isolatedSlot(slot);
         const originalBytes = fakeGh.artifacts.find(artifact => artifact.id === slot.artifactId)!.source;
@@ -1912,23 +1920,34 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     }, 30_000);
 
     test(`${slot.name} artifact requires its actual complete upload interval inside the source job budget`, async () => {
-      const forgeries: Array<(job: Record<string, unknown>) => void> = [
+      const exceedsJobBudget = (job: Record<string, unknown>): void => {
+        const upload = (job.steps as Record<string, unknown>[])[slot.uploadIndex]!;
+        upload.started_at = '2026-08-10T01:00:03Z'; upload.completed_at = '2026-08-10T01:00:05Z';
+        job.completed_at = '2026-08-10T01:00:12Z';
+        fakeGh.artifactMetadataOverrides[String(slot.artifactId)] = {
+          created_at: '2026-08-10T01:00:03Z', updated_at: '2026-08-10T01:00:05Z' };
+      };
+      const forgeries: Array<(job: Record<string, unknown>) => void> = slot.name === 'start' ? [
         job => { job.started_at = undefined; },
         job => { (job.steps as Record<string, unknown>[])[slot.producerIndex]!.started_at = null; },
         job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.completed_at = null; },
         job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.started_at = '2026-08-09T00:59:59Z'; },
-        job => { const upload = (job.steps as Record<string, unknown>[])[slot.uploadIndex]!;
-          upload.started_at = '2026-08-10T01:00:03Z'; upload.completed_at = '2026-08-10T01:00:05Z';
-          job.completed_at = '2026-08-10T01:00:12Z';
-          fakeGh.artifactMetadataOverrides[String(slot.artifactId)] = {
-            created_at: '2026-08-10T01:00:03Z', updated_at: '2026-08-10T01:00:05Z' }; },
+        exceedsJobBudget,
         ...[{ created_at: undefined }, { updated_at: 'invalid' },
           { created_at: 'not-a-time' },
           { created_at: '2026-08-09T01:00:00Z' }, { updated_at: '2026-08-10T01:00:00Z' },
           { updated_at: '2026-08-09T01:00:00Z' },
           { workflow_run: { id: Number(CURRENT_RUN_ID), head_sha: HEAD } }].map(patch =>
           (_job: Record<string, unknown>) => { fakeGh.artifactMetadataOverrides[String(slot.artifactId)] = patch; })
+      ] : [
+        // Both uploads share one job, but neither may borrow the other's
+        // otherwise valid interval. These times come from the fixed steps.
+        _job => { fakeGh.artifactMetadataOverrides[String(slot.artifactId)] = slot.name === 'terminal'
+          ? { created_at: '2026-08-09T01:00:08Z', updated_at: '2026-08-09T01:00:10Z' }
+          : { created_at: '2026-08-09T01:00:03Z', updated_at: '2026-08-09T01:00:05Z' }; }
       ];
+      // Terminal and anchor use the same job policy; start uses another.
+      if (slot.name === 'terminal') forgeries.push(exceedsJobBudget);
       for (const forge of forgeries) {
         const job = isolatedSlot(slot);
         forge(job);

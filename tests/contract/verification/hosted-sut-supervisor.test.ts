@@ -116,15 +116,14 @@ test('control decoding rejects duplicates, UTF-8 errors, deep JSON, trailing pay
 
 test('v2 preserves actual phase-only and aggregate overflow facts without widening boolean claims', () => {
   const aggregateLimit = 8 * 1024 * 1024;
-  for (const [prepare, observe, stdoutBytes, stderrBytes, truncated] of [
-    [4096, 0, 4096, 0, false],
-    [4097, 0, 4097, 0, true],
+  for (const [prepare, observe, stdoutBytes, stderrBytes, truncated, checkIncomplete = false] of [
+    [4096, 0, 4096, 0, false, true],
+    [4097, 0, 4097, 0, true, true],
     [0, 4097, 4097, 0, true],
     [4096, 4096, 8192, 0, false],
     [0, 0, aggregateLimit, 0, false],
     [0, 0, aggregateLimit + 1, 0, true],
-    [0, 0, 0, aggregateLimit + 1, true],
-    [4097, 0, aggregateLimit + 1, 0, true]
+    [0, 0, 0, aggregateLimit + 1, true]
   ] as const) {
     const value = fixture();
     value.lifecycle.candidateStarted = prepare <= 4096 && observe <= 4096;
@@ -145,13 +144,15 @@ test('v2 preserves actual phase-only and aggregate overflow facts without wideni
     if (prepare > 4096 || observe > 4096) {
       expect(() => parse({ ...value, lifecycle: { ...value.lifecycle, candidateStarted: true } })).toThrow();
     }
-    // Observed overflow can survive incomplete cleanup as a failure report;
-    // EOF/reap claims still cannot fabricate complete unit settlement.
-    expect(() => parse({ ...value, stdout: { ...value.stdout, eof: false } })).toThrow();
-    const unfinished = parse({ ...value, stdout: { ...value.stdout, eof: false }, lifecycle: {
-      ...value.lifecycle, candidateUnitSettled: null, observationGap: 'observation-lost' } });
-    expect(unfinished.lifecycle.candidateUnitSettled).toBeNull();
-    expect(unfinished.outputTruncated).toBe(truncated);
+    // Settlement is independent of the overflow source. One ordinary and one
+    // phase-overflow witness preserve both truncation values under missing EOF.
+    if (checkIncomplete) {
+      expect(() => parse({ ...value, stdout: { ...value.stdout, eof: false } })).toThrow();
+      const unfinished = parse({ ...value, stdout: { ...value.stdout, eof: false }, lifecycle: {
+        ...value.lifecycle, candidateUnitSettled: null, observationGap: 'observation-lost' } });
+      expect(unfinished.lifecycle.candidateUnitSettled).toBeNull();
+      expect(unfinished.outputTruncated).toBe(truncated);
+    }
   }
   for (const counts of [null, [], { prepare: 0 }, { prepare: 0, observe: 0, extra: true },
     { prepare: -1, observe: 0 }, { prepare: 0.5, observe: 0 }, { prepare: '0', observe: 0 },

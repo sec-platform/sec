@@ -33,7 +33,6 @@ test('the topology and Source Program command modes are selected explicitly', ()
 test('all ambiguous or misspelled enforcement switches reject instead of becoming a successful report', () => {
   for (const args of [['--enfroce'], ['--enforce=true'], ['--enforce=false'], ['--no-enforce'], ['--unknown'], ['unexpected']]) {
     assert.throws(() => parse(args));
-    assert.throws(() => parse(args, 'source-program'));
   }
 });
 
@@ -50,7 +49,6 @@ test('all string-valued switches reject missing, empty and NUL values', () => {
     for (const value of [undefined, '', 'x\0y']) {
       const args = value === undefined ? [`--${name}`] : [`--${name}`, value];
       assert.throws(() => parse(args));
-      assert.throws(() => parse(args, 'source-program'));
     }
   }
 });

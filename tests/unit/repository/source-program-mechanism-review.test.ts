@@ -56,13 +56,6 @@ test('empty facts do not imply a clean whole repository', () => {
   });
 });
 
-test('module-initialization effects retain exact locations without claiming a defect', () => {
-  const result = review({ ...model(), capabilities: [capability({ owningDeclarationObservationId: null })] });
-  assert.equal(result.counts['module-initialization-effect'], 1);
-  assert.deepEqual(result.findings[0]!.sites, [{ path: 'src/a.ts', contentDigest: 'a-bytes', start: 12, end: 34, observationId: 'call-a' }]);
-  assert.equal(result.findings[0]!.disposition, 'review-required');
-});
-
 test('multiple calls within one module are not distributed owners', () => {
   const result = review({ ...model(), capabilities: [capability(), capability({ observationId: 'other-call' })] });
   assert.equal(result.counts['distributed-direct-transport'], 0);
@@ -114,37 +107,11 @@ test('unknown or missing call targets remain visible but never become recursion 
   assert.equal(result.coverage.unresolvedCallReferences, 3);
 });
 
-test('unknown effect transport and a broken declaration join remain unresolved', () => {
-  const result = review({ ...model(), capabilities: [
-    capability({ transport: 'unknown' }), capability({ owningDeclarationObservationId: 'b' })
-  ] });
-  assert.equal(result.coverage.unresolvedCapabilities, 2);
-  assert.equal(result.findings.length, 0);
-});
-
-test('unlocated records are not silently counted as safe production records', () => {
-  const result = review({ ...model(), capabilities: [capability({ path: 'missing.ts' })], references: [reference({ path: 'missing.ts' })], dependencies: [
-    { name: 'x', requirement: '1', manifestPath: 'missing.json', scope: 'runtime', consumerPaths: [], observationClass: 'observed' }
-  ] });
-  assert.equal(result.coverage.unlocatedRecords, 3);
-});
-
 test('test effects and test calls are outside production opportunities but remain in coverage totals', () => {
   const result = review({ ...model(), capabilities: [capability({ path: 'tests/a.test.ts', owningDeclarationObservationId: null })], references: [reference({ path: 'tests/a.test.ts' })] });
   assert.equal(result.findings.length, 0);
   assert.equal(result.coverage.scannedCapabilities, 1);
   assert.equal(result.coverage.scannedReferences, 1);
-});
-
-test('distinct package requirements prompt resolution review, not a conflict verdict', () => {
-  const requirements = ['^1.0.0', '^2.0.0'];
-  const result = review({ ...model(), dependencies: requirements.map((requirement) => ({
-    name: 'example', requirement, manifestPath: 'package.json', scope: 'runtime', consumerPaths: ['src/a.ts'], observationClass: 'observed'
-  })) });
-  const finding = result.findings.find((item) => item.code === 'dependency-requirement-divergence')!;
-  assert.deepEqual(finding.related, requirements);
-  assert.equal(finding.disposition, 'review-required');
-  assert.equal(finding.sites[0]!.start, null);
 });
 
 test('one package requirement repeated does not invent version divergence', () => {

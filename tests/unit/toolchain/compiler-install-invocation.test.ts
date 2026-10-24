@@ -13,33 +13,30 @@ async function fixture(run: (root: string) => Promise<void>) {
 }
 const budgetFailure = (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003';
 
-test('the actual install entrypoint fixes argv before commit and clock callbacks', async () => fixture(async root => {
+test('the install entrypoint captures argv, cwd and capabilities before clock and fence callbacks', async () => fixture(async root => {
+  const initial = process.cwd();
   const args = ['install', '--frozen-lockfile'];
   let count = 0;
   let commitCount = 0;
-  const result = await runBunInstall(root, {
-    monotonicNowMs: () => { args[0] = 'clock-replaced'; return 0; },
-    beforeCommit: async () => { commitCount++; args[1] = 'fence-replaced'; },
-    testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
-      count++; assert.deepEqual(request.args, ['install', '--frozen-lockfile']);
-      assert.ok(Object.isFrozen(request.args)); return success;
-    })
-  }, args);
-  assert.equal(count, 1); assert.ok(commitCount > 0);
-  assert.deepEqual(result, { packageManager: 'bun', result: success });
-}));
-
-test('a commit callback cannot retarget the selected materialization capability or later fences', async () => fixture(async root => {
-  let calls = 0;
   const options = {
-    monotonicNowMs: () => 0,
-    testMaterialization: issueRuntimeDependencyTestMaterialization(async () => { calls++; return success; }),
-    async beforeCommit() {
+    monotonicNowMs: () => { args[0] = 'clock-replaced'; return 0; },
+    beforeCommit: async () => {
+      commitCount++; args[1] = 'fence-replaced'; process.chdir(tmpdir());
       options.testMaterialization = issueRuntimeDependencyTestMaterialization(async () => assert.fail('replacement ran'));
       options.beforeCommit = async () => assert.fail('replacement fence ran');
-    }
+    },
+    testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
+      count++; assert.deepEqual(request.args, ['install', '--frozen-lockfile']);
+      assert.equal(request.cwd, root);
+      assert.ok(Object.isFrozen(request.args)); return success;
+    })
   };
-  await runBunInstall(root, options, ['install']); assert.equal(calls, 1);
+  try {
+    process.chdir(root);
+    const result = await runBunInstall('.', options, args, 'cache');
+    assert.equal(count, 1); assert.ok(commitCount > 0);
+    assert.deepEqual(result, { packageManager: 'bun', result: success });
+  } finally { process.chdir(initial); }
 }));
 
 test('time spent materializing is charged to the original budget rather than a fresh fallback', async () => fixture(async root => {
@@ -96,20 +93,6 @@ test('an argument accessor is never invoked during input admission', async () =>
   const args: string[] = [];
   Object.defineProperty(args, 0, { get() { assert.fail('argv getter'); } });
   await assert.rejects(runBunInstall(root, {}, args), budgetFailure);
-}));
-
-test('relative working directory is bound before callbacks change cwd', async () => fixture(async root => {
-  const initial = process.cwd();
-  try {
-    process.chdir(root);
-    await runBunInstall('.', {
-      monotonicNowMs: () => 0,
-      beforeCommit: async () => { process.chdir(tmpdir()); },
-      testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
-        assert.equal(request.cwd, root); return success;
-      })
-    }, ['install'], 'cache');
-  } finally { process.chdir(initial); }
 }));
 
 test('offline command spelling remains intact and uses the captured absolute configuration path', async () => fixture(async root => {

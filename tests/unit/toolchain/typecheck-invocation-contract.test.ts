@@ -23,20 +23,15 @@ test('each owned selection is read once without enumerating unrelated input', ()
   assert.equal(captured.dependencyProjectRoot, path.resolve('dependencies'));
 });
 
-test('path and diagnostic origin precede callback-driven working directory changes', () => {
+test('typecheck selection survives callback-driven cwd changes and later caller mutation', () => {
   const cwd = process.cwd(), other = mkdtempSync(path.join(tmpdir(), 'sec-typecheck-bind-'));
   try {
     const input = { get isolated() { process.chdir(other); return true; }, dependencyProjectRoot: 'dependencies' };
     const captured = captureTypecheckInvocation('project', input);
+    Object.defineProperty(input, 'isolated', { value: false }); input.dependencyProjectRoot = 'other';
+    assert.equal(captured.isolated, true);
     assert.equal(captured.projectRoot, path.resolve(cwd, 'project'));
     assert.equal(captured.dependencyProjectRoot, path.resolve(cwd, 'dependencies'));
     assert.equal(captured.diagnosticRoot, cwd);
   } finally { process.chdir(cwd); rmSync(other, { recursive: true, force: true }); }
-});
-
-test('caller mutations cannot change an admitted host selection', () => {
-  const raw = { isolated: true, dependencyProjectRoot: 'dependencies' };
-  const captured = captureTypecheckInvocation('project', raw);
-  raw.isolated = false; raw.dependencyProjectRoot = 'other';
-  assert.equal(captured.isolated, true); assert.equal(captured.dependencyProjectRoot, path.resolve('dependencies'));
 });

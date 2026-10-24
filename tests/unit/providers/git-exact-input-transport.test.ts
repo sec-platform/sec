@@ -14,11 +14,14 @@ const commit = (width = 40) => ({ tree: 'a'.repeat(width), parents: ['b'.repeat(
 
 test('commit identities that Git would trim are rejected rather than silently renamed', () => {
   for (const edge of [' ', '\t', '\x01', ',', ':', ';', '"', "'", '\\']) {
-    for (const field of ['name', 'email'] as const) for (const text of [edge + person()[field], person()[field] + edge]) {
-      for (const role of ['author', 'committer'] as const) {
-        assert.equal(canonicalCommitTreeInput({ ...commit(), [role]: { ...person(), [field]: text } }), null, JSON.stringify({ role, field, text }));
-      }
+    for (const name of [edge + person().name, person().name + edge]) {
+      assert.equal(canonicalCommitTreeInput({ ...commit(), author: { ...person(), name } }), null, JSON.stringify(name));
     }
+  }
+  // Both identity roles and both fields consume the same edge grammar.
+  for (const [role, field] of [['author', 'email'], ['committer', 'name'], ['committer', 'email']] as const) {
+    const text = person()[field] + ' ';
+    assert.equal(canonicalCommitTreeInput({ ...commit(), [role]: { ...person(), [field]: text } }), null, `${role}.${field}`);
   }
 });
 
