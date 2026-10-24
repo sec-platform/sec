@@ -95,6 +95,14 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
+  expect(buildCiQuickGatePlan({ includeImports: false, includeDocs: false })).toEqual([
+    { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck:verified'] },
+    { id: 'affected-tests', phase: 'quick', args: ['run', 'test', '--', '--affected'] }
+  ]);
+  expect(fullGates.find((step) => step.id === 'affected-tests')).toBeUndefined();
+  expect(fullGates.filter((step) => step.phase === 'workspace').map((step) => step.id)).toEqual([
+    'resolve', 'compose', 'verify-all', 'lock', 'explain', 'reference-check'
+  ]);
 });
 
 test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {

@@ -10,6 +10,7 @@ import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity
 import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
 import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { CI_VERIFICATION_EXECUTION_MODEL } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { slowTestSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { readCompilerFile } from '../../helpers/compiler-fixtures.ts';
 
@@ -585,4 +586,24 @@ test('hosted activation is a lightweight trusted-main artifact producer, not a c
   expect(activation.steps.indexOf(candidateCheckout)).toBeLessThan(activation.steps.indexOf(producer));
   expect(activation.steps.indexOf(producer)).toBeLessThan(activation.steps.indexOf(upload));
   expect(activation.steps.indexOf(upload)).toBeLessThan(activation.steps.indexOf(publication));
+});
+
+test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
+  const contract = buildCiContract();
+  expect(contract.prQuickLaneCommands).toEqual([
+    'bun run imports:check',
+    'bun run typecheck:verified',
+    'bun run test -- --affected'
+  ]);
+  expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
+    'bun run imports:check',
+    'bun run typecheck:verified',
+    'bun run docs:doctor',
+    'bun run test -- --scope fast',
+    'bun run sec -- verify --lane all --json --compact',
+    'bun run sec -- reference check --json --compact'
+  ]));
+  for (const suiteId of slowTestSuiteIds()) {
+    expect(contract.fullLaneCommands).toContain(`bun run test -- --scope slow --suite ${suiteId}`);
+  }
 });

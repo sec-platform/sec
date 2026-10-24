@@ -5,12 +5,11 @@ import {
   isDocumentationVerificationInputPath
 } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 
-import { buildCiContract } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
-import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { bindDocumentationVerificationGateInput, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords
 } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
-import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { resolveTestOwnership } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { parseGitChangedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
@@ -36,47 +35,7 @@ const buildVerificationPlanForTest = async (
 const slowTestPrRiskBaselineSuiteIds = async () => snapshotBaselineSuiteIds(await testBudgetProjection());
 const getSlowTestSuitesSync = async () => getSnapshotSlowTestSuites(await testBudgetProjection());
 
-test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
-  const contract = buildCiContract();
-  expect(contract.prQuickLaneCommands).toEqual([
-    'bun run imports:check',
-    'bun run typecheck:verified',
-    'bun run test -- --affected'
-  ]);
-  expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
-    'bun run imports:check',
-    'bun run typecheck:verified',
-    'bun run docs:doctor',
-    'bun run test -- --scope fast',
-    'bun run sec -- verify --lane all --json --compact',
-    'bun run sec -- reference check --json --compact'
-  ]));
-  for (const suiteId of slowTestSuiteIds()) {
-    expect(contract.fullLaneCommands).toContain(`bun run test -- --scope slow --suite ${suiteId}`);
-  }
-});
 
-test('CI verification plans execute canonical affected Quick and ordered Full workspace chain', () => {
-  expect(buildCiQuickGatePlan({
-    includeImports: false,
-    includeDocs: false
-  })).toEqual([
-    { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck:verified'] },
-    { id: 'affected-tests', phase: 'quick', args: ['run', 'test', '--', '--affected'] }
-  ]);
-
-  const full = buildCiFullGatePlan();
-  expect(full.find((step) => step.id === 'affected-tests')).toBeUndefined();
-  expect(full.filter((step) => step.id.startsWith('slow-suite-'))).toHaveLength(slowTestSuiteIds().length);
-  expect(full.filter((step) => step.phase === 'workspace').map((step) => step.id)).toEqual([
-    'resolve',
-    'compose',
-    'verify-all',
-    'lock',
-    'explain',
-    'reference-check'
-  ]);
-});
 
 test('CI translates owner-issued selection into executable plan gates', async () => {
   const pipeline = await buildVerificationPlanForTest('quick', [
