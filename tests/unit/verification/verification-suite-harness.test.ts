@@ -1,29 +1,13 @@
 import { expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-
-import { captureFastSuiteProcessInput, type FastSuiteProcessInput } from '../../../src/adapters/verification/fast-suite-input.ts';
+import { captureFastSuiteProcessInput } from '../../../src/adapters/verification/fast-suite-input.ts';
 import { runSuiteProcesses } from '../../../src/adapters/verification/run-suite-processes.ts';
-
-async function fixture(source: string, consume: (input: FastSuiteProcessInput) => Promise<void>) {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-suite-harness-'));
-  const suiteRoot = path.join(root, 'tests', 'unit');
-  const file = path.join(suiteRoot, 'candidate.test.ts');
-  try {
-    await mkdir(suiteRoot, { recursive: true });
-    await writeFile(file, source);
-    await consume({ workspaceRoot: root, suiteRoot, files: [file] });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-}
+import { withFastSuiteCandidate } from '../../testkit/fast-suite-candidate.ts';
 
 test('candidate top-level Reflect.apply replacement cannot skip its failing runSuite', async () => {
-  await fixture(`
+  await withFastSuiteCandidate(`
     Reflect.apply = () => undefined;
     export function runSuite() { throw new Error('suite must execute'); }
-  `, async input => {
+  `, async ({ input }) => {
     const passed: string[] = [];
     await expect(runSuiteProcesses({ ...input, onSuitePassed: file => passed.push(file) }))
       .rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
@@ -32,13 +16,13 @@ test('candidate top-level Reflect.apply replacement cannot skip its failing runS
 });
 
 test('candidate error accessors cannot terminate the harness during failure projection', async () => {
-  await fixture(`
+  await withFastSuiteCandidate(`
     export function runSuite() {
       const failure = new Error('failure');
       Object.defineProperty(failure, 'message', { get() { process.exit(0); } });
       throw failure;
     }
-  `, async input => {
+  `, async ({ input }) => {
     await expect(runSuiteProcesses(input)).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
   });
 });
