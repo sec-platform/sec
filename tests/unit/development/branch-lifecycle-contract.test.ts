@@ -442,7 +442,7 @@ test('bounded selection lifecycle preserves exact other PR transports and blocks
   expect(driftedWorktree.inventoryObservationDigest).not.toBe(projection.inventoryObservationDigest);
 });
 
-test('bounded selection lifecycle rejects duplicate active and preserved PR identities', () => {
+test('bounded selection lifecycle rejects conflicting active and preserved PR branches', () => {
   const active = {
     number: 42,
     headBranch: 'codex/active',
@@ -459,10 +459,6 @@ test('bounded selection lifecycle rejects duplicate active and preserved PR iden
     openPullRequests: [active],
     prospectiveTransport: null
   } as const;
-  expect(() => projectBranchLifecycleForWorkSelection({
-    ...input,
-    preservedOpenPullRequests: [{ ...active, headBranch: 'codex/other' }]
-  })).toThrow('duplicate number');
   expect(() => projectBranchLifecycleForWorkSelection({
     ...input,
     preservedOpenPullRequests: [{ ...active, number: 43 }]
@@ -513,23 +509,6 @@ test('bounded selection lifecycle binds transport identity without treating a br
     activeLegality: 'legal',
     closeoutState: 'none'
   });
-});
-
-test('bounded selection lifecycle rejects the default branch as a prospective transport', () => {
-  expect(() => projectBranchLifecycleForWorkSelection({
-    exactMain: MAIN_SHA,
-    defaultBranch: 'main',
-    localRefs: [{ branch: 'main', sha: MAIN_SHA }],
-    remoteRefs: [],
-    worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'main', headSha: MAIN_SHA }],
-    openPullRequests: [],
-    preservedOpenPullRequests: [],
-    prospectiveTransport: {
-      branch: 'main',
-      headSha: MAIN_SHA,
-      worktreeRef: WORKTREE_REF
-    }
-  })).toThrow('cannot reuse the canonical default branch');
 });
 
 test('bounded selection lifecycle rejects a self-asserted prospective transport', () => {

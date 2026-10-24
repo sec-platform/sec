@@ -53,6 +53,7 @@ model User {
   @@index([phone])
 }
 
+/// Post meaning
 model Post {
   id Int @id
 }
@@ -64,7 +65,7 @@ model Post {
   expect(merged).toContain('role  String @default("USER")');
   expect(merged).toContain('@@index([email])');
   expect(merged).toContain('@@index([phone])');
-  expect(merged).toContain('model Post {');
+  expect(merged).toMatch(/\/\/\/ Post meaning\nmodel Post \{/u);
 });
 
 const schema = (type: string, name: string, body: string) => `${type} ${name} {\n${body}\n}\n`;
@@ -92,7 +93,7 @@ test('a trailing comment brace is not accidentally incorporated into a merged bo
 test('field documentation remains directly attached when another field is added', () => {
   const existing = model('  /// Primary key\n  id Int @id\n  /// Existing label\n  label String');
   const merged = mergePrismaSchemas(existing, model('  /// New name\n  name String'));
-  assert.ok(merged.includes('/// Primary key\n  id Int @id\n  /// Existing label\n  label String\n  /// New name\n  name String'));
+  assert.equal(merged, model('  /// Primary key\n  id Int @id\n  /// Existing label\n  label String\n  /// New name\n  name String'));
   assert.equal(mergePrismaSchemas(merged, model('  /// New name\n  name String')), merged);
 });
 
@@ -103,16 +104,6 @@ test('existing model documentation is not moved to another model or the file hea
   assert.match(extended, /\/\/\/ A doc\nmodel A/);
   assert.match(extended, /\/\/\/ B doc\nmodel B/);
   assert.ok(extended.endsWith('// tail\n'));
-});
-
-test('template documentation for a new block remains adjacent to that block', () => {
-  const merged = mergePrismaSchemas(schema('model', 'A', ' id Int'), '/// B meaning\n' + schema('model', 'B', ' id Int'));
-  assert.match(merged, /\/\/\/ B meaning\nmodel B/);
-});
-
-test('same-name model contributions merge members, not duplicate model definitions', () => {
-  const merged = mergePrismaSchemas(model(' id Int @id'), model(' name String'));
-  assert.equal(merged, model(' id Int @id\n name String'));
 });
 
 for (const type of ['model', 'type', 'enum']) test(`${type} member conflicts are refused, not resolved by source order`, () => {

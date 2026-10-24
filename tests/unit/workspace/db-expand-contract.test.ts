@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { collectUpgradePreflightEvidence } from '../../../src/adapters/upgrade/migration-runtime.ts';
+import { collectUpgradePreflightEvidence, loadMigrationEntries } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import { getWorkspacePaths } from '../../../src/adapters/workspace-context.ts';
 import { applyMigrationEntries } from '../../../src/bootstrap/upgrade/upgrade-workspace.ts';
+import { collectMigrationImpacts } from '../../../src/compiler/upgrade/planning.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 test('directory migration preflight rejects an override owned below its impact root', async () => {
@@ -163,7 +164,20 @@ model Customer {
     // 3. 执行应用
     const targetManifestRoot = path.join(workspaceRoot, 'manifests');
     await fs.mkdir(targetManifestRoot, { recursive: true });
-    
+    expect(collectMigrationImpacts([migrationEntry])).toEqual([
+      'prisma/schema.prisma', 'src/jobs/db-migrations/mig-expand-contract-test.ts'
+    ]);
+    const invalidEntryPath = 'invalid-copy-job.json';
+    const invalidEntry = { ...migrationEntry, id: '../../../src/bootstrap/cli/cli' };
+    await fs.writeFile(path.join(targetManifestRoot, invalidEntryPath), JSON.stringify(invalidEntry));
+    await expect(loadMigrationEntries(targetManifestRoot, 'customer/base', '0.2.0', [{
+      id: invalidEntry.id, kind: invalidEntry.kind, entry: invalidEntryPath,
+      fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false
+    }])).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-011', message: expect.stringContaining('one canonical portable leaf')
+    });
+    expect(await fs.readFile(schemaPath, 'utf8')).toBe(initialSchema);
+
     await applyMigrationEntries(
       workspaceRoot,
       targetManifestRoot,

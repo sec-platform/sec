@@ -33,7 +33,7 @@ test('Git admin names admit UTF-8 components but reject traversal and unrepresen
     expect(isCanonicalGitWorktreeAdminRelativePath(value)).toBeFalse();
   }
   expect(isCanonicalGitWorktreeAdminRelativePath('worktrees/a\\b'))
-    .toBe(process.platform === 'linux');
+    .toBe(process.platform !== 'win32');
 });
 
 test.skipIf(process.platform !== 'linux')('Linux inventory retains a tracked literal-backslash leaf', () => {
@@ -218,6 +218,8 @@ test('authorization binds exact repository target inventory and durable recovery
   expect(value.operationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(value.authorizationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(assertWorktreePhysicalCloseoutAuthorization(value)).toBe(value);
+  expect(value.generatedStateRetirement).toBeNull();
+  expect(isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(value)).toBeFalse();
   const tampered = {
     ...structuredClone(value),
     target: { ...value.target, headSha: '9'.repeat(40) }
@@ -267,24 +269,6 @@ test('fieldless historical authorization is validated exactly and normalized onl
     ...legacy,
     operationId: detailDigest('wrong-legacy-operation')
   } as never)).toThrow('canonical content mismatch');
-});
-
-test('field-bearing authorization keeps the field-aware operation identity without a second schema', () => {
-  const current = authorization();
-  const { authorizationDigest: ignoredAuthorizationDigest, ...body } = current;
-  const material = {
-    ...body,
-    schema: WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA
-  };
-  const legacy = {
-    ...material,
-    authorizationDigest: sha256(material) as `sha256:${string}`
-  };
-  const parsed = assertWorktreePhysicalCloseoutAuthorization(legacy);
-  expect(parsed).toEqual(legacy);
-  expect(parsed.operationId).toBe(current.operationId);
-  expect(parsed.generatedStateRetirement).toBeNull();
-  expect(isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(parsed)).toBeFalse();
 });
 
 test('authorized residue admits only unchanged subsets and rejects new or replaced entries', () => {

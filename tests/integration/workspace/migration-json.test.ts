@@ -226,10 +226,10 @@ test('migration entry loading rejects invalid JSON mutations before planning', a
         entry: configRewrite('package.json', [{ path: [], value: 'invalid' }]),
         id: 'mig-empty-config-path', file: 'empty-config-path.json', code: 'UPGRADE-MIGRATION-010'
       },
-      {
-        entry: configRewrite('app.config.json', [{ path: ['__proto__', 'polluted'], value: true }]),
-        id: 'mig-reserved-config-path', file: 'reserved-config-path.json', code: 'UPGRADE-MIGRATION-030'
-      },
+      ...['__proto__', 'constructor', 'prototype'].map(key => ({
+        entry: configRewrite('app.config.json', [{ path: [key, 'polluted'], value: true }]),
+        id: `mig-reserved-config-${key}`, file: `reserved-config-${key}.json`, code: 'UPGRADE-MIGRATION-030'
+      })),
       {
         entry: jsonObjectMerge('app.config.json', ['feature'],
           JSON.parse('{"nested":{"constructor":{"prototype":{"polluted":true}}}}') as Record<string, unknown>),

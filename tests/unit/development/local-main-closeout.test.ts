@@ -150,28 +150,6 @@ test.serial('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and n
   expect(git(protectedRoot!, ['status', '--porcelain=v1']).trim()).toBe('');
 });
 
-test.serial('local-only commits return LOCAL_MAIN_SYNC_BLOCKED(local-only-commits) without mutation', async () => {
-  const remoteSha = git(protectedRoot!, ['rev-parse', 'origin/main']).trim();
-  const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
-  const localPath = path.join(protectedRoot!, 'local.txt');
-  await settleWorkspaceCallback(async () => {
-    writeFileSync(localPath, 'local\n');
-    git(protectedRoot!, ['add', 'local.txt']);
-    git(protectedRoot!, ['commit', '--quiet', '--no-verify', '-m', 'local-only']);
-    const localHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
-
-    const status = await execute(binding(localHead));
-    expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
-    if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('local-only-commits');
-    expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(localHead);
-    expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
-
-  }, () => settleResourcesAsync({ cleanup: [
-    { label: 'local-fixture-commit', settle: () => { git(protectedRoot!, ['reset', '--hard', beforeHead]); } },
-    { label: 'local-fixture-file', settle: () => rm(localPath, { force: true }) }
-  ] }).then(() => undefined));
-});
-
 test.serial('a diverged protected main preserves local commits while refreshing remote tracking', async () => {
   developerPush('v3\n');
   const remoteSha = git(remoteRoot!, ['rev-parse', 'main']).trim();
@@ -186,7 +164,7 @@ test.serial('a diverged protected main preserves local commits while refreshing 
     const status = await execute(binding(localHead));
     expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
     if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') {
-      expect(['local-only-commits', 'not-fast-forwardable']).toContain(status.reason);
+      expect(status.reason).toBe('local-only-commits');
     }
     expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(localHead);
     expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
