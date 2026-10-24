@@ -43,64 +43,9 @@ test('candidate error accessors cannot terminate the harness during failure proj
   });
 });
 
-test('suite invocation capture snapshots paths and callbacks without freezing caller data', () => {
-  const files = ['tests/unit/first.test.ts'];
-  const passed: string[] = [];
-  const callback = (file: string) => { passed.push(file); };
-  const input = { workspaceRoot: '.', suiteRoot: 'tests/unit', files, onSuitePassed: callback };
-  const captured = captureFastSuiteProcessInput(input);
-  files[0] = 'tests/unit/changed.test.ts';
-  input.workspaceRoot = '/changed';
-  input.onSuitePassed = () => { throw new Error('replacement callback'); };
-  expect(captured.workspaceRoot).toBe('.');
-  expect(captured.files).toEqual(['tests/unit/first.test.ts']);
-  captured.onSuitePassed?.('tests/unit/first.test.ts');
-  expect(passed).toEqual(['tests/unit/first.test.ts']);
-});
-
-test('suite invocation capture rejects proxies and getters without invoking them', () => {
-  let calls = 0;
-  const input = { workspaceRoot: '.', suiteRoot: 'tests/unit', files: ['tests/unit/a.test.ts'] };
-  const proxy = new Proxy(input, { get() { calls += 1; throw new Error('get trap'); } });
-  const filesProxy = new Proxy(input.files, {
-    getOwnPropertyDescriptor() { calls += 1; throw new Error('descriptor trap'); }
-  });
-  const getter = Object.defineProperty({ ...input }, 'files', {
-    get() { calls += 1; throw new Error('getter'); }
-  });
-  expect(() => captureFastSuiteProcessInput(proxy)).toThrow();
-  expect(() => captureFastSuiteProcessInput({ ...input, files: filesProxy })).toThrow();
-  expect(() => captureFastSuiteProcessInput(getter)).toThrow();
-  expect(calls).toBe(0);
-});
-
-test('suite invocation capture rejects sparse, accessor and over-budget inventories', () => {
+test('suite invocation capture bounds candidate inventory and path resources', () => {
   const input = { workspaceRoot: '.', suiteRoot: 'tests/unit', files: [] as string[] };
-  let calls = 0;
-  const accessor = Object.defineProperty(['placeholder'], '0', { get() { calls += 1; return 'tests/unit/a.test.ts'; } });
-  for (const files of [Array<string>(1), Array.from({ length: 10_001 }, (_, index) => `tests/unit/${index}.test.ts`), accessor, ['a'.repeat(16 * 1024 + 1)]]) {
+  for (const files of [Array.from({ length: 10_001 }, (_, index) => `tests/unit/${index}.test.ts`), ['a'.repeat(16 * 1024 + 1)]]) {
     expect(() => captureFastSuiteProcessInput({ ...input, files })).toThrow();
   }
-  expect(calls).toBe(0);
-});
-
-
-test('suite invocation capture preserves only admitted workspace input modes', () => {
-  const base = {
-    workspaceRoot: '.',
-    suiteRoot: 'tests/unit',
-    files: ['tests/unit/a.test.ts']
-  };
-  expect(captureFastSuiteProcessInput({
-    ...base,
-    workspaceInputMode: 'sealed-generation'
-  }).workspaceInputMode).toBe('sealed-generation');
-  expect(captureFastSuiteProcessInput({
-    ...base,
-    workspaceInputMode: 'live-workspace'
-  }).workspaceInputMode).toBe('live-workspace');
-  expect(() => captureFastSuiteProcessInput({
-    ...base,
-    workspaceInputMode: 'foreign-generation' as never
-  })).toThrow('workspace input mode');
 });

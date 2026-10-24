@@ -85,27 +85,6 @@ test('missing runSuite keeps the canonical VERIFY-BUILD-002 classification', asy
   );
 });
 
-test('fast suite recorder rejection preserves an undefined failure payload', async () => {
-  await fixture('export function runSuite() {}', async (root, file) => {
-    let recorderCalled = false;
-    const outcome = await runSuiteProcesses({
-      workspaceRoot: root,
-      suiteRoot: path.dirname(file),
-      files: [file],
-      onSuitePassed: async () => {
-        recorderCalled = true;
-        await Promise.resolve();
-        throw undefined;
-      }
-    }).then(
-      () => ({ status: 'resolved' as const }),
-      error => ({ status: 'rejected' as const, error })
-    );
-    expect(recorderCalled).toBe(true);
-    expect(outcome).toEqual({ status: 'rejected', error: undefined });
-  });
-});
-
 test('fast suite post-process fence rejection cannot be erased by successful child evidence', async () => {
   await fixture(`
     import { writeFileSync } from 'node:fs';

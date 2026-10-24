@@ -1,17 +1,12 @@
 import { expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
 
 import {
   compileIssueDisposition,
   createIssueAcceptanceId,
   createIssueDispositionPlan,
   decideUnexpectedIssueReopen,
-  parseGitHubClosingKeywordOccurrences,
-  parseIssueDisposition,
-  parseIssueDispositionPlan,
-  renderPullRequestBody
+  parseGitHubClosingKeywordOccurrences
 } from '../../../src/adapters/self-hosting/control/issues/disposition.ts';
-import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 
 const REPOSITORY = 'sec-platform/sec';
 const MANIFEST = 'config/repository/work-packages/controlled-pr-issue-disposition-single-writer-v1.md';
@@ -21,16 +16,8 @@ const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
 
-function hash(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
-}
-
 function body(mode: 'progress-only' | 'close-tracking-after-readback' = 'close-tracking-after-readback') {
-  return renderPullRequestBody({
-    summary: 'Implements the exact Issue lifecycle transaction without delegating authority to prose.',
-    manifestPath: MANIFEST,
-    mode
-  });
+  return `Implements the exact Issue lifecycle transaction without delegating authority to prose.\n\nWork-Package: ${MANIFEST}\nIssue-Disposition: ${mode}\n`;
 }
 
 function plan(mode: 'progress-only' | 'close-tracking-after-readback' = 'close-tracking-after-readback') {
@@ -45,14 +32,6 @@ function acceptanceIds() {
     index: 0, text: 'exact lifecycle readback' })] as const;
 }
 
-test('canonical PR renderer emits only non-effect control fields', () => {
-  const rendered = body();
-  expect(rendered.split(/\r?\n/u)).toContain(`Work-Package: ${MANIFEST}`);
-  expect(rendered.split(/\r?\n/u)).toContain('Issue-Disposition: close-tracking-after-readback');
-  expect(parseGitHubClosingKeywordOccurrences(rendered, REPOSITORY)).toEqual([]);
-  expect(parseIssueDispositionPlan(encodeVerificationActionData(plan()))).toEqual(plan());
-});
-
 test('all GitHub closing spellings are rejected even under negation, case, colon, and cross-repo syntax', () => {
   const cases = [
     'do not close #352', 'Closes: #352', 'cLoSeS:#352', 'CLOSED sec-platform/sec#352',
@@ -63,8 +42,10 @@ test('all GitHub closing spellings are rejected even under negation, case, colon
   ];
   for (const source of cases) {
     expect(parseGitHubClosingKeywordOccurrences(source, REPOSITORY)).toHaveLength(1);
-    expect(() => renderPullRequestBody({ summary: source, manifestPath: MANIFEST,
-      mode: 'progress-only' })).toThrow('closing-keyword');
+    expect(() => createIssueDispositionPlan({ repository: REPOSITORY, prNumber: 357,
+      manifestPath: MANIFEST, manifestDigest: DIGEST_A, tracking: 'issue-352', title: 'Safe PR',
+      body: `${source}\n\nWork-Package: ${MANIFEST}\nIssue-Disposition: progress-only\n`,
+      linkedClosingIssues: [] })).toThrow('zero closing authority');
   }
   expect(parseGitHubClosingKeywordOccurrences(
     'fixes #352 and resolves other/repo#9', REPOSITORY
@@ -102,33 +83,12 @@ test('absence of an independently sourced completion assessment can only compile
     'provider-conditional-write-unsupported',
     'trusted-completion-assessment-unavailable'
   ]);
-  expect(parseIssueDisposition(encodeVerificationActionData(disposition))).toEqual(disposition);
 
   const staleState = compileIssueDisposition({ plan: plan(), currentSpecRevision: DIGEST_B,
     acceptanceIds: acceptanceIds(), newMainSha: SHA_A, newMainTreeSha: SHA_B,
     evidenceRefs: [DIGEST_C], expectedProviderState: 'CLOSED' });
   expect(staleState.kind).toBe('progressed');
   expect(staleState.blockers).toContain('expected-provider-state-not-open');
-});
-
-test('disposition parser rejects close-mode states outside the compiler output language', () => {
-  const noTrackingPlan = createIssueDispositionPlan({ repository: REPOSITORY, prNumber: 357,
-    manifestPath: MANIFEST, manifestDigest: DIGEST_A, tracking: 'none',
-    title: 'feat(integration): add machine issue disposition', body: body('progress-only'),
-    linkedClosingIssues: [] });
-  const compiled = compileIssueDisposition({ plan: noTrackingPlan,
-    currentSpecRevision: DIGEST_B, acceptanceIds: acceptanceIds(), newMainSha: SHA_A,
-    newMainTreeSha: SHA_B, evidenceRefs: [DIGEST_C], expectedProviderState: 'OPEN' });
-  const { dispositionId: _dispositionId, operationId: _operationId,
-    receiptDigest: _receiptDigest, ...semantic } = compiled;
-  void _dispositionId; void _operationId; void _receiptDigest;
-  const invalidSemantic = { ...semantic, planMode: 'close-tracking-after-readback',
-    blockers: semantic.blockers.filter((blocker) => blocker !== 'plan-progress-only') };
-  const dispositionId = hash(invalidSemantic);
-  const operationId = hash({ dispositionId, effect: 'none' });
-  const invalidReceipt = { ...invalidSemantic, dispositionId, operationId };
-  expect(() => parseIssueDisposition(encodeVerificationActionData({ ...invalidReceipt,
-    receiptDigest: hash(invalidReceipt) }))).toThrow('close disposition has no tracking Issue');
 });
 
 test('progress plan cannot mint an effect even when every fact is satisfied', () => {

@@ -8,6 +8,7 @@ import {
   inspectNoFollowOrdinaryFileEntry,
   retainNoFollowFileTransaction
 } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { WorkspaceWriteLeaseError } from '../../../src/adapters/filesystem/write-lease.ts';
 import { removeNoFollowMigrationFile, updateNoFollowMigrationFile } from '../../../src/adapters/upgrade/migration-physical.ts';
 import { applyMigrationEntries } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import {
@@ -218,7 +219,7 @@ test('upgrade recovery restores original B after sequential updates and a copy-j
     );
     expect(await fs.readFile(fixture.planPath)).toEqual(finalBytes);
     expect(await fs.readFile(path.join(snapshot.preimage.path, 'sec.yaml'))).toEqual(originalPlanBytes);
-    const copyFailure = new Error('copy-job write refused');
+    const copyFailure = new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-002', 'copy-job write refused');
     let sawCommittedSchema = false;
     const failingCopyFence = async (): Promise<void> => {
       const schema = await fs.readFile(fixture.schemaPath, 'utf8');

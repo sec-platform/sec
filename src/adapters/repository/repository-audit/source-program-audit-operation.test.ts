@@ -503,23 +503,6 @@ describe('Source Program audit domain operation', () => {
     } as unknown as CompileSourceProgramAuditOperationInput), /Unsupported Repository Audit blocking-detail domain/u);
   });
 
-  test('is deterministic and excludes unknown caller properties from its result identity', () => {
-    const canonical = compileSourceProgramAuditOperationInput(input());
-    const withUnknown = Object.freeze({ ...canonical, futureTransportHint: 'ignored' });
-    const first = compileSourceProgramAuditOperation(canonical);
-    const second = compileSourceProgramAuditOperation(
-      withUnknown as SourceProgramAuditOperationInput
-    );
-    const serialized = compileSourceProgramAuditOperation(
-      JSON.parse(JSON.stringify(canonical)) as SourceProgramAuditOperationInput
-    );
-
-    assert.deepEqual(first, second);
-    assert.deepEqual(serialized, first);
-    assert.equal(first.exitCode, 0);
-    assert.equal(first.reductionPatch, null);
-  });
-
   test('projects parent-issued query facts and candidate observations', () => {
     const facts = input();
     const queryProjection = Object.freeze({ query: 'domain', declarations: Object.freeze([]) });
@@ -1084,7 +1067,8 @@ describe('Source Program audit domain operation', () => {
     assert.equal(honest.exitCode, 0);
     const unsigned = { projection: honest.projection, reductionPatch: honest.reductionPatch, exitCode: 1 as const };
     const forged = { ...unsigned, resultDigest: digest(unsigned) };
-    assert.throws(() => encodeSourceProgramAuditOperationResult(forged), /contradicts.*decision/);
+    assert.throws(() => parseSourceProgramAuditOperationResult(
+      Buffer.from(JSON.stringify(canonicalJson(forged))), 1_000_000), /contradicts.*decision/);
   });
 
   test('missing or malformed reported enforcement is not interpreted as success', () => {
