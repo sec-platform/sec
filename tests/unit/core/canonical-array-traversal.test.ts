@@ -13,15 +13,18 @@ test('canonical array hooks cannot choose normalized data, hashes or equality', 
   assert.equal(canonicalEquals(input, [1, { a: 3, z: 2 }]), true);
   assert.equal(canonicalEquals(input, ['forged']), false);
   assert.equal(calls, 0);
+
+  // An own map accessor can have effects on read, even without method invocation.
+  {
+    const input = [1];
+    let calls = 0;
+    Object.defineProperty(input, 'map', { get() { calls++; throw new Error('must not execute'); } });
+    assert.deepEqual(canonicalJson(input), [1]);
+    assert.equal(calls, 0);
+  }
 });
 
-test('canonical array traversal does not read a map accessor', () => {
-  const input = [1];
-  let calls = 0;
-  Object.defineProperty(input, 'map', { get() { calls++; throw new Error('must not execute'); } });
-  assert.deepEqual(canonicalJson(input), [1]);
-  assert.equal(calls, 0);
-});
+
 
 test('canonical arrays do not consult constructors or Symbol.species', () => {
   const input = [1, 2];
@@ -33,19 +36,22 @@ test('canonical arrays do not consult constructors or Symbol.species', () => {
   assert.deepEqual(actual, [1, 2]);
   assert.equal(calls, 0);
   assert.strictEqual(Object.getPrototypeOf(actual), Array.prototype);
+
+  // Subclasses and own constructor hooks share the array-construction trust boundary.
+  {
+    let calls = 0;
+    class InputArray extends Array<number> {}
+    Object.defineProperty(InputArray, Symbol.species, {
+      get() { calls++; throw new Error('must not invoke species'); }
+    });
+    const actual = canonicalJson(new InputArray(1, 2));
+    assert.deepEqual(actual, [1, 2]);
+    assert.equal(calls, 0);
+    assert.strictEqual(Object.getPrototypeOf(actual), Array.prototype);
+  }
 });
 
-test('canonical array subclasses produce ordinary arrays without invoking species', () => {
-  let calls = 0;
-  class InputArray extends Array<number> {}
-  Object.defineProperty(InputArray, Symbol.species, {
-    get() { calls++; throw new Error('must not invoke species'); }
-  });
-  const actual = canonicalJson(new InputArray(1, 2));
-  assert.deepEqual(actual, [1, 2]);
-  assert.equal(calls, 0);
-  assert.strictEqual(Object.getPrototypeOf(actual), Array.prototype);
-});
+
 
 test('canonical arrays reject own index getters without invoking them', () => {
   const input: unknown[] = [0, 1, 2];
@@ -65,19 +71,22 @@ test('canonical arrays treat inherited values as missing and explicitly normaliz
   const actual = canonicalJson(input) as unknown[];
   assert.deepEqual(actual, [null, null, null]);
   assert.equal(canonicalEquals(input, [null, null, null]), true);
+
+  // Inherited data and inherited accessors must both be ignored as array members.
+  {
+    let reads = 0;
+    const array = new Array<unknown>(2);
+    const prototype = Object.create(Array.prototype) as Record<string, unknown>;
+    Object.defineProperty(prototype, '1', {
+      get() { reads++; throw new Error('inherited getter must not run'); }
+    });
+    Object.setPrototypeOf(array, prototype);
+    assert.deepEqual(canonicalJson(array), [null, null]);
+    assert.equal(reads, 0);
+  }
 });
 
-test('canonical arrays never run inherited indexed accessors', () => {
-  let reads = 0;
-  const array = new Array<unknown>(2);
-  const prototype = Object.create(Array.prototype) as Record<string, unknown>;
-  Object.defineProperty(prototype, '1', {
-    get() { reads++; throw new Error('inherited getter must not run'); }
-  });
-  Object.setPrototypeOf(array, prototype);
-  assert.deepEqual(canonicalJson(array), [null, null]);
-  assert.equal(reads, 0);
-});
+
 
 test('canonical normalization handles a 50000-edge object chain without the native call stack', () => {
   const root: { child?: object } = {};
