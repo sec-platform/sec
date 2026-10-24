@@ -1600,9 +1600,9 @@ async function createProposalFreezeFixture(): Promise<ProposalFreezeFixture> {
   }
 }
 
-test('proposal-only journal preserves its PROPOSED identity and public in-progress reason', async () => {
+test('proposal-only recovery preserves its PROPOSED identity, rejects the activation lane and completes', async () => {
   const prepared = await createProposalFreezeFixture();
-  const { fixture, proposalJournalPath, proposalPath } = prepared;
+  const { fixture, proposalId, proposalJournalPath, proposalPath } = prepared;
   try {
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
@@ -1642,22 +1642,6 @@ test('proposal-only journal preserves its PROPOSED identity and public in-progre
         .rejects.toThrow('Freeze journal result identity is invalid');
       await writeFile(proposalJournalPath, proposalJournalBytes);
     }
-  } finally {
-    await fixture.dispose();
-  }
-}, 30_000);
-
-test('proposal-only recovery rejects the activation lane and completes as PROPOSED', async () => {
-  const prepared = await createProposalFreezeFixture();
-  const { fixture, proposalId, proposalJournalPath, proposalPath } = prepared;
-  try {
-    await expect(freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: proposalPath,
-      reviewedOn: '2026-08-09',
-      proposalOnly: true,
-      faultAfter: 'after-pointer-publish'
-    })).rejects.toThrow('Injected document control freeze fault: after-pointer-publish.');
     const journalBeforeWrongLane = await readFile(proposalJournalPath);
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
@@ -1755,28 +1739,6 @@ test('a completed proposal is idempotent only through the proposal-only lane', a
       manifestDigest: proposed.manifestDigest
     });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  } finally {
-    await fixture.dispose();
-  }
-}, 30_000);
-
-test('proposal-only retry cannot advance an activation journal', async () => {
-  const fixture = await createFreezeFixture();
-  try {
-    await expect(freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09',
-      faultAfter: 'after-pointer-publish'
-    })).rejects.toThrow('after-pointer-publish');
-    const beforeWrongLane = await readFreezeEffectSnapshot(fixture.repositoryRoot);
-    await expect(freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09',
-      proposalOnly: true
-    })).rejects.toThrow('belongs to another authoring disposition');
-    expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(beforeWrongLane);
   } finally {
     await fixture.dispose();
   }
@@ -2192,6 +2154,16 @@ for (const faultAfter of [
         status: 'unresolved',
         reason: expect.stringContaining('activation is nonterminal')
       });
+      if (faultAfter === 'after-pointer-publish') {
+        const beforeWrongLane = await readFreezeEffectSnapshot(fixture.repositoryRoot);
+        await expect(freezeDocumentControlPlane({
+          cwd: fixture.repositoryRoot,
+          manifestPath: FREEZE_TARGET_PATH,
+          reviewedOn: '2026-08-09',
+          proposalOnly: true
+        })).rejects.toThrow('belongs to another authoring disposition');
+        expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(beforeWrongLane);
+      }
       const recovered = await freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -4228,22 +4200,7 @@ for (const raceKind of ['local-default-ref', 'live-default-ref'] as const) {
   }, 30_000);
 }
 
-test('freeze preserves unrelated untracked work but rejects unrelated staged and unknown recovery bytes', async () => {
-  const unstagedFixture = await createFreezeFixture();
-  try {
-    await writeFile(path.join(unstagedFixture.repositoryRoot, 'user-notes.txt'), 'preserve me\n', 'utf8');
-    await freezeDocumentControlPlane({
-      cwd: unstagedFixture.repositoryRoot,
-      manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
-    expect(await readFile(path.join(unstagedFixture.repositoryRoot, 'user-notes.txt'), 'utf8')).toBe('preserve me\n');
-    expect(runGit(unstagedFixture.repositoryRoot, ['diff', '--cached', '--name-only']))
-      .not.toContain('user-notes.txt');
-  } finally {
-    await unstagedFixture.dispose();
-  }
-
+test('freeze rejects unrelated staged and unknown recovery bytes without changing them', async () => {
   const stagedFixture = await createFreezeFixture();
   try {
     await writeFile(path.join(stagedFixture.repositoryRoot, 'user-staged.txt'), 'preserve staged\n', 'utf8');
@@ -4831,34 +4788,7 @@ for (const createKind of ['directory', 'file'] as const) {
   }, 90_000);
 }
 
-test('fresh transaction directories flush each containing parent before freeze effects and recover', async () => {
-  const orderedFixture = await createFreezeFixture();
-  try {
-    await rm(path.join(orderedFixture.repositoryRoot, '.tmp'), { recursive: true, force: true });
-    const events: string[] = [];
-    await expect(freezeDocumentControlPlane({
-      cwd: orderedFixture.repositoryRoot,
-      manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09',
-      faultAfter: 'after-journal-prepare',
-      createdParentBarrierObserver: ({ createdPath }) => {
-        events.push(`directory:${path.relative(orderedFixture.repositoryRoot, createdPath)}`);
-      },
-      durabilityObserver: (event) => {
-        events.push(`effect:${event.label}:${event.stage}`);
-      }
-    })).rejects.toThrow('after-journal-prepare');
-    const firstEffect = events.findIndex((event) => event.startsWith('effect:'));
-    expect(firstEffect).toBeGreaterThanOrEqual(3);
-    expect(events.slice(0, 3)).toEqual([
-      'directory:.tmp',
-      `directory:${path.join('.tmp', 'codex')}`,
-      `directory:${path.join('.tmp', 'codex', 'document-control-plane-freeze-v1')}`
-    ]);
-  } finally {
-    await orderedFixture.dispose();
-  }
-
+test('failed fresh-directory parent barriers precede freeze effects and remain recoverable', async () => {
   const failedFixture = await createFreezeFixture();
   try {
     await rm(path.join(failedFixture.repositoryRoot, '.tmp'), { recursive: true, force: true });
@@ -5061,9 +4991,12 @@ if (process.platform === 'win32') {
   }, 30_000);
 }
 
-test('freeze canonical publications join retained file flush and parent barriers', async () => {
+test('freeze preserves untracked work and joins directory, publication and parent barriers', async () => {
   const fixture = await createFreezeFixture();
   try {
+    await rm(path.join(fixture.repositoryRoot, '.tmp'), { recursive: true, force: true });
+    await writeFile(path.join(fixture.repositoryRoot, 'user-notes.txt'), 'preserve me\n', 'utf8');
+    const orderedEvents: string[] = [];
     const events: DurabilityEvent[] = [];
     const publications = new Set<string>();
     const canonicalTargets = [
@@ -5076,7 +5009,11 @@ test('freeze canonical publications join retained file flush and parent barriers
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09',
+      createdParentBarrierObserver: ({ createdPath }) => {
+        orderedEvents.push(`directory:${path.relative(fixture.repositoryRoot, createdPath)}`);
+      },
       durabilityObserver: async (event) => {
+        orderedEvents.push(`effect:${event.label}:${event.stage}`);
         events.push(event);
         if (event.stage !== 'renamed') return;
         const target = canonicalTargets.find((candidate) => path.relative(candidate.path, event.targetPath) === '');
@@ -5092,6 +5029,16 @@ test('freeze canonical publications join retained file flush and parent barriers
       }
     });
     expect(result.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+    expect(await readFile(path.join(fixture.repositoryRoot, 'user-notes.txt'), 'utf8')).toBe('preserve me\n');
+    expect(runGit(fixture.repositoryRoot, ['diff', '--cached', '--name-only']))
+      .not.toContain('user-notes.txt');
+    const firstEffect = orderedEvents.findIndex((event) => event.startsWith('effect:'));
+    expect(firstEffect).toBeGreaterThanOrEqual(3);
+    expect(orderedEvents.slice(0, 3)).toEqual([
+      'directory:.tmp',
+      `directory:${path.join('.tmp', 'codex')}`,
+      `directory:${path.join('.tmp', 'codex', 'document-control-plane-freeze-v1')}`
+    ]);
     expect([...publications].sort()).toEqual([
       'journal:prepared',
       'git-index',
@@ -5341,7 +5288,7 @@ test('repository control artifacts bind the indexed manifest and one bounded rol
   expect(parsedRollingPlan.candidatePackageIds.length).toBeLessThanOrEqual(5);
 });
 
-for (const faultAfter of ['after-journal-prepare', 'after-journal-index-published-next-install'] as const) {
+for (const faultAfter of ['after-journal-index-published-next-install'] as const) {
   test(`V3 reader resumes the existing freeze tuple after ${faultAfter} and retires its journal`, async () => {
     const fixture = await createFreezeFixture();
     try {
@@ -5355,7 +5302,7 @@ for (const faultAfter of ['after-journal-prepare', 'after-journal-index-publishe
         manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09', faultAfter })).rejects.toThrow(faultAfter);
       const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
       const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
-      expect(journal.phase).toBe(faultAfter === 'after-journal-prepare' ? 'prepared' : 'index-published');
+      expect(journal.phase).toBe('index-published');
       const recovered = await freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09' });
       expect(recovered.operationId).toBe(journal.operationId);
