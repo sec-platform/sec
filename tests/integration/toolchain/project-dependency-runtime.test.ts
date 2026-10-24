@@ -49,7 +49,7 @@ async function observeCanonicalSharedDependencies(): Promise<unknown> {
 }
 
 async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Promise<void> {
-  await Promise.all(
+  const joined = await Promise.allSettled(
     RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
       // Use installed package identity, including npm aliases, as the fixture source.
       const installed = await readJson<{ name: string; version: string }>(
@@ -67,6 +67,11 @@ async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Pr
       );
     })
   );
+  // One unavailable native package must not leave sibling writes executing
+  // after the containing test starts retiring its private workspace.
+  const failures = joined.flatMap(value => value.status === 'rejected' ? [value.reason] : []);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Runtime manifest fixture writes failed');
 }
 
 describe('project and compiler runtime manifests', () => {
@@ -162,10 +167,16 @@ describe('ensureProjectDependencies', () => {
       const runtimeSpec = await loadRuntimeDependencySpec();
       await installRuntimePackageManifestClosure(nodeModulesRoot);
       await fs.mkdir(fillerRoot, { recursive: true });
-      await Promise.all([
+      const preparedInputs = await Promise.allSettled([
         fs.writeFile(bindingPath, `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`, 'utf8'),
         fs.writeFile(path.join(fillerRoot, '0512.bin'), 'x', 'utf8')
       ]);
+      const preparationFailures = preparedInputs.flatMap(value =>
+        value.status === 'rejected' ? [value.reason] : []);
+      if (preparationFailures.length === 1) throw preparationFailures[0];
+      if (preparationFailures.length > 1) {
+        throw new AggregateError(preparationFailures, 'Prebound runtime fixture writes failed');
+      }
       const beforeRoot = await fs.stat(nodeModulesRoot);
       const beforeSample = await fs.stat(path.join(fillerRoot, '0512.bin'));
       let fenceCalls = 0;
