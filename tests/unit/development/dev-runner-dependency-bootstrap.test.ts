@@ -300,18 +300,25 @@ for (const source of ['existing', 'installed'] as const) {
   });
 }
 
-test('operation demand materializes only the compiler dependency capability', async () => {
+test('dependency bootstrap rejects a valid graph that does not demand compiler dependencies', async () => {
+  await expect(ensureOperationDependencies(compileOperationDemandGraph({
+    operation: 'work-selection-observe',
+    terminalWorkIds: []
+}))).rejects.toThrow('requires an operation demand for compiler-dependency-tree');
+});
+
+test('one process-local materialization is reusable only for a covered demand closure', async () => {
   const calls: string[] = [];
-  const result = await ensureOperationDependencies(compileOperationDemandGraph({
+  const fastGraph = compileOperationDemandGraph({
     operation: 'test-fast',
     terminalWorkIds: []
-  }), isolatedBootstrapOptions({
+  });
+  const result = await ensureOperationDependencies(fastGraph, isolatedBootstrapOptions({
     ensureCompilerDeps: async () => {
       calls.push('compiler');
       return compilerReady('existing');
     }
   }));
-
   expect(result).toEqual({
     executionGenerationAuthority: compilerDependencyFixture.executionGenerationAuthority,
     manifestHash: compilerDependencyFixture.manifestHash,
@@ -321,23 +328,6 @@ test('operation demand materializes only the compiler dependency capability', as
     transitionDigest: `sha256:${'a'.repeat(64)}`
   });
   expect(calls).toEqual(['compiler']);
-});
-
-test('dependency bootstrap rejects a valid graph that does not demand compiler dependencies', async () => {
-  await expect(ensureOperationDependencies(compileOperationDemandGraph({
-    operation: 'work-selection-observe',
-    terminalWorkIds: []
-}))).rejects.toThrow('requires an operation demand for compiler-dependency-tree');
-});
-
-test('one process-local materialization is reusable only for a covered demand closure', async () => {
-  const fastGraph = compileOperationDemandGraph({
-    operation: 'test-fast',
-    terminalWorkIds: []
-  });
-  const result = await ensureOperationDependencies(fastGraph, isolatedBootstrapOptions({
-    ensureCompilerDeps: async () => compilerReady('existing')
-  }));
 
   expect(() => assertMaterializedOperationDependencyBootstrapResult(result)).not.toThrow();
   expect(() => assertMaterializedOperationDependencyBootstrapResult(

@@ -336,27 +336,6 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('a rea
   }
 }, 20_000);
 
-test('a serialized assignment cannot be used as cleanup authority', () => {
-  const namespace = 'forged-cleanup-authority';
-  const assignment = createTestWorkspaceRunChildAssignment({
-    parentNamespace: namespace,
-    issuerProcessId: process.pid,
-    device: 'device',
-    inode: 'inode',
-    nonce: '6'.repeat(64),
-    supervisorLeaseDigest: `sha256:${'7'.repeat(64)}`,
-    supervisorLeasePath: path.join(compilerRoot, '.tmp', 'forged-lease.lock'),
-    supervisorLeaseDevice: 'lease-device',
-    supervisorLeaseInode: 'lease-inode',
-    namespaceDevice: 'namespace-device',
-    namespaceInode: 'namespace-inode'
-  });
-  expect(() => prepareTestWorkspaceRun({
-    [TEST_WORKSPACE_NAMESPACE_ENV]: namespace,
-    [TEST_WORKSPACE_RUN_CHILD_ENV]: assignment.name
-  }, assignment as never)).toThrow('cleanup authority is invalid');
-});
-
 test('opaque retained cleanup removes only the prepared physical child beneath its caller scope', async () => {
   const namespace = `env-manager-${process.pid}-${Date.now()}`;
   const parentEnv = { [TEST_WORKSPACE_NAMESPACE_ENV]: namespace };

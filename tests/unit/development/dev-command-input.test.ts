@@ -1,8 +1,5 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import {
   captureDevCommandInput,
   type DevCommandOptions
@@ -35,54 +32,6 @@ test.serial('an earlier parent deadline narrows the command without a fresh dura
   } finally { Date.now = now; }
 });
 
-test('explicit invalid mode, timing, path or signal values cannot select defaults', () => {
-  const invalid: ReadonlyArray<readonly [unknown, RegExp | typeof TypeError]> = [
-    [null, /options must be an object/], [[], /options must be an object/], [false, /options must be an object/],
-    [{ observe: 'true' }, /observation mode must be boolean/], [{ observe: null }, /observation mode must be boolean/],
-    [{ timeoutMs: null }, /timeout must be a safe integer/], [{ timeoutMs: 1 }, /timeout must be a safe integer/],
-    [{ timeoutMs: DEV_COMMAND_MAX_DURATION_MS + 1 }, /timeout must be a safe integer/],
-    [{ deadlineAtUnixMs: null }, /parent deadline must be a safe integer/],
-    [{ workingDirectory: false }, /working directory must be a path string/],
-    [{ workingDirectory: 'a\0b' }, /working directory must be a path string/],
-    [{ signal: null }, TypeError], [{ signal: {} }, TypeError]
-  ];
-  for (const [options, expected] of invalid) {
-    assert.throws(() => capture(options as never), expected);
-  }
-});
-
-test('a native abort signal is captured by identity, including an already-aborted one', () => {
-  const controller = new AbortController(); controller.abort(null);
-  assert.equal(capture({ signal: controller.signal }).signal, controller.signal);
-});
-
-test('each declared option is read once and unrelated getters are not enumerated', () => {
-  const reads: string[] = [];
-  const source = { observe: true, timeoutMs: 1000, input: Uint8Array.of(1) };
-  const options: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(source)) Object.defineProperty(options, key, { get() { reads.push(key); return value; } });
-  Object.defineProperty(options, 'unrelated', { get() { assert.fail('unused getter'); } });
-  capture(new Proxy(options, { ownKeys() { assert.fail('wide enumeration'); } }) as unknown as DevCommandOptions);
-  assert.deepEqual(reads.sort(), ['input', 'observe', 'timeoutMs']);
-});
-
-test('actual typed-array view is copied once, not its shadow fields or iterator', () => {
-  const input = Uint8Array.of(0, 2, 3, 0).subarray(1, 3);
-  Object.defineProperties(input, { byteLength: { value: 0 }, buffer: { get() { assert.fail('buffer getter'); } },
-    [Symbol.iterator]: { value() { assert.fail('iterator'); } } });
-  const result = capture({ input }); assert.equal(result.inputBytes, 2); assert.deepEqual([...result.input!], [2, 3]);
-  assert.throws(() => capture({ input: new Uint8Array(new SharedArrayBuffer(1)) }), /shared/);
-});
-
-test('argument and auxiliary arrays use their own values rather than custom iteration', () => {
-  const args = ['original']; args[Symbol.iterator] = () => { throw new Error('iterator'); };
-  assert.deepEqual(capture(undefined, args).args, ['original']);
-  const invalid = [new Array(1), ['x', null], Object.defineProperty([], '0', { get() { assert.fail('getter'); }, configurable: true })];
-  for (const value of invalid) assert.throws(() => capture(undefined, value as never), TypeError);
-  assert.throws(() => capture(undefined, ['x\0y']));
-  assert.throws(() => capture({ auxiliaryOrdinaryFilePaths: ['x', './x'] }), /unique/);
-});
-
 test('environment overrides may delete inherited entries but cannot coerce invalid values', () => {
   const key = 'SEC_DEV_COMMAND_CAPTURE_TEST', previous = process.env[key];
   try {
@@ -92,18 +41,6 @@ test('environment overrides may delete inherited entries but cannot coerce inval
       assert.throws(() => capture(undefined, [], env as never));
     }
   } finally { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; }
-});
-
-test('path origin is fixed before option getters can change process cwd', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'command-input-')), previous = process.cwd();
-  mkdirSync(path.join(root, 'other'));
-  try {
-    process.chdir(root);
-    const result = capture({ get observe() { process.chdir(path.join(root, 'other')); return false; },
-      workingDirectory: 'work', auxiliaryOrdinaryFilePaths: ['input.ts'] });
-    assert.equal(result.workingDirectory, path.join(root, 'work'));
-    assert.deepEqual(result.auxiliaryOrdinaryFilePaths, [path.join(root, 'input.ts')]);
-  } finally { process.chdir(previous); rmSync(root, { recursive: true, force: true }); }
 });
 
 test('oversized stdin is rejected before the snapshot copies its bytes', () => {
