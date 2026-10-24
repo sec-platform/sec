@@ -541,6 +541,22 @@ describe('Source Program audit domain operation', () => {
       strongComponents: [],
       violations: []
     });
+    for (const [report, full] of [
+      [projected.projection, true],
+      [compileSourceProgramAuditOperationInput(facts).projection, false]
+    ] as const) {
+      const testValue = report.testValue as Record<string, unknown>;
+      assert.deepEqual(testValue.candidateRegistrationCensus, {
+        unit: 'static-registration-site',
+        scope: 'source-program-test-surface',
+        completeness: 'not-established',
+        runtimeExpansion: 'not-observed',
+        count: facts.testValue.candidateRegistrationCensus.count,
+        digest: facts.testValue.candidateRegistrationCensus.digest,
+        ...(full ? { paths: facts.testValue.candidateRegistrationCensus.paths } : {})
+      });
+      assert.equal(testValue.recordsWithUnknownSemantics, facts.testValue.recordsWithUnknownSemantics);
+    }
   });
 
   test('uses one reduction discriminant and returns the parent-issued patch candidate', () => {

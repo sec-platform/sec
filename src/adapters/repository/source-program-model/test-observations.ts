@@ -213,6 +213,7 @@ export function sourceProgramTestObservationsForFiles(
 }
 
 type ImportedBinding = Readonly<{
+  typeOnly?: boolean;
   moduleSpecifier: string;
   targetPath: string | null;
   targetName: string;
@@ -276,7 +277,8 @@ function importBindings(
       bindings.set(clause.name.text, Object.freeze({
         moduleSpecifier,
         targetPath,
-        targetName: 'default'
+        targetName: 'default',
+        typeOnly: clause.isTypeOnly
       }));
     }
     if (clause.namedBindings === undefined) continue;
@@ -284,7 +286,8 @@ function importBindings(
       bindings.set(clause.namedBindings.name.text, Object.freeze({
         moduleSpecifier,
         targetPath,
-        targetName: '*'
+        targetName: '*',
+        typeOnly: clause.isTypeOnly
       }));
       continue;
     }
@@ -292,7 +295,8 @@ function importBindings(
       bindings.set(element.name.text, Object.freeze({
         moduleSpecifier,
         targetPath,
-        targetName: (element.propertyName ?? element.name).text
+        targetName: (element.propertyName ?? element.name).text,
+        typeOnly: clause.isTypeOnly || element.isTypeOnly
       }));
     }
   }
@@ -355,11 +359,12 @@ function operationRoleProvenance(
 function callReferenceForExpression(
   sourceFile: ts.SourceFile,
   repositoryPath: string,
-  expression: ts.LeftHandSideExpression,
+  expression: ts.Identifier | ts.PropertyAccessExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>
 ): SourceProgramReference | null {
-  const start = expression.getStart(sourceFile, false);
-  const end = expression.getEnd();
+  const callee = ts.isPropertyAccessExpression(expression) ? expression.name : expression;
+  const start = callee.getStart(sourceFile, false);
+  const end = callee.getEnd();
   const references = callReferencesByPath.get(repositoryPath) ?? [];
   let lower = 0;
   let upper = references.length;
@@ -371,8 +376,8 @@ function callReferenceForExpression(
   let candidate: SourceProgramReference | null = null;
   for (let index = lower; index < references.length; index += 1) {
     const reference = references[index]!;
-    if (reference.span.start > end) break;
-    if (reference.span.end > end) continue;
+    if (reference.span.start > start) break;
+    if (reference.span.end !== end) continue;
     if (candidate !== null) return null;
     candidate = reference;
   }
@@ -418,6 +423,8 @@ function callReferenceIndex(
 }
 
 function compilerRegistrationKind(
+  model: SourceProgramModel,
+  bindings: ReadonlyMap<string, ImportedBinding>,
   sourceFile: ts.SourceFile,
   repositoryPath: string,
   node: ts.CallExpression,
@@ -425,9 +432,11 @@ function compilerRegistrationKind(
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
   moduleMembership: RepositoryModuleMembership
 ): string | null {
-  const direct = testRegistrationKind(node.expression);
-  if (direct !== null) return direct;
+  const direct = testRegistrar(node.expression, model, repositoryPath, bindings);
+  if (direct?.state === 'registrar') return direct.kind;
   return compilerRegistrationProvenance(
+    model,
+    bindings,
     sourceFile,
     repositoryPath,
     node,
@@ -438,6 +447,8 @@ function compilerRegistrationKind(
 }
 
 function compilerRegistrationProvenance(
+  model: SourceProgramModel,
+  bindings: ReadonlyMap<string, ImportedBinding>,
   sourceFile: ts.SourceFile,
   repositoryPath: string,
   node: ts.CallExpression,
@@ -445,11 +456,22 @@ function compilerRegistrationProvenance(
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
   moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
-  if (testRegistrationKind(node.expression) !== null) return Object.freeze([]);
+  const expression = unwrap(node.expression);
+  if (!ts.isIdentifier(expression) && !ts.isPropertyAccessExpression(expression)) return Object.freeze([]);
+  let root: ts.Expression = expression;
+  while (ts.isPropertyAccessExpression(root)) root = unwrap(root.expression);
+  // A call on an issuer's return value is not a call to that issuer. Resolve
+  // only this callee's compiler reference, never a nested call in its receiver.
+  if (!ts.isIdentifier(root)) return Object.freeze([]);
+  const binding = bindings.get(root.text);
+  if (binding !== undefined && (binding.typeOnly === true
+      || !sourceProgramTypeScriptIdentifierResolvesToImport(
+        model, repositoryPath, root, binding.moduleSpecifier, binding.targetName
+      ))) return Object.freeze([]);
   const call = callReferenceForExpression(
     sourceFile,
     repositoryPath,
-    node.expression,
+    expression,
     callReferencesByPath
   );
   if (call?.targetObservationId === null || call === null) return Object.freeze([]);
@@ -699,20 +721,69 @@ function callIdentity(expression: ts.LeftHandSideExpression): string | null {
   return null;
 }
 
-function testRegistrationKind(expression: ts.LeftHandSideExpression): string | null {
-  const identity = callIdentity(expression);
-  if (identity === null) return null;
-  const root = identity.split('.')[0];
-  if (root !== 'test' && root !== 'it') return null;
-  // Bun/Jest/Vitest conditional, table and fixture APIs return a registrar;
-  // their factory invocation is not a case. The outer call supplies the case.
-  // Vitest scoped/override configure fixtures and never register a case.
-  const member = ts.isPropertyAccessExpression(expression) ? expression.name.text : null;
-  if (member === 'scoped' || member === 'override') return null;
-  if (member !== null && [
-    'if', 'skipIf', 'todoIf', 'runIf', 'each', 'for', 'extend'
-  ].includes(member)) return null;
-  return identity;
+type TestRegistrar = Readonly<{ kind: string; state: 'registrar' | 'factory' | 'namespace' }>;
+
+/** Resolve registration sources, not names or the number of runner-expanded cases. */
+function testRegistrar(
+  expression: ts.Expression,
+  model: SourceProgramModel,
+  repositoryPath: string,
+  bindings: ReadonlyMap<string, ImportedBinding>,
+  resolving: ReadonlySet<ts.Node> = new Set()
+): TestRegistrar | null {
+  const current = unwrap(expression);
+  if (resolving.has(current)) return null;
+  const next = new Set([...resolving, current]);
+  const resolve = (value: ts.Expression): TestRegistrar | null =>
+    testRegistrar(value, model, repositoryPath, bindings, next);
+  if (ts.isSatisfiesExpression(current) || ts.isExpressionWithTypeArguments(current)) {
+    return resolve(current.expression);
+  }
+  if (ts.isIdentifier(current)) {
+    const binding = bindings.get(current.text);
+    if (binding !== undefined
+        && binding.typeOnly !== true
+        && ['bun:test', 'node:test', 'vitest', '@jest/globals'].includes(binding.moduleSpecifier)
+        && sourceProgramTypeScriptIdentifierResolvesToImport(
+          model, repositoryPath, current, binding.moduleSpecifier, binding.targetName
+        )) {
+      if (binding.targetName === '*') return { kind: '', state: 'namespace' };
+      if (binding.targetName === 'test' || binding.targetName === 'it') {
+        return { kind: binding.targetName, state: 'registrar' };
+      }
+      if (binding.targetName === 'default' && binding.moduleSpecifier === 'node:test') {
+        return { kind: 'test', state: 'registrar' };
+      }
+      return null;
+    }
+    const initializer = sourceProgramTypeScriptIdentifierInitializer(model, repositoryPath, current);
+    // A mutable alias is not proof of its value at this call site. Resolve only
+    // compiler-bound const declarations, never the file-wide name index.
+    if (initializer === null || !ts.isVariableDeclaration(initializer.parent)
+        || !ts.isVariableDeclarationList(initializer.parent.parent)
+        || (initializer.parent.parent.flags & ts.NodeFlags.Const) === 0) return null;
+    return resolve(initializer);
+  }
+  if (ts.isPropertyAccessExpression(current)) {
+    const owner = resolve(current.expression);
+    if (owner === null) return null;
+    const member = current.name.text;
+    if (owner.state === 'namespace') {
+      return member === 'test' || member === 'it' ? { kind: member, state: 'registrar' } : null;
+    }
+    if (owner.state !== 'registrar') return null;
+    const kind = `${owner.kind}.${member}`;
+    if (['if', 'skipIf', 'todoIf', 'runIf', 'each', 'for', 'extend'].includes(member)) {
+      return { kind, state: 'factory' };
+    }
+    return ['skip', 'only', 'todo', 'concurrent', 'sequential', 'serial', 'failing', 'fails'].includes(member)
+      ? { kind, state: 'registrar' } : null;
+  }
+  if (ts.isCallExpression(current)) {
+    const factory = resolve(current.expression);
+    return factory?.state === 'factory' ? { kind: factory.kind, state: 'registrar' } : null;
+  }
+  return null;
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -1760,6 +1831,8 @@ function compileSourceProgramTestObservationsInternal(
       }
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
         if (ts.isCallExpression(node) && compilerRegistrationKind(
+          input.productionModel,
+          bindings,
           sourceFile,
           file.path,
           node,
@@ -2012,6 +2085,8 @@ function compileSourceProgramTestObservationsInternal(
     registrationNodes.forEach((registration, index) => {
       checkpoint(input.operation);
       const kind = compilerRegistrationKind(
+        input.productionModel,
+        bindings,
         sourceFile,
         file.path,
         registration,
@@ -2136,6 +2211,8 @@ function compileSourceProgramTestObservationsInternal(
         .map(({ observationId }) => observationId)
         .sort(compareCodeUnits));
       const registrationProvenance = compilerRegistrationProvenance(
+        input.productionModel,
+        bindings,
         sourceFile,
         file.path,
         registration,

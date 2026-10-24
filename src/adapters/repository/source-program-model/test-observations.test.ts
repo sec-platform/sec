@@ -283,7 +283,31 @@ test('conditional, table and fixture factories register only their returned case
       "test.override({ value: 2 });",
       "test.scoped({ value: 2 });",
       "test.skip('skipped', () => {});",
-      "test.todo('todo');"
+      "test.todo('todo');",
+      "const alias = test;",
+      "const conditionalAlias = alias.skipIf(false);",
+      "conditionalAlias<number>('bound alias', () => {});",
+      "test.skipIf(false).each<number>([1, 2])('generic table', () => {});",
+      "(test as typeof test)('asserted registrar', () => {});",
+      "function shadow(test: (...args: unknown[]) => void, it: any) { test('shadow', () => {}); it.each([1])('shadow table', () => {}); }",
+      "{ const test = (_title: string, _run: () => void) => {}; test('local', () => {}); }",
+      "let mutable = test; mutable = (() => {}) as typeof test; mutable('mutable', () => {});",
+      "const cycleA = cycleB; const cycleB = cycleA; cycleA('cycle', () => {});",
+      "test.override({ value: 2 })('not a registrar', () => {});",
+      "test('returned value', () => {})('not a second registrar', () => {});"
+    ].join('\n'),
+    'tests/namespace.test.ts': [
+      "import * as suite from 'bun:test';",
+      "import { test as caseOf } from 'bun:test';",
+      "import type { test as typeOnly } from 'bun:test';",
+      "suite.it('namespace', () => {});",
+      "caseOf('import alias', () => {});",
+      "typeOnly('erased', () => {});",
+      "function shadow(suite: any, caseOf: any) { suite.it('shadow namespace', () => {}); caseOf('shadow alias', () => {}); }"
+    ].join('\n'),
+    'tests/unrelated.test.ts': [
+      "import { execute as test } from '../src/example/operation.ts';",
+      "test('ordinary imported function', () => {});"
     ].join('\n')
   });
   expect(projection.registrations.map(({ kind, title }) => ({ kind, title }))).toEqual([
@@ -292,7 +316,13 @@ test('conditional, table and fixture factories register only their returned case
     { kind: 'test.each', title: 'each' },
     { kind: 'test.extend', title: 'fixture' },
     { kind: 'test.skip', title: 'skipped' },
-    { kind: 'test.todo', title: 'todo' }
+    { kind: 'test.todo', title: 'todo' },
+    { kind: 'test.skipIf', title: 'bound alias' },
+    { kind: 'test.skipIf.each', title: 'generic table' },
+    { kind: 'test', title: 'asserted registrar' },
+    { kind: 'test', title: 'returned value' },
+    { kind: 'it', title: 'namespace' },
+    { kind: 'test', title: 'import alias' }
   ]);
 });
 
@@ -404,13 +434,20 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
       ''
     ].join('\n'),
     'tests/provenance.test.ts': [
-      "import { expect, test } from 'bun:test';",
+      "import { expect, test as nativeTest } from 'bun:test';",
       "import { performEffect } from '../src/runtime/operations.ts';",
-      "import { registerEffect, registerUnsettled } from './helpers/wrapper.ts';",
-      "registerEffect(test, 'effect', async () => { await performEffect(); });",
-      "registerUnsettled(test, 'unsettled', async () => { await performEffect(); });",
-      "test('pure sibling', () => expect(1).toBe(1));",
-      "test('dynamic unknown', async () => { const target = './helpers/wrapper.ts'; await import(target); });",
+      "import { registerEffect as test } from './helpers/wrapper.ts';",
+      "import * as wrapper from './helpers/wrapper.ts';",
+      "import type { registerEffect as erasedRegistration } from './helpers/wrapper.ts';",
+      "import type * as erasedWrapper from './helpers/wrapper.ts';",
+      "test(nativeTest, 'effect', async () => { await performEffect(); });",
+      "test(nativeTest, 'single inner registration', async () => {})('not a second registration', () => {});",
+      "erasedRegistration(nativeTest, 'erased registration', async () => {});",
+      "erasedWrapper.registerEffect(nativeTest, 'erased namespace registration', async () => {});",
+      "wrapper.registerUnsettled(nativeTest, 'unsettled', async () => { await performEffect(); });",
+      "function shadow(wrapper: any) { wrapper.registerEffect(nativeTest, 'shadowed issuer namespace', async () => {}); }",
+      "nativeTest('pure sibling', () => expect(1).toBe(1));",
+      "nativeTest('dynamic unknown', async () => { const target = './helpers/wrapper.ts'; await import(target); });",
       ''
     ].join('\n')
   });
@@ -474,6 +511,9 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
     moduleMembership: membership
   });
 
+  expect(projection.registrations.map(({ kind }) => kind)).toEqual([
+    'registerEffect', 'registerEffect', 'registerUnsettled', 'test', 'test'
+  ]);
   const effect = projection.registrations.find(({ kind }) => kind === 'registerEffect');
   expect(effect).toBeDefined();
   expect(effect?.registrationProvenance.map(({ operation }) => operation)).toEqual(['registerEffect']);

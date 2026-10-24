@@ -1151,6 +1151,12 @@ export function compileSourceProgramAuditOperationInput(
       dispositions: full ? input.testDisposition.dispositions : compactRecordSet(compactDispositions),
       findings: full ? input.testDisposition.findings : compactRecordSet(compactFindings),
       candidateRegistrationCensus: Object.freeze({
+        unit: 'static-registration-site',
+        scope: 'source-program-test-surface',
+        // Observed registrations and their semantic unknowns do not establish
+        // complete discovery across source forms, languages or runtime inputs.
+        completeness: 'not-established',
+        runtimeExpansion: 'not-observed',
         count: input.testValue.candidateRegistrationCensus.count,
         digest: input.testValue.candidateRegistrationCensus.digest,
         ...(full ? {
