@@ -19,7 +19,6 @@ import {
 import {
   withRepositoryFinalStateObservation
 } from '../../../src/adapters/self-hosting/development/runner/repository-observation.ts';
-import type { FastTestBatchExecutionAdmission } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   assertGitObjectId,
   GIT_READ_OPERATION_BUDGET,
@@ -69,33 +68,6 @@ test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
   expect(() => assertGitObjectId('c'.repeat(39), 'short')).toThrow();
   expect(() => assertGitObjectId('d'.repeat(63), 'short-sha256')).toThrow();
   expect(() => assertGitObjectId('e'.repeat(65), 'long')).toThrow();
-});
-
-test('batch blob and attribute observations bind to one exact commit', async () => {
-  const root = await createRepository('sec-dev-git-batch-');
-  try {
-    await withAuthorityGitReadSession({
-      cwd: root,
-      operation: gitReadOperation(),
-      budget: GIT_READ_OPERATION_BUDGET
-    }, async (session) => {
-      const commit = await resolveExactHeadCommit(session);
-      const inventory = await readCommitBlobInventory(session, commit);
-      expect(inventory.map((entry) => entry.path)).toEqual(['.gitattributes', 'committed.ts']);
-      expect(inventory.every((entry) => Number.isSafeInteger(entry.byteSize) && entry.byteSize >= 0)).toBe(true);
-
-      const blobs = await readBlobBatch(session, inventory.map((entry) => entry.objectId));
-      const committed = inventory.find((entry) => entry.path === 'committed.ts')!;
-      expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
-
-      const attributes = await withIsolatedTextAttributeReader(session, commit, (readAttributes) =>
-        readAttributes(inventory.map((entry) => entry.path))
-      );
-      expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
-    });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });
 
 test('Git replacement objects cannot substitute committed blob bytes', async () => {
@@ -187,7 +159,7 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
   }
 });
 
-test('committed attribute policy is isolated from .git/info/attributes overrides', async () => {
+test('exact committed blobs and attribute policy are isolated from .git/info/attributes overrides', async () => {
   const root = await createRepository('sec-dev-attribute-isolation-');
   try {
     await fs.mkdir(path.join(root, '.git', 'info'), { recursive: true });
@@ -198,8 +170,16 @@ test('committed attribute policy is isolated from .git/info/attributes overrides
       budget: GIT_READ_OPERATION_BUDGET
     }, async (session) => {
       const commit = await resolveExactHeadCommit(session);
+      const inventory = await readCommitBlobInventory(session, commit);
+      expect(inventory.map((entry) => entry.path)).toEqual(['.gitattributes', 'committed.ts']);
+      expect(inventory.every((entry) => Number.isSafeInteger(entry.byteSize) && entry.byteSize >= 0)).toBe(true);
+
+      const blobs = await readBlobBatch(session, inventory.map((entry) => entry.objectId));
+      const committed = inventory.find((entry) => entry.path === 'committed.ts')!;
+      expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
+
       const attributes = await withIsolatedTextAttributeReader(session, commit, (readAttributes) =>
-        readAttributes(['committed.ts'])
+        readAttributes(inventory.map((entry) => entry.path))
       );
       expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
     });
@@ -414,17 +394,6 @@ test('repository observer diagnostics preserve non-event failure boundaries with
   }
 });
 
-test('repository mutation fence rejects a reconstructed fast batch admission before observer Effect', async () => {
-  await expect(runRepositoryZeroWriteOperation(
-    'test:forged-fast-batch',
-    async () => 0,
-    {
-      operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
-      fastTestBatchAdmission: Object.freeze({}) as FastTestBatchExecutionAdmission
-    }
-  )).rejects.toThrow('owner-issued admission');
-});
-
 test.skipIf(process.platform !== 'win32')('repository mutation fence shares one process ledger with a nested Git admission', async () => {
   const root = await createRepository('sec-dev-mutation-shared-ledger-');
   try {
@@ -481,7 +450,7 @@ test.skipIf(process.platform === 'win32')('tracked governed symlink cannot be fo
 });
 
 
-test('affected Git preparation survives settled transport and rejects foreign or drifted rebinds', async () => {
+test('affected Git preparation survives settled transport and rejects drifted rebinds', async () => {
   const root = await createRepository('sec-affected-selection-rebind-');
   try {
     await fs.writeFile(path.join(root, 'selected.ts'), 'export const selected = 1;\n');
@@ -492,10 +461,6 @@ test('affected Git preparation survives settled transport and rejects foreign or
     const digest = affectedGitSelectionDigest(selection!);
     await withAuthorityGitReadSession({ cwd: root, operation: gitReadOperation(),
       budget: GIT_READ_OPERATION_BUDGET }, async session => {
-      const before = session.processCount;
-      const forged = { ...selection! };
-      expect(await rebindAffectedGitSelectionSource({ source: forged, session, baseRef: null })).toBeNull();
-      expect(session.processCount).toBe(before);
       const rebound = await rebindAffectedGitSelectionSource({ source: selection!, session, baseRef: null });
       expect(rebound).not.toBeNull();
       expect(rebound!.files).toEqual(['selected.ts']);

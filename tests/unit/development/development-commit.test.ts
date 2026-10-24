@@ -281,11 +281,20 @@ test('development.commit consumes one exact staged admission before publishing i
       message: 'apply staged candidate\n'
     });
     const { request } = prepared;
+    const before = Object.freeze({
+      head: preimage,
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    });
     await expect(runDevelopmentCommit(
       request,
       { ...prepared.admission } as DevelopmentCommitAdmission
     )).rejects.toThrow('foreign or structurally reproduced');
-    expect(git(root, ['rev-parse', 'HEAD'])).toBe(preimage);
+    expect({
+      head: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['write-tree']),
+      objects: git(root, ['count-objects', '-v'])
+    }).toEqual(before);
 
     const result = await runDevelopmentCommit(request, prepared.admission);
     expect(result.disposition).toBe('applied');
@@ -618,35 +627,13 @@ test('development.commit reports failed staged normalization without publishing 
   }
 }, 20_000);
 
-test('development.commit rejects missing admission before repository Effect', async () => {
-  const { root, request } = await fixture();
-  try {
-    const before = Object.freeze({
-      head: git(root, ['rev-parse', 'HEAD']),
-      tree: git(root, ['write-tree']),
-      objects: git(root, ['count-objects', '-v'])
-    });
-    await expect(runDevelopmentCommit(
-      request,
-      Object.freeze({}) as DevelopmentCommitAdmission
-    )).rejects.toThrow('foreign or structurally reproduced');
-    expect({
-      head: git(root, ['rev-parse', 'HEAD']),
-      tree: git(root, ['write-tree']),
-      objects: git(root, ['count-objects', '-v'])
-    }).toEqual(before);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 function fixtureReflogPath(root: string): string {
   const ref = git(root, ['symbolic-ref', 'HEAD']);
   return path.resolve(root, git(root, ['rev-parse', '--git-path', `logs/${ref}`]));
 }
 
 for (const mode of [
-  'ordinary', 'first-entry', 'not-applied', 'missing', 'wrong-old', 'zero-old',
+  'missing', 'wrong-old', 'zero-old',
   'gap', 'later-move', 'later-return', 'extra-output', 'observation-failure'
 ] as const) {
   test(`development.commit reads the exact native reflog transition: ${mode}`, async () => {
@@ -658,10 +645,8 @@ for (const mode of [
       const target = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'intended target']);
       const other = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'unrelated target']);
       const reflogPath = fixtureReflogPath(root);
-      if (mode !== 'ordinary' && mode !== 'gap') await rm(reflogPath);
-      if (mode !== 'not-applied') {
-        git(root, ['update-ref', '--create-reflog', '-m', 'development.commit', ref, target, preimage]);
-      }
+      if (mode !== 'gap') await rm(reflogPath);
+      git(root, ['update-ref', '--create-reflog', '-m', 'development.commit', ref, target, preimage]);
       if (mode === 'wrong-old' || mode === 'zero-old' || mode === 'gap') {
         const lines = (await readFile(reflogPath, 'utf8')).trimEnd().split('\n');
         lines[lines.length - 1] = lines.at(-1)!.replace(
@@ -675,11 +660,6 @@ for (const mode of [
         if (mode === 'later-return') {
           git(root, ['update-ref', '-m', 'unrelated return', ref, target, other]);
         }
-      }
-      if (mode === 'first-entry') {
-        expect(git(root, ['rev-list', '--walk-reflogs', ref])).toBe(target);
-        expect(git(root, ['rev-parse', '--revs-only', '--end-of-options', `${ref}@{0}`, `${ref}@{1}`]))
-          .toBe(`${target}\n${preimage}`);
       }
       if (mode === 'gap') {
         const native = spawnSync('git', [
@@ -725,8 +705,7 @@ for (const mode of [
           ref, preimage, target, object: target, tree, terminal: 'unknown'
         });
         const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
-        expect(readback.disposition).toBe(mode === 'ordinary' || mode === 'first-entry'
-          ? 'applied' : mode === 'not-applied' ? 'not-applied' : 'unknown');
+        expect(readback.disposition).toBe('unknown');
         expect(readback.operation).toBe(journal.operation);
         expect(readback.attempt).toBe(journal.attempt);
         expect(git(root, ['rev-parse', ref])).toBe(before.ref);

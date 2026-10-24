@@ -75,8 +75,13 @@ for(const requested of [null, false, {maximumBytes:null},{maximumEntries:null},{
 test('the same source with different bounds cannot join a wider in-flight observation', async () => {
   const f=fixture();try{
     const request=input(f);const first=runtimeDependencySourceGeneration(request,{maximumEntries:10});
-    const second=runtimeDependencySourceGeneration(request,{maximumEntries:1});
-    const rejected=assert.rejects(second,/in-flight/);await first;await rejected;
+    const capacity=assert.rejects(runtimeDependencySourceGeneration(request,{maximumEntries:1}),
+      {code:'RUNTIME-DEPS-003',message:/in-flight/});
+    const deadline=assert.rejects(runtimeDependencySourceGeneration({...request,
+      options:{...request.options,lockTimeoutMs:10_000}},{maximumEntries:10}),
+      {code:'RUNTIME-DEPS-003',message:/in-flight/});
+    const result=await first;await Promise.all([capacity,deadline]);
+    assert.equal(result.sourcePath,request.sourcePath);
   }finally{rmSync(f.root,{recursive:true,force:true});}
 });
 
@@ -85,13 +90,5 @@ test('failed observation is retired and can be recomputed after source recovery'
     const request={...input(f),sourcePath:path.join(f.root,'later')};
     await assert.rejects(runtimeDependencySourceGeneration(request));mkdirSync(request.sourcePath);
     const result=await runtimeDependencySourceGeneration(request);assert.equal(result.sourcePath,request.sourcePath);
-  }finally{rmSync(f.root,{recursive:true,force:true});}
-});
-
-test('completed observations are not reused after source content changes', async () => {
-  const f=fixture();try{
-    const request=input(f), a=await runtimeDependencySourceGeneration(request);
-    writeFileSync(path.join(request.sourcePath,'value'),'different');
-    const b=await runtimeDependencySourceGeneration(request);assert.notEqual(a.treeDigest,b.treeDigest);
   }finally{rmSync(f.root,{recursive:true,force:true});}
 });

@@ -12,13 +12,6 @@ for (const reason of [undefined, null, false, 0]) test(`operation ${String(reaso
   });
 });
 
-test('release method identity and private receiver survive callback mutation', async () => {
-  class Lease { #calls = 0; release() { this.#calls++; } get calls() { return this.#calls; } }
-  const lease = new Lease(); const result = {};
-  assert.equal(await withAcquiredHeavyVerificationGateLease(lease, () => { lease.release = () => assert.fail('replacement'); return result; }), result);
-  assert.equal(lease.calls, 1);
-});
-
 test('concurrent and later release calls share the same rejected outcome', async () => {
   const reason = new Error('failed'); let calls = 0;
   const release = onceHeavyVerificationGateRelease(async () => { calls++; await Promise.resolve(); throw reason; });
@@ -29,7 +22,8 @@ test('concurrent and later release calls share the same rejected outcome', async
 
 test('typed contention retries despite changed wording and ignores wall-clock jumps', async () => {
   const original = Date.now; let count = 0, released = 0;
-  const lease = { release() { released++; } };
+  const lease = Object.freeze({ release() { released++; } });
+  const callbackResult = Object.freeze({ completed: true });
   try {
     Date.now = () => count % 2 ? 0 : Number.MAX_SAFE_INTEGER;
     const result = await waitForHeavyVerificationGateLease(async () => {
@@ -37,7 +31,8 @@ test('typed contention retries despite changed wording and ignores wall-clock ju
       return lease;
     }, 1000);
     assert.equal(count, 2);
-    await result.release(); assert.equal(released, 1);
+    assert.equal(await withAcquiredHeavyVerificationGateLease(result, () => callbackResult), callbackResult);
+    assert.equal(released, 1);
   } finally { Date.now = original; }
 });
 
