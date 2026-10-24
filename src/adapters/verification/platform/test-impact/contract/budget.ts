@@ -176,9 +176,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   slowPathSuite('contract-ci-lanes', 'tests/contract/verification/ci-lanes.test.ts', 'ci-plan-and-selection', 180_000, {
     resourceClass: 'runtime-heavy'
   }),
-  slowPathSuite('contract-ci-trust-closure', 'tests/contract/verification/ci-trust-closure-contract.test.ts', 'ci-trust-closure', 180_000, {
-    resourceClass: 'runtime-heavy'
-  }),
   slowPathSuite('unit-slow-test-selection', 'tests/unit/verification/slow-test-selection.test.ts', 'test-impact-selection', 180_000, {
     resourceClass: 'runtime-heavy'
   }),
