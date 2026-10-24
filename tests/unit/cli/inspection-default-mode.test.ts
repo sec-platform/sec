@@ -1,9 +1,7 @@
 import { expect, test } from 'bun:test';
-import { Command } from 'commander';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { registerInspectionQuery } from '../../../src/entry/cli/inspection-query.ts';
 import { runCliInProcess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
@@ -105,15 +103,3 @@ for (const [command, mode] of legacyModes) {
   });
 }
 
-test('explicit default mode invokes one read and the registered view', async () => {
-  const root = new Command('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} });
-  const failure = Object.freeze({ kind: 'view-result' });
-  const events: string[] = [];
-  const definition = {
-    defaultMode: 'summary', read: () => { events.push('read'); return 7; },
-    view: (value: number) => { expect(value).toBe(7); events.push('view'); throw failure; }
-  };
-  registerInspectionQuery(root.command('sample'), definition);
-  await expect(root.parseAsync(['sample', 'summary'], { from: 'user' })).rejects.toBe(failure);
-  expect(events).toEqual(['read', 'view']);
-});

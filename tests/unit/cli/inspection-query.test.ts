@@ -29,11 +29,11 @@ test('registering or requesting help does not read data or execute a view', asyn
 });
 
 test('only the selected view runs and each query reads exactly once', async () => {
-  for (const mode of [undefined, 'detail']) {
+  for (const mode of [undefined, 'summary', 'detail'] as const) {
     const events: string[] = [];
     const root = program();
     const command = root.command('sample').alias('other');
-    const registered = registerInspectionQuery(command, { read: () => { events.push('read'); return { value: 7 }; },
+    const registered = registerInspectionQuery(command, { defaultMode: 'summary', read: () => { events.push('read'); return { value: 7 }; },
       view: (value) => { events.push('default'); return inspectionValue(value, (v) => `default:${v.value}`); },
       modes: { detail: (value) => { events.push('detail'); return inspectionValue(value.value, (v) => `detail:${v}`); } } });
     assert.equal(registered, command);
@@ -41,8 +41,8 @@ test('only the selected view runs and each query reads exactly once', async () =
     assert.equal(command.name(), 'sample');
     assert.equal(command.alias(), 'other');
     const printed = await capture(() => root.parseAsync(['other', ...(mode ? [mode] : [])], { from: 'user' }));
-    assert.deepEqual(events, ['read', mode ?? 'default']);
-    assert.deepEqual(printed, [[mode ? 'detail:7' : 'default:7']]);
+    assert.deepEqual(events, ['read', mode === 'detail' ? 'detail' : 'default']);
+    assert.deepEqual(printed, [[mode === 'detail' ? 'detail:7' : 'default:7']]);
   }
 });
 
@@ -72,11 +72,12 @@ for (const phase of ['read-sync', 'read-async', 'view-sync', 'view-async', 'form
     const reason = Object.freeze({ phase });
     const root = program(); let projected = false;
     registerInspectionQuery(root.command('sample'), {
+      defaultMode: 'summary',
       read: () => { if (phase === 'read-sync') throw reason; if (phase === 'read-async') return Promise.reject(reason); return 1; },
       view: (value) => { projected = true; if (phase === 'view-sync') throw reason;
         if (phase === 'view-async') return Promise.reject(reason);
         return inspectionValue(value, () => { throw reason; }); } });
-    const lines = await capture(() => assert.rejects(root.parseAsync(['sample'], { from: 'user' }), (error: unknown) => error === reason));
+    const lines = await capture(() => assert.rejects(root.parseAsync(['sample', ...(phase === 'view-sync' ? ['summary'] : [])], { from: 'user' }), (error: unknown) => error === reason));
     assert.deepEqual(lines, []);
     assert.equal(projected, !phase.startsWith('read'));
   });

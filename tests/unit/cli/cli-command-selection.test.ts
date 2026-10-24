@@ -14,16 +14,18 @@ for (const args of [['upgrade'], ['upgrade', 'a-block']]) {
   });
 }
 
-for (const kind of ['synchronous', 'asynchronous'] as const) {
-  test(`JSON progress preserves the exact ${kind} rejection`, async () => {
+test('JSON progress preserves synchronous and asynchronous failures without retrying', async () => {
+  for (const kind of ['synchronous', 'asynchronous'] as const) {
     const reason = Object.freeze({ kind });
+    let calls = 0;
     const action = kind === 'synchronous'
-      ? () => { throw reason; }
-      : async () => { throw reason; };
+      ? () => { calls += 1; throw reason; }
+      : async () => { calls += 1; throw reason; };
     await assert.rejects(runWithOptionalSpinner('unused text', { json: true, compact: true }, action),
       (actual: unknown) => actual === reason);
-  });
-}
+    assert.equal(calls, 1);
+  }
+});
 
 test('changing output options after selection does not start another progress path', async () => {
   const output = { json: true, compact: false };
