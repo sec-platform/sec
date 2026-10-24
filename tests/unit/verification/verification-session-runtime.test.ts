@@ -1684,25 +1684,6 @@ test('CLI rejects caller-provided authority artifacts', async () => {
     .rejects.toThrow(/exactly one of --evidence or --previous-artifact/);
 });
 
-test('expired hosted authority permits only independently revalidated Action Evidence reuse', () => {
-  const artifact = {
-    scopeAuthorization: { expiresAt: '2026-08-09T00:10:00.000Z' },
-    preGateReview: { expiresAt: '2026-08-09T00:15:00.000Z' },
-    mainHealth: { expiresAt: '2026-08-09T00:10:00.000Z' },
-    evidence: { status: 'passed' }
-  };
-  expect(classifyVerificationSessionArtifactReuse(artifact as never, '2026-08-09T00:11:00.000Z')).toMatchObject({
-    status: 'fresh-authority-required', actionEvidenceCandidate: true
-  });
-  expect(classifyVerificationSessionArtifactReuse({ ...artifact, evidence: { status: 'failed' } } as never,
-    '2026-08-09T00:16:00.000Z')).toMatchObject({
-      status: 'fresh-authority-required', actionEvidenceCandidate: true
-    });
-  for (const status of ['not-run', 'unsupported', 'invalidated'] as const) {
-    expect(classifyVerificationSessionArtifactReuse({ ...artifact, evidence: { status } } as never,
-      '2026-08-09T00:16:00.000Z')).toMatchObject({ status: 'not-reusable', actionEvidenceCandidate: false });
-  }
-});
 
 
 

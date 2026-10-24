@@ -157,6 +157,17 @@ function receipt(input: Partial<{
   });
 }
 
+function selectedPrincipalReceipt(statusIntegrationId = 900001, principalIntegrationId = 900001) {
+  const statusParameters = requiredStatusParameters({ integrationId: statusIntegrationId });
+  return createMainAuthorityRulesetReceipt({
+    repository: 'sec-platform/sec', defaultBranch: 'main', expectedIntegrationId: 900001,
+    effectiveRules: [...effectiveAuthorityRules({ statusParameters }), effectivePrincipalRule()],
+    detailedRulesets: [detailedAuthorityRuleset({ statusParameters }), detailedPrincipalRuleset({
+      bypassActors: [{ actor_id: principalIntegrationId, actor_type: 'Integration', bypass_mode: 'pull_request' }]
+    })]
+  });
+}
+
 test('main authority requires distinct authority and pull-request-only principal layers', () => {
   const value = receipt();
   expect(value.status).toBe('enforced');
@@ -165,6 +176,9 @@ test('main authority requires distinct authority and pull-request-only principal
   expect(value.terminalStatusContext).toBe('sec/integration-authorization');
   expect(value.terminalStatusIntegrationId).toBe(CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id);
   expect(value.rulesetDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(selectedPrincipalReceipt()).toMatchObject({ status: 'enforced',
+    terminalStatusIntegrationId: 900001, authorityRulesetIds: [AUTHORITY_RULESET_ID],
+    principalRulesetIds: [PRINCIPAL_RULESET_ID] });
 });
 
 test('empty or non-active authority observations fail closed', () => {
@@ -219,6 +233,7 @@ test('PR deletion force-push and terminal status rules are all required in autho
 });
 
 test('terminal check is exact strict and pinned to the expected GitHub Actions App', () => {
+  expect(() => selectedPrincipalReceipt(900002)).toThrow('exactly one no-bypass authority ruleset');
   for (const parameters of [
     requiredStatusParameters({ context: 'sec/action/not-authority' }),
     requiredStatusParameters({ integrationId: 1 }),
@@ -245,6 +260,8 @@ test('authority layer may not also own the update-principal restriction', () => 
 });
 
 test('principal layer requires exactly one GitHub Actions Integration pull-request bypass', () => {
+  expect(() => selectedPrincipalReceipt(900001, 900002))
+    .toThrow('exactly one pull-request-only integration principal ruleset');
   const wrongActors: readonly unknown[][] = [
     [],
     [{ actor_id: 1, actor_type: 'Integration', bypass_mode: 'pull_request' }],

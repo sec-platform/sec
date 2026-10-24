@@ -888,6 +888,7 @@ test('retained native refs require explicit exact targets and leave other refs u
 for (const lane of ['merged', 'retained'] as const) {
   test(`${lane} local ref keeps exact applied development journals through ref CAS then retires them`, async () => {
     const fixture = createEffectFixture(`journal-before-ref-${lane}`);
+    const commonDir = path.join(fixture.repositoryRoot, '.git');
     const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
     const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
       command === 'gh' && args[0] === 'pr'
@@ -910,13 +911,26 @@ for (const lane of ['merged', 'retained'] as const) {
         ...(lane === 'retained' ? {
           retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
         } : {}),
-        faults: { afterDelete: () => {
-          expect(existsSync(journalPath)).toBeTrue();
-          expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
-        } }
+        faults: {
+          afterAuthorization: async () => {
+            let acquiredCommonDir = false;
+            await expect(withWorkspaceWriteLease(commonDir, undefined, async () => {
+              acquiredCommonDir = true;
+              await withWorkspaceWriteLease(fixture.repositoryRoot, undefined, async () => {});
+            })).rejects.toThrow('already held');
+            expect(acquiredCommonDir).toBeFalse();
+          },
+          afterDelete: () => {
+            expect(existsSync(journalPath)).toBeTrue();
+            expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+          }
+        }
       });
+      await withWorkspaceWriteLease(commonDir, undefined, async () =>
+        withWorkspaceWriteLease(fixture.repositoryRoot, undefined, async () => {}));
       expect(settled.settled).toEqual(['fix/example']);
       expect(existsSync(journalPath)).toBeFalse();
+      expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
     } finally {
       fixture.dispose();
     }
@@ -943,42 +957,6 @@ for (const lane of ['merged', 'retained'] as const) {
       expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
       expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.authorization.json')))
         .toBeTrue();
-    } finally {
-      fixture.dispose();
-    }
-  }, 45_000);
-
-  test(`${lane} local ref settlement allows a common-dir-first competing writer`, async () => {
-    const fixture = createEffectFixture(`ordered-leases-${lane}`);
-    const commonDir = path.join(fixture.repositoryRoot, '.git');
-    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
-      command === 'gh' && args[0] === 'pr'
-        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-        : fixture.run(command, args, cwd, input)
-    ));
-    try {
-      const settled = await executeMergedLocalBranchResidueCloseout({
-        repositoryRoot: fixture.repositoryRoot,
-        recoveryRoot: fixture.recoveryRoot,
-        run: lane === 'merged' ? fixture.run : noMergedPr,
-        ...(lane === 'retained' ? {
-          retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
-        } : {}),
-        faults: {
-          afterAuthorization: async () => {
-            let acquiredCommonDir = false;
-            await expect(withWorkspaceWriteLease(commonDir, undefined, async () => {
-              acquiredCommonDir = true;
-              await withWorkspaceWriteLease(fixture.repositoryRoot, undefined, async () => {});
-            })).rejects.toThrow('already held');
-            expect(acquiredCommonDir).toBeFalse();
-          }
-        }
-      });
-      await withWorkspaceWriteLease(commonDir, undefined, async () =>
-        withWorkspaceWriteLease(fixture.repositoryRoot, undefined, async () => {}));
-      expect(settled.settled).toEqual(['fix/example']);
-      expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
     } finally {
       fixture.dispose();
     }

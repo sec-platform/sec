@@ -28,8 +28,10 @@ test('current Verification admits Lock publication despite an untrusted pending 
     await saveLock(root, lock);
     await writeCurrentVerificationFixture(root, lock);
     const published = await lockWorkspace(root);
+    expect(published.app.id).toBe('customer-admin');
+    expect(published.passStatus.verify).toBe('pending');
     expect(published.passStatus.lock).toBe('succeeded');
-    expect(readLockFile(root).passStatus.lock).toBe('succeeded');
+    expect(readLockFile(root)).toEqual(published);
     const provenance = JSON.parse(await readFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance), 'utf8'));
     expect(provenance.formatVersion).toBe('1');
   });
@@ -44,7 +46,11 @@ test('stale Verification A cannot publish Lock B through a forged succeeded proj
     await saveLock(root, lock);
     const lockPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.graphLock);
     const before = await readFile(lockPath, 'utf8');
-    await expect(lockProject(root, lock)).rejects.toThrow('current Lock semantic subject');
+    let effects = 0;
+    await expect(lockProject(root, lock, async () => { effects++; })).rejects.toMatchObject({
+      code: 'VERIFY-SUBJECT-002', message: expect.stringContaining('current Lock semantic subject')
+    });
+    expect(effects).toBe(0);
     expect(await readFile(lockPath, 'utf8')).toBe(before);
     await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance))).rejects.toThrow();
   });

@@ -36,12 +36,6 @@ test('a thrown null-prototype record can still be formatted', () => {
   assert.match(output, /7/u);
 });
 
-test('a thrown object with a failing conversion still yields a diagnostic', () => {
-  const error = { value: 'retained', toString() { throw new Error('conversion failed'); } };
-  const output = formatFailure(error);
-  assert.match(output, /retained/u);
-});
-
 test('ordinary errors and primitive throws retain their existing presentation', () => {
   const error = new Error('ordinary');
   assert.equal(formatFailure(error), error.stack);

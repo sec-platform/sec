@@ -24,6 +24,7 @@ import { encodeVerificationActionData } from '../../../src/adapters/verification
 import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
 import { VERIFICATION_ACTION_PROVIDER_POLICY } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationSessionArtifact, CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { classifyVerificationSessionArtifactReuse } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../../src/adapters/verification/platform/review/contract/stability.ts';
 import { createVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
@@ -611,9 +612,36 @@ test('expired authority receipts re-finalize fresh V4 Evidence while reusing exa
     '2026-08-09T02:00:00.000Z'
   )).not.toThrow();
 
-  const refreshedFailure = refreshArtifact(fixture('failed'));
+  const failed = fixture('failed');
+  expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrent(
+    directArtifact(failed.artifact), '2026-08-09T00:30:00.000Z'
+  )).not.toThrow();
+  expect(classifyVerificationSessionArtifactReuse(failed.artifact, '2026-08-09T02:00:00.000Z'))
+    .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
+  const refreshedFailure = refreshArtifact(failed);
   expect(refreshedFailure.evidence.status).toBe('failed');
   expect(refreshedFailure.evidence.gates[0]!.result.status).toBe('failed');
+  const { artifactDigest: _artifactDigest, ...artifactFields } = directArtifact(base.artifact);
+  const { evidenceDigest: _evidenceDigest, ...evidenceFields } = artifactFields.evidence;
+  const gate = evidenceFields.gates[0]!;
+  for (const [status, reasonCode] of [
+    ['not-run', 'not-dispatched'],
+    ['unsupported', 'capability-unsupported'],
+    ['invalidated', 'input-invalidated']
+  ] as const) {
+    const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({
+      ...evidenceFields, status,
+      gates: [{ ...gate, result: CodexDevelopmentBuildVerificationGateResult({
+        ...gate.result, status, reasonCode, disposition: 'not-executed', execution: null
+      }) }]
+    });
+    const artifact = CodexDevelopmentFinalizeVerificationSessionArtifact({ ...artifactFields, evidence });
+    expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrent(
+      artifact, '2026-08-09T00:30:00.000Z'
+    )).not.toThrow();
+    expect(classifyVerificationSessionArtifactReuse(artifact, '2026-08-09T02:00:00.000Z'))
+      .toMatchObject({ status: 'not-reusable', actionEvidenceCandidate: false });
+  }
   expect(() => CodexDevelopmentRefreshVerificationSessionArtifact({
     previousArtifact: directArtifact(base.artifact),
     scopeAuthorization: base.artifact.scopeAuthorization,
