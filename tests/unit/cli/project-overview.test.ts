@@ -6,17 +6,13 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import type { CiArtifactManifest } from '../../../src/assurance/verification/ci-artifacts/contract/types.ts';
 import type { VerificationReport } from '../../../src/assurance/verification/contract/types.ts';
 import type { ReviewSummary } from '../../../src/assurance/verification/review/contract/types.ts';
-import {
-  buildProjectOverview,
-  buildProjectOverviewFromWorkspace
-} from '../../../src/bootstrap/cli/project-overview.ts';
+import { buildProjectOverview } from '../../../src/bootstrap/cli/project-overview.ts';
 import type { LockFile } from '../../../src/compiler/contract.ts';
 import { formatProjectOverview } from '../../../src/entry/cli/project-overview.ts';
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import type { ExplainGraph } from '../../../src/semantics/projection/explain.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 test('buildProjectOverview summarizes shared project status and review priorities', () => {
   const lock: LockFile = {
