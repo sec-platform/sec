@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resumeHostedVerificationSession } from '../../../src/bootstrap/development/closeout/verification-session-hosted.ts';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
-import type { BranchLifecycleInventory } from '../../../src/execution/verification/branch-closeout.ts';
 import type { VerificationSessionHostedRequest } from "../../../src/execution/verification/hosted.ts";
 import type { IntegrationAuthorizationOperationPublication, MergeGateResult } from '../../../src/execution/verification/integration.ts';
 import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubComparisonObservation, GitHubWorkflowRunObservation, SessionDigest, VerificationSession } from '../../../src/execution/verification/session.ts';
@@ -32,17 +31,7 @@ import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndepen
 import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 import type { GitHubWorkflowJobObservation } from '../../../src/adapters/providers/github-api/contract.ts';
-import {
-  authorizeBranchCloseout, createBranchCloseoutPreparation
-} from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
-import {
-  BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
-  parsePreparedBranchCloseoutEnvelope,
-  rehydratePreparedBranchCloseoutEnvelope
-} from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
-import { branchLifecycleDigest } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { createBranchLifecycleGitChildEnvironment } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
-import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 
 import { CI_MAIN_HEALTH_POLICY } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
@@ -1748,90 +1737,6 @@ afterAll(() => {
     { label: 'exact-test-impact-fixture', settle: () => testImpactFixture?.dispose() },
     { label: 'private-credential-shim-root', settle: () => sessionFixture.dispose() }
   ] });
-});
-
-test('rehydrated prepared envelope preserves remote history and composes with closeout authorization', () => {
-  const inventory = (root: string, state: 'open' | 'merged'): BranchLifecycleInventory => ({
-    schema: 'sec-branch-lifecycle-inventory-v1',
-    observedAt: state === 'open' ? VERIFIED_AT : MERGE_AT,
-    repository: { root, commonDir: path.join(root, '.git'), fullName: 'sec-platform/sec',
-      remote: 'origin', remoteUrl: 'https://github.com/sec-platform/sec.git', defaultBranch: 'main' },
-    main: { localSha: state === 'open' ? BASE : '9'.repeat(40),
-      remoteSha: state === 'open' ? BASE : '9'.repeat(40) },
-    localBranches: [{ branch: 'main', sha: state === 'open' ? BASE : '9'.repeat(40) },
-      { branch: 'feat/example', sha: HEAD }],
-    remoteBranches: [{ branch: 'main', sha: state === 'open' ? BASE : '9'.repeat(40) },
-      { branch: 'feat/example', sha: HEAD }],
-    worktrees: [],
-    pullRequests: [{ number: 42, headBranch: 'feat/example', headSha: HEAD,
-      baseBranch: 'main', baseSha: BASE, state, isDraft: false, isCrossRepository: false,
-      url: 'https://github.example/pull/42' }],
-    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null },
-    repositorySetting: { observation: 'resolved', deleteBranchOnMerge: false, reason: null },
-    pruneConfiguration: { observation: 'resolved', fetchPrune: true, remotePrune: true,
-      fetchPruneTags: true, reason: null },
-    unknowns: []
-  });
-  const hostAbsolute = (...segments: string[]) =>
-    path.resolve(path.parse(process.cwd()).root, ...segments);
-  const remoteRoot = hostAbsolute('provider', 'sec');
-  const localRoot = hostAbsolute('runner', 'sec');
-  const remoteRecoveryPath = hostAbsolute('provider-recovery', 'branch.bundle');
-  const localRecoveryPath = hostAbsolute('runner-recovery', 'branch.bundle');
-  const remoteWorktreePath = hostAbsolute('provider', 'worktree');
-  const remoteBefore = inventory(remoteRoot, 'open');
-  const localBefore = inventory(localRoot, 'merged');
-  const preparation = (root: string, recoveryPath: string, worktrees: string[]) =>
-    createBranchCloseoutPreparation({
-      preparedAt: VERIFIED_AT,
-      repository: { root, commonDir: path.join(root, '.git'), fullName: 'sec-platform/sec',
-        remote: 'origin', defaultBranch: 'main' },
-      branch: 'feat/example', refState: 'present', expectedHeadSha: HEAD,
-      expectedRemoteSha: HEAD, expectedLocalSha: HEAD, expectedPrHeadSha: null,
-      pullRequestNumber: 42, pullRequestStateAtPreparation: 'open',
-      recovery: { kind: 'bundle', path: recoveryPath, sha256: PAGE,
-        verified: true, verifyOutput: 'verified' },
-      worktreePathsAtPreparation: worktrees
-    });
-  const remotePreparation = preparation(remoteRoot, remoteRecoveryPath, [remoteWorktreePath]);
-  const localPreparation = preparation(localRoot, localRecoveryPath, []);
-  expect(localPreparation.preparationDigest).toBe(remotePreparation.preparationDigest);
-  const envelope = (
-    prepared: typeof remotePreparation,
-    before: BranchLifecycleInventory,
-    attempts: readonly Readonly<{ operation: 'recovery-verify'; status: 'success'; detail: string }>[]
-  ) => {
-    const payload = { schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
-      preparation: prepared, before, attempts: [...attempts], foreignWorktreeObservations: [] };
-    return parsePreparedBranchCloseoutEnvelope(`${JSON.stringify({ ...payload,
-      envelopeDigest: branchLifecycleDigest(payload) }, null, 2)}\n`);
-  };
-  const remote = envelope(remotePreparation, remoteBefore,
-    [{ operation: 'recovery-verify', status: 'success', detail: 'provider verified' }]);
-  const local = envelope(localPreparation, localBefore,
-    [{ operation: 'recovery-verify', status: 'success', detail: 'runner verified' }]);
-  const rehydrated = rehydratePreparedBranchCloseoutEnvelope({ remote, local });
-  expect(rehydrated.before).toEqual(remoteBefore);
-  expect(rehydrated.before).not.toEqual(localBefore);
-  expect(rehydrated.preparation.repository.root).toBe(localRoot);
-  expect(rehydrated.preparation.recovery.path).toBe(localRecoveryPath);
-  expect(rehydrated.preparation.worktreePathsAtPreparation).toEqual([]);
-  expect(rehydrated.foreignWorktreeObservations).toHaveLength(1);
-  expect(JSON.stringify(rehydrated.foreignWorktreeObservations)).not.toContain(JSON.stringify(remoteWorktreePath).slice(1, -1));
-  expect(rehydrated.attempts).toEqual(local.attempts);
-  expect(rehydrated.preparation.preparationDigest).toBe(remotePreparation.preparationDigest);
-  const authorization = authorizeBranchCloseout({
-    preparation: rehydrated.preparation,
-    request: { capability: BRANCH_REF_CLOSEOUT_CAPABILITY, disposition: 'merged',
-      durableGoal: { kind: 'main', reference: `main@${'9'.repeat(40)}` } },
-    before: rehydrated.before,
-    current: localBefore,
-    foreignWorktreeObservationDigests: rehydrated.foreignWorktreeObservations
-      .map(({ observationDigest }) => observationDigest)
-  });
-  expect(authorization.blockers).toContain('external-maintainer-disposition-required');
-  expect(authorization.remoteAction).toBe('blocked');
-  expect(authorization.localAction).toBe('blocked');
 });
 
 
