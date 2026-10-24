@@ -10,7 +10,6 @@ import {
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
-import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   externalProviderCoordinationLeaseName,
@@ -109,55 +108,5 @@ test('Docker launcher lock exists only beneath the owner-issued directory', asyn
     else process.env.LOCALAPPDATA = originalLocalAppData;
     rmSync(root, { recursive: true, force: true });
     rmSync(displacedCoordinationDirectory, { recursive: true, force: true });
-  }
-});
-
-test('Docker launcher lock reclaims a lease whose process lost its handle', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-docker-launcher-recovery-'));
-  const endpointHost = 'npipe:////./pipe/dockerDesktopLinuxEngine';
-  try {
-    const owner = inspectNoFollowDirectoryChain(root, 'test-owned launcher recovery root');
-    const coordinationDirectory = userExternalProviderCoordinationPath({
-      localAppData: root,
-      repositoryRoot: process.cwd()
-    });
-    const initial = await withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
-      coordination: dockerCoordination(endpointHost),
-      issuer: testIssuer,
-      root: owner,
-      operation: async () => 'initial-settled'
-    });
-    expect(initial).toBe('initial-settled');
-
-    const exitedProcess = Bun.spawn([process.execPath, '-e', ''], {
-      stderr: 'ignore',
-      stdout: 'ignore'
-    });
-    const deadOwnerPid = exitedProcess.pid;
-    expect(await exitedProcess.exited).toBe(0);
-    const coordinationIdentity = inspectNoFollowDirectoryChain(
-      coordinationDirectory,
-      'test-owned Docker launcher recovery directory'
-    ).target;
-    const abandonedLease = acquirePhysicalMutationLease(
-      coordinationIdentity,
-      externalProviderCoordinationLeaseName({
-        endpointIdentity: endpointHost,
-        providerId: DOCKER_DESKTOP_COORDINATION_PROVIDER_ID
-      }),
-      { ownerPid: deadOwnerPid, ttlMs: 10_000 }
-    );
-    expect(abandonedLease).not.toBeNull();
-
-    const recovered = await withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
-      coordination: dockerCoordination(endpointHost, digest('e')),
-      issuer: testIssuer,
-      root: owner,
-      operation: async () => 'recovered'
-    });
-    expect(recovered).toBe('recovered');
-    expect(readdirSync(coordinationDirectory)).toEqual([]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
   }
 });

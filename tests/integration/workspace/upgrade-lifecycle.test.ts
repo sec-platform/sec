@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { writeJson } from "../../../src/adapters/filesystem/files.ts";
+import { readJson, writeJson } from "../../../src/adapters/filesystem/files.ts";
 import { createWorkspaceWriteLeaseManager } from '../../../src/adapters/filesystem/write-lease.ts';
 import {
   inspectNoFollowDirectoryChain,
@@ -219,10 +219,16 @@ test('upgrade retains its recovery snapshot when the write lease is lost before 
   }, 'engineering-compiler-upgrade-fence-recovery-');
 });
 
-test('upgrade compiler failure preserves original nested entries and modes in its retained recovery backup', async () => {
+test('upgrade compiler failure preserves migrated live state and original recovery bytes, entries and modes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeBlockUpgradeFixture(workspaceRoot);
     const paths = getWorkspacePaths(workspaceRoot);
+    const relativeTarget = 'src/installed/private/customer-normalizer.ts';
+    const migratedTarget = path.join(workspaceRoot, relativeTarget);
+    const originalTarget = await fs.readFile(migratedTarget);
+    const expectedMigrated = await fs.readFile(path.join(paths.privateRegistryRoot,
+      'private.block-upgrade', 'versions', '0.2.0', 'files', relativeTarget));
+    const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics);
     const nestedPath = path.join(workspaceRoot, 'src', 'coverage', 'retained.txt');
     const rootFilePath = path.join(workspaceRoot, 'rollback-root.txt');
     const graphLockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
@@ -258,6 +264,11 @@ test('upgrade compiler failure preserves original nested entries and modes in it
       expect(failure).toMatchObject({ details: { rollbackStatus: 'recovery-required' } });
       expect(snapshot).toBeDefined();
       const preimage = path.join(snapshot!.path, 'preimage');
+      expect(expectedMigrated).not.toEqual(originalTarget);
+      expect(await fs.readFile(migratedTarget)).toEqual(expectedMigrated);
+      expect(await fs.readFile(path.join(preimage, relativeTarget))).toEqual(originalTarget);
+      const diagnostics = await readJson<{ phase: string; details?: unknown }>(upgradeDiagnosticsPath);
+      expect(diagnostics).toMatchObject({ phase: 'recovery', details: { rollbackStatus: 'recovery-required' } });
       await expect(fs.readFile(nestedPath, 'utf8')).resolves.toBe('nested preimage\n');
       await expect(fs.readFile(rootFilePath, 'utf8')).resolves.toBe('root preimage\n');
       expect(await fs.readFile(path.join(preimage, '.sec-lock.snapshot'))).toEqual(graphLockPreimage);
