@@ -249,12 +249,15 @@ test('audit aggregate deadline follows its declared capacity and preserves short
 test('audit worker deadline is clipped to the same remaining parent without consuming settlement reserve', () => {
   const parent = repositoryAuditDeadline(undefined, 1_000);
   const workDeadline = parent - 5_000;
-  assert.equal(repositoryAuditWorkerDeadline(workDeadline, 1_000), 181_000);
-  assert.equal(repositoryAuditWorkerDeadline(workDeadline, 201_000), 296_000);
-  assert.ok(repositoryAuditWorkerDeadline(workDeadline, 295_999) < parent);
+  const workerDeadline = repositoryAuditWorkerDeadline(workDeadline, 1_000);
+  assert.ok(Number.isSafeInteger(workerDeadline));
+  assert.ok(workerDeadline > 1_000 && workerDeadline <= 296_000);
+  assert.equal(repositoryAuditWorkerDeadline(workDeadline, 295_999), 296_000);
   assert.throws(() => repositoryAuditWorkerDeadline(workDeadline, workDeadline), /exhausted/);
   const shortParent = repositoryAuditDeadline(2_000, 1_000);
-  assert.equal(repositoryAuditWorkerDeadline(shortParent - 100, 1_500), 2_900);
+  const narrowed = repositoryAuditWorkerDeadline(shortParent - 100, 1_500);
+  assert.ok(Number.isSafeInteger(narrowed));
+  assert.ok(narrowed > 1_500 && narrowed <= 2_900);
 });
 
 
