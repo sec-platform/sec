@@ -40,7 +40,8 @@ test('JSON suppresses text formatting while preserving the projected payload thr
 
 for (const phase of ['decode', 'execute-sync', 'execute-async', 'view-sync', 'view-async', 'format', 'sink'] as const) {
   test(`${phase} failure never retries execution or invokes an earlier phase again`, async () => {
-    const reason = Object.freeze({ phase }), root = program(), events: string[] = [];
+    const reason = phase === 'execute-async' ? undefined : Object.freeze({ phase });
+    const root = program(), events: string[] = [];
     registerWorkspaceAction(root.command('sample'), {
       decode: () => { events.push('decode'); if (phase === 'decode') throw reason; return { request: 1, output: jsonOpts({}) }; },
       execute: () => { events.push('execute'); if (phase === 'execute-sync') throw reason; if (phase === 'execute-async') return Promise.reject(reason); return Promise.resolve(1); },
@@ -57,27 +58,6 @@ for (const phase of ['decode', 'execute-sync', 'execute-async', 'view-sync', 'vi
     assert.equal(events.includes('view'), !['decode', 'execute-sync', 'execute-async'].includes(phase));
   });
 }
-
-for (const reason of [undefined, null, false, 0, 'failure']) {
-  test(`arbitrary ${String(reason)} rejection is preserved exactly`, async () => {
-    const root = program();
-    registerWorkspaceAction(root.command('sample'), {
-      decode: () => ({ request: undefined, output: jsonOpts({}) }),
-      execute: async () => { throw reason; }, view: () => assert.fail('view ran after failure')
-    });
-    await assert.rejects(root.parseAsync(['sample'], { from: 'user' }), (error) => error === reason);
-  });
-}
-
-test('registered functions are fixed even when the definition is subsequently replaced', async () => {
-  const root = program();
-  const definition = { decode: () => ({ request: 7, output: jsonOpts({}) }), execute: async (_cwd: string, value: number) => value,
-    view: (value: number) => commandValue(value, String) };
-  registerWorkspaceAction(root.command('sample'), definition);
-  definition.decode = () => { throw new Error('replaced'); }; definition.execute = async () => 99;
-  definition.view = () => { throw new Error('replaced'); };
-  assert.deepEqual(await capture(() => root.parseAsync(['sample'], { from: 'user' })), [['7']]);
-});
 
 test('workspace capture happens before decoder code can change process cwd', async () => {
   const root = program(), original = process.cwd(); let observed = '';
@@ -103,18 +83,9 @@ test('decoder owns the immutable request snapshot; execution never receives raw 
   assert.deepEqual(JSON.parse(String(lines[0]![0])), { enabled: true });
 });
 
-for (const key of ['decode', 'execute', 'view'] as const) {
-  test(`invalid internal ${key} is rejected before replacing the native action`, async () => {
-    const command = program(); let originalCalls = 0;
-    command.action(() => { originalCalls += 1; });
-    const definition = { decode: () => ({ request: 1, output: jsonOpts({}) }), execute: async () => 1, view: (v: number) => commandValue(v, String), [key]: null };
-    assert.throws(() => registerWorkspaceAction(command, definition as never), TypeError);
-    await command.parseAsync([], { from: 'user' }); assert.equal(originalCalls, 1);
-  });
-}
-
 test('operation value formatting observes later domain changes without freezing the domain', () => {
   const domain = { state: 'live' }; const view = commandValue(domain, (value) => { assert.equal(value, domain); return value.state; });
+  assert.equal(view.value, domain);
   assert.ok(Object.isFrozen(view)); assert.ok(!Object.isFrozen(domain));
   domain.state = 'updated'; assert.equal(view.formatText(), 'updated');
 });

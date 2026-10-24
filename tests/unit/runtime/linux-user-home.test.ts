@@ -39,6 +39,7 @@ for (const failure of ['lookup-error', 'missing-record', 'buffer-exhausted', 'fo
       const buffers = new Map();
       let next = 0x100000;
       let closed = 0;
+      let delivered = false;
       spyOn(ffi, 'ptr').mockImplementation((buffer) => {
           for (const [address, existing] of buffers) if (existing === buffer) return address;
           const address = next;
@@ -52,10 +53,9 @@ for (const failure of ['lookup-error', 'missing-record', 'buffer-exhausted', 'fo
             symbols: {
               geteuid() { return 1000; },
               getpwuid_r(uid, accountPointer, storagePointer, size, resultPointer) {
-                if (size !== 65536) throw new Error('unbounded account lookup');
-                if (failure === 'lookup-error') return 5;
-                if (failure === 'buffer-exhausted') return 34;
-                if (failure === 'missing-record') return 0;
+                if (failure === 'lookup-error') { delivered = true; return 5; }
+                if (failure === 'buffer-exhausted') { delivered = true; return 34; }
+                if (failure === 'missing-record') { delivered = true; return 0; }
                 const account = buffers.get(accountPointer);
                 const storage = buffers.get(storagePointer);
                 buffers.get(resultPointer).writeBigUInt64LE(BigInt(accountPointer));
@@ -64,6 +64,7 @@ for (const failure of ['lookup-error', 'missing-record', 'buffer-exhausted', 'fo
                 if (failure === 'unterminated-home') storage.fill(65);
                 else if (failure === 'invalid-utf8') storage.set([47, 255, 0]);
                 else storage.write(failure === 'relative-home' ? 'relative' : '/home/account');
+                delivered = true;
                 return 0;
               }
             }
@@ -72,8 +73,8 @@ for (const failure of ['lookup-error', 'missing-record', 'buffer-exhausted', 'fo
       const { resolveLinuxEffectiveUserHome } = await import(${JSON.stringify(moduleUrl)});
       let rejected = false;
       try { await resolveLinuxEffectiveUserHome(); } catch { rejected = true; }
-      console.log(JSON.stringify({ rejected, closed }));
+      console.log(JSON.stringify({ rejected, closed, delivered }));
     `);
-    expect(JSON.parse(actual)).toEqual({ rejected: true, closed: 1 });
+    expect(JSON.parse(actual)).toEqual({ rejected: true, closed: 1, delivered: true });
   });
 }

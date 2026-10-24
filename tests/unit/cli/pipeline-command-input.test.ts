@@ -1,8 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { PIPELINE_EXECUTION_BOUNDARIES } from '../../../src/compiler/pipeline/execution-boundaries.ts';
-import { PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from '../../../src/compiler/pipeline/stages.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 import { parsePipelineCompileOptions, parsePipelineOutputOptions } from '../../../src/entry/cli/pipeline-command-input.ts';
 
@@ -81,14 +79,4 @@ test('returned values are frozen, detached from caller mutation and cannot chang
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.invocation));
   assert.ok(Object.isFrozen(result.output));
-});
-
-test('stage vocabulary cannot diverge from its already-derived verification prefix', () => {
-  assert.ok(Object.isFrozen(PIPELINE_STAGE_IDS));
-  assert.ok(Object.isFrozen(PIPELINE_EXECUTION_BOUNDARIES));
-  assert.ok(Object.isFrozen(PIPELINE_VERIFY_STAGE_IDS));
-  const stages = [...PIPELINE_STAGE_IDS];
-  assert.equal(Reflect.set(PIPELINE_STAGE_IDS, 0, 'injected'), false);
-  assert.deepEqual(PIPELINE_STAGE_IDS, stages);
-  assert.deepEqual(PIPELINE_VERIFY_STAGE_IDS, PIPELINE_STAGE_IDS.slice(0, PIPELINE_STAGE_IDS.indexOf('verify') + 1));
 });

@@ -37,6 +37,8 @@ test('the built-in pipeline publishes the exact stage, pass and event policy con
     'verify-fast', 'verify-runtime', 'verify-artifact-publish']);
 
   // These shared outputs feed later execution and persisted-data validation.
+  assert.ok(Object.isFrozen(PIPELINE_VERIFY_STAGE_IDS));
+  assert.ok(Object.isFrozen(PIPELINE_EXECUTION_BOUNDARIES));
   const definition = getPipelineStageDefinition('compose');
   assert.equal(Reflect.set(definition, 'primaryPass', 'repair'), false);
   assert.throws(() => (definition.requires as string[]).push('repair'), TypeError);

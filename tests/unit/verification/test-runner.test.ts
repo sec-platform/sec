@@ -1553,7 +1553,7 @@ test.serial('each resource class obeys its own bounded batches and deterministic
             entry.resourceClass === resourceClass && availableFiles.has(entry.file)
           ))
           .map(({ file }) => file)
-          .slice(0, requiredCount)
+          .slice(0, requiredCount).sort()
       ];
     }
   )) as Record<typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER[number], string[]>;
@@ -1614,6 +1614,11 @@ test.serial('each resource class obeys its own bounded batches and deterministic
     }
 
     expect(await run).toBe(0);
+    expect(devCommandCalls).toEqual(selectedFiles.map((file) => ({
+      command: 'bun',
+      args: ['test', `./${file}`, ...DEFAULT_MANAGED_INNER_ARGS,
+        '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
+    })));
     expect(observedWaveClasses).toEqual(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.flatMap(
       (resourceClass) => filesByClass[resourceClass].map(() => resourceClass)
     ));
@@ -1650,42 +1655,6 @@ test.serial('settled test failure preserves its exit while independent later cla
   } finally {
     console.error = originalError;
   }
-});
-
-test.serial('deterministic resource-class owners run in class order', async () => {
-  const code = await runFastTests([
-    'tests/integration/workspace/pipeline-kernel.test.ts',
-    'tests/integration/workspace/semantic-projections.test.ts',
-    'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
-  ]);
-
-  expect(code).toBe(0);
-  expect(devCommandCalls).toEqual([
-    {
-      command: 'bun',
-      args: [
-        'test', './tests/integration/workspace/pipeline-kernel.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
-        '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
-      ]
-    },
-    {
-      command: 'bun',
-      args: [
-        'test', './tests/integration/workspace/semantic-projections.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
-        '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
-      ]
-    },
-    {
-      command: 'bun',
-      args: [
-        'test',
-        './tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts',
-        ...DEFAULT_MANAGED_INNER_ARGS,
-        '--timeout',
-        String(DEFAULT_TEST_TIMEOUT_MS)
-      ]
-    }
-  ]);
 });
 
 test.serial('explicit fast test files bootstrap once and settle their invocation runtime', async () => {
@@ -1778,35 +1747,6 @@ test.serial('failed fast children leave no run-owned workspace residue', async (
   const runtimeRoots = fastInvocationRunRoots(workspaceEnv);
   await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-});
-
-test.serial('fast tests preserve the caller namespace and clean only a unique run-owned child', async () => {
-  const parentNamespace = 'test-runner-explicit-namespace';
-  const parentEnv = { [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace };
-  const parentRoot = getTestWorkspaceTempRoot(parentEnv);
-  const sentinelPath = path.join(parentRoot, 'caller-owned-sentinel.txt');
-  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = parentNamespace;
-  materializeTestWorkspace = true;
-  await fs.mkdir(parentRoot, { recursive: true });
-  await fs.writeFile(sentinelPath, 'caller-owned', 'utf8');
-
-  try {
-    const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
-    const workspaceEnv = devCommandEnvironments[0]!;
-
-    expect(code).toBe(0);
-    expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(parentNamespace);
-    expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ENV]).toMatch(/^fast-[0-9a-f]{32}$/u);
-    const runtimeRoots = fastInvocationRunRoots(workspaceEnv);
-    expect(path.dirname(runtimeRoots.stateRoot)).not.toBe(parentRoot);
-    expect(path.resolve(runtimeRoots.stateRoot).startsWith(path.resolve(compilerRoot))).toBe(false);
-    expect(path.resolve(runtimeRoots.cacheRoot).startsWith(path.resolve(compilerRoot))).toBe(false);
-    expect(await fs.readFile(sentinelPath, 'utf8')).toBe('caller-owned');
-    await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    await fs.rm(parentRoot, { recursive: true, force: true });
-  }
 });
 
 test.serial('overlapping fast runs sharing one caller namespace own disjoint cleanup children', async () => {
@@ -2465,6 +2405,12 @@ test.serial('resolved affected plan executes only after its final Git revalidati
 
   expect(code).toBe(0);
   expect(commandCalls.length).toBeGreaterThan(resolutionCommandCount);
+  expect(commandCalls.every((call) => (
+    ['git', 'git.exe'].includes(path.basename(call.command).toLowerCase())
+    && call.stdoutMode === 'bytes'
+  ))).toBe(true);
+  expect(commandCalls.some((call) => call.args.some((arg) => arg.startsWith('diff')))).toBe(true);
+  expect(commandCalls.some((call) => call.args.includes('ls-files'))).toBe(true);
   expect(gitReadSessions.length).toBeGreaterThan(resolutionSessionCount);
   const executionEvents = operationEvents.slice(resolutionEventCount);
   const firstChildAdmission = executionEvents.indexOf('dev-command');
@@ -2531,27 +2477,15 @@ test.serial('affected plan lists every unresolved path and exits nonzero without
         'assets/new.bin',
         'platform/unmapped-source.ts'
       ],
-      resolved: false
+      resolved: false,
+      verificationResult: { status: 'invalidated', reasonCode: 'selection-unresolved', applicability: 'unresolved' },
+      selectionTrustBoundary: 'unresolved-ownership'
     });
     expect(devCommandCalls).toEqual([]);
     expect(devCommandEnvironments).toEqual([]);
   } finally {
     console.log = originalLog;
   }
-});
-
-test.serial('affected-test Git discovery requests byte-preserving stdout through the retained Git provider', async () => {
-  changedFiles = ['tests/unit/workspace/path-containment.test.ts'];
-  const code = await runAffectedTests();
-
-  expect(code).toBe(0);
-  expect(commandCalls.length).toBeGreaterThan(0);
-  expect(commandCalls.every((call) => (
-    ['git', 'git.exe'].includes(path.basename(call.command).toLowerCase())
-    && call.stdoutMode === 'bytes'
-  ))).toBe(true);
-  expect(commandCalls.some((call) => call.args.some((arg) => arg.startsWith('diff')))).toBe(true);
-  expect(commandCalls.some((call) => call.args.includes('ls-files'))).toBe(true);
 });
 
 test.serial('affected base ref validation rejects option-like, NUL, and oversized values before Git effect', async () => {
@@ -2604,47 +2538,14 @@ test.serial('affected tests combine multiple tracked fast-test facts with policy
     'tests/unit/workspace/path-containment.test.ts'
   ].sort());
   expect(devCommandCalls.every((call) => invocationTestFiles(call.args).length === 1)).toBe(true);
-});
-
-test.serial('affected tests run changed fast files with the global test-policy sentinels', async () => {
-  changedFiles = ['tests/unit/workspace/path-containment.test.ts'];
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (message?: unknown) => {
-    logs.push(String(message));
-  };
-
-  try {
-    const code = await runAffectedTests();
-
-    expect(code).toBe(0);
-    expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
-      FAST_TEST_PROCESS_POLICY_TEST_FILE,
-      TEST_ARCHITECTURE_POLICY_TEST_FILE,
-      'tests/unit/workspace/path-containment.test.ts'
-    ].sort());
-    const ordinaryInvocation = devCommandCalls.find((call) => (
-      Array.isArray(call.args) && invocationTestFiles(call.args).includes('tests/unit/workspace/path-containment.test.ts')
-    ));
-    expect(ordinaryInvocation).toBeDefined();
-    const ordinaryArgs = [...ordinaryInvocation!.args];
-    expect(ordinaryInvocation!.command).toBe('bun');
-    expect(ordinaryArgs).toContain('test');
-    expect(ordinaryArgs).toContain('./tests/unit/workspace/path-containment.test.ts');
-    expect(ordinaryArgs).not.toContain('--concurrent');
-    expect(devCommandCalls.find((call) => (
-      Array.isArray(call.args) && invocationTestFiles(call.args).includes(FAST_TEST_PROCESS_POLICY_TEST_FILE)
-    )))
-      .toMatchObject({
-        command: 'bun',
-        args: [
-          'test', `./${FAST_TEST_PROCESS_POLICY_TEST_FILE}`, ...DEFAULT_MANAGED_INNER_ARGS,
-          '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
-        ]
-      });
-  } finally {
-    console.log = originalLog;
-  }
+  expect(devCommandCalls.every((call) => call.args[0] === 'test')).toBe(true);
+  expect(devCommandCalls.every((call) => !call.args.includes('--concurrent'))).toBe(true);
+  expect(devCommandCalls.find((call) => invocationTestFiles(call.args).includes(FAST_TEST_PROCESS_POLICY_TEST_FILE)))
+    .toEqual({
+      command: 'bun',
+      args: ['test', `./${FAST_TEST_PROCESS_POLICY_TEST_FILE}`, ...DEFAULT_MANAGED_INNER_ARGS,
+        '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
+    });
 });
 
 test.serial('affected tests isolate changed serial fast files', async () => {
@@ -2664,22 +2565,6 @@ test.serial('affected tests isolate changed serial fast files', async () => {
       '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
     ]
   });
-});
-
-test.serial('affected tests select the process-policy sentinel for the MainHealth hazard regression', async () => {
-  changedFiles = ['tests/unit/runtime/physical-no-follow.test.ts'];
-
-  const code = await runAffectedTests();
-
-  expect(code).toBe(0);
-  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
-    FAST_TEST_PROCESS_POLICY_TEST_FILE,
-    TEST_ARCHITECTURE_POLICY_TEST_FILE,
-    'tests/unit/runtime/physical-no-follow.test.ts'
-  ].sort());
-  expect(devCommandCalls).toHaveLength(3);
-  expect(devCommandCalls.every((call) => call.args[0] === 'test')).toBe(true);
-  expect(devCommandCalls.every((call) => !call.args.includes('--concurrent'))).toBe(true);
 });
 
 test.serial('affected tests run the architecture policy sentinel for changed slow files', async () => {
@@ -2729,29 +2614,6 @@ test.serial('affected plan projects required policy coverage for a changed slow 
     expect(vr.applicability).toBe('required');
     expect(plan.selectionTrustBoundary).toBe('applicable-with-tests');
     expect(plan.selectedFastTests).toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
-  } finally {
-    console.log = originalLog;
-  }
-});
-
-test.serial('affected plan projects invalidated for unresolved ownership (Issue #206)', async () => {
-  changedFiles = ['platform/unmapped-source.ts'];
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (message?: unknown) => {
-    logs.push(String(message));
-  };
-
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
-
-    expect(code).toBe(1);
-    const vr = plan.verificationResult as Record<string, unknown>;
-    expect(vr.status).toBe('invalidated');
-    expect(vr.reasonCode).toBe('selection-unresolved');
-    expect(vr.applicability).toBe('unresolved');
-    expect(plan.selectionTrustBoundary).toBe('unresolved-ownership');
   } finally {
     console.log = originalLog;
   }

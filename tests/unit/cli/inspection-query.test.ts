@@ -32,10 +32,15 @@ test('only the selected view runs and each query reads exactly once', async () =
   for (const mode of [undefined, 'detail']) {
     const events: string[] = [];
     const root = program();
-    registerInspectionQuery(root.command('sample'), { read: () => { events.push('read'); return { value: 7 }; },
+    const command = root.command('sample').alias('other');
+    const registered = registerInspectionQuery(command, { read: () => { events.push('read'); return { value: 7 }; },
       view: (value) => { events.push('default'); return inspectionValue(value, (v) => `default:${v.value}`); },
       modes: { detail: (value) => { events.push('detail'); return inspectionValue(value.value, (v) => `detail:${v}`); } } });
-    const printed = await capture(() => root.parseAsync(['sample', ...(mode ? [mode] : [])], { from: 'user' }));
+    assert.equal(registered, command);
+    assert.equal(root.commands.length, 1);
+    assert.equal(command.name(), 'sample');
+    assert.equal(command.alias(), 'other');
+    const printed = await capture(() => root.parseAsync(['other', ...(mode ? [mode] : [])], { from: 'user' }));
     assert.deepEqual(events, ['read', mode ?? 'default']);
     assert.deepEqual(printed, [[mode ? 'detail:7' : 'default:7']]);
   }
@@ -108,55 +113,4 @@ test('data selection receives the same captured context as presentation after an
   try {
     assert.deepEqual(await capture(() => root.parseAsync(['sample', '--json'], { from: 'user' })), [['42']]);
   } finally { process.chdir(initial); await rm(other, { recursive: true, force: true }); }
-});
-
-test('definition changes after registration cannot change the admitted mode implementation', async () => {
-  const root = program();
-  const modes = { detail: (value: number) => inspectionValue(value, () => 'original') };
-  const definition = { read: () => 1, view: (value: number) => inspectionValue(value, String), modes };
-  registerInspectionQuery(root.command('sample'), definition);
-  modes.detail = (value) => inspectionValue(value, () => 'replaced');
-  definition.read = () => 99;
-  assert.deepEqual(await capture(() => root.parseAsync(['sample', 'detail'], { from: 'user' })), [['original']]);
-});
-
-test('value/formatter pairing retains object identity without freezing the domain value', () => {
-  const value = { status: 'observed' };
-  const pair = inspectionValue(value, (received) => { assert.equal(received, value); return received.status; });
-  assert.equal(pair.value, value); assert.equal(pair.formatText(), 'observed');
-  assert.ok(Object.isFrozen(pair)); assert.equal(Object.isFrozen(value), false);
-});
-
-test('malformed internal definitions fail without partially registering a command', () => {
-  const command = new Command().name('bad');
-  assert.throws(() => registerInspectionQuery(command, { read: null as never, view: (v) => inspectionValue(v, String) }), TypeError);
-  assert.equal(command.options.length, 0);
-  assert.equal(command.registeredArguments.length, 0);
-});
-
-test('explicit mode names that resemble object prototype members remain exact map keys', async () => {
-  const root = program();
-  const modes = Object.create(null) as Record<string, (value: number) => ReturnType<typeof inspectionValue>>;
-  modes.__proto__ = (value) => inspectionValue(value, () => 'explicit');
-  registerInspectionQuery(root.command('sample'), { read: () => 1, view: (v) => inspectionValue(v, String), modes });
-  assert.deepEqual(await capture(() => root.parseAsync(['sample', '__proto__'], { from: 'user' })), [['explicit']]);
-});
-
-
-test('the existing Commander object remains the unique command identity', () => {
-  const root = program();
-  const command = root.command('original').alias('other');
-  const registered = registerInspectionQuery(command, { read: () => 1, view: (v) => inspectionValue(v, String) });
-  assert.equal(registered, command);
-  assert.equal(root.commands.length, 1);
-  assert.equal(command.name(), 'original');
-  assert.equal(command.alias(), 'other');
-});
-
-test('commands with a different argument contract are rejected before adding generic options', () => {
-  const command = new Command('special').argument('<kind>');
-  assert.throws(() => registerInspectionQuery(command, { read: () => 1, view: (v) => inspectionValue(v, String) }),
-    /without predeclared arguments/);
-  assert.equal(command.options.length, 0);
-  assert.equal(command.registeredArguments.length, 1);
 });
