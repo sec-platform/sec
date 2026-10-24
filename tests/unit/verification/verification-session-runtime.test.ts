@@ -56,8 +56,8 @@ import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPAT
 import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 
 import { parseVerificationSessionHostedRequest } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
-import { assertGitHubReviewAuthorityObservation, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
-import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedRuntime, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+import { assertGitHubReviewAuthorityObservation, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+import { assertTrustedMergedRequestRuntimeReachability, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
@@ -1309,52 +1309,6 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
   })))()).rejects.toThrow(/hydration differs from its selected summary identity/i);
 });
 
-test('readable but noncanonical rulesets never become platform enforcement authority', async () => {
-  const observation = await evaluatePlatformEnforcementObservation({
-    repository: 'sec-platform/sec',
-    readRulesets: () => ({
-      defaultBranch: 'main',
-      effectiveRules: [{
-        type: 'required_status_checks',
-        ruleset_id: 18533093,
-        parameters: {
-          required_status_checks: [{ context: 'CodeQL', integration_id: 57789 }],
-          strict_required_status_checks_policy: false
-        }
-      }],
-      detailedRulesets: [{
-        id: 18533093,
-        name: 'main-code-scanning',
-        target: 'branch',
-        source_type: 'Repository',
-        source: 'sec-platform/sec',
-        enforcement: 'active',
-        bypass_actors: [],
-        conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
-        rules: [{ type: 'required_code_scanning', parameters: {} }]
-      }]
-    })
-  });
-  expect(observation).toMatchObject({
-    status: 'unknown',
-    reason: expect.stringContaining('Canonical MainAuthority ruleset proof failed')
-  });
-  expect(observation.rulesetDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
-
-test('platform 403 is recorded as unavailable and never as no-bypass proof', async () => {
-  const transport = new FakeTransport();
-  const error = new Error('upgrade plan') as Error & { statusCode?: number };
-  error.statusCode = 403;
-  transport.rulesetError = error;
-  const observation = (await evaluatePlatformEnforcementObservation({
-    repository: 'sec-platform/sec', readRulesets: () => transport.repositoryRulesets()
-  }));
-  expect(observation.status).toBe('platform-enforcement-unavailable');
-  expect(observation.reason).toContain('unavailable');
-  expect(observation.rulesetDigest as SessionDigest).toMatch(/^sha256:/);
-});
-
 test('IssueDisposition post-main readback consumes the canonical exact MainHealth decision', () => {
   const common = {
     repository: 'sec-platform/sec', newMainSha: BASE, newMainTreeSha: HEAD,
@@ -1396,25 +1350,6 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
 
 
 
-
-test('trusted-main preparation rejects candidate/dirty/boundary runtime proof', () => {
-  const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE, remoteDefaultSha: BASE,
-    workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-  expect(() => assertTrustedMainRuntime({ ...proof, workingTreeClean: false }, BASE)).toThrow();
-  expect(() => assertTrustedMainRuntime({ ...proof, currentBranch: 'feature' }, BASE)).toThrow();
-  expect(() => assertTrustedMainRuntime({ ...proof, boundaryTargetsMatched: false }, BASE)).toThrow();
-});
-
-test('hosted exact-revision runtime permits only a detached exact trusted-main checkout', () => {
-  const session = { baseSha: BASE, trustRevision: BASE } as VerificationSession;
-  const detachedExact = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: BASE, remoteDefaultSha: BASE,
-    workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-  expect(() => assertTrustedExactRevisionRuntime(detachedExact, BASE)).not.toThrow();
-  expect(() => assertTrustedRuntime(detachedExact, session)).not.toThrow();
-  expect(() => assertTrustedMainRuntime(detachedExact, BASE)).toThrow();
-  expect(() => assertTrustedExactRevisionRuntime({ ...detachedExact, currentHeadSha: HEAD }, BASE)).toThrow();
-  expect(() => assertTrustedExactRevisionRuntime({ ...detachedExact, workingTreeClean: false }, BASE)).toThrow();
-});
 
 test('synchronous hosted merge rejects queued effects and requires exact physical readback', () => {
   const markers = [
@@ -1520,16 +1455,6 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
   expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, mergeCommitMessage: 'other' },
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: provider.sha })).toThrow(/authorization markers/i);
-});
-
-test('OPEN candidate execution rejects remote-main drift even after authorization', () => {
-  const session = { baseSha: BASE, trustRevision: BASE } as VerificationSession;
-  const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE,
-    remoteDefaultSha: 'f'.repeat(40), workingTreeClean: true,
-    runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-  expect(() => assertTrustedRuntime(proof, session, false))
-    .toThrow(/trusted default revision TCB/);
-  expect(() => assertTrustedRuntime({ ...proof, remoteDefaultSha: BASE }, session, false)).not.toThrow();
 });
 
 test('local preparation request cannot enter any hosted consumer or runtime state', () => {

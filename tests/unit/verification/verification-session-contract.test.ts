@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedRuntime } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+import type { VerificationSession } from '../../../src/execution/verification/session.ts';
 import { createBranchCloseoutRecoveryArtifact, parseBranchCloseoutRecoveryArtifact } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 
 import { VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, createVerificationSessionProposalDigest, parseVerificationRegistryProjection, parseVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
@@ -118,4 +120,33 @@ test('provider recovery artifact binds exact envelope and bundle bytes', () => {
   expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact,
     preparedEnvelopeBase64: `${artifact.preparedEnvelopeBase64}=\n` }))
     .toThrow('canonical base64');
+});
+
+test('trusted-main preparation rejects candidate/dirty/boundary runtime proof', () => {
+  const proof = { currentHeadSha: BASE_SHA, currentBranch: 'main', localDefaultSha: BASE_SHA, remoteDefaultSha: BASE_SHA,
+    workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
+  expect(() => assertTrustedMainRuntime({ ...proof, workingTreeClean: false }, BASE_SHA)).toThrow();
+  expect(() => assertTrustedMainRuntime({ ...proof, currentBranch: 'feature' }, BASE_SHA)).toThrow();
+  expect(() => assertTrustedMainRuntime({ ...proof, boundaryTargetsMatched: false }, BASE_SHA)).toThrow();
+});
+
+test('hosted exact-revision runtime permits only a detached exact trusted-main checkout', () => {
+  const session = { baseSha: BASE_SHA, trustRevision: BASE_SHA } as VerificationSession;
+  const detachedExact = { currentHeadSha: BASE_SHA, currentBranch: '', localDefaultSha: BASE_SHA, remoteDefaultSha: BASE_SHA,
+    workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
+  expect(() => assertTrustedExactRevisionRuntime(detachedExact, BASE_SHA)).not.toThrow();
+  expect(() => assertTrustedRuntime(detachedExact, session)).not.toThrow();
+  expect(() => assertTrustedMainRuntime(detachedExact, BASE_SHA)).toThrow();
+  expect(() => assertTrustedExactRevisionRuntime({ ...detachedExact, currentHeadSha: HEAD_SHA }, BASE_SHA)).toThrow();
+  expect(() => assertTrustedExactRevisionRuntime({ ...detachedExact, workingTreeClean: false }, BASE_SHA)).toThrow();
+});
+
+test('OPEN candidate execution rejects remote-main drift even after authorization', () => {
+  const session = { baseSha: BASE_SHA, trustRevision: BASE_SHA } as VerificationSession;
+  const proof = { currentHeadSha: BASE_SHA, currentBranch: 'main', localDefaultSha: BASE_SHA,
+    remoteDefaultSha: 'f'.repeat(40), workingTreeClean: true,
+    runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
+  expect(() => assertTrustedRuntime(proof, session, false))
+    .toThrow(/trusted default revision TCB/);
+  expect(() => assertTrustedRuntime({ ...proof, remoteDefaultSha: BASE_SHA }, session, false)).not.toThrow();
 });
