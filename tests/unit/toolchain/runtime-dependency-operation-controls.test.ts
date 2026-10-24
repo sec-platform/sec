@@ -2,7 +2,6 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {
-  runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationOptions
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import {
@@ -120,22 +119,6 @@ for (const canceller of ['parent', 'child'] as const) {
     assert.throws(() => runtimeDependencyOperationRemainingMs(retained, 'cancel'), (error: unknown) => error === reason);
   });
 }
-
-test('coordinator excludes undeclared capabilities and preserves the true callback receiver', async () => {
-  const capability = Object.freeze({ owner: 'install' });
-  let reads = 0, calls = 0;
-  const raw = { lockTimeoutMs: 100, monotonicNowMs: () => 0,
-    rematerialize: false, get customCapability() { reads += 1; return capability; },
-    async beforeCommit() { assert.equal(this, raw); assert.equal(this.rematerialize, true); calls += 1; } };
-  const bound = runtimeDependencyOperationOptions(raw);
-  assert.equal(reads, 0);
-  // @ts-expect-error Coordinator inputs no longer forward arbitrary extensions.
-  assert.equal(bound.customCapability, undefined);
-  assert.equal(bound.rematerialize, false);
-  raw.rematerialize = true;
-  await runtimeDependencyOperationEffectFence(bound, 'fence');
-  assert.equal(calls, 1); assert.equal(reads, 0); assert.ok(Object.isFrozen(bound));
-});
 
 test('telemetry can consume stripped controls without a second operation identity', () => {
   let now = 0;

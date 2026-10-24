@@ -162,69 +162,38 @@ test('Verification artifact rejects duplicate and noncanonical runtime inventori
 
 // These additional cases retain the real schemas, physical publishers, lock and
 // canonical reader. They are native integration, not local boundary fixtures.
-test('publication owns one root, input set and callback despite mutation at the first fence', async () => {
+test('publication captures one root, nested artifact set and receiver-bound fence before callbacks', async () => {
   await withTempWorkspace(async workspaceRoot => {
     await ensureProjectBase(workspaceRoot);
     const expected = blockedArtifactSet();
-    const input = { workspaceRoot, artifacts: structuredClone(expected),
-      lock: publicationLock(), commitFence: async () => {} };
-    let calls = 0;
-    input.commitFence = async () => {
-      calls++;
-      input.workspaceRoot = path.join(workspaceRoot, 'retargeted');
-      input.artifacts = {} as typeof input.artifacts;
-      input.lock = {} as typeof input.lock;
-      input.commitFence = async () => assert.fail('replacement fence ran');
-    };
-    const published = await publishVerificationArtifactSet(input);
-    assert.ok(calls > 1);
-    assert.deepEqual(published, expected);
-    assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), expected);
-    await assert.rejects(fs.access(path.join(workspaceRoot, 'retargeted')));
-  });
-});
-
-test('nested source changes cannot retarget the already validated artifact set', async () => {
-  await withTempWorkspace(async workspaceRoot => {
-    await ensureProjectBase(workspaceRoot);
-    const artifacts = blockedArtifactSet(), expected = structuredClone(artifacts);
-    await publishVerificationArtifactSet({ workspaceRoot, artifacts,
-      lock: publicationLock(), commitFence: async () => {
-        artifacts.verificationReport.fast.unit.passed.push('changed.test.ts');
-        artifacts.runtimeReport.logs.stdout = 'changed';
-      } });
-    assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), expected);
-  });
-});
-
-test('a relative publication root cannot move when the callback changes cwd', async () => {
-  await withTempWorkspace(async workspaceRoot => {
-    await ensureProjectBase(workspaceRoot);
-    const previous = process.cwd(), artifacts = blockedArtifactSet();
-    try {
-      process.chdir(workspaceRoot);
-      await publishVerificationArtifactSet({ workspaceRoot: '.', artifacts,
-        lock: publicationLock(), commitFence: async () => { process.chdir(tmpdir()); } });
-      assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), artifacts);
-    } finally { process.chdir(previous); }
-  });
-});
-
-test('publication callback keeps private state on the actual provider receiver', async () => {
-  await withTempWorkspace(async workspaceRoot => {
-    await ensureProjectBase(workspaceRoot);
+    const requestedArtifacts = structuredClone(expected);
     class Input {
       #calls = 0;
-      workspaceRoot = workspaceRoot;
-      artifacts = blockedArtifactSet();
+      workspaceRoot = '.';
+      artifacts = requestedArtifacts;
       lock = publicationLock();
-      async commitFence() { this.#calls++; }
+      async commitFence() {
+        this.#calls++;
+        requestedArtifacts.verificationReport.fast.unit.passed.push('changed.test.ts');
+        requestedArtifacts.runtimeReport.logs.stdout = 'changed';
+        this.workspaceRoot = path.join(workspaceRoot, 'retargeted');
+        this.artifacts = {} as typeof expected;
+        this.lock = {} as ReturnType<typeof publicationLock>;
+        this.commitFence = async () => assert.fail('replacement fence ran');
+        process.chdir(tmpdir());
+      }
       get calls() { return this.#calls; }
     }
     const input = new Input();
-    await publishVerificationArtifactSet(input);
-    assert.ok(input.calls > 1);
-    assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), input.artifacts);
+    const previous = process.cwd();
+    try {
+      process.chdir(workspaceRoot);
+      const published = await publishVerificationArtifactSet(input);
+      assert.ok(input.calls > 1);
+      assert.deepEqual(published, expected);
+      assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), expected);
+      await assert.rejects(fs.access(path.join(workspaceRoot, 'retargeted')));
+    } finally { process.chdir(previous); }
   });
 });
 

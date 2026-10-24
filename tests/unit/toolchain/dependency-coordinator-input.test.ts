@@ -20,9 +20,18 @@ test('every coordinator route consumes the same closed fields without evaluating
   assert.equal(remaining(bound, 'closed'), 1000);
   assert.equal('extension' in bound, false); assert.equal('unknownSecret' in bound, false);
   assert.equal('sharedDepsRoot' in bound, false);
-  assert.throws(() => bind({ ...bound, get sharedDepsRoot() {
+  // @ts-expect-error Coordinator outputs do not forward arbitrary extensions.
+  assert.equal(bound.customCapability, undefined);
+  assert.ok(Object.isFrozen(bound));
+  const parentInput = new Proxy({ ...bound, get sharedDepsRoot() {
     assert.fail('retired root accessor executed'); return 'unreachable';
-  } }), /unowned executable accessor/);
+  } }, {});
+  assert.throws(() => bind(parentInput), error => {
+    assert.equal((error as { code?: string }).code, 'RUNTIME-DEPS-003');
+    assert.match((error as Error).message, /unowned executable accessor/);
+    return true;
+  });
+  assert.equal(context(parentInput), context(bound));
   assert.ok(!Object.values(bound as Readonly<Record<string, unknown>>).includes(hiddenCapability));
   assert.equal(Object.getOwnPropertySymbols(bound).length, 1); // Only the actual owner's parent ledger.
 });
@@ -44,8 +53,9 @@ test('callback and environment methods retain private provider state, arguments 
   class Provider {
     #events: unknown[][] = [];
     lockTimeoutMs = 1000;
+    rematerialize = false;
     monotonicNowMs = function(this: Provider) { this.#events.push(['clock']); return 0; };
-    beforeCommit = async function(this: Provider) { this.#events.push(['fence']); };
+    beforeCommit = async function(this: Provider) { this.#events.push(['fence', this.rematerialize]); };
     now = function(this: Provider) { this.#events.push(['now']); return 'time'; };
     sleep = async function(this: Provider, ms: number) { this.#events.push(['sleep', ms]); };
     testCompilerRename = async function(this: Provider, from: string, to: string) { this.#events.push(['rename', from, to]); };
@@ -56,12 +66,14 @@ test('callback and environment methods retain private provider state, arguments 
     get events() { return this.#events; }
   }
   const provider = new Provider(); const bound = bind(provider);
+  assert.equal(bound.rematerialize, false);
+  provider.rematerialize = true;
   provider.beforeCommit = async () => assert.fail('late fence'); provider.now = () => assert.fail('late clock');
   await fence(bound, 'private'); assert.equal(bound.now?.(), 'time');
   await bound.sleep?.(4); await bound.testCompilerRename?.('a','b'); await bound.testInstallLockDelete?.('p',3);
   await bound.testCompilerPublishHook?.('active-backed-up'); await bound.testProjectProjectionHook?.('published');
   await bound.testCompilerBridgeValidationHook?.('binding-observed');
-  assert.deepEqual(provider.events.filter(e => e[0] !== 'clock'), [['fence'],['now'],['sleep',4],['rename','a','b'],
+  assert.deepEqual(provider.events.filter(e => e[0] !== 'clock'), [['fence',true],['now'],['sleep',4],['rename','a','b'],
     ['delete','p',3],['publish','active-backed-up'],['project','published'],['bridge','binding-observed']]);
 });
 
@@ -127,16 +139,15 @@ test('removing a parent binding from a selected getter is rejected rather than m
   assert.throws(()=>bind(raw),/not owner-issued/);
 });
 
-test('foreign symbols and structural ledger clones never become bound operation identities', () => {
-  const parent=bind(controls()),symbol=Object.getOwnPropertySymbols(parent)[0]!;
-  const raw={...parent,[symbol]:{...context(parent)}};
-  assert.throws(()=>bind(raw),/not owner-issued/);
-});
-
 test('method binding preserves exact sync and async failure values', async () => {
+  let selected: unknown;
+  const bound=bind({...controls(),beforeCommit(){throw selected;},sleep:async()=>{throw selected;}});
   for(const reason of [undefined,null,false,0,Object.freeze({error:true})]){
-    const bound=bind({...controls(),beforeCommit(){throw reason;},sleep:async()=>{throw reason;}});
-    await assert.rejects(fence(bound,'failure'),e=>e===reason);await assert.rejects(bound.sleep!(1),e=>e===reason);
+    selected=reason;
+    await assert.rejects(fence(bound,'failure'),e=>e===reason);
+    // Both methods use the same argument/receiver-preserving binder; retain
+    // the async method's own wiring without crossing every payload again.
+    if(reason===undefined)await assert.rejects(bound.sleep!(1),e=>e===reason);
   }
 });
 

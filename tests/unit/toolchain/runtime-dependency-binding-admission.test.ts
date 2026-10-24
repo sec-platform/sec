@@ -138,20 +138,6 @@ for (const phase of ['bind', 'budget', 'provider'] as const) {
 
 
 for (const mutate of ['delete', 'replace'] as const) {
-  test(`a whole-input getter cannot ${mutate} its parent during the install snapshot`, () => {
-    const original = parent(), other = parent();
-    const key = symbolOf(original);
-    const candidate: Record<string | symbol, unknown> = { ...original };
-    Object.defineProperty(candidate, 'unowned', { enumerable: true, get() {
-      if (mutate === 'delete') delete candidate[key];
-      else candidate[key] = context(other);
-      return 'captured';
-    } });
-    // Force ordinary property enumeration rather than a runtime's optimized
-    // spread path, which may already have captured the symbol before the getter.
-    assert.throws(() => install(new Proxy(candidate, {})), rejected);
-    assert.equal(context(candidate), context(original));
-  });
   test(`a control getter cannot ${mutate} the retained binding before ledger admission`, () => {
     const original = parent(), other = parent();
     const key = symbolOf(original);
