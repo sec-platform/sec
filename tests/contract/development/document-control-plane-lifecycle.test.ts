@@ -2140,13 +2140,21 @@ async function writePublishTuple(
     retiredNext: Buffer | null;
   }>
 ): Promise<void> {
-  await Promise.all([
+  // Partial tuple setup must not leave another writer active when a rejecting
+  // test begins inspecting failure residue or disposes its native repository.
+  const settled = await Promise.allSettled([
     writeOptionalEntry(prepared.paths.target, entries.target),
     writeOptionalEntry(prepared.paths.next, entries.next),
     writeOptionalEntry(prepared.paths.quarantine, entries.quarantine),
     writeOptionalEntry(prepared.paths.retiredPre, entries.retiredPre),
     writeOptionalEntry(prepared.paths.retiredNext, entries.retiredNext)
   ]);
+  const failures = settled.flatMap(result =>
+    result.status === 'rejected' ? [result.reason] : []);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Document control tuple writers failed');
+  }
 }
 
 async function readPreEffectTupleSnapshot(prepared: PublishTupleFixture): Promise<Readonly<{

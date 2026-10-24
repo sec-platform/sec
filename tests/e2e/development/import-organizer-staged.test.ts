@@ -55,6 +55,13 @@ let repositoryTemplateInitializationCount = 0;
 let activeRepositoryCount = 0;
 let peakRepositoryCount = 0;
 
+async function settleImportFixtureWrites(writers: readonly Promise<unknown>[]): Promise<void> {
+  const settled = await Promise.allSettled(writers);
+  const failures = settled.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Import fixture writers failed');
+}
+
 async function pathExists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
@@ -283,7 +290,7 @@ test.concurrent('candidate apply normalizes the complete committed, staged, unst
     git(repoRoot, ['commit', '--quiet', '--no-verify', '-m', 'committed authoring delta']);
     await writeFile(stagedPath, source('unsorted'), 'utf8');
     git(repoRoot, ['add', 'staged.ts']);
-    await Promise.all([
+    await settleImportFixtureWrites([
       writeFile(fixturePath, source('unsorted'), 'utf8'),
       writeFile(untrackedPath, source('unsorted'), 'utf8'),
       mkdir(path.dirname(nestedUntrackedPath), { recursive: true })
@@ -333,11 +340,11 @@ test.concurrent('working apply and staged freeze normalize identical Git-selecte
     const toolingRoot = path.join(repoRoot, 'tooling');
     const includedRoot = path.join(repoRoot, 'included');
     const fixturePath = path.join(toolingRoot, 'fixture.ts');
-    await Promise.all([
+    await settleImportFixtureWrites([
       mkdir(toolingRoot, { recursive: true }),
       mkdir(includedRoot, { recursive: true })
     ]);
-    await Promise.all([
+    await settleImportFixtureWrites([
       writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
         compilerOptions: {
           allowImportingTsExtensions: true,
@@ -635,7 +642,7 @@ test.concurrent('staged organizer is a no-op when only non-TypeScript paths are 
 
 test.concurrent('staged organizer publishes no index entry when multi-file blob generation fails midway', async () => {
   await withRepository(async (repoRoot) => {
-    await Promise.all([
+    await settleImportFixtureWrites([
       writeFile(path.join(repoRoot, 'fixture.ts'), source('unsorted'), 'utf8'),
       writeFile(path.join(repoRoot, 'second.ts'), source('unsorted'), 'utf8')
     ]);
