@@ -11,6 +11,19 @@ import { buildReviewSummaryFromInputs } from '../../helpers/review-fixtures.ts';
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
+// Compare complete semantic fields and list members, not prose spacing or
+// substrings shared by a different key, record, or evidence field.
+function recordFields(line: string | undefined): string[] {
+  expect(line).toBeDefined();
+  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
+}
+
+function expectRecord(line: string | undefined, fields: readonly string[]): void {
+  expect(recordFields(line).sort()).toEqual(
+    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
+  );
+}
+
 test('review matrix routes adapter result through application and entry while preserving JSON shape', async () => {
   // Independent fixed projection and text oracle retained from tests/unit/e2e-matrix-inspect-presentation.test.ts.
   {
@@ -30,13 +43,9 @@ test('review matrix routes adapter result through application and entry while pr
 
   const rendered = formatE2eMatrix(view).split('\n');
   expect(rendered).toHaveLength(3);
-  for (const field of ['E2E matrix attention', 'rows=2']) expect(rendered[0]).toContain(field);
-  for (const field of ['verification: passed', 'lane=fast', 'ci=passed', 'failures=0']) {
-    expect(rendered[1]).toContain(field);
-  }
-  for (const field of ['artifacts: attention', 'missing=1', 'evidence=missing=1']) {
-    expect(rendered[2]).toContain(field);
-  }
+  expectRecord(rendered[0], ['E2E matrix attention', 'rows=2']);
+  expectRecord(rendered[1], ['verification: passed', 'lane=fast', 'evidence=ci=passed, failures=0']);
+  expectRecord(rendered[2], ['artifacts: attention', 'missing=1', 'evidence=missing=1']);
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const summary = await buildReviewSummaryFromInputs(workspaceRoot);
@@ -51,28 +60,24 @@ test('review matrix routes adapter result through application and entry while pr
     // The production matrix builder is used by the CLI too; checking its
     // projection against itself is a wiring test, not an independent oracle.
     const expectedStages = [
-      { stage: 'verification', status: 'passed', markers: ['lane=fast', 'ci=passed', 'failures=0'] },
-      { stage: 'coverage', status: 'passed', markers: ['blocks=0/0'] },
-      { stage: 'artifacts', status: 'attention', markers: ['artifacts=missing'] },
-      { stage: 'review', status: 'passed', markers: ['review-summary=generated'] }
+      { stage: 'verification', status: 'passed', detail: ['lane=fast', 'failed=none'], evidence: ['ci=passed', 'failures=0'] },
+      { stage: 'coverage', status: 'passed', detail: ['blocks=0/0'], evidence: ['blocks=0/0'] },
+      { stage: 'artifacts', status: 'attention', detail: ['total=0', 'missing=0'], evidence: ['artifacts=missing'] },
+      { stage: 'review', status: 'passed', detail: ['review-summary=generated'], evidence: ['review-summary=generated'] }
     ] as const;
     expect(matrix.status).toBe('attention');
     expect(matrix.rowCount).toBe(expectedStages.length);
     expect(matrix.rows.map(({ stage, status }) => ({ stage, status })))
       .toEqual(expectedStages.map(({ stage, status }) => ({ stage, status })));
     expect(lines).toHaveLength(expectedStages.length + 1);
-    expect(lines[0]).toContain('E2E matrix attention');
-    expect(lines[0]).toContain('rows=4');
+    expectRecord(lines[0], ['E2E matrix attention', 'rows=4']);
     for (const [index, expected] of expectedStages.entries()) {
-      const line = lines[index + 1]!;
-      expect(line).toContain(expected.stage + ': ' + expected.status);
-      for (const marker of expected.markers) {
-        expect(line).toContain(marker);
-        expect(
-          matrix.rows[index]!.detail.includes(marker)
-          || matrix.rows[index]!.evidence.some(value => value.includes(marker))
-        ).toBe(true);
-      }
+      expectRecord(lines[index + 1], [
+        `${expected.stage}: ${expected.status}`, ...expected.detail,
+        `evidence=${expected.evidence.join(', ')}`
+      ]);
+      expectRecord(matrix.rows[index]!.detail, expected.detail);
+      expect(matrix.rows[index]!.evidence).toEqual([...expected.evidence]);
     }
 
     const json = await expectCliJson(workspaceRoot, ['review', 'matrix', '--json']);

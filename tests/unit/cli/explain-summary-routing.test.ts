@@ -9,6 +9,19 @@ import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.t
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
+// Compare complete semantic fields and list members, not prose spacing or
+// substrings shared by a different key, record, or evidence field.
+function recordFields(line: string | undefined): string[] {
+  expect(line).toBeDefined();
+  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
+}
+
+function expectRecord(line: string | undefined, fields: readonly string[]): void {
+  expect(recordFields(line).sort()).toEqual(
+    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
+  );
+}
+
 // Domain effects are replaced only inside a separate process. The real command
 // registration, argument parsing, application projection and renderer execute.
 test('live explain routing preserves nonempty graph semantics and raw JSON', async () => {
@@ -49,20 +62,20 @@ test('live explain routing preserves nonempty graph semantics and raw JSON', asy
     const e2eMatrix = buildE2eMatrix(reviewSummary);
     const output = await invoke([]);
     const lines = output.trimEnd().split(/\r?\n/u);
-    expect(lines[0]).toMatch(/^Explain graph 2 nodes 1 edges\b/u);
+    expectRecord(lines[0], ['Explain graph 2 nodes 1 edges']);
     const required = [
-      ['Node types:', ['block=1', 'operation=1']],
-      ['Edge types:', ['depends_on=1']],
-      ['CI status:', ['passed', 'failures: 0']],
-      ['E2E verification:', ['passed', 'lane=fast', 'ci=passed', 'failures=0']],
-      ['E2E coverage:', ['passed', 'blocks=0/0']],
-      ['E2E artifacts:', ['attention', 'artifacts=missing']],
-      ['E2E review:', ['passed', 'review-summary=generated']]
+      ['Node types:', ['Node types: block=1, operation=1']],
+      ['Edge types:', ['Edge types: depends_on=1']],
+      ['CI status:', ['CI status: passed', 'failures: 0', 'regression risks: 0', 'conflict hints: 0']],
+      ['E2E verification:', ['E2E verification: passed', 'lane=fast', 'failed=none', 'evidence=ci=passed, failures=0']],
+      ['E2E coverage:', ['E2E coverage: passed', 'blocks=0/0', 'evidence=blocks=0/0']],
+      ['E2E artifacts:', ['E2E artifacts: attention', 'total=0', 'missing=0', 'evidence=artifacts=missing']],
+      ['E2E review:', ['E2E review: passed', 'review-summary=generated', 'evidence=review-summary=generated']]
     ] as const;
-    for (const [prefix, markers] of required) {
+    for (const [prefix, fields] of required) {
       const rows = lines.filter(line => line.startsWith(prefix));
       expect(rows).toHaveLength(1);
-      for (const marker of markers) expect(rows[0]).toContain(marker);
+      expectRecord(rows[0], fields);
     }
     expect(e2eMatrix.rows.map(row => row.stage)).toEqual([
       'verification', 'coverage', 'artifacts', 'review'

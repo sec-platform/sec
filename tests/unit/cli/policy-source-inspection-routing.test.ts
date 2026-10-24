@@ -8,6 +8,19 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
+// Compare complete semantic fields and list members, not prose spacing or
+// substrings shared by a different key, record, or evidence field.
+function recordFields(line: string | undefined): string[] {
+  expect(line).toBeDefined();
+  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
+}
+
+function expectRecord(line: string | undefined, fields: readonly string[]): void {
+  expect(recordFields(line).sort()).toEqual(
+    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
+  );
+}
+
 // Fixed semantic oracle for both the direct projection and real CLI JSON.
 // Never compute a route's expected result with its own production projection.
 const EXPECTED_POLICY_SOURCES = {
@@ -65,11 +78,12 @@ test('policy sources routes retained policy evidence through application and ent
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
     const { stdout } = await expectCliSuccess(workspaceRoot, ['policy', 'sources']);
-    const lines = stdout.split(/\r?\n/u);
+    const lines = stdout.trimEnd().split(/\r?\n/u);
+    expect(lines).toHaveLength(5);
     const header = lines.find(line => line.startsWith('Policy sources '));
-    expect(header).toContain('Policy sources passed');
-    const counts = lines.find(line => line.includes('sources=3'));
-    expect(counts).toContain('policies=4');
+    expectRecord(header, ['Policy sources passed']);
+    const counts = lines.find(line => recordFields(line).includes('sources=3'));
+    expectRecord(counts, ['sources=3', 'policies=4']);
     const rows = lines.filter(line => line.startsWith('Source '));
     const expected = [
       ['official', 'a', ['official:a', 'official:b']],
@@ -78,9 +92,9 @@ test('policy sources routes retained policy evidence through application and ent
     ] as const;
     expect(rows).toHaveLength(expected.length);
     for (const [scope, sourcePath, policyIds] of expected) {
-      const matches = rows.filter(line => line.startsWith(`Source ${scope};`) && line.includes(`path=${sourcePath};`));
+      const matches = rows.filter(line => recordFields(line).includes(`Source ${scope}`) && recordFields(line).includes(`path=${sourcePath}`));
       expect(matches).toHaveLength(1);
-      for (const policy of policyIds) expect(matches[0]).toContain(policy);
+      expectRecord(matches[0], [`Source ${scope}`, `path=${sourcePath}`, `policies=${policyIds.join(', ')}`]);
     }
 
     const json = await expectCliJson(workspaceRoot, ['policy', 'sources', '--json']);

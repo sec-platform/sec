@@ -3,6 +3,19 @@ import { describe, expect, test } from 'bun:test';
 import { projectReviewDiagnostics } from '../../../src/application/review-diagnostics-inspect.ts';
 import { formatReviewDiagnostics } from '../../../src/entry/cli/review-diagnostics-inspect.ts';
 
+// Compare complete semantic fields and list members, not prose spacing or
+// substrings shared by a different key, record, or evidence field.
+function recordFields(line: string | undefined): string[] {
+  expect(line).toBeDefined();
+  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
+}
+
+function expectRecord(line: string | undefined, fields: readonly string[]): void {
+  expect(recordFields(line).sort()).toEqual(
+    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
+  );
+}
+
 describe('review diagnostics presentation boundary', () => {
   test('application owns diagnostic projection and canonical indexes while entry only renders', () => {
     const source = {
@@ -44,16 +57,11 @@ describe('review diagnostics presentation boundary', () => {
       'conflict:0'
     ]);
     const lines = formatReviewDiagnostics(view).split('\n');
+    expect(lines).toHaveLength(11);
     const summary = lines.find((line) => /^Review diagnostics\b/u.test(line));
-    for (const field of ['attention', 'diagnostics=8', 'failures=2', 'risks=5', 'conflicts=1']) {
-      expect(summary).toContain(field);
-    }
-    const artifacts = lines.find((line) => /^Artifacts\b/u.test(line));
-    expect(artifacts).toContain('a/report.json');
-    expect(artifacts).toContain('z/report.json');
-    const blocks = lines.find((line) => /^Blocks\b/u.test(line));
-    expect(blocks).toContain('block-a');
-    expect(blocks).toContain('block-z');
+    expectRecord(summary, ['Review diagnostics attention', 'diagnostics=8', 'failures=2', 'risks=5', 'conflicts=1']);
+    expectRecord(lines.find(line => /^Artifacts\b/u.test(line)), ['Artifacts: a/report.json, z/report.json']);
+    expectRecord(lines.find(line => /^Blocks\b/u.test(line)), ['Blocks: block-a, block-z']);
     // Each displayed record must preserve its own category, scope, message and
     // identity. Vocabulary found on some other record cannot satisfy this.
     const requiredRecords = [
@@ -69,9 +77,8 @@ describe('review diagnostics presentation boundary', () => {
     const records = lines.filter((line) => /^Diagnostic\b/u.test(line));
     expect(records).toHaveLength(requiredRecords.length);
     for (const [id, fields] of requiredRecords) {
-      const row = records.find((line) => line.startsWith(`Diagnostic ${id}`));
-      expect(row).toBeDefined();
-      for (const field of fields) expect(row).toContain(field);
+      const row = records.find((line) => recordFields(line).includes(`Diagnostic ${id}`));
+      expectRecord(row, [`Diagnostic ${id}`, ...fields]);
     }
     const noDiagnostics = projectReviewDiagnostics({
       ciSummary: { status: 'passed' },
@@ -85,12 +92,11 @@ describe('review diagnostics presentation boundary', () => {
       artifactPaths: [], blockCount: 0, blocks: [], diagnostics: []
     });
     const emptyLines = formatReviewDiagnostics(noDiagnostics).split('\n');
+    expect(emptyLines).toHaveLength(3);
     const emptySummary = emptyLines.find((line) => /^Review diagnostics\b/u.test(line));
-    for (const field of ['passed', 'diagnostics=0', 'failures=0', 'risks=0', 'conflicts=0']) {
-      expect(emptySummary).toContain(field);
-    }
-    expect(emptyLines.find((line) => /^Artifacts\b/u.test(line))).toMatch(/\bnone\b/u);
-    expect(emptyLines.find((line) => /^Blocks\b/u.test(line))).toMatch(/\bnone\b/u);
+    expectRecord(emptySummary, ['Review diagnostics passed', 'diagnostics=0', 'failures=0', 'risks=0', 'conflicts=0']);
+    expectRecord(emptyLines.find(line => /^Artifacts\b/u.test(line)), ['Artifacts: none']);
+    expectRecord(emptyLines.find(line => /^Blocks\b/u.test(line)), ['Blocks: none']);
     expect(emptyLines.some((line) => /^Diagnostic\b/u.test(line))).toBe(false);
   });
 });

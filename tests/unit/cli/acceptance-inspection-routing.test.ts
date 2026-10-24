@@ -11,6 +11,19 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
+// Compare complete semantic fields and list members, not prose spacing or
+// substrings shared by a different key, record, or evidence field.
+function recordFields(line: string | undefined): string[] {
+  expect(line).toBeDefined();
+  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
+}
+
+function expectRecord(line: string | undefined, fields: readonly string[]): void {
+  expect(recordFields(line).sort()).toEqual(
+    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
+  );
+}
+
 test('acceptance inspection routes retained coverage through application and entry while preserving JSON', async () => {
   // Direct projection checks own input isolation; CLI checks below own rendered values.
   {
@@ -104,22 +117,24 @@ test('acceptance inspection routes retained coverage through application and ent
 
     const coverageText = await expectCliSuccess(workspaceRoot, ['acceptance']);
     const targetsText = await expectCliSuccess(workspaceRoot, ['acceptance', 'blocks']);
-    function expectFields(stdout: string, prefix: string, fields: readonly string[]) {
-      const rows = stdout.split(/\r?\n/u).filter(line => line.startsWith(prefix));
+    expect(coverageText.stdout.trimEnd().split(/\r?\n/u)).toHaveLength(4);
+    expect(targetsText.stdout.trimEnd().split(/\r?\n/u)).toHaveLength(5);
+    function expectFields(stdout: string, fields: readonly string[]) {
+      const rows = stdout.trimEnd().split(/\r?\n/u).filter(line => recordFields(line).includes(fields[0]!));
       expect(rows).toHaveLength(1);
-      for (const field of fields) expect(rows[0]).toContain(field);
+      expectRecord(rows[0], fields);
     }
-    expectFields(coverageText.stdout, 'Acceptance coverage passed', [
-      'acceptancePassed=2', 'blocks=1/2', 'uncoveredBlocks=1'
+    expectFields(coverageText.stdout, [
+      'Acceptance coverage passed', 'acceptancePassed=2', 'blocks=1/2', 'uncoveredBlocks=1'
     ]);
-    expectFields(coverageText.stdout, 'Uncovered blocks:', ['beta']);
-    expectFields(coverageText.stdout, 'Block alpha;', ['declared=1', 'coveredBy=acceptance:a', 'uncovered=false']);
-    expectFields(coverageText.stdout, 'Block beta;', ['declared=2', 'coveredBy=none', 'uncovered=true']);
-    expectFields(targetsText.stdout, 'Acceptance coverage blocks passed', []);
-    expectFields(targetsText.stdout, 'targets=2', ['covered=1', 'uncovered=1']);
-    expectFields(targetsText.stdout, 'Uncovered:', ['beta']);
-    expectFields(targetsText.stdout, 'Target alpha;', ['declared=1', 'coveredBy=acceptance:a', 'uncovered=false']);
-    expectFields(targetsText.stdout, 'Target beta;', ['declared=2', 'coveredBy=none', 'uncovered=true']);
+    expectFields(coverageText.stdout, ['Uncovered blocks: beta']);
+    expectFields(coverageText.stdout, ['Block alpha', 'declared=1', 'coveredBy=acceptance:a', 'uncovered=false']);
+    expectFields(coverageText.stdout, ['Block beta', 'declared=2', 'coveredBy=none', 'uncovered=true']);
+    expectFields(targetsText.stdout, ['Acceptance coverage blocks passed']);
+    expectFields(targetsText.stdout, ['targets=2', 'covered=1', 'uncovered=1']);
+    expectFields(targetsText.stdout, ['Uncovered: beta']);
+    expectFields(targetsText.stdout, ['Target alpha', 'declared=1', 'coveredBy=acceptance:a', 'uncovered=false']);
+    expectFields(targetsText.stdout, ['Target beta', 'declared=2', 'coveredBy=none', 'uncovered=true']);
 
     const json = await expectCliJson(workspaceRoot, ['acceptance', '--json']);
     expect(json).toEqual(report);
