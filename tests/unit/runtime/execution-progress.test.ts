@@ -16,9 +16,10 @@ test('one command phase prints wall-clock chronology and its own monotonic durat
   }) as typeof process.stderr.write;
   try {
     enableExecutionProgress();
-    // Progress is a causal state sequence, not an obligation to consume wall
-    // time between emissions. Delays make a state test needlessly flaky.
+    // One real elapsed interval distinguishes phase timing from a constant
+    // zero. State ordering itself does not need a second timed wait.
     reportExecutionProgress({ command: 'progress-test', phase: 'work', state: 'start' });
+    await Bun.sleep(2);
     reportExecutionProgress({ command: 'progress-test', phase: 'work', state: 'running' });
     reportExecutionProgress({ command: 'progress-test', phase: 'work', state: 'complete' });
     await assert.rejects(
@@ -37,7 +38,7 @@ test('one command phase prints wall-clock chronology and its own monotonic durat
   assert.equal(records[0]?.startedAt, records[2]?.startedAt);
   assert.ok(Date.parse(String(records[0]?.observedAt)) <= Date.parse(String(records[2]?.observedAt)));
   assert.ok(Number(records[2]?.elapsedMs) >= Number(records[1]?.elapsedMs));
-  assert.ok(Number(records[1]?.phaseDurationMs) >= 0);
+  assert.ok(Number(records[1]?.phaseDurationMs) > 0);
   assert.ok(Number(records[2]?.phaseDurationMs) >= Number(records[1]?.phaseDurationMs));
   assert.equal(records[3]?.state, 'start');
   assert.equal(records[4]?.state, 'failed');
