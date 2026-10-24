@@ -48,7 +48,15 @@ test('the cleanup opportunity follows an action that suspends; not its initial P
   const events: string[] = []; let finish!: () => void;
   const held = new Promise<void>((resolve) => { finish = resolve; });
   const pending = withProgressLifecycle('task', () => observer(events), async () => { events.push('begin'); await held; events.push('end'); return 7; });
-  assert.deepEqual(events, ['start:task', 'begin']); finish(); assert.equal(await pending, 7);
+  try {
+    assert.deepEqual(events, ['start:task', 'begin']);
+  } finally {
+    // Even a failed pre-resumption assertion must release and join the action
+    // before the test owns its final outcome.
+    finish();
+    await pending;
+  }
+  assert.equal(await pending, 7);
   assert.deepEqual(events, ['start:task', 'begin', 'end', 'succeed:task', 'stop']);
 });
 

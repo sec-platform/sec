@@ -57,8 +57,11 @@ test('cancellation waits for an uncooperative started task and rejects only afte
   try {
     await active.promise; controller.abort('cancelled'); await Promise.resolve();
     assert.equal(returned, false);
-  } finally { release.resolve(); }
-  await rejected;
+  } finally {
+    // A failed assertion cannot detach the still-started task or its terminal.
+    release.resolve();
+    await rejected;
+  }
 });
 
 test('a structural signal cannot impersonate cancellation state', async () => {
@@ -120,8 +123,13 @@ test('parent cancellation joins started mappers and retains input failure order'
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(returned, false);
     assert.deepEqual(started, [0, 1]);
-  } finally { first.resolve(); second.resolve(); }
-  await checked;
+  } finally {
+    first.resolve();
+    second.resolve();
+    // Join both selected mapper failures even when an intermediate
+    // cancellation-order assertion rejects.
+    await checked;
+  }
 });
 
 test('a task echoing the native cancellation reason does not duplicate its failure', async () => {
