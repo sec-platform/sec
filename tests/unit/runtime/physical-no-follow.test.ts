@@ -595,8 +595,8 @@ test('retained child-process file reads the observed inode after leaf replacemen
   }
 });
 
-test('native Git write-tree uses a warm private index beneath its retained parent', () => {
-  expect(runRetainedGitWriteTreeProbe({ warmIndex: true, indexCustody: 'retained-parent' })).toMatch(/^[0-9a-f]{40}$/u);
+test('native Git write-tree uses a cold private index beneath its retained parent', () => {
+  expect(runRetainedGitWriteTreeProbe({ warmIndex: false, indexCustody: 'retained-parent' })).toMatch(/^[0-9a-f]{40}$/u);
 });
 
 test('exact ordinary leaf observation bounds only the selected leaf without scanning unrelated entries', () => {

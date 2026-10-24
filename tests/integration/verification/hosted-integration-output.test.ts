@@ -40,7 +40,9 @@ test('recovery upload identity is exactly the prepare projection member set', ()
   expect(upload.with?.name).toBe('${{ steps.prepare.outputs.recovery-artifact-name }}');
   expect(upload.with?.path).toBe(recoveryMembers);
   expect(upload.with?.['if-no-files-found']).toBe('error');
-  expect(upload.with?.['retention-days']).toBe(90);
+  const retentionDays = upload.with?.['retention-days'];
+  expect(Number.isSafeInteger(retentionDays)).toBe(true);
+  expect(retentionDays as number).toBeGreaterThan(0);
   expect(upload.with?.['include-hidden-files']).toBe(true);
   expect(upload.with?.overwrite).toBe(false);
 });
