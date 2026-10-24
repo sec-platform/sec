@@ -101,7 +101,14 @@ test('declared input fields are read once, unrelated getters are not traversed',
   Object.defineProperty(request,'unrelated',{enumerable:true,get(){assert.fail('unrelated option read');}});
   const session=await prepareTypeScriptIncrementalState(request as unknown as PrepareTypeScriptIncrementalStateInput);
   await session.dispose();
-  assert.ok([...counts.values()].every(value=>value===1));
+  // Every declared required field must actually be captured. A vacuous
+  // every() assertion over an empty Map would have reported false success.
+  const required = [
+    'actionPrivateParent', 'deadlineAtUnixMs', 'seedBindingDigest',
+    'stableSeedFile', 'stableSeedParent'
+  ];
+  assert.deepEqual([...counts.keys()].sort(), [...required].sort());
+  for (const key of required) assert.equal(counts.get(key), 1, key);
 }));
 
 test('healthy cleanup is shared and publish cannot start after cleanup is selected',()=>fixture(async input=>{
