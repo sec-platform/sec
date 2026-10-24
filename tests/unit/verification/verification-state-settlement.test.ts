@@ -7,6 +7,7 @@ import { readLockFile, saveLock } from '../../../src/adapters/workspace/lock.ts'
 import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 // Isolate the engine, policy observation and final publication in a child.
 // Actual request, lease and failed-snapshot construction retain their owners.
@@ -14,7 +15,7 @@ for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runt
   test(`${lane} verification preserves integrity failure when snapshot rejection=${rejectPublication}`, async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-verify-settlement-'));
     const repo = fileURLToPath(new URL('../../../', import.meta.url));
-    try {
+    return settleWorkspaceCallback(async () => {
       await initWorkspace(root);
       const lock = readLockFile(root);
       Object.assign(lock.passStatus, { parse: 'succeeded', align: 'succeeded', resolve: 'succeeded', compose: 'succeeded' });
@@ -61,6 +62,6 @@ for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runt
       const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
       expect(code, stderr).toBe(0);
       expect(stdout.trim()).toBe('verification and settlement boundaries retained');
-    } finally { await rm(root, { recursive: true, force: true }); }
+    }, () => rm(root, { recursive: true, force: true }));
   });
 }

@@ -11,6 +11,7 @@ import {
 } from '../../../src/adapters/self-hosting/development/runner/command-runner.ts';
 import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from '../../../src/adapters/self-hosting/development/runner/contract.ts';
 import { compilerRoot } from "../../../src/adapters/workspace-context.ts";
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 let originalStdoutWrite: typeof process.stdout.write;
 let originalStderrWrite: typeof process.stderr.write;
@@ -68,19 +69,19 @@ test('canonical Bun execution binds the compiler root and supplied environment v
 
 test('canonical Bun execution retains an owner-admitted cwd and script input', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-command-cwd-'));
-  const scriptPath = path.join(root, 'cwd.ts');
-  await writeFile(
-    scriptPath,
-    "process.stdout.write(JSON.stringify({cwd: process.cwd(), marker: 'retained-script'}));\n",
-    'utf8'
-  );
-  const stdoutWrites: Uint8Array[] = [];
-  process.stdout.write = ((chunk: Uint8Array) => {
-    stdoutWrites.push(Buffer.from(chunk));
-    return true;
-  }) as typeof process.stdout.write;
+  return settleWorkspaceCallback(async () => {
+    const scriptPath = path.join(root, 'cwd.ts');
+    await writeFile(
+      scriptPath,
+      "process.stdout.write(JSON.stringify({cwd: process.cwd(), marker: 'retained-script'}));\n",
+      'utf8'
+    );
+    const stdoutWrites: Uint8Array[] = [];
+    process.stdout.write = ((chunk: Uint8Array) => {
+      stdoutWrites.push(Buffer.from(chunk));
+      return true;
+    }) as typeof process.stdout.write;
 
-  try {
     const code = await runDevCommand('bun', [scriptPath], {}, {
       auxiliaryOrdinaryFilePaths: [scriptPath],
       workingDirectory: root
@@ -90,9 +91,7 @@ test('canonical Bun execution retains an owner-admitted cwd and script input', a
       cwd: root,
       marker: 'retained-script'
     });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('canonical Bun execution delivers stdin and rejects oversized input or an exhausted deadline', async () => {

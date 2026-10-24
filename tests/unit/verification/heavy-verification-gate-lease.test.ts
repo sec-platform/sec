@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { acquireHeavyVerificationGateLease, heavyVerificationGateLockPath } from '../../../src/adapters/verification/platform/gate/state/heavy-lease.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const TOKEN_A = '11111111111111111111111111111111';
 const TOKEN_B = '22222222222222222222222222222222';
@@ -30,11 +31,8 @@ test('heavy verification gate derives its default mutable lease from canonical e
 
 async function withLockRoot(callback: (lockPath: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-heavy-gate-'));
-  try {
-    await callback(path.join(root, 'gate'));
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  return settleWorkspaceCallback(() => callback(path.join(root, 'gate')),
+    () => rm(root, { recursive: true, force: true }));
 }
 
 test('heavy verification gate rejects a second live owner and releases exact ownership', async () => {
