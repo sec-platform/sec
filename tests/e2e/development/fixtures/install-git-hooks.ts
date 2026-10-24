@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHostGitReadSessionForTests, type GitReadSessionResolution } from '../../../../src/adapters/providers/git-read/test/session.ts';
 import { installGitHooksForTest as installGitHooksImplementation } from '../../../../src/adapters/self-hosting/development/hooks/install.ts';
+import { settleWorkspaceCallback } from '../../../testkit/workspace-cleanup.ts';
 
 
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
@@ -51,14 +52,12 @@ export async function installGitHooks(options: {
   // the complete installation/recovery attempt has settled.
   const fixtureProvider = options.providerResolutionForTest
     ?? hostProviderResolutionForTest(options.repoRoot);
-  try {
-    return await installGitHooksImplementation({
-      ...options,
-      providerResolutionForTest: fixtureProvider
-    });
-  } finally {
-    if (fixtureProvider?.status === 'ready') await fixtureProvider.session.close?.();
-  }
+  return settleWorkspaceCallback(
+    () => installGitHooksImplementation({ ...options, providerResolutionForTest: fixtureProvider }),
+    async () => {
+      if (fixtureProvider?.status === 'ready') await fixtureProvider.session.close?.();
+    }
+  );
 }
 
 
@@ -181,30 +180,35 @@ export async function expectManagedHooksMirror(repoRoot: string, configured: str
   }
 }
 
+/** The two native Git Hook fixture forms have the same tracked source and
+ * executable-bit requirements. Prepare once per physical repository without
+ * changing either its Git history or its independent test lifetime. */
+async function prepareManagedHookSource(repoRoot: string, commitMessage: string): Promise<void> {
+  git(repoRoot, ['config', 'user.email', 'tests@example.com']);
+  git(repoRoot, ['config', 'user.name', 'SEC Tests']);
+  await mkdir(path.join(repoRoot, '.githooks'));
+  await Promise.all(managedHookNames.map(async hook => {
+    const hookPath = path.join(repoRoot, '.githooks', hook);
+    await writeFile(hookPath, managedHookSource(hook), 'utf8');
+    await chmod(hookPath, 0o755);
+  }));
+  git(repoRoot, ['add', '.githooks']);
+  for (const hook of managedHookNames) {
+    git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
+  }
+  git(repoRoot, ['commit', '--quiet', '-m', commitMessage]);
+}
+
 export async function withRepository(
   run: (repoRoot: string) => Promise<void>,
   initArgs: readonly string[] = []
 ): Promise<void> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-hooks-install-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(repoRoot, ['init', '--quiet', '-b', 'main', ...initArgs]);
-    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
-    await mkdir(path.join(repoRoot, '.githooks'));
-    await Promise.all(managedHookNames.map(async (hook) => {
-      const hookPath = path.join(repoRoot, '.githooks', hook);
-      await writeFile(hookPath, managedHookSource(hook), 'utf8');
-      await chmod(hookPath, 0o755);
-    }));
-    git(repoRoot, ['add', '.githooks']);
-    for (const hook of managedHookNames) {
-      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
-    }
-    git(repoRoot, ['commit', '--quiet', '-m', 'managed hook fixture']);
+    await prepareManagedHookSource(repoRoot, 'managed hook fixture');
     await run(repoRoot);
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true });
-  }
+  }, () => rm(repoRoot, { recursive: true, force: true }));
 }
 
 export async function withCanonicalRemoteRepository(
@@ -213,22 +217,10 @@ export async function withCanonicalRemoteRepository(
   const root = await mkdtemp(path.join(tmpdir(), 'sec-hooks-remote-'));
   const repoRoot = path.join(root, 'repo');
   const remoteRoot = path.join(root, 'origin.git');
-  try {
+  return settleWorkspaceCallback(async () => {
     await mkdir(repoRoot);
     git(repoRoot, ['init', '--quiet', '-b', 'main']);
-    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
-    await mkdir(path.join(repoRoot, '.githooks'));
-    await Promise.all(managedHookNames.map(async (hook) => {
-      const hookPath = path.join(repoRoot, '.githooks', hook);
-      await writeFile(hookPath, managedHookSource(hook), 'utf8');
-      await chmod(hookPath, 0o755);
-    }));
-    git(repoRoot, ['add', '.githooks']);
-    for (const hook of managedHookNames) {
-      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
-    }
-    git(repoRoot, ['commit', '--quiet', '-m', 'canonical remote fixture']);
+    await prepareManagedHookSource(repoRoot, 'canonical remote fixture');
     git(repoRoot, ['init', '--bare', '--quiet', remoteRoot]);
     git(repoRoot, ['remote', 'add', 'origin', remoteRoot]);
     git(repoRoot, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
@@ -236,8 +228,5 @@ export async function withCanonicalRemoteRepository(
     git(repoRoot, ['fetch', '--quiet', 'origin']);
     git(repoRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
     await run(repoRoot, remoteRoot);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 }
-
