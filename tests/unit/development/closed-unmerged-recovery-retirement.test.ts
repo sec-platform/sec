@@ -67,17 +67,17 @@ function sourceRecoveryBase(): ClosedRecoveryBase {
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-closed-recovery-base-'));
   const root = path.join(parent, 'repository');
   try {
-  git(parent, ['init', '--quiet', '--initial-branch=main', root]);
-  git(root, ['config', 'user.name', 'SEC Tests']);
-  git(root, ['config', 'user.email', 'tests@example.com']);
-  git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
-  writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
-  git(root, ['add', 'tracked.txt']);
-  git(root, ['commit', '--quiet', '-m', 'closed branch head']);
-  const headSha = git(root, ['rev-parse', 'HEAD']);
-  writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
-  git(root, ['commit', '--quiet', '-am', 'current main replacement']);
-  const mainSha = git(root, ['rev-parse', 'HEAD']);
+    git(parent, ['init', '--quiet', '--initial-branch=main', root]);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
+    writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
+    git(root, ['add', 'tracked.txt']);
+    git(root, ['commit', '--quiet', '-m', 'closed branch head']);
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
+    git(root, ['commit', '--quiet', '-am', 'current main replacement']);
+    const mainSha = git(root, ['rev-parse', 'HEAD']);
     closedRecoveryBase = Object.freeze({ parent, root, headSha, mainSha });
     return closedRecoveryBase;
   } catch (error) {
@@ -100,10 +100,10 @@ function fixture(remote = 'origin'): Readonly<{
   const root = path.join(parent, 'repository');
   const recoveryRoot = `${root}-recovery`;
   try {
-      const base = sourceRecoveryBase();
-      cpSync(base.root, root, { recursive: true });
-      if (remote !== 'origin') git(root, ['remote', 'add', remote, `https://github.com/${REPOSITORY}.git`]);
-      const { headSha, mainSha } = base;
+    const base = sourceRecoveryBase();
+    cpSync(base.root, root, { recursive: true });
+    if (remote !== 'origin') git(root, ['remote', 'add', remote, `https://github.com/${REPOSITORY}.git`]);
+    const { headSha, mainSha } = base;
     const commonDir = path.resolve(root, '.git');
     const inventory: BranchLifecycleInventory = {
       schema: 'sec-branch-lifecycle-inventory-v1', observedAt: '2026-09-16T00:00:00.000Z',

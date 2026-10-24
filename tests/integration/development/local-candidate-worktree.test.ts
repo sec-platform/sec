@@ -37,8 +37,8 @@ function candidateGitBase(): CandidateGitBase {
   const root = mkdtempSync(path.join(tmpdir(), 'local-candidate-base-'));
   try {
     git(root, 'init', '--quiet', '-b', 'main');
-    writeFileSync(path.join(root, '.gitignore'), '.tmp/\\n'.replace('\\n', '\n'));
-    writeFileSync(path.join(root, 'source.txt'), 'candidate source\\n'.replace('\\n', '\n'));
+    writeFileSync(path.join(root, '.gitignore'), '.tmp/\n');
+    writeFileSync(path.join(root, 'source.txt'), 'candidate source\n');
     git(root, 'add', '.');
     git(root, '-c', 'user.name=Candidate Fixture', '-c', 'user.email=candidate@example.invalid', 'commit', '--quiet', '-m', 'fixture');
     git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');

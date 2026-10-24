@@ -211,16 +211,13 @@ async function preparedTemplateRoot(
   prepare: (root: string) => Promise<void>
 ): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
-  return settleWorkspaceCallback(async () => {
+  try {
     await prepare(root);
     return root;
-  }, async () => {
-    // settleWorkspaceCallback would also clean successful preparation; this
-    // wrapper deliberately uses cleanup only on failure below.
-  }).catch(async (primary: unknown) => {
+  } catch (primary) {
     return settleWorkspaceCallback(async () => { throw primary; },
       () => rm(root, { recursive: true, force: true }));
-  });
+  }
 }
 
 let defaultSourceTemplate: Promise<string> | undefined;
