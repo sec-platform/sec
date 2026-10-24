@@ -117,20 +117,19 @@ describe('Git candidate bundle effect', () => {
   });
 
   test('rejects noncanonical revisions and forged retained capabilities before Git effects', async () => {
-    const repository = repositoryFixture();
     const outputRoot = temporaryRoot('invalid');
     await expect(createGitCandidateBundle({
-      sourceRoot: repository.root,
+      sourceRoot: path.join(outputRoot, 'unread-source'),
       temporaryRoot: outputRoot,
-      baseSha: repository.baseSha.toUpperCase(),
-      headSha: repository.headSha
+      baseSha: 'A'.repeat(40),
+      headSha: '2'.repeat(40)
     })).rejects.toThrow('input is not canonical');
     expect(() => closeGitCandidateBundle(Object.freeze({
       bundlePath: path.join(outputRoot, 'candidate.bundle'),
       bundleSize: 1,
       bundleDigest: `sha256:${'0'.repeat(64)}`,
-      baseSha: repository.baseSha,
-      headSha: repository.headSha,
+      baseSha: '1'.repeat(40),
+      headSha: '2'.repeat(40),
       objectFormat: 'sha1',
       materializationIdentityDigest: `sha256:${'1'.repeat(64)}`
     }))).toThrow('owner-issued retained capability');

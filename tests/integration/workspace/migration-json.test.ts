@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { collectUpgradePreflightEvidence, loadMigrationEntries } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
 import {
   configRewrite,
@@ -258,4 +259,48 @@ test('config-rewrite migration rejects empty update paths', async () => {
       code: 'UPGRADE-MIGRATION-010'
     });
   });
+});
+
+test('migration entry loading rejects empty config rewrite paths', async () => {
+  await withMigrationWorkspace(async ({ manifestRoot }) => {
+    await fs.mkdir(path.join(manifestRoot, 'migrations'), { recursive: true });
+    await writeJson(path.join(manifestRoot, 'migrations/empty-config-path.json'), {
+      id: 'mig-empty-config-path', kind: 'config-rewrite',
+      reason: 'Reject config rewrites without a concrete target path.',
+      target: 'package.json', updates: [{ path: [], value: 'invalid' }]
+    });
+    await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [{
+      id: 'mig-empty-config-path', kind: 'config-rewrite', entry: 'migrations/empty-config-path.json',
+      fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false
+    }])).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-010', details: {
+        failedCheck: 'migration-entries', migrationId: 'mig-empty-config-path',
+        migrationKind: 'config-rewrite', entry: 'migrations/empty-config-path.json'
+      }
+    });
+  });
+});
+
+test('migration preflight rejects scalar JSON array targets and parents without writes', async () => {
+  for (const scenario of [
+    { id: 'mig-json-array-append', path: ['upgradedBlocks'],
+      document: { upgradedBlocks: 'auth/basic-session@0.1.0' } },
+    { id: 'mig-json-array-append-nested', path: ['upgrade', 'blocks'],
+      document: { upgrade: 'legacy-scalar' } }
+  ]) {
+    await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+      await fs.mkdir(manifestRoot, { recursive: true });
+      const target = 'upgrade.metadata.json';
+      const before = Buffer.from(JSON.stringify(scenario.document));
+      await fs.writeFile(path.join(workspaceRoot, target), before);
+      await expect(collectUpgradePreflightEvidence({
+        workspaceRoot, targetManifestRoot: manifestRoot,
+        blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [target],
+        migrationEntries: [{ id: scenario.id, kind: 'json-array-append',
+          reason: 'Append upgrade metadata.', target, path: scenario.path,
+          items: ['private/block-upgrade@0.2.0'] }]
+      })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-012' });
+      expect(await fs.readFile(path.join(workspaceRoot, target))).toEqual(before);
+    });
+  }
 });

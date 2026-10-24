@@ -25,27 +25,6 @@ import {
   measureExactLocalGitRefDeleteBatchInputBytes
 } from './ref-effect.ts';
 
-test('GitRefEffect CAS-deletes an exact remote-tracking ref with absence readback', async () => {
-  const root = fixture();
-  try {
-    const sha = git(root, ['rev-parse', 'HEAD']);
-    git(root, ['update-ref', 'refs/remotes/origin/topic', sha]);
-    const ref = 'refs/remotes/origin/topic';
-    const opened = openProvider(root);
-    try {
-      const receipt = await deleteExactGitRef({ provider: opened.provider, ref, expectedOldSha: sha });
-      assertGitRefDeleteReceipt(receipt);
-      expect(receipt.ref).toBe(ref);
-      expect(receipt.disposition).toBe('deleted');
-      expect(spawnSync('git', ['show-ref', '--verify', '--quiet', ref], { cwd: root }).status).toBe(1);
-    } finally {
-      closeProvider(opened);
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('GitRefEffect binds an already-absent receipt to the final ref observation', async () => {
   const root = fixture();
   try {
@@ -90,7 +69,10 @@ test('GitRefEffect refuses local deletion before consuming its Effect capability
         ref: 'refs/remotes/origin/topic',
         expectedOldSha: sha
       });
+      assertGitRefDeleteReceipt(receipt);
+      expect(receipt.ref).toBe('refs/remotes/origin/topic');
       expect(receipt.disposition).toBe('deleted');
+      expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/topic'], { cwd: root }).status).toBe(1);
     } finally {
       closeProvider(opened);
     }

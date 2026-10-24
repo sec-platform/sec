@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { collectUpgradePreflightEvidence, loadMigrationEntries } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 import {
@@ -12,7 +13,8 @@ import {
   deleteFile,
   fileReplace,
   renameDirectory,
-  renameFile
+  renameFile,
+  withMigrationWorkspace
 } from './migration-fixtures.ts';
 
 test('file-replace migration copies manifest source to impacted project target', async () => {
@@ -386,4 +388,80 @@ test('delete directory migrations remove project directories recursively', async
     await expect(fs.lstat(path.join(workspaceRoot, 'generated', 'reports', 'obsolete')))
       .rejects.toMatchObject({ code: 'ENOENT' });
   }, 'engineering-compiler-upgrade-delete-directory-apply-');
+});
+
+test('migration entry loading rejects paths outside the manifest root', async () => {
+  await withMigrationWorkspace(async ({ manifestRoot }) => {
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [{
+      id: 'mig-escaping-entry-file', kind: 'text-append', entry: '../escape.json',
+      fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false
+    }])).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-005', details: {
+        failedCheck: 'migration-file-operations', migrationId: 'mig-escaping-entry-file',
+        role: 'manifest-source'
+      }
+    });
+  });
+});
+
+test('migration entry loading rejects metadata mismatches', async () => {
+  await withMigrationWorkspace(async ({ manifestRoot }) => {
+    await fs.mkdir(path.join(manifestRoot, 'migrations'), { recursive: true });
+    await writeJson(path.join(manifestRoot, 'migrations/mismatched-entry.json'), {
+      id: 'mig-actual-entry', kind: 'text-replace', reason: 'Use mismatched metadata.',
+      target: 'generated/reports/notes.md', search: 'pending', replacement: 'applied'
+    });
+    await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [{
+      id: 'mig-expected-entry', kind: 'text-append', entry: 'migrations/mismatched-entry.json',
+      fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false
+    }])).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-003', details: {
+        failedCheck: 'migration-entries', migrationId: 'mig-expected-entry',
+        migrationKind: 'text-append', entry: 'migrations/mismatched-entry.json',
+        entryId: 'mig-actual-entry', entryKind: 'text-replace'
+      }
+    });
+  });
+});
+
+test('migration entry loading rejects duplicate identities before reading entries', async () => {
+  await withMigrationWorkspace(async ({ manifestRoot }) => {
+    await fs.mkdir(manifestRoot, { recursive: true });
+    await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [
+      { id: 'mig-duplicate-report', kind: 'text-append', entry: 'migrations/append-report-a.json',
+        fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false },
+      { id: 'mig-duplicate-report', kind: 'text-append', entry: 'migrations/append-report-b.json',
+        fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false }
+    ])).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-029', details: {
+        failedCheck: 'migration-entries', migrationId: 'mig-duplicate-report',
+        entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
+      }
+    });
+  });
+});
+
+test('migration preflight rejects manifest source escape without changing its target', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+    await fs.mkdir(manifestRoot, { recursive: true });
+    const target = 'src/installed/private/block-upgrade.ts';
+    const targetPath = path.join(workspaceRoot, target);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    const before = Buffer.from('original target\n');
+    await fs.writeFile(targetPath, before);
+    await expect(collectUpgradePreflightEvidence({
+      workspaceRoot, targetManifestRoot: manifestRoot,
+      blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [target],
+      migrationEntries: [{ id: 'mig-source-escape', kind: 'file-replace',
+        reason: 'Attempt to read outside the target manifest root.',
+        source: '../outside-source.ts', target }]
+    })).rejects.toMatchObject({
+      code: 'UPGRADE-MIGRATION-005', details: {
+        failedCheck: 'migration-file-operations', migrationId: 'mig-source-escape',
+        path: '../outside-source.ts', role: 'manifest-source', root: 'manifest'
+      }
+    });
+    expect(await fs.readFile(targetPath)).toEqual(before);
+  });
 });

@@ -130,17 +130,26 @@ test('canonical repository graph still rejects unresolved local imports and circ
 });
 
 test('pure computation roots reject direct host IO imports, including type-only leakage', () => {
+  const specifiers = ['node:fs', 'fs', 'node:fs/promises', 'node:child_process', 'node:net', 'node:worker_threads', 'bun:ffi'];
+  const sources = new Map<string, string>();
   for (const domain of ['contracts', 'workspace', 'semantics', 'compiler', 'assurance', 'application'] as const) {
-    for (const specifier of ['node:fs', 'fs', 'node:fs/promises', 'node:child_process', 'node:net', 'node:worker_threads', 'bun:ffi']) {
-      for (const prefix of ['import', 'import type']) {
-        const source = `src/${domain}/example.ts`;
-        const graph = compileSourceProgramRepositoryModuleGraph({
-          files: [source],
-          readSource: () => `${prefix} { HostHandle } from ${JSON.stringify(specifier)};`
-        });
-        expect(collectCanonicalSourceBoundaryViolations(graph))
-          .toContainEqual(expect.objectContaining({ code: 'core-no-host-io', from: source, to: specifier }));
-      }
+    for (const [name, prefix] of [['runtime', 'import'], ['type-only', 'import type']] as const) {
+      sources.set(`src/${domain}/${name}.ts`, specifiers.map((specifier, index) => (
+        `${prefix} { HostHandle as HostHandle${index} } from ${JSON.stringify(specifier)};`
+      )).join('\n'));
+    }
+  }
+  // Distinct source paths keep type-only imports from merging with runtime
+  // imports while one compilation supplies all independent policy edges.
+  const hostGraph = compileSourceProgramRepositoryModuleGraph({
+    files: [...sources.keys()],
+    readSource: (source) => sources.get(source) ?? null
+  });
+  const violations = collectCanonicalSourceBoundaryViolations(hostGraph);
+  for (const source of sources.keys()) {
+    for (const specifier of specifiers) {
+      expect(violations)
+        .toContainEqual(expect.objectContaining({ code: 'core-no-host-io', from: source, to: specifier }));
     }
   }
   const source = 'src/contracts/canonical.ts';
