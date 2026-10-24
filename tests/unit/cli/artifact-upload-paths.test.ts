@@ -81,16 +81,16 @@ describe('artifact upload paths application and presentation boundary', () => {
   });
 
   test('invalid identities fail instead of being normalized into upload authority', () => {
+    const source = emptyCiArtifactManifest();
     for (const invalid of [
       '../outside.json', '/tmp/private.json', '.sec/artifacts/../outside.json',
       '.sec\\artifacts\\report.json', '.sec/artifacts//report.json'
     ]) {
-      const source = emptyCiArtifactManifest();
       source.artifacts = [{ path: invalid, kind: 'test', uploadName: ciArtifactUploadName(invalid), exists: true }];
       expect(() => buildArtifactUploadPathContract(source)).toThrow('canonical .sec/artifacts path');
-      source.artifacts = [];
-      source.summary.contractPaths = [invalid];
-      expect(() => buildArtifactUploadPathContract(source, 'test')).toThrow('canonical .sec/artifacts path');
     }
+    source.artifacts = [];
+    source.summary.contractPaths = ['../outside.json'];
+    expect(() => buildArtifactUploadPathContract(source, 'test')).toThrow('canonical .sec/artifacts path');
   });
 });

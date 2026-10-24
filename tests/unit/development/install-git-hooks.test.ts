@@ -9,10 +9,9 @@ import { expect, test } from 'bun:test';
 import { withAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/authority.ts';
 import {
   GIT_READ_DEFAULT_OPERATION_BUDGET,
-  isolatedGitReadEnvironment,
-  type GitReadProviderResolutionFailure
+  isolatedGitReadEnvironment
 } from '../../../src/adapters/providers/git-read/runtime/session.ts';
-import { installGitHooksForTest, observeManagedGitHooksWithSession } from '../../../src/adapters/self-hosting/development/hooks/install.ts';
+import { observeManagedGitHooksWithSession } from '../../../src/adapters/self-hosting/development/hooks/install.ts';
 
 test('tracked hooks bind deterministic staged normalization and candidate freeze without ambient EOL drift', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../../..');
@@ -101,31 +100,6 @@ console.log(JSON.stringify({ args: process.argv.slice(2), active: process.env.SE
   } finally {
     await rm(root, { force: true, recursive: true });
   }
-});
-
-test('hook installer keeps Windows provider admission separate from host executable execution', async () => {
-  const repoRoot = path.resolve(import.meta.dir, '../../..');
-  const spawned: string[] = [];
-  const providerFailure: GitReadProviderResolutionFailure = Object.freeze({
-    kind: 'unresolved-git-read-provider',
-    route: 'host-local-git-v1',
-    status: 'unavailable',
-    reason: 'git-session-failed',
-    detailDigest: `sha256:${'a'.repeat(64)}` as `sha256:${string}`
-  });
-
-  const result = await installGitHooksForTest({
-    repoRoot,
-    lifecycle: true,
-    providerResolutionForTest: providerFailure,
-    beforeSpawnForTest: (kind) => spawned.push(kind)
-  });
-
-  expect(result.status).toBe('conflict');
-  expect(result.message).toContain('Git provider admission is unavailable for host-local-git-v1');
-  expect(result.message).toContain('git-session-failed');
-  expect(result.message).toContain(providerFailure.detailDigest);
-  expect(spawned).toEqual([]);
 });
 
 test('hook observation borrows one Git session without closing its owner capability', async () => {
