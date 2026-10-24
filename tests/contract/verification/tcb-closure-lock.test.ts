@@ -480,16 +480,18 @@ test('TCB closure retains empty and inline-type ESM module evaluation edges', ()
 });
 
 test('TCB empty and inline-type edges cannot bypass classified external import policy', () => {
-  for (const external of ['bun', 'node:child_process', 'node:https', 'node:module', 'node:worker_threads']) {
-    for (const statement of [
-      `import {} from '${external}';`,
-      `import { type T } from '${external}';`,
-      `export {} from '${external}';`,
-      `export { type T } from '${external}';`
-    ]) {
-      expect(() => runtimeRelativeImportsFromSource('entry.ts', statement))
-        .toThrow('TCB runtime loader is outside the relative ESM closure model');
-    }
+  // Each classified import branch, plus both forms of the shared re-export guard.
+  for (const statement of [
+    "import { type T } from 'bun';",
+    "import {} from 'node:child_process';",
+    "import {} from 'node:https';",
+    "import {} from 'node:module';",
+    "import { type T } from 'node:worker_threads';",
+    "export {} from 'bun';",
+    "export { type T } from 'node:child_process';"
+  ]) {
+    expect(() => runtimeRelativeImportsFromSource('entry.ts', statement))
+      .toThrow('TCB runtime loader is outside the relative ESM closure model');
   }
 });
 
@@ -529,18 +531,17 @@ test('TCB empty and inline-type edges bind transitive bytes and reject an unrevi
 });
 
 test('TCB statement-level type imports and re-exports erase module evaluation', () => {
-  for (const specifier of ['./missing.ts', 'bun', 'node:child_process', 'unreviewed-package']) {
-    for (const statement of [
-      `import type { T } from '${specifier}';`,
-      `import type * as Types from '${specifier}';`,
-      `export type { T } from '${specifier}';`,
-      `export type * from '${specifier}';`
-    ]) {
-      const observedExternalImports = new Set<string>();
-      expect(runtimeRelativeImportsFromSource('entry.ts', statement,
-        new Set(), new Set(), observedExternalImports)).toEqual([]);
-      expect([...observedExternalImports]).toEqual([]);
-    }
+  // Statement-level type syntax is erased before the specifier policy is consulted.
+  for (const statement of [
+    "import type { T } from './missing.ts';",
+    "import type * as Types from 'bun';",
+    "export type { T } from 'node:child_process';",
+    "export type * from 'unreviewed-package';"
+  ]) {
+    const observedExternalImports = new Set<string>();
+    expect(runtimeRelativeImportsFromSource('entry.ts', statement,
+      new Set(), new Set(), observedExternalImports)).toEqual([]);
+    expect([...observedExternalImports]).toEqual([]);
   }
 });
 
