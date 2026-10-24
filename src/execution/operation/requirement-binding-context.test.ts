@@ -2,8 +2,7 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
   consumeOperationRequirementBindingContext,
-  issueOperationRequirementBindingContext,
-  type OperationRequirementBindingContext
+  issueOperationRequirementBindingContext
 } from './requirement-binding-context.ts';
 import {
   bindSemanticOperation,
@@ -102,21 +101,6 @@ test('foundation context binds a fixed child deadline and rejects attempt wideni
     resourceCeilings: [{ resource: 'duration-ms', maximum: 30_000 }],
     absoluteDeadlineAtUnixMs: widenedOperation.plan.attempt.deadlineAtUnixMs + 1
   })).toThrow('absolute deadline is not narrowed from its attempt');
-});
-
-test('structural copies and caller flags cannot recreate the context', () => {
-  const context = issueOperationRequirementBindingContext({
-    operation: operation('typescript-native-provider'),
-    requirementId: 'typescript.project-check',
-    resourceCeilings: [{ resource: 'processes', maximum: 1 }]
-  });
-  const structural = structuredClone(context) as OperationRequirementBindingContext;
-
-  expect(() => consumeOperationRequirementBindingContext(structural))
-    .toThrow('operation-foundation-issued');
-  expect(() => consumeOperationRequirementBindingContext(
-    true as unknown as OperationRequirementBindingContext
-  )).toThrow('operation-foundation-issued');
 });
 
 test('context rejects foreign requirements and ceiling widening while identity follows attempts', () => {

@@ -466,6 +466,15 @@ test('process admission rejects context transplants omitted resources and widene
 
   const singleUseOperation = boundOperation({ label: 'context-single-use' });
   const singleUseContext = requirementBindingContext(singleUseOperation);
+  const structural = structuredClone(singleUseContext) as OperationRequirementBindingContext;
+  expect(() => openProcessResourceSession({
+    operation: singleUseOperation,
+    requirementBindingContext: structural
+  })).toThrow('operation-foundation-issued');
+  expect(() => openProcessResourceSession({
+    operation: singleUseOperation,
+    requirementBindingContext: true as unknown as OperationRequirementBindingContext
+  })).toThrow('operation-foundation-issued');
   openProcessResourceSession({
     operation: singleUseOperation,
     requirementBindingContext: singleUseContext

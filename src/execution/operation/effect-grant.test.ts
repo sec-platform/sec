@@ -82,6 +82,21 @@ test('owner-issued Effect grant binds one exact semantic attempt and is consumed
     deadlineAtUnixMs: Date.now() + 60_000
   });
   const semanticPlan = plan(semanticIntent, issued);
+  const foreignAuthority = createOperationEffectGrantAuthority({
+    semanticOperation: 'development.commit',
+    issuerIdentityDigest: digest('candidate-admission-owner')
+  });
+  expectReason(() => authority.consumer.consume({
+    grant: structuredClone(issued.grant),
+    operation: semanticPlan,
+    currentEpochDigest
+  }), 'foreign-grant');
+  expectReason(() => foreignAuthority.consumer.consume({
+    grant: issued.grant,
+    operation: semanticPlan,
+    currentEpochDigest
+  }), 'foreign-grant');
+
   const binding = authority.consumer.consume({
     grant: issued.grant,
     operation: semanticPlan,
@@ -102,37 +117,6 @@ test('owner-issued Effect grant binds one exact semantic attempt and is consumed
     operation: semanticPlan,
     currentEpochDigest
   }), 'already-consumed');
-});
-
-test('grant cloning and another authority cannot reproduce Effect authority', () => {
-  const authority = createOperationEffectGrantAuthority({
-    semanticOperation: 'development.commit',
-    issuerIdentityDigest: digest('candidate-admission-owner')
-  });
-  const foreignAuthority = createOperationEffectGrantAuthority({
-    semanticOperation: 'development.commit',
-    issuerIdentityDigest: digest('candidate-admission-owner')
-  });
-  const semanticIntent = intent();
-  const currentEpochDigest = digest('repository-index-epoch');
-  const issued = authority.issuer.issue({
-    operation: semanticIntent,
-    currentEpochDigest,
-    deadlineAtUnixMs: Date.now() + 60_000
-  });
-  const semanticPlan = plan(semanticIntent, issued);
-  const cloned = structuredClone(issued.grant);
-
-  expectReason(() => authority.consumer.consume({
-    grant: cloned,
-    operation: semanticPlan,
-    currentEpochDigest
-  }), 'foreign-grant');
-  expectReason(() => foreignAuthority.consumer.consume({
-    grant: issued.grant,
-    operation: semanticPlan,
-    currentEpochDigest
-  }), 'foreign-grant');
 });
 
 test('consumer rejects operation, intent, decision, epoch, deadline and attempt drift', () => {

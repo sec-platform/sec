@@ -12,39 +12,23 @@ import {
 } from '../../src/installed/ticket/ticket-service.ts';
 import { createTenantRuntimeFixture } from './tenant-runtime-fixture.ts';
 
-export async function runTicketServiceSuite() {
-  const { db, tenantA, tenantB } = createTenantRuntimeFixture();
-
-  const ticket = createTicket(db, tenantA, {
-    title: '  Investigate invoice sync  ',
-    description: 'Webhook failed',
-    assigneeId: 'user-tenant-a-admin',
-    dueDate: '2026-05-01'
-  });
-
-  assert.equal(ticket.tenantId, 'tenant-a');
-  assert.equal(ticket.title, 'Investigate invoice sync');
-  assert.equal(ticket.status, 'open');
-  assert.equal(ticket.dueDate, '2026-05-01');
-  assert.equal(ticket.createdBy, 'user-tenant-a-admin');
-  const transitioned = transitionTicketStatus(db, tenantA, ticket.id, 'in_progress');
-  assert.equal(transitioned.status, 'in_progress');
-  assert.deepEqual(listTicketsWithFilters(db, tenantA, { status: 'in_progress' }).map(({ id }) => id), [ticket.id]);
-  assert.equal(listTickets(db, tenantB).length, 0);
-  assert.throws(() => transitionTicketStatus(db, tenantB, ticket.id, 'closed'), /Ticket is not available/);
-  assert.throws(() => createTicket(db, tenantA, { title: '   ' }), /Ticket title is required/);
-  assert.deepEqual(listTickets(db, tenantA).map(({ id }) => id), [ticket.id]);
-}
-
 export async function runTicketFlowSuite() {
   const { db, tenantA, tenantB } = createTenantRuntimeFixture();
 
   const firstTicket = createTicket(db, tenantA, {
-    title: 'Escalate onboarding issue',
+    title: '  Escalate onboarding issue  ',
     description: 'Customer cannot finish setup',
     assigneeId: 'user-tenant-a-admin',
     dueDate: '2026-05-01'
   });
+  assert.equal(firstTicket.tenantId, 'tenant-a');
+  assert.equal(firstTicket.title, 'Escalate onboarding issue');
+  assert.equal(firstTicket.status, 'open');
+  assert.equal(firstTicket.dueDate, '2026-05-01');
+  assert.equal(firstTicket.createdBy, 'user-tenant-a-admin');
+  assert.equal(listTickets(db, tenantB).length, 0);
+  assert.throws(() => createTicket(db, tenantA, { title: '   ' }), /Ticket title is required/);
+  assert.deepEqual(listTickets(db, tenantA).map(({ id }) => id), [firstTicket.id]);
   const secondTicket = createTicket(db, tenantA, {
     title: 'Prepare renewal checklist',
     assigneeId: 'renewal-owner'
@@ -97,7 +81,10 @@ export async function runTicketFlowSuite() {
     /Invalid ticket status transition: open -> closed/
   );
   assert.equal(firstTicket.status, 'open');
-  transitionTicketStatus(db, tenantA, firstTicket.id, 'in_progress');
+  const inProgress = transitionTicketStatus(db, tenantA, firstTicket.id, 'in_progress');
+  assert.equal(inProgress.status, 'in_progress');
+  assert.deepEqual(listTicketsWithFilters(db, tenantA, { status: 'in_progress' }).map(({ id }) => id), [firstTicket.id]);
+  assert.throws(() => transitionTicketStatus(db, tenantB, firstTicket.id, 'closed'), /Ticket is not available/);
   const transitioned = transitionTicketStatus(db, tenantA, firstTicket.id, 'closed');
   assert.equal(transitioned.status, 'closed');
   assert.deepEqual(listTicketsWithFilters(db, tenantA, { status: 'closed' }).map(({ id }) => id), [firstTicket.id]);

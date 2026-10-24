@@ -221,7 +221,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
       blockCount: 3,
       actionKinds: ['copy', 'merge-prisma'],
       runtimeEntryCount: 3,
-      targetPathCount: 8
+      targetPathCount: 7
     });
     expect(payload.reviewSummary.installImpacts.map(({ blockId, actionKinds, runtimeEntries, targetPaths }) =>
       ({ blockId, actionKinds, runtimeEntries, targetPaths }))).toEqual([
@@ -238,8 +238,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
         targetPaths: [
           'prisma/schema.prisma',
           'src/installed/entity/customer-service.ts',
-          'tests/acceptance/customer-flow.test.ts',
-          'tests/unit/customer-normalizer.test.ts'
+          'tests/acceptance/customer-flow.test.ts'
         ]
       },
       {

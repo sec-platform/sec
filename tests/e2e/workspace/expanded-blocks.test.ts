@@ -82,7 +82,7 @@ test('expanded official block set composes and verifies as one project', async (
   expect(lock.installPlan.some((step) => step.to === 'src/installed/reporting/ticket-summary.ts')).toBe(true);
   expect(lock.installPlan.some((step) => step.to === 'src/installed/worklog/worklog-service.ts')).toBe(true);
   expect(lock.installPlan.some((step) => step.to === 'tests/unit/ticket-summary.test.ts')).toBe(true);
-  expect(lock.installPlan.some((step) => step.to === 'tests/unit/worklog-service.test.ts')).toBe(true);
+  expect(lock.installPlan.some((step) => step.to === 'tests/acceptance/worklog-flow.test.ts')).toBe(true);
   expect(lock.generatedPaths).toEqual(
     expect.arrayContaining([
       'src/runtime/store.ts',
