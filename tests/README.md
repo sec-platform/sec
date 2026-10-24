@@ -45,6 +45,285 @@
 
 表驱动减少重复源码，不自动减少运行实例；性质测试须有适用输入域与独立性质，不能用随机次数代替覆盖。一个失败模型在上层没有新增风险时不重复整套下层矩阵；不同崩溃切点、平台或权限旁路确有独立后果时不为减数删掉。测试源码存在、静态承接判断、实际运行及平台资格分别报告。
 
+## 完整主责结构快照
+
+以下是已应用到当前全部测试身份的主责结构，不再从目录或审查批次推算族数。绑定源码测试快照 [`55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3`](https://github.com/sec-platform/sec/tree/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3)，不是对以后 HEAD 的自动统计。后续只修改本导航或测试设计文档的提交，不改变该测试快照；测试或其责任来源变化后须重新核对相交映射。
+
+本快照共 **11 个职责域、154 个能力族、4722 个唯一静态身份、727 个源及模板路径**，每个身份恰有一个主责族，未归属 **0**。族按实际公开能力划界，不按操作系统、unit/integration 层次或文件拆分。不同族可共享底层保障；共享关系不是额外成员，也不构成此表声明的完整依赖图。
+
+静态单位互斥口径：TypeScript 登记点及模板 **4536**（普通 3963、条件 268、参数/循环 300、动态标题 2、安装运行时模板 2、升级 fixture 注册 1），Python 方法 **165**，间接 suite **15**（安装 14、升级 fixture 1），编译期类型模块 **6**。这 4722 个混合单位不是 runner 发现或执行的用例总数；参数展开、实际运行实例与断言总数未据此推算。**全部执行状态为 NOT_RUN**，不得解读为测试通过。
+
+必要性与组织归属分开：当前 **A 4716 / B 6 / C 0**。A 表示已完成来源绑定的有界公共保障集合比较，有明确保留观察，不宣称全仓全球最小或每个参数最小；B 表示目标、参数或执行资格仍有明确未闭合问题，保留待决；C 表示证据尚未续绑，本快照为 0。B 的主责也可明确，不因有族名而升级为 A。产品缺口、完整恢复资格和运行结果同样不能由这张表推定完成。
+
+| 职责域 | 能力族 | 静态身份 |
+| --- | ---: | ---: |
+| [core](#snapshot-core) | 13 | 161 |
+| [cli](#snapshot-cli) | 4 | 171 |
+| [compiler](#snapshot-compiler) | 15 | 304 |
+| [workspace](#snapshot-workspace) | 22 | 485 |
+| [runtime](#snapshot-runtime) | 12 | 581 |
+| [toolchain](#snapshot-toolchain) | 5 | 422 |
+| [providers](#snapshot-providers) | 10 | 355 |
+| [repository](#snapshot-repository) | 27 | 585 |
+| [verification](#snapshot-verification) | 23 | 828 |
+| [development](#snapshot-development) | 22 | 795 |
+| [release](#snapshot-release) | 1 | 35 |
+
+每域可展开查看全部族名与成员数。入口链接固定到上述源码快照，展示该族已有测试文件的代表；它们不是新增的执行入口或第二份注册清单。四个观察层与执行资格仍分别按本页前后两节理解，不能由主责域或文件名推得平台/原生资格。
+
+<a id="snapshot-core"></a>
+<details>
+<summary>core：13 族 / 161 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| JSON诊断输出 | 4 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/cli/json-value-output.test.ts) |
+| UTF8文本编解码 | 3 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/contracts/utf8.test.ts) |
+| YAML文档准入 | 1 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/formats/yaml.test.ts) |
+| 严格JSON准入 | 24 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/core/exact-json-depth-admission.test.ts) |
+| 内容摘要 | 18 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/contracts/content-digest.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/providers/content-hash-provider-boundary.test.ts) |
+| 取消信号组合 | 6 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/native-abort-contract.test.ts) |
+| 有向图强连通分量 | 10 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/contracts/directed-graph.test.ts) |
+| 有界字节快照 | 2 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/byte-tail-snapshot.test.ts) |
+| 版本化语义身份 | 13 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/contracts/identity-profile.test.ts) |
+| 规范数据编码 | 35 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/core/canonical-array-traversal.test.ts) |
+| 逻辑路径身份与包含 | 16 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/core/logical-path-device-names.test.ts) |
+| 错误身份与安全诊断 | 20 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/contracts/failure.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/core/compiler-failure-formatting.test.ts) |
+| 集合投影与只读快照 | 9 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/core/collections.test.ts) |
+
+</details>
+
+<a id="snapshot-cli"></a>
+<details>
+<summary>cli：4 族 / 171 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| 命令参数捕获与派发 | 70 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/cli/environment.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/cli/artifact-command-input.test.ts) |
+| 命令结果投影与展示 | 42 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/cli/ci-command-contract.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/cli/verification.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/cli/block-usage-map-presentation.test.ts) |
+| 查询入口与制品选择 | 30 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/cli/acceptance-inspection-routing.test.ts) |
+| 输出与失败协议 | 29 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/cli/cli-usage-process.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/cli/cli-failure-lifecycle.test.ts) |
+
+</details>
+
+<a id="snapshot-compiler"></a>
+<details>
+<summary>compiler：15 族 / 304 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| Block身份与清单准入 | 2 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/compiler/block-physical-key-codec.test.ts) |
+| IR身份与事实差分 | 27 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/compiler/fact-delta-contract.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/canonical-ir-identity-revision.test.ts) |
+| Manifest 依赖闭包 | 54 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/versioned-manifest-resource-overlay.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/manifest-graph-resolution.test.ts) |
+| Pipeline 执行策略 | 4 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/architecture-contracts.typecheck.ts) |
+| Plan声明准入 | 7 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/plan-schema-reuse.test.ts) |
+| Prisma模式合并 | 13 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/prisma-merge.test.ts) |
+| YAML声明准入 | 30 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/override-schema-reuse.test.ts) |
+| 工程IR准入与事实索引 | 90 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/semantic-contract.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/canonical-keyed-deduplication.test.ts) |
+| 影响传播 | 12 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/compiler/impact-propagation-contract.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/impact-propagation.test.ts) |
+| 模板条件与字节渲染 | 7 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/render-template-string.test.ts) |
+| 状态迁移源码生成 | 9 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/state-transition-source.test.ts) |
+| 目标物化模式 | 4 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/opaque-materialization-mode.test.ts) |
+| 语义目标发布 | 14 | [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/workspace/semantic-runtime-contract.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/semantic-lowering-admission.test.ts) |
+| 语义视图与生成计划 | 30 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/semantic-projections.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/compiler/semantic-architecture-boundary.test.ts) |
+| 运行依赖与类型边界 | 1 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/toolchain/dependency-contract-imports.test.ts) |
+
+</details>
+
+<a id="snapshot-workspace"></a>
+<details>
+<summary>workspace：22 族 / 485 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| 升级计划与修复 | 106 | [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/workspace/dry-run-plan.test.ts) · [升级 fixture](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/fixtures/block-upgrade-workspace/tests/acceptance/customer-flow.test.ts.fixture) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/dry-run-directories.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/db-expand-contract.test.ts) |
+| 参考工程一致性 | 8 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/workspace/reference.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/workspace/reference-pipeline.test.ts) |
+| 工程写回授权与漂移防护 | 34 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/check-drift.test.ts) |
+| 工程源捕获与候选隔离 | 35 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/author-candidate.test.ts) |
+| 工程状态与制品读回 | 34 | [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/cli/artifacts.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/cli/overview.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/artifact-command-read.test.ts) |
+| 当前验证证据与写回准入 | 8 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/current-verification-cutover.test.ts) |
+| 生成应用运行时组合 | 2 | [运行时模板](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/compilation/compose/templates/tests/runtime/unit/customer-runtime.test.ts.template) |
+| 目标工程Agent任务执行 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/agent.executor/files/tests/acceptance/agent-classifier-flow.test.ts) |
+| 目标工程CSV导出 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/export.csv-basic/files/tests/unit/customer-export.test.ts) |
+| 目标工程审计记录 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/audit.basic/files/tests/unit/audit-log.test.ts) |
+| 目标工程客户管理 | 2 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/entity.customer-basic/files/tests/acceptance/customer-flow.test.ts) |
+| 目标工程工单报表 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/reporting.ticket-summary/files/tests/unit/ticket-summary.test.ts) |
+| 目标工程工单管理 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/ticket.basic/files/tests/acceptance/ticket-flow.test.ts) |
+| 目标工程工单评论 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/comment.basic/files/tests/acceptance/comment-flow.test.ts) |
+| 目标工程工时记录 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/worklog.basic/files/tests/acceptance/worklog-flow.test.ts) |
+| 目标工程持久化合同 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/infra.postgres/files/tests/unit/postgres-contract.test.ts) |
+| 目标工程身份与授权 | 2 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/auth.basic-session/files/tests/acceptance/auth-flow.test.ts) |
+| 目标工程通知出站记录 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/notify.email-basic/files/tests/unit/email-outbox.test.ts) |
+| 目标工程附件管理 | 1 | [安装 suite](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/catalog/registry/official/file.upload/files/tests/acceptance/customer-attachments-flow.test.ts) |
+| 组合发布与生命周期 | 95 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/workspace/workspace-lifecycle-template-boundary.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/cli/workspace.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/pipeline-workspace-write-lease.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/add-block-application.test.ts) |
+| 编译事务与阶段接合 | 44 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/workspace/pipeline-journal-isolation.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/workspace/pipeline.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/pipeline-kernel.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/pipeline-context-admission.test.ts) |
+| 语义变更计划与事务恢复 | 105 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/workspace/semantic-mutation-apply-contract.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/workspace/semantic-runtime-contract.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/semantic-mutation-apply.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/semantic-mutation-admission-lifecycle.test.ts) |
+
+</details>
+
+<a id="snapshot-runtime"></a>
+<details>
+<summary>runtime：12 族 / 581 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| 原生目录变更观察 | 7 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/repository-change-observer.test.ts) |
+| 原生进程执行与结算 | 76 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/linux-executable-sealing.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/pipeline-workspace-write-lease.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/observed-process-lifecycle.test.ts) |
+| 宿主身份与可信位置 | 5 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/windows-known-folders.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/linux-unix-peer-native.test.ts) |
+| 持久作用记录与恢复准入 | 15 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/workspace-state/durable-execution/contract.test.ts) |
+| 派生状态登记与退役 | 68 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/generated-state/contract.test.ts) |
+| 物理文件身份与安全变更 | 212 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/linux-directory-identity.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/workspace/pipeline-workspace-write-lease.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/canonical-publication-snapshot.test.ts) |
+| 结构化并发与任务调度 | 32 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/concurrency-provider-contract.test.ts) |
+| 语义操作授权与资源准入 | 17 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/execution/operation/effect-grant.test.ts) |
+| 资源寿命与取消结算 | 41 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/resource-settlement.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/acquired-resource-scope.test.ts) |
+| 运行状态存储与缓存 | 47 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/retained-runtime-state-directory.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/runtime-state-layout.test.ts) |
+| 运行进度与非干扰诊断 | 11 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/execution-progress.test.ts) |
+| 隔离执行输入与宿主能力 | 50 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/linux-immutable-repository-input.test.ts) · [Python](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.test.py) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/runtime/physical-no-follow.test.ts) |
+
+</details>
+
+<a id="snapshot-toolchain"></a>
+<details>
+<summary>toolchain：5 族 / 422 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| TypeScript执行与增量状态 | 26 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/toolchain/typescript/incremental-state.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/toolchain/typescript-incremental-lifecycle.test.ts) |
+| 依赖版本适用性评估 | 6 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/toolchain/dependencies/test/dependency-freshness-application.test.ts) |
+| 原生 TypeScript 检查器发行与装载 | 4 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/toolchain/typescript-native-package-layout.test.ts) |
+| 编译依赖协调与代际恢复 | 376 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/toolchain/dependencies/runtime/source-generation.test.ts) · [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/toolchain/dependency-capability-contract.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/toolchain/compiler-dependency-external.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/toolchain/compiler-install-invocation.test.ts) |
+| 运行包入口与版本 | 10 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/toolchain/runtime/bun-version.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/toolchain/runtime-entrypoint-contract.test.ts) |
+
+</details>
+
+<a id="snapshot-providers"></a>
+<details>
+<summary>providers：10 族 / 355 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| Docker命令与端点生命周期 | 44 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/providers/docker/contract/windows-installation-profile.test.ts) |
+| GitHub凭证资源与保密 | 10 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/providers/github-api-credential.test.ts) |
+| GitHub操作会话与权限观察 | 46 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/providers/github-api-operation-session.test.ts) |
+| GitHub验证运输与制品读取 | 25 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/providers/github-hosted-resume-dispatch.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/providers/github-api-verification.test.ts) |
+| Git对象名称身份 | 3 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/contracts/git-object-id.test.ts) |
+| Git源码快照运输 | 22 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/providers/git-bundle/runtime-scale.test.ts) |
+| Git观察与索引身份 | 159 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/providers/repository-git-observation.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/providers/exact-git-blob.test.ts) |
+| Git配置与引用作用 | 18 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/providers/git/config-effect.test.ts) |
+| 包注册表读取 | 3 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/providers/package-registry/runtime/anonymous-registry.test.ts) |
+| 受信宿主工具与运行环境 | 25 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/providers/windows-control-cli-provider-boundary.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/providers/linux-verification-environment.test.ts) |
+
+</details>
+
+<a id="snapshot-repository"></a>
+<details>
+<summary>repository：27 族 / 585 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| Source Program审计wire与历史结果 | 32 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/repository-audit/source-program-audit-operation.test.ts) |
+| 仓库unused诊断准入 | 4 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/repository/repository-unused-code-admission.test.ts) |
+| 声明引用拓扑 | 1 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/declaration-topology.test.ts) |
+| 实现归属与意图匹配 | 22 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/implementation-dominance.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/repository/owner-intent-index.test.ts) |
+| 审计 worker 字节协议 | 11 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/repository-audit/worker-protocol.test.ts) |
+| 审计worker结果与结算 | 4 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/repository-audit/terminal.test.ts) |
+| 审计请求与公开判定 | 39 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/repository/repository-audit.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/repository/repository-audit-cli-contract.test.ts) |
+| 审计运行源与持久投影 | 7 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/repository-audit/dispatcher-projection.test.ts) |
+| 密封Knip静态分析执行 | 1 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/repository-audit/knip-provider.test.ts) |
+| 操作实现源码闭包 | 15 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/producer-closure.test.ts) |
+| 文本字节与Git属性治理 | 15 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/repository/text-byte-census.test.ts) |
+| 文档与Agent治理 | 20 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/development/agent-skills.test.ts) |
+| 文档源身份与保全 | 51 | [Python](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tools/documentation/tests/test_check_documentation_identity.py) |
+| 文档设计一致性 | 20 | [Python](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tools/documentation/tests/test_check_design.py) |
+| 文档阅读投影与安全发布 | 81 | [Python](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tools/documentation/tests/test_build_html.py) |
+| 权限引导源码投影 | 6 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/repository/permission-bootstrap-projection.test.ts) |
+| 架构准入与职责边界 | 28 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/architecture/contract.test.ts) |
+| 模块依赖图生成 | 17 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/embedded-programs.test.ts) |
+| 测试保障价值与处置 | 18 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/reduction-test-retirement.test.ts) |
+| 测试表面观察与影响 | 15 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/test-impact-projection.test.ts) |
+| 源码编译与可信增量复用 | 57 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/repository-compilation-cache-provider.test.ts) |
+| 源码能力与职责事实 | 14 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/repository-responsibility.test.ts) |
+| 源码规约与替代计划 | 20 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/reduction-plans.test.ts) |
+| 精确TypeScript语义观察 | 9 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/typescript-capability-closure.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/repository/import-compiler-capability-admission.test.ts) |
+| 能力机制诊断 | 26 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/repository/audit-mechanism-projection.test.ts) |
+| 跨版本声明对账 | 46 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/reconciliation-projection.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/repository/reconciliation-declaration-matching.test.ts) |
+| 输入面与资源分类 | 6 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/repository/source-program-model/contract.test.ts) |
+
+</details>
+
+<a id="snapshot-verification"></a>
+<details>
+<summary>verification：23 族 / 828 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| CI作业与门禁装配 | 26 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/verification/ci-contract.test.ts) |
+| CI结果输出发表 | 3 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/verification/ci-transition-output-publication.test.ts) |
+| Source Program再评估准入 | 4 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/repository/source-program-reassessment-admission.test.ts) |
+| Verification Action 生命周期 | 78 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/verification-action-ci-contract.test.ts) |
+| 产物来源身份与准入 | 9 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/verification/provenance-projection-hash.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/provenance-validation.test.ts) |
+| 变更影响与测试选择 | 51 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/verification/platform/test-impact/runtime/impact.test.ts) · [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/cli/test-budget.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/ci-git-changed-files.test.ts) |
+| 可信计算闭包与引导 | 43 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/verification/ci-trust-closure-contract.test.ts) |
+| 托管隔离执行与可信物化 | 68 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/verification/hosted-sut-supervisor.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/ci-hosted-sut-observation-contract.test.ts) |
+| 托管验证来源与传输 | 57 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/verification/platform/ci/contract/hosted-step-output.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/verification-action-github-provider.test.ts) |
+| 测试工作区与临时资源生命周期 | 52 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/test-process-temp.test.ts) |
+| 测试请求规划与执行 | 105 | [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/cli/verification.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/providers/repository-git-observation.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/fast-test-concurrency.test.ts) |
+| 独立 Review 资格与稳定结论 | 30 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/review-stability-contract.test.ts) |
+| 策略报告与审查投影 | 9 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/policy-report-authority.test.ts) |
+| 类型检查准入与执行 | 24 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/toolchain/typecheck-provider-boundary.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/toolchain/registry.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/toolchain/typecheck-command-startup.test.ts) |
+| 语义变更隔离验证 | 27 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/verification/isolation/isolated-verification-child-outcome.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/assert-isolated-staging-tree-race.test.ts) |
+| 验收身份与覆盖证明 | 17 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/acceptance-coverage-authority.test.ts) |
+| 验证会话编排与恢复 | 93 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/local-preparation-v2-contract.test.ts) |
+| 验证制品准入与发布 | 35 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/verification/verification-session-artifact-files.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/ci-artifact-authority.test.ts) |
+| 验证报告与治理摘要 | 7 | [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/verification/summary.test.ts) · [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/cli/review.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/workspace/runtime-attribution-structure.test.ts) |
+| 验证提供者能力投影 | 6 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/verification-provider-capability-contract.test.ts) |
+| 验证策略与检查执行 | 9 | [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/verification/lanes.test.ts) |
+| 验证结果与证据采纳 | 64 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/verification/verification-result-contract.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/pipeline-proof-data.test.ts) |
+| 验证重资源租约 | 11 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/verification/heavy-lease-lifecycle.test.ts) |
+
+</details>
+
+<a id="snapshot-development"></a>
+<details>
+<summary>development：22 族 / 795 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| Agent 任务规划与可信激活 | 68 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/self-hosting/control/agent/runtime-root.test.ts) · [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/development/operation-read-plan.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/agent-operation-activation.test.ts) |
+| Git Hooks 与工作区过渡 | 72 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/self-hosting/development/workspace-transition/contract.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/development/install-git-hooks-actor-races.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/install-git-hooks.test.ts) |
+| Issue 处置与目标收束 | 9 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/issue-disposition-contract.test.ts) |
+| 主干健康与修复准入 | 35 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/verification/ci-trust-closure-contract.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/main-health-contract.test.ts) |
+| 仓库主干权限策略 | 12 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/main-authority-ruleset-contract.test.ts) |
+| 仓库维护与引用退役 | 13 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/exact-ref-batch-retirement.test.ts) |
+| 仓库观察与零写入约束 | 9 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/providers/repository-git-observation.test.ts) |
+| 候选工作树取得与退役 | 9 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/development/local-candidate-worktree.test.ts) |
+| 分支收尾与恢复 | 88 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/branch-batch-recovery.test.ts) |
+| 导入规范化与源码事务 | 63 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/self-hosting/development/import-normalization/contract.test.ts) · [e2e](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/e2e/development/import-organizer-staged.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/import-organizer-pre-commit.test.ts) |
+| 工作树与本地残留退役 | 75 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/branch-local-residue-closeout.test.ts) |
+| 工作选择与任务绑定 | 62 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/repository/repository-audit.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/work-package-contract.test.ts) |
+| 开发命令执行与依赖准备 | 55 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/command-runner.test.ts) |
+| 托管集成与恢复交接 | 3 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/verification/hosted-integration-output.test.ts) |
+| 文档控制与正式采用 | 102 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/development/current-work-package-census.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/document-control-plane-github-observation.test.ts) |
+| 文档源身份与封包 | 12 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/active-documentation-contract.test.ts) |
+| 本地续接与失效 | 10 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/continuation-invalidation.test.ts) |
+| 本地验证Runner生命周期 | 18 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/providers/local-github-actions-runner-lifecycle.test.ts) |
+| 源码检查点与提交 | 23 | [共置](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/src/adapters/self-hosting/development/commit-admission/candidate.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/development-commit.test.ts) |
+| 源程序过渡与观察 | 6 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/source-program-transition-use-case.test.ts) |
+| 范围授权 | 4 | [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/scope-authorization-contract.test.ts) |
+| 集成授权与合并门禁 | 47 | [contract](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/contract/development/merge-gate.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/development/integration-authorization-contract.test.ts) |
+
+</details>
+
+<a id="snapshot-release"></a>
+<details>
+<summary>release：1 族 / 35 静态身份</summary>
+
+| 能力族 | 静态身份 | 现有测试入口（代表） |
+| --- | ---: | --- |
+| 可复现发布与制品闭包 | 35 | [integration](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/integration/release/documentation-source-capture.test.ts) · [unit](https://github.com/sec-platform/sec/blob/55271f3b8fb86336c2fefbb40d40cb5ecf5d28b3/tests/unit/release/release-artifact-manifest.test.ts) |
+
+</details>
+
 ## 不应搬进这里的测试
 
 - [src](../src/) 中共置的测试：跟随被测模块，适合局部合同与内部机制。
