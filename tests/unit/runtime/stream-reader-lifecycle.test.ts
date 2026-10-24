@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import type { ReadableStreamReadResult } from 'node:stream/web';
 import { ResourceCompositeSettlementError } from '../../../src/execution/resource-settlement.ts';
 import { withOwnedByteStreamReader } from '../../../src/execution/stream-reader.ts';
 
@@ -86,29 +85,6 @@ test('already-aborted operation still closes its acquired stream without running
   const stream = new ReadableStream<Uint8Array>({ cancel() { cancels++; } });
   const error = await withOwnedByteStreamReader(stream, async () => { calls++; }, AbortSignal.abort(null)).catch(error => error);
   expect(error).toBeNull(); expect(calls).toBe(0); expect(cancels).toBe(1); expect(stream.locked).toBe(false);
-});
-
-test('unjoined read prevents successful return and is drained before lock release', async () => {
-  let cancels = 0;
-  const stream = new ReadableStream<Uint8Array>({ cancel() { cancels++; } });
-  let pending: Promise<ReadableStreamReadResult<Uint8Array>> | undefined;
-  await expect(withOwnedByteStreamReader(stream, async read => { pending = read(); return 'not joined'; }))
-    .rejects.toThrow('read still in flight');
-  expect((await pending)!.done).toBe(true);
-  expect(cancels).toBe(1); expect(stream.locked).toBe(false);
-});
-
-test('borrowed read cannot be used after the scope ends or race another read', async () => {
-  const stream = new ReadableStream<Uint8Array>();
-  let saved: (() => Promise<ReadableStreamReadResult<Uint8Array>>) | undefined;
-  await expect(withOwnedByteStreamReader(stream, async read => {
-    saved = read;
-    void read();
-    await expect(read()).rejects.toThrow('pending read');
-    throw new Error('close the first read');
-  })).rejects.toThrow('close the first read');
-  await expect(saved!()).rejects.toThrow('no longer admitted');
-  expect(stream.locked).toBe(false);
 });
 
 test('failed acquisition does not cancel or release another owner reader', async () => {

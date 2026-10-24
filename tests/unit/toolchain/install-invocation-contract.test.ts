@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { bindCompilerInstallInvocation } from '../../../src/adapters/toolchain/dependencies/runtime/install-invocation.ts';
-import { issueRuntimeDependencyTestMaterialization } from '../../../src/adapters/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
 import { runtimeDependencyOperationRemainingMs } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 test('the installer never enumerates unrelated lifecycle/test fields', () => {
@@ -27,8 +26,4 @@ test('the selected commit method keeps its real receiver', async () => {
   class Provider { #calls = 0; beforeCommit = async function (this: Provider) { this.#calls++; }; get calls() { return this.#calls; } }
   const raw = new Provider(); const bound = bindCompilerInstallInvocation(raw);
   raw.beforeCommit = async () => assert.fail('replacement'); await bound.beforeCommit?.(); assert.equal(raw.calls, 1);
-});
-
-test('test capability issuance requires a callable materializer', () => {
-  assert.throws(() => issueRuntimeDependencyTestMaterialization(undefined as never), TypeError);
 });

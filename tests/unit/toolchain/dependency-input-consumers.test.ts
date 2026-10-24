@@ -35,16 +35,19 @@ test('effect projections cannot add another bound callback layer on repeated nes
 
 test('coordinator transmission does not turn an unissued materialization object into an authority',()=>{
   const value=bind({...controls(),testMaterialization:{} as never});
-  assert.throws(()=>bindCompilerInstallInvocation(value),/owner-issued/);
+  assert.throws(()=>bindCompilerInstallInvocation(value),error=>{
+    assert.equal((error as {code:string}).code,'RUNTIME-DEPS-004');
+    assert.match((error as Error).message,/owner-issued/);return true;
+  });
 });
 
 test('issued fixture remains the exact issued object across public-to-process control binding',async()=>{
   let calls=0;
-  const token=issueRuntimeDependencyTestMaterialization(async request=>{calls++;assert.equal(request.timeoutMs,5);return {code:0,stdout:'ok',stderr:''};});
+  const token=issueRuntimeDependencyTestMaterialization(async request=>{calls++;assert.deepEqual(request,{args:['install'],cwd:'fixture-root',timeoutMs:5});return {code:0,stdout:'ok',stderr:''};});
   const invocation=bindCompilerInstallInvocation(bind({...controls(),testMaterialization:token}));
   assert.equal(invocation.materialization,token);assert.equal(calls,0);
-  const result=await consumeRuntimeDependencyTestMaterialization(invocation.materialization!,{args:[],cwd:'.',timeoutMs:5});
-  assert.equal(result.stdout,'ok');assert.equal(calls,1);
+  const result=await consumeRuntimeDependencyTestMaterialization(invocation.materialization!,{args:['install'],cwd:'fixture-root',timeoutMs:5});
+  assert.deepEqual(result,{code:0,stdout:'ok',stderr:''});assert.equal(calls,1);
 });
 
 test('same parent cancellation survives every projection, including a newly supplied child signal',()=>{

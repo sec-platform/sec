@@ -15,6 +15,7 @@ import {
   requireIssuedIntegrationGateResult,
   type CodexDevelopmentMergeGateInput
 } from '../../../src/adapters/self-hosting/control/integration/merge-gate.ts';
+import { SEC_INTEGRATION_PLATFORM_POLICY } from '../../../src/adapters/self-hosting/control/integration/platform-policy.ts';
 import { createMainHealthLedger } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../../src/adapters/self-hosting/control/main-health/github-status-namespace.ts';
 import { createTrustedRuntimeMainHealthInput } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
@@ -487,31 +488,12 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInput) {
   });
 }
 
-test('trusted current-base gate authorizes exact candidate facts without executing merge', () => {
-  const input = fixture();
-  const result = CodexDevelopmentEvaluateMergeGate(input);
-  expect(result.status).toBe('authorized');
-  expect(result.terminalStatusContext).toBe('sec/integration-authorization');
-  expect(result.authorization.headSha).toBe(HEAD);
-  expect(result.authorization.scopeAuthorizationRevision)
-    .toBe(input.artifact.scopeAuthorization.authorizationRevision);
-  expect(result.authorization.issuer).toMatchObject({
-    producerIdentity: CodexDevelopmentMergeGateProducerIdentity,
-    trustedRevision: BASE,
-    sourceRef: `.github/workflows/merge-gate.yml@${BASE}`,
-    sourceRunId: 'merge-200:1'
-  });
-  expect(result.reviewReceipt.receiptDigest).toBe(result.authorization.reviewReceiptDigest);
-  expect(result.mainHealth.ledgerDigest).toBe(result.authorization.mainHealthReceiptDigest);
-  expect(result.platformObservation.rulesetDigest).toBe(result.authorization.rulesetDigest);
-  expect(result.hostedArtifactOrigin.artifactId).toBe('1000');
-  expect(result.hostedArtifactTransport.artifactId).toBe('1001');
-  expect(result.hostedArtifactOrigin.artifactByteDigest)
-    .toBe(result.hostedArtifactTransport.artifactByteDigest);
-  expect(CodexDevelopmentParseMergeGateResult(JSON.stringify(result))).toEqual(result);
-});
-
 test('missing platform enforcement is a hard merge blocker', () => {
+  expect(SEC_INTEGRATION_PLATFORM_POLICY).toMatchObject({
+    physicalMerge: 'github-pr-squash-exact-head-cas-no-admin',
+    allowPlatformEnforcementUnavailable: false,
+    claimsNoBypassEnforcement: false
+  });
   const base = fixture();
   expect(() => CodexDevelopmentEvaluateMergeGate({
     ...base,
@@ -529,16 +511,8 @@ test('missing platform enforcement is a hard merge blocker', () => {
       reason: 'degraded observation'
     }
   })).toThrow('must not carry a degraded reason');
-  expect(() => CodexDevelopmentEvaluateMergeGate({
-    ...base,
-    platformObservation: {
-      status: 'platform-enforcement-unavailable',
-      rulesetDigest: RULESET,
-      reason: null
-    }
-  })).toThrow();
 });
-test('fresh MainHealth receipt may change provenance while stable health semantics remain exact', () => {
+test('trusted gate preserves exact candidate authority with fresh MainHealth provenance but cannot mint direct status authority', () => {
   const base = fixture();
   const fresh = createMainHealthLedger({
     repository: REPOSITORY,
@@ -567,6 +541,29 @@ test('fresh MainHealth receipt may change provenance while stable health semanti
   const result = CodexDevelopmentEvaluateMergeGate({ ...base, mainHealth: fresh });
   expect(result.mainHealth.ledgerDigest).toBe(fresh.ledgerDigest);
   expect(result.authorization.mainHealthReceiptDigest).toBe(fresh.ledgerDigest);
+  expect(result.status).toBe('authorized');
+  expect(result.terminalStatusContext).toBe('sec/integration-authorization');
+  expect(result.authorization.headSha).toBe(HEAD);
+  expect(result.authorization.scopeAuthorizationRevision)
+    .toBe(base.artifact.scopeAuthorization.authorizationRevision);
+  expect(result.authorization.issuer).toMatchObject({
+    producerIdentity: CodexDevelopmentMergeGateProducerIdentity,
+    trustedRevision: BASE,
+    sourceRef: `.github/workflows/merge-gate.yml@${BASE}`,
+    sourceRunId: 'merge-200:1'
+  });
+  expect(result.reviewReceipt.receiptDigest).toBe(result.authorization.reviewReceiptDigest);
+  expect(result.platformObservation.rulesetDigest).toBe(result.authorization.rulesetDigest);
+  expect(result.hostedArtifactOrigin.artifactId).toBe('1000');
+  expect(result.hostedArtifactTransport.artifactId).toBe('1001');
+  expect(result.hostedArtifactOrigin.artifactByteDigest)
+    .toBe(result.hostedArtifactTransport.artifactByteDigest);
+  const parsed = CodexDevelopmentParseMergeGateResult(JSON.stringify(result));
+  expect(parsed).toEqual(result);
+  for (const candidate of [result, parsed]) {
+    expect(() => requireIssuedIntegrationGateResult(candidate))
+      .toThrow('actual trusted-runtime transition producer');
+  }
 });
 
 test('fresh MainHealth provenance rejects workflow references, wrong revisions and foreign producers', () => {
@@ -1005,16 +1002,6 @@ test('hosted integration splits read-only authorization, terminal status, and me
     .toBeLessThan(integrate.steps.findIndex(({ id }) => id === 'integrate'));
 });
 
-
-test('valid pure Gate evaluation and parsing cannot mint direct status authority', () => {
-  const evaluated = CodexDevelopmentEvaluateMergeGate(fixture());
-  const parsed = CodexDevelopmentParseMergeGateResult(encodeVerificationActionData(evaluated));
-  expect(parsed.status).toBe('authorized');
-  for (const candidate of [evaluated, parsed]) {
-    expect(() => requireIssuedIntegrationGateResult(candidate))
-      .toThrow('actual trusted-runtime transition producer');
-  }
-});
 
 // Semantic health equality cannot move a local DTO into the hosted authority lane.
 test('hosted merge gate rejects local healthy JSON without the original live runtime admission', () => {

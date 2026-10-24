@@ -6,6 +6,7 @@ import { buildExpectedProductVerificationClaimSummary, PRODUCT_FAST_GATE_ID, PRO
 import type { VerificationClaimResult, VerificationGateResult, VerificationReasonCode, VerificationResultStatus } from '../../../src/assurance/verification/result/contract/result.ts';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
+  projectSemanticMutationIsolatedSemanticBundle,
   type SemanticMutationIsolatedVerificationArtifactSet
 } from '../../../src/assurance/verification/semantic-mutation/isolated-classification.ts';
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
@@ -301,16 +302,37 @@ function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSe
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
 }
 
-test('canonical artifacts preserve failed, semantic-policy and not-applicable outcomes', () => {
+test('canonical artifacts require coherent child exit and semantic evidence for their public outcomes', () => {
   const failed = artifactSet('failed');
   expect(isCanonicalVerificationArtifactSet(failed)).toBe(true);
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(failed)).toBe('failed');
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...failed, childExitCode: 0 }))
+    .toBe('blocked');
 
   const semantic = mutablePassedArtifact(shadowedPolicyReport());
   expect(semantic.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
     .toMatchObject({ status: 'passed', supportedClaims: [PRODUCT_POLICY_CLAIM_ID] });
   expect(isCanonicalVerificationArtifactSet(semantic)).toBe(true);
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(semantic)).toBe('passed');
+  for (const childExitCode of [1, -1, Number.NaN]) {
+    expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...semantic, childExitCode }))
+      .toBe('blocked');
+  }
+
+  const fullBundle = { ...semanticBundle(), sourceLock: { internalAuthority: true } };
+  const projected = projectSemanticMutationIsolatedSemanticBundle(fullBundle);
+  expect(Object.keys(projected).sort()).toEqual([
+    'generatorPlan', 'semanticContractSources', 'semanticViews', 'snapshot'
+  ]);
+  expect('sourceLock' in projected).toBe(false);
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...semantic, semanticBundle: fullBundle }))
+    .toBe('blocked');
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...semantic, semanticBundle: projected }))
+    .toBe('passed');
+  const mismatchedBundle = semanticBundle();
+  mismatchedBundle.generatorPlan.inputRevision = `sha256:${'3'.repeat(64)}`;
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...semantic, semanticBundle: mismatchedBundle }))
+    .toBe('blocked');
 
   for (const policy of [policyReport('skipped'), shadowedPolicyReport([])]) {
     const notApplicable = mutablePassedArtifact(policy);
@@ -337,12 +359,16 @@ test('claimSummary overall status must agree with the legacy summary projection'
   expectBlocked(candidate);
 });
 
-test('unknown claimSummary fields remain fail-closed', () => {
+test('missing artifact fields and unknown report fields remain fail-closed', () => {
   const candidate = mutablePassedArtifact() as MutableClaimSummaryArtifactSet & {
     verificationReport: { summary: { claimSummary: Record<string, unknown> } };
   };
   candidate.verificationReport.summary.claimSummary.forged = true;
   expectBlocked(candidate);
+
+  const intact = mutablePassedArtifact();
+  expectBlocked({ ...intact, runtimeReport: undefined });
+  expectBlocked({ ...intact, runtimeReport: { ...intact.runtimeReport, forged: 'untrusted' } });
 });
 
 test('overall passed cannot conceal a failed claim result', () => {
@@ -390,7 +416,11 @@ test('contradictory lane observations and invalid policy status cannot retain a 
   const advisory = mutablePassedArtifact(shadowedPolicyReport(['src/customer.ts'], 'source-structure'));
   expect(advisory.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
     .toMatchObject({ status: 'unsupported', reasonCode: 'capability-unsupported', supportedClaims: [] });
-  expectBlocked(advisory);
+  advisory.verificationReport.summary.status = 'failed';
+  const unsupported = { ...advisory, childExitCode: 1 };
+  expect(unsupported.verificationReport.summary.claimSummary.overall.overallStatus).toBe('unsupported');
+  expect(isCanonicalVerificationArtifactSet(unsupported)).toBe(true);
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(unsupported)).toBe('blocked');
 
   const acceptanceDrift = mutablePassedArtifact();
   acceptanceDrift.verificationReport.fast.acceptance.failed = ['tests/acceptance/failed.test.ts'];

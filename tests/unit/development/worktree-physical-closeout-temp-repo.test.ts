@@ -900,14 +900,21 @@ test.each([false, true])('closeout composes provider retirement for an automatic
       .toBe(path.resolve(realpathSync(path.join(value.repository, 'node_modules'))));
     if (detached) git(value.target, ['checkout', '--detach', value.headSha]);
     const expectedBranch = detached ? `detached-scratch-${value.headSha}` : value.branch;
-    const authorization = await prepareWorktreePhysicalCloseout({
+    const preparationInput = {
       repositoryRoot: value.repository,
       targetPath: value.target,
-      expectedBranch,
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations);
+    };
+    const authorization = detached
+      ? await prepareDetachedScratchWorktreePhysicalCloseout(preparationInput, worktreePhysicalCloseoutOperations)
+      : await prepareWorktreePhysicalCloseout({ ...preparationInput, expectedBranch }, worktreePhysicalCloseoutOperations);
+    if (detached) {
+      await expect(prepareTrustedWorktreePhysicalCloseout({
+        ...preparationInput, expectedBranch
+      }, worktreePhysicalCloseoutOperations)).rejects.toThrow('cannot mint');
+    }
     expect(authorization.generatedStateRetirement).toMatchObject({ terminal: 'completed' });
     const generatedStateRetentionRoot = authorization.generatedStateRetirement?.retentionRoot?.path;
     expect(generatedStateRetentionRoot).toBeString();
@@ -924,16 +931,12 @@ test.each([false, true])('closeout composes provider retirement for an automatic
       path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
       'utf8'
     )).toBe('primary:typescript\n');
-    const receipt = await executeWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: authorization.authorizationPath
-    });
+    const executionInput = { ...preparationInput, authorizationPath: authorization.authorizationPath };
+    const receipt = detached
+      ? await executeDetachedScratchWorktreePhysicalCloseout(executionInput)
+      : await executeWorktreePhysicalCloseout({ ...executionInput, expectedBranch });
     expect(receipt.terminal).toBe('completed');
+    expect(existsSync(value.target)).toBeFalse();
     expect(receipt.readback).toMatchObject({ registryPresent: false, physicalPresent: false });
     expect(readFileSync(
       path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
@@ -1317,29 +1320,6 @@ test('dirty untracked and ignored targets block before durable authorization or 
       rmSync(value.root, { recursive: true, force: true });
     }
   }
-}, 60_000);
-
-test('detached scratch closeout is branch-token-ineligible and reaches physical/registry absence', async () => {
-  const value = fixture();
-  const scratch = path.join(value.root, 'detached-scratch');
-  try {
-    git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
-    const authorization = await prepareDetachedScratchWorktreePhysicalCloseout({
-      repositoryRoot: value.repository, targetPath: scratch, expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations);
-    await expect(prepareTrustedWorktreePhysicalCloseout({
-      repositoryRoot: value.repository, targetPath: scratch, expectedBranch: `detached-scratch-${value.headSha}`,
-      expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations)).rejects.toThrow('cannot mint');
-    const receipt = await executeDetachedScratchWorktreePhysicalCloseout({
-      repositoryRoot: value.repository, targetPath: scratch, expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: authorization.authorizationPath
-    });
-    expect(receipt.terminal).toBe('completed');
-    expect(existsSync(scratch)).toBe(false);
-  } finally { rmSync(value.root, { recursive: true, force: true }); }
 }, 60_000);
 
 test('an unregistered physical orphan cannot be adopted or removed', async () => {

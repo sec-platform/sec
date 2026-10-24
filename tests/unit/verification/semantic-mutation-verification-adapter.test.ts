@@ -6,14 +6,9 @@ import {
 import {
   planSemanticMutationVerificationCapabilities
 } from '../../../src/adapters/verification/semantic-mutation-verification-adapter.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../../src/assurance/verification/semantic-mutation/execution-ref.ts';
+import { assertSemanticMutationVerificationReportInvariant } from '../../../src/assurance/verification/semantic-mutation/report-contract.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION } from '../../../src/assurance/verification/contract/types.ts';
-import { buildExpectedProductVerificationClaimSummary } from '../../../src/assurance/verification/profile/contract/product.ts';
-import {
-  classifySemanticMutationIsolatedVerificationArtifactSet,
-  classifySemanticMutationIsolatedVerificationOutcome,
-  projectSemanticMutationIsolatedSemanticBundle,
-  type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../../src/assurance/verification/semantic-mutation/isolated-classification.ts';
 import {
   executeSemanticMutationVerification
 } from '../../../src/assurance/verification/semantic-mutation/verification-runtime.ts';
@@ -21,7 +16,6 @@ import { type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-eng
 import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
 import type { VerificationRequirement } from '../../../src/semantics/mutation/types.ts';
-import { productVerificationObservationsFixture } from '../../helpers/verification-fixtures.ts';
 
 function buildInput(): BuildEngineeringIRInput {
   return {
@@ -216,7 +210,7 @@ test('unknown, missing, duplicate, unsafe, non-runnable requirements are blocked
   expect(plan.capabilities.filter((entry) => entry.status === 'non-runnable')).toHaveLength(4);
 });
 
-test('execution calls verify-all once and emits an exact deterministic report binding', async () => {
+test('issued verification executes one exact requirement union and refuses forged report or execution bindings', async () => {
   const snapshot = buildValidatedEngineeringIR(buildInput());
   const canonicalRequirements = requirements();
   let probeCalls = 0;
@@ -244,6 +238,10 @@ test('execution calls verify-all once and emits an exact deterministic report bi
   const runner = (input: unknown) => {
     calls += 1;
     expect(Object.isFrozen(input)).toBe(true);
+    expect(Object.keys(input as object).sort()).toEqual([
+      'runner', 'planRevision', 'attempted', 'stagedSourceDigest',
+      'requiredVerificationDigest', 'requirements'
+    ].sort());
     return { status: 'passed' as const, evidenceDigest };
   };
   const input = {
@@ -281,245 +279,150 @@ test('execution calls verify-all once and emits an exact deterministic report bi
   expect(Object.isFrozen(first.executions[0])).toBe(true);
   expect(JSON.stringify(first)).not.toContain('workspaceRoot');
   expect(JSON.stringify(first)).not.toContain('capabilityPlanRevision');
-});
 
-test('blocked plans and forged execution bindings never call the runner', async () => {
-  const snapshot = buildValidatedEngineeringIR(buildInput());
-  const canonicalRequirements = requirements();
-  const capabilityPlan = await planSemanticMutationVerificationCapabilities({
-    snapshot,
-    requirements: [...canonicalRequirements, { kind: 'pass', passId: 'unknown' }],
-    isolationCapabilityProbe: availableIsolationProbe
-  });
-  let calls = 0;
+  {
+    const report = first;
+    const requirements = canonicalRequirements;
+    const inputRevision = snapshot.ir.inputRevision;
+    const semanticRevision = snapshot.ir.semanticRevision;
+    const isolationCapabilityProbe = availableIsolationProbe;
+    expect(Object.keys(report)).toEqual([
+      'formatRevision', 'adapterId', 'adapterRevision', 'planRevision', 'attempted',
+      'stagedSourceDigest', 'requiredVerificationDigest', 'executions', 'status', 'reportRevision'
+    ]);
+    expect(Object.keys(report.executions[0]!)).toEqual([
+      'requirement', 'runner', 'status', 'evidenceDigest'
+    ]);
+    for (const key of ['inputRevision', 'semanticRevision'] as const) {
+      let coercions = 0;
+      const candidate = { ...report, attempted: { ...report.attempted,
+        [key]: { toString() { coercions++; return report.attempted[key]; } } } };
+      expect(() => assertSemanticMutationVerificationReportInvariant(candidate)).toThrow();
+      expect(coercions).toBe(0);
+      await expect(executeSemanticMutationVerification({ capabilityPlan, requirements,
+        planRevision, attempted: candidate.attempted as never, stagedSourceDigest,
+        requiredVerificationDigest }, runner)).rejects.toThrow('invalid or blocked');
+      expect(coercions).toBe(0);
+      expect(calls).toBe(2);
+    }
+    for (const key of ['planRevision', 'stagedSourceDigest', 'requiredVerificationDigest'] as const) {
+      let coercions = 0;
+      expect(() => assertSemanticMutationVerificationReportInvariant({ ...report,
+        [key]: { toString() { coercions++; return report[key]; } } })).toThrow();
+      expect(coercions).toBe(0);
+      expect(() => assertSemanticMutationVerificationReportInvariant({ ...report,
+        [key]: `blake3:${'a'.repeat(64)}` })).toThrow();
+    }
 
-  await expect(executeSemanticMutationVerification({
-    capabilityPlan,
-    requirements: canonicalRequirements,
-    planRevision: sha256('plan'),
-    attempted: {
-      transactionId: 'tx:staged',
-      inputRevision: snapshot.ir.inputRevision,
-      semanticRevision: snapshot.ir.semanticRevision
-    },
-    stagedSourceDigest: sha256('staged-source'),
-    requiredVerificationDigest: sha256('forged')
-  }, () => {
-    calls += 1;
-    return { status: 'passed', evidenceDigest: sha256('evidence') };
-  })).rejects.toThrow('invalid or blocked');
-  const runnablePlan = await planSemanticMutationVerificationCapabilities({
-    snapshot,
-    requirements: canonicalRequirements,
-    isolationCapabilityProbe: availableIsolationProbe
-  });
-  await expect(executeSemanticMutationVerification({
-    capabilityPlan: structuredClone(runnablePlan),
-    requirements: canonicalRequirements,
-    planRevision: sha256('plan'),
-    attempted: {
-      transactionId: 'tx:staged',
-      inputRevision: snapshot.ir.inputRevision,
-      semanticRevision: snapshot.ir.semanticRevision
-    },
-    stagedSourceDigest: sha256('staged-source'),
-    requiredVerificationDigest: sha256({
-      domain: 'semantic-mutation-required-verification-v1',
-      requirements: canonicalRequirements
-    })
-  }, () => {
-    calls += 1;
-    return { status: 'passed', evidenceDigest: sha256('evidence') };
-  })).rejects.toThrow('invalid or blocked');
-  expect(calls).toBe(0);
-});
+    const execution = buildSemanticMutationVerificationExecutionRef(report);
+    expect(Object.keys(execution)).toEqual([
+      'adapterId', 'adapterRevision', 'reportRevision', 'planRevision', 'attempted',
+      'stagedSourceDigest', 'requiredVerificationDigest', 'status', 'verificationExecutionRevision'
+    ]);
+    expect(() => buildSemanticMutationVerificationExecutionRef({
+      ...report,
+      reportRevision: sha256('forged-report-revision')
+    })).toThrow('revision is stale or forged');
+    expect(() => buildSemanticMutationVerificationExecutionRef({
+      ...report,
+      forgedExtra: true
+    } as never)).toThrow('non-canonical schema');
 
-const ISOLATED_INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
-const ISOLATED_SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
+    await expect(executeSemanticMutationVerification({
+      capabilityPlan,
+      requirements,
+      planRevision,
+      attempted,
+      stagedSourceDigest,
+      requiredVerificationDigest: sha256('forged-union')
+    }, runner)).rejects.toThrow('invalid or blocked');
+    expect(calls).toBe(2);
 
-function isolatedPolicyReport() {
-  return {
-    status: 'skipped' as const,
-    official: { policies: [], sources: [], violations: [] },
-    project: { policies: [], sources: [], violations: [] },
-    merged: { policies: [] },
-    violations: []
-  };
-}
+    await expect(executeSemanticMutationVerification({
+      capabilityPlan,
+      requirements,
+      planRevision,
+      attempted: { ...attempted, transactionId: '' },
+      stagedSourceDigest,
+      requiredVerificationDigest
+    }, runner)).rejects.toThrow('invalid or blocked');
+    const nonShaEndpointPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
+    nonShaEndpointPlan.snapshotInputRevision = 'not-a-sha256-revision';
+    delete nonShaEndpointPlan.capabilityPlanRevision;
+    nonShaEndpointPlan.capabilityPlanRevision = sha256({
+      domain: 'semantic-mutation-verification-capability-plan-v1',
+      ...nonShaEndpointPlan
+    });
+    await expect(executeSemanticMutationVerification({
+      capabilityPlan: nonShaEndpointPlan as never,
+      requirements,
+      planRevision,
+      attempted: { ...attempted, inputRevision: 'not-a-sha256-revision' },
+      stagedSourceDigest,
+      requiredVerificationDigest
+    }, runner)).rejects.toThrow('invalid or blocked');
+    await expect(executeSemanticMutationVerification({
+      capabilityPlan,
+      requirements: requirements.map((requirement, index) => index === 0
+        ? { ...requirement, forgedExtra: true } : requirement) as never,
+      planRevision,
+      attempted,
+      stagedSourceDigest,
+      requiredVerificationDigest
+    }, runner)).rejects.toThrow('invalid or blocked');
+    expect(calls).toBe(2);
 
-function isolatedSemanticBundle() {
-  return {
-    snapshot: {
-      ir: {
-        inputRevision: ISOLATED_INPUT_REVISION,
-        semanticRevision: ISOLATED_SEMANTIC_REVISION
-      }
-    },
-    generatorPlan: {
-      inputRevision: ISOLATED_INPUT_REVISION,
-      semanticRevision: ISOLATED_SEMANTIC_REVISION,
-      tasks: []
-    },
-    semanticViews: {
-      formatVersion: '1',
-      inputRevision: ISOLATED_INPUT_REVISION,
-      semanticRevision: ISOLATED_SEMANTIC_REVISION,
-      views: []
-    },
-    semanticContractSources: []
-  };
-}
+    const forgedCapabilityPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
+    const forgedCapabilities = forgedCapabilityPlan.capabilities as Array<Record<string, unknown>>;
+    forgedCapabilities[0] = { ...forgedCapabilities[0], isolated: false };
+    delete forgedCapabilityPlan.capabilityPlanRevision;
+    forgedCapabilityPlan.capabilityPlanRevision = sha256({
+      domain: 'semantic-mutation-verification-capability-plan-v1',
+      ...forgedCapabilityPlan
+    });
+    await expect(executeSemanticMutationVerification({
+      capabilityPlan: forgedCapabilityPlan as never,
+      requirements,
+      planRevision,
+      attempted,
+      stagedSourceDigest,
+      requiredVerificationDigest
+    }, runner)).rejects.toThrow('invalid or blocked');
+    expect(calls).toBe(2);
 
-function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerificationArtifactSet {
-  const policy = isolatedPolicyReport();
-  const fastLogs = { stdout: 'fast-verification', stderr: '' };
-  const runtimeLogs = status === 'passed'
-    ? { stdout: 'runtime-verification', stderr: '' }
-    : { stdout: '', stderr: 'private failure at C:\\workspace\\secret' };
-  const fast = {
-    status: 'passed' as const,
-    build: { status: 'passed' as const },
-    unit: { status: 'passed' as const, passed: [] },
-    acceptance: { status: 'passed' as const, passed: [], failed: [] },
-    policy: { status: 'skipped' as const, violations: [] },
-    policyReport: policy,
-    logs: fastLogs
-  };
-  const runtime = status === 'passed' ? {
-    status: 'passed' as const,
-    build: { status: 'passed' as const, passed: ['bun run build'], failed: [], command: 'bun run build' },
-    unit: { status: 'passed' as const, passed: [], failed: [], command: 'bun run test:unit' },
-    acceptance: { status: 'passed' as const, passed: [], failed: [], command: 'bun run test:acceptance' },
-    logs: runtimeLogs
-  } : {
-    status: 'failed' as const,
-    build: { status: 'failed' as const, passed: [], failed: ['bun run build'], command: 'bun run build' },
-    unit: { status: 'skipped' as const, passed: [], failed: [], command: 'bun run test:unit' },
-    acceptance: {
-      status: 'skipped' as const,
-      passed: [],
-      failed: [],
-      command: 'bun run test:acceptance'
-    },
-    logs: runtimeLogs
-  };
-  const acceptanceCoverage = {
-    formatVersion: '2' as const,
-    status: runtime.status,
-    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
-    acceptancePassed: [],
-    blocks: [],
-    uncoveredBlocks: []
-  };
-  const claimSummary = buildExpectedProductVerificationClaimSummary(
-    'all',
-    fast,
-    runtime,
-    'full',
-    policy,
-    acceptanceCoverage,
-    productVerificationObservationsFixture()
-  );
-  return {
-    childExitCode: status === 'passed' ? 0 : 1,
-    verificationReport: {
-      build: fast.build,
-      unit: fast.unit,
-      acceptance: fast.acceptance,
-      policy: fast.policy,
-      fast,
-      runtime,
-      summary: {
-        status: claimSummary.overall.overallStatus === 'passed' ? 'passed' : 'failed',
-        requestedLane: 'all' as const,
-        failedLanes: status === 'passed' ? [] : ['runtime'],
-        claimSummary
-      },
-      logs: {
-        stdout: [fastLogs.stdout, runtimeLogs.stdout].filter(Boolean).join('\n'),
-        stderr: [fastLogs.stderr, runtimeLogs.stderr].filter(Boolean).join('\n')
-      }
-    },
-    runtimeReport: runtime,
-    policyReport: policy,
-    acceptanceCoverage,
-    semanticBundle: isolatedSemanticBundle()
-  };
-}
-
-test('isolated semantic evidence projection strips workspace authority before classification', () => {
-  const fullBundle = {
-    ...isolatedSemanticBundle(),
-    sourceLock: { internalAuthority: true }
-  };
-  const projected = projectSemanticMutationIsolatedSemanticBundle(fullBundle);
-  expect(Object.keys(projected).sort()).toEqual([
-    'generatorPlan',
-    'semanticContractSources',
-    'semanticViews',
-    'snapshot'
-  ]);
-  expect('sourceLock' in projected).toBe(false);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet({
-    ...isolatedArtifactSet('failed'),
-    semanticBundle: fullBundle
-  })).toBe('blocked');
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet({
-    ...isolatedArtifactSet('failed'),
-    semanticBundle: projected
-  })).toBe('failed');
-});
-
-test('isolated child outcome blocks zero-test pseudo-pass and accepts physical failure', () => {
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('passed'))).toBe('blocked');
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('failed'))).toBe('failed');
-});
-
-test('isolated child outcome blocks incomplete protocols and classifies canonical failure by exit', () => {
-  const passedNonzero = { ...isolatedArtifactSet('passed'), childExitCode: 1 };
-  const failedZero = { ...isolatedArtifactSet('failed'), childExitCode: 0 };
-  const missingReport = { ...isolatedArtifactSet('failed'), runtimeReport: undefined };
-  const forgedRuntime = structuredClone(isolatedArtifactSet('failed')) as
-    SemanticMutationIsolatedVerificationArtifactSet & { runtimeReport: Record<string, unknown> };
-  forgedRuntime.runtimeReport.forged = 'C:\\workspace\\secret';
-  const mismatchedBundle = structuredClone(isolatedArtifactSet('failed')) as
-    SemanticMutationIsolatedVerificationArtifactSet & {
-      semanticBundle: { generatorPlan: { inputRevision: string } };
-  };
-  mismatchedBundle.semanticBundle.generatorPlan.inputRevision = `sha256:${'3'.repeat(64)}`;
-
-  // 1B-4: a zero-test pseudo-pass is a canonical invalidated summary, so a
-  // nonzero child exit is an environment/coverage truth problem (blocked),
-  // never a product failure.
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(passedNonzero)).toBe('blocked');
-
-  for (const candidate of [failedZero, missingReport, forgedRuntime, mismatchedBundle]) {
-    const outcome = classifySemanticMutationIsolatedVerificationArtifactSet(candidate);
-    expect(outcome).toBe('blocked');
+    const externalEffectPlan = await planSemanticMutationVerificationCapabilities({
+      snapshot: {
+        ir: {
+          inputRevision,
+          semanticRevision,
+          entities: [{
+            id: 'effect:external',
+            kind: 'effect',
+            label: 'External call',
+            attributes: [{ key: 'effectKind', value: 'external-service-call' }]
+          }],
+          facts: []
+        }
+      } as never,
+      requirements: [{ kind: 'pass', passId: 'verify' }],
+      isolationCapabilityProbe
+    });
+    expect(externalEffectPlan.status).toBe('blocked');
+    expect(externalEffectPlan.capabilities[0]).toMatchObject({
+      status: 'non-runnable',
+      isolated: false
+    });
+    const blockedPlan = await planSemanticMutationVerificationCapabilities({
+      snapshot,
+      requirements: [...canonicalRequirements, { kind: 'pass', passId: 'unknown' }],
+      isolationCapabilityProbe: availableIsolationProbe
+    });
+    for (const rejectedPlan of [blockedPlan, structuredClone(capabilityPlan)]) {
+      await expect(executeSemanticMutationVerification({
+        ...input,
+        capabilityPlan: rejectedPlan
+      }, runner)).rejects.toThrow('invalid or blocked');
+    }
+    expect(calls).toBe(2);
   }
-});
-
-test('1B-4 pure decision rule separates product failure from blocked environment truth', () => {
-  // canonical passed requires zero exit and physical fast/runtime pass
-  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 0, true, true)).toBe('passed');
-  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 0, true, false)).toBe('blocked');
-  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 0, false, true)).toBe('blocked');
-  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 1, true, true)).toBe('blocked');
-
-  // canonical failed with nonzero exit is a real physical failure
-  expect(classifySemanticMutationIsolatedVerificationOutcome('failed', 1, false, false)).toBe('failed');
-  expect(classifySemanticMutationIsolatedVerificationOutcome('failed', 1, true, false)).toBe('failed');
-  // canonical failed with zero exit is protocol incoherence
-  expect(classifySemanticMutationIsolatedVerificationOutcome('failed', 0, false, false)).toBe('blocked');
-
-  // invalidated / unsupported / not-run are never product failures
-  for (const status of ['invalidated', 'unsupported', 'not-run'] as const) {
-    expect(classifySemanticMutationIsolatedVerificationOutcome(status, 1, false, false)).toBe('blocked');
-    expect(classifySemanticMutationIsolatedVerificationOutcome(status, 0, false, false)).toBe('blocked');
-    expect(classifySemanticMutationIsolatedVerificationOutcome(status, 1, true, true)).toBe('blocked');
-  }
-
-  // malformed exit evidence fails closed
-  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', -1, true, true)).toBe('blocked');
-  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', Number.NaN, true, true)).toBe('blocked');
 });

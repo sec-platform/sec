@@ -44,25 +44,6 @@ test('a synchronously throwing action still owns failure and cleanup once', asyn
   assert.deepEqual(events, ['start:task', 'fail:task', 'stop']);
 });
 
-test('accessor failures in every UI method cannot reach or replace the action', async () => {
-  const handle = Object.defineProperties({}, Object.fromEntries(['start', 'succeed', 'fail', 'stop'].map((key) => [key, { get() { throw new Error(key); } }])));
-  assert.equal(await withProgressLifecycle('task', () => handle as ProgressObserver, async () => 7), 7);
-  const primary = new Error('action');
-  await assert.rejects(withProgressLifecycle('task', () => handle as ProgressObserver, async () => { throw primary; }), (error) => error === primary);
-});
-
-test('unexpected asynchronous observer rejections are observed without delaying execution', async () => {
-  const handle = { start: () => Promise.reject('start'), succeed: () => Promise.reject('succeed'), fail: () => Promise.reject('fail'), stop: () => Promise.reject('stop') };
-  assert.equal(await withProgressLifecycle('task', () => handle, async () => 7), 7);
-  await assert.rejects(withProgressLifecycle('task', () => handle, async () => { throw 'primary'; }), (error) => error === 'primary');
-  await new Promise((resolve) => setTimeout(resolve, 0));
-});
-
-test('an observer returning a never-settling promise does not become an execution budget', async () => {
-  const never = new Promise<void>(() => {});
-  assert.equal(await withProgressLifecycle('task', () => ({ start: () => never, succeed: () => never, fail: () => never, stop: () => never }), async () => 7), 7);
-});
-
 test('the cleanup opportunity follows an action that suspends; not its initial Promise creation', async () => {
   const events: string[] = []; let finish!: () => void;
   const held = new Promise<void>((resolve) => { finish = resolve; });

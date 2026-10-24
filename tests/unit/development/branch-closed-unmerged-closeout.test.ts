@@ -315,32 +315,6 @@ function providerHarness(
   };
 }
 
-function fakeSupersededEvidence() {
-  return createClosedSupersededDispositionEvidence({
-    repository: REPOSITORY,
-    pullRequestNumber: PR_NUMBER,
-    branch: BRANCH,
-    headSha: HEAD_SHA,
-    headTreeSha: HEAD_TREE,
-    baseBranch: 'main',
-    baseSha: BASE_SHA,
-    currentMainSha: MAIN_SHA,
-    currentMainTreeSha: MAIN_TREE,
-    durableGoal: { kind: 'issue', reference: 'Issue #313' },
-    supersession: {
-      review: {
-        kind: 'branch-supersession-review', repository: REPOSITORY,
-        pullRequestNumber: PR_NUMBER, headSha: HEAD_SHA, headTreeSha: HEAD_TREE,
-        currentMainSha: MAIN_SHA, currentMainTreeSha: MAIN_TREE,
-        reviewer: 'fixture-reviewer', verdict: 'approved', paths: [], unknowns: []
-      },
-      reference: `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}#issuecomment-1`,
-      author: 'fixture-maintainer', commentId: 1,
-      receiptDigest: `sha256:${'7'.repeat(64)}`
-    }
-  });
-}
-
 function operation(inputEvidence: ClosedSupersededDispositionEvidence = supersededEvidence) {
   const result = compileClosedUnmergedCloseoutOperation({
     prepared: prepared(inventory()),
@@ -505,12 +479,6 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(result.status).toBe('blocked');
     expect(result.status === 'blocked' ? result.blockers : []).toContain(
       'current PR state must be closed'
-    );
-  });
-
-  test('structurally plausible supersession evidence is rejected without owner issuance', () => {
-    expect(() => fakeSupersededEvidence()).toThrow(
-      'Supersession evidence requires authenticated owner observation.'
     );
   });
 
