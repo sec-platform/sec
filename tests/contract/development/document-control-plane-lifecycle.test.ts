@@ -687,23 +687,38 @@ async function createFreezeFixture(): Promise<FreezeFixture> {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-'));
   const repositoryRoot = path.join(parent, 'repository');
   const remoteRoot = path.join(parent, 'remote.git');
-  const seed = await freezeFixtureSeed();
-  await Promise.all([
-    cp(seed.repositoryRoot, repositoryRoot, { recursive: true }),
-    cp(seed.remoteRoot, remoteRoot, { recursive: true })
-  ]);
-  runGit(repositoryRoot, ['remote', 'set-url', 'origin', remoteRoot]);
-  const baseSha = seed.baseSha;
-  return {
-    parent,
-    repositoryRoot,
-    remoteRoot,
-    baseSha,
-    dispose: async () => {
-      fixtureGitHubCapabilities.delete(repositoryRoot);
-      await rm(parent, { recursive: true, force: true });
+  try {
+    const seed = await freezeFixtureSeed();
+    // Join both physical copies before error settlement: Promise.all would
+    // allow one failed copy to race with retirement while its peer still writes.
+    const copies = await Promise.allSettled([
+      cp(seed.repositoryRoot, repositoryRoot, { recursive: true }),
+      cp(seed.remoteRoot, remoteRoot, { recursive: true })
+    ]);
+    const failures = copies.flatMap(outcome => outcome.status === 'rejected' ? [outcome.reason] : []);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Both native freeze fixture copies failed');
     }
-  };
+    runGit(repositoryRoot, ['remote', 'set-url', 'origin', remoteRoot]);
+    return {
+      parent,
+      repositoryRoot,
+      remoteRoot,
+      baseSha: seed.baseSha,
+      dispose: async () => {
+        fixtureGitHubCapabilities.delete(repositoryRoot);
+        await rm(parent, { recursive: true, force: true });
+      }
+    };
+  } catch (error) {
+    fixtureGitHubCapabilities.delete(repositoryRoot);
+    try { await rm(parent, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Freeze fixture preparation and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 interface FreezeFixtureSeed {
@@ -724,6 +739,7 @@ async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-seed-'));
   const repositoryRoot = path.join(parent, 'repository');
   const remoteRoot = path.join(parent, 'remote.git');
+  try {
   await mkdir(repositoryRoot, { recursive: true });
   runGit(parent, ['init', '--quiet', '--bare', remoteRoot]);
   runGit(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
@@ -783,13 +799,24 @@ async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {
   await writeFile(targetPath, targetManifest, 'utf8');
   runGit(repositoryRoot, ['rm', '--quiet', CURRENT_ACTIVE_PATH]);
   runGit(repositoryRoot, ['add', FREEZE_TARGET_PATH]);
-  return Object.freeze({ parent, repositoryRoot, remoteRoot, baseSha });
+    return Object.freeze({ parent, repositoryRoot, remoteRoot, baseSha });
+  } catch (error) {
+    try { await rm(parent, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Freeze source preparation and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 afterAll(async () => {
   if (freezeFixtureSeedPromise === undefined) return;
-  const seed = await freezeFixtureSeedPromise;
-  await rm(seed.parent, { recursive: true, force: true });
+  // Failed preparation already owns its cleanup and propagates its original
+  // error through the requesting test. Only completed seed roots are owned here.
+  const settled = await Promise.allSettled([freezeFixtureSeedPromise]);
+  if (settled[0]?.status === 'fulfilled') {
+    await rm(settled[0].value.parent, { recursive: true, force: true });
+  }
 });
 
 test('terminal retirement accepts every canonical prefix cut and rejects namespace holes', () => {
@@ -1595,7 +1622,10 @@ async function createProposalFreezeFixture(): Promise<ProposalFreezeFixture> {
       proposalPath
     });
   } catch (error) {
-    await fixture.dispose();
+    try { await fixture.dispose(); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Proposal preparation and cleanup both failed');
+    }
     throw error;
   }
 }
@@ -2498,31 +2528,39 @@ interface PublishTupleFixture {
 
 async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixture> {
   const fixture = await createFreezeFixture();
-  await expect(freezeDocumentControlPlane({
-    cwd: fixture.repositoryRoot,
-    manifestPath: FREEZE_TARGET_PATH,
-    reviewedOn: '2026-08-09',
-    faultAfter: 'after-journal-prepare'
-  })).rejects.toThrow('after-journal-prepare');
-  const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
-  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
-  const indexPath = repositoryIndexPath(fixture.repositoryRoot);
-  const artifactRoot = path.dirname(indexPath);
-  const operationId = journal.operationId;
-  return Object.freeze({
-    fixture,
-    journal,
-    paths: Object.freeze({
-      target: indexPath,
-      next: `${indexPath}.lock`,
-      quarantine: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'pre'),
-      retiredPre: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'retired-pre'),
-      retiredNext: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'retired-next'),
-      journal: journalPath
-    }),
-    pre: Buffer.from(journal.index.pre, 'base64'),
-    next: Buffer.from(journal.index.next, 'base64')
-  });
+  try {
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-journal-prepare'
+    })).rejects.toThrow('after-journal-prepare');
+    const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
+    const indexPath = repositoryIndexPath(fixture.repositoryRoot);
+    const artifactRoot = path.dirname(indexPath);
+    const operationId = journal.operationId;
+    return Object.freeze({
+      fixture,
+      journal,
+      paths: Object.freeze({
+        target: indexPath,
+        next: `${indexPath}.lock`,
+        quarantine: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'pre'),
+        retiredPre: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'retired-pre'),
+        retiredNext: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'retired-next'),
+        journal: journalPath
+      }),
+      pre: Buffer.from(journal.index.pre, 'base64'),
+      next: Buffer.from(journal.index.next, 'base64')
+    });
+  } catch (error) {
+    try { await fixture.dispose(); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Index tuple preparation and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 async function writePublishTuple(
