@@ -131,5 +131,5 @@ test('platform 403 is recorded as unavailable and never as no-bypass proof', asy
   }));
   expect(observation.status).toBe('platform-enforcement-unavailable');
   expect(observation.reason).toContain('unavailable');
-  expectobservation.rulesetDigest.toMatch(/^sha256:/);
+  expect(observation.rulesetDigest).toMatch(/^sha256:/);
 });
