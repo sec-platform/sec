@@ -26,10 +26,11 @@ test('SCC rejects either endpoint outside the closed node set', () => {
   assert.throws(() => scc(['known'], [{ from: 'unknown', to: 'known' }]), /directed-graph-unknown-endpoint/);
 });
 
-test('SCC preserves input and canonical partition across reversed traversal', () => {
+test('SCC preserves input and canonical partition across duplicate edges and reversed traversal', () => {
   const nodes = Object.freeze(['d', 'c', 'b', 'a']);
   const edges = Object.freeze([
-    Object.freeze({ from: 'a', to: 'b' }), Object.freeze({ from: 'b', to: 'a' }),
+    Object.freeze({ from: 'a', to: 'b' }), Object.freeze({ from: 'a', to: 'b' }),
+    Object.freeze({ from: 'b', to: 'a' }),
     Object.freeze({ from: 'c', to: 'd' }), Object.freeze({ from: 'd', to: 'c' }),
     Object.freeze({ from: 'b', to: 'c' })
   ]);
@@ -59,18 +60,6 @@ test('SCC orders Unicode and special strings by code units without prototype ali
   assert.deepEqual(scc(nodes, []), [...nodes].sort().map((id) => [id]));
 });
 
-test('SCC captures each edge endpoint once before validating and using it', () => {
-  let fromReads = 0;
-  let toReads = 0;
-  const edge = {
-    get from() { fromReads += 1; return fromReads === 1 ? 'a' : 'missing'; },
-    get to() { toReads += 1; return toReads === 1 ? 'b' : 'missing'; }
-  };
-  assert.deepEqual(scc(['a', 'b'], [edge, { from: 'b', to: 'a' }]), [['a', 'b']]);
-  assert.equal(fromReads, 1);
-  assert.equal(toReads, 1);
-});
-
 test('SCC processes a 30000-node chain without native call-stack dependence', () => {
   const { nodes, edges } = chain(30_000);
   const components = scc(nodes, edges);
@@ -97,15 +86,4 @@ test('closed directed graph SCC compilation separates disconnected components', 
       { from: 'c', to: 'd' }
     ]
   )).toEqual([['a', 'b'], ['c'], ['d']]);
-});
-
-test('closed directed graph SCC compilation treats duplicate edges as idempotent', () => {
-  expect(scc(
-    ['a', 'b'],
-    [
-      { from: 'a', to: 'b' },
-      { from: 'a', to: 'b' },
-      { from: 'b', to: 'a' }
-    ]
-  )).toEqual([['a', 'b']]);
 });

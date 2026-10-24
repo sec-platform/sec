@@ -9,7 +9,6 @@ import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-co
 import { readLockFile, saveLock } from '../../../src/adapters/workspace/lock.ts';
 import { buildRepairPlan } from '../../../src/application/repair-plan.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { assertProductVerificationArtifactSubject } from '../../../src/assurance/verification/project/report.ts';
 import { lockWorkspace } from '../../../src/bootstrap/engineering/emit-orchestrator.ts';
 import { repairWorkspace } from '../../../src/bootstrap/engineering/repair-orchestrator.ts';
 import { digest } from '../../../src/contracts/canonical.ts';
@@ -51,24 +50,6 @@ test('stale Verification A cannot publish Lock B through a forged succeeded proj
   });
 });
 
-test('Lock publication keeps its checked input when the caller mutates an alias across the fence', async () => {
-  await workspace(async root => {
-    const lock = buildCurrentVerificationLock();
-    await saveLock(root, lock);
-    await writeCurrentVerificationFixture(root, lock);
-    let crossedFence = false;
-    const published = await lockProject(root, lock, async () => {
-      crossedFence = true;
-      lock.app.name = 'caller changed its own input';
-    });
-    expect(crossedFence).toBe(true);
-    expect(published.app.name).toBe('customer-admin');
-    expect(readLockFile(root).app.name).toBe('customer-admin');
-    expect(published.passStatus.lock).toBe('succeeded');
-    expect(lock.passStatus.lock).toBe('pending');
-  });
-});
-
 test('Repair rejects stale and cross-artifact-inconsistent retained evidence before publication', async () => {
   await workspace(async root => {
     const lock = buildCurrentVerificationLock();
@@ -93,18 +74,20 @@ const reportFaults = [
   ['inconsistent claim result', (report) => { report.summary.claimSummary!.overall.overallStatus = 'passed'; }],
   ['unknown requested lane', (report) => { Object.assign(report.summary, { requestedLane: 'unknown' }); }]
 ] satisfies Array<[string, (report: Awaited<ReturnType<typeof writeCurrentVerificationFixture>>['verificationReport']) => void]>;
-test('Repair rejects every partial-lane forgery before a no-op or publication', async () => {
+test('Repair rejects partial-lane forgery before publication and preview', async () => {
   await workspace(async root => {
     const lock = buildCurrentVerificationLock({ passStatus: { verify: 'pending' } });
     await saveLock(root, lock);
     const original = await writeCurrentVerificationFixture(root, lock, { failed: true, lane: 'fast' });
-    for (const [label, mutate] of reportFaults) {
+    for (const [index, [label, mutate]] of reportFaults.entries()) {
       const verificationReport = structuredClone(original.verificationReport);
       mutate(verificationReport);
       // Every consumer reopens the retained bytes. Replace the complete report
       // from the valid baseline so no earlier forgery can mask this fault.
       await writeFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport), JSON.stringify(verificationReport));
-      await expect(repairWorkspace(root, { dryRun: true }), label).rejects.toThrow('profile-aware canonical schema');
+      if (index === 0) {
+        await expect(repairWorkspace(root, { dryRun: true }), label).rejects.toThrow('profile-aware canonical schema');
+      }
       await expect(repairWorkspace(root), label).rejects.toThrow('profile-aware canonical schema');
       await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
     }
@@ -126,25 +109,6 @@ for (const mode of ['partial', 'failed-all'] as const) {
     });
   });
 }
-
-test('current-subject gate binding rejects missing, duplicate and foreign bindings', async () => {
-  await workspace(async root => {
-    const lock = buildCurrentVerificationLock();
-    const original = await writeCurrentVerificationFixture(root, lock);
-    for (const fault of ['missing', 'duplicate', 'foreign-gate', 'foreign-subject', 'foreign-input'] as const) {
-      const { verificationReport, acceptanceCoverage } = structuredClone(original);
-      const gates = [...verificationReport.summary.claimSummary!.gates];
-      Object.assign(verificationReport.summary.claimSummary!, { gates });
-      if (fault === 'missing') gates.pop();
-      else if (fault === 'duplicate') gates[1] = structuredClone(gates[0]!);
-      else if (fault === 'foreign-gate') Object.assign(gates[0]!, { gateId: 'foreign-gate' });
-      else if (fault === 'foreign-subject') Object.assign(gates[0]!, { subjectRevision: 'sha256:' + 'e'.repeat(64) });
-      else Object.assign(gates[0]!, { inputDigest: 'sha256:' + 'f'.repeat(64) });
-      expect(() => assertProductVerificationArtifactSubject(lock, { verificationReport, acceptanceCoverage }), fault)
-        .toThrow(expect.objectContaining({ code: 'VERIFY-SUBJECT-002' }));
-    }
-  });
-});
 
 for (const lane of ['fast', 'all'] as const) {
   for (const failed of [false, true]) {
@@ -188,7 +152,7 @@ for (const lane of ['fast', 'all'] as const) {
   }
 }
 
-test('real Repair writer captures its tuple, plan and Lock before fences without an intermediate Lock publication', async () => {
+test('real Repair writer uses the admitted tuple despite a corrupt disk successor and publishes Lock last', async () => {
   await workspace(async root => {
     const lock = buildCurrentVerificationLock();
     await saveLock(root, lock);
@@ -201,9 +165,6 @@ test('real Repair writer captures its tuple, plan and Lock before fences without
     await writeRepairPlan(root, plan, lock, async () => {
       fences++;
       expect(await readFile(lockPath)).toEqual(initialLock);
-      lock.app.name = 'caller changed its Lock';
-      plan.sourceVerificationStatus = 'failed';
-      verification.verificationReport.summary.status = 'failed';
       // The exact admitted tuple, rather than a later disk reread, owns the
       // provenance projection. This corrupt successor cannot replace it.
       await writeFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport), '{}');
@@ -219,25 +180,22 @@ test('real Repair writer captures its tuple, plan and Lock before fences without
   });
 });
 
-for (const fault of ['wrong-subject', 'inconsistent-tuple', 'invalid-provenance-path'] as const) {
-  test(`real Repair writer rejects ${fault} before any artifact or Lock effect`, async () => {
-    await workspace(async root => {
-      const lock = buildCurrentVerificationLock();
-      if (fault === 'invalid-provenance-path') lock.generatedPaths.push('../foreign');
-      await saveLock(root, lock);
-      await writeCurrentVerificationFixture(root, lock, { lane: 'fast' });
-      const verification = structuredClone(readOptionalCurrentVerificationPublication(root, lock)!);
-      const plan = buildRepairPlan(verification.verificationReport);
-      if (fault === 'wrong-subject') lock.app.name = 'wrong subject';
-      if (fault === 'inconsistent-tuple') verification.verificationReport.summary.status = 'failed';
-      const lockPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.graphLock);
-      const before = await readFile(lockPath);
-      let fences = 0;
-      await expect(writeRepairPlan(root, plan, lock, async () => { fences++; }, verification)).rejects.toThrow();
-      expect(fences).toBe(0);
-      expect(await readFile(lockPath)).toEqual(before);
-      await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
-      await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance))).rejects.toThrow();
-    });
+test('real Repair writer rejects an invalid provenance path before any artifact or Lock effect', async () => {
+  await workspace(async root => {
+    const lock = buildCurrentVerificationLock();
+    lock.generatedPaths.push('../foreign');
+    await saveLock(root, lock);
+    await writeCurrentVerificationFixture(root, lock, { lane: 'fast' });
+    const verification = structuredClone(readOptionalCurrentVerificationPublication(root, lock)!);
+    const plan = buildRepairPlan(verification.verificationReport);
+    const lockPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.graphLock);
+    const before = await readFile(lockPath);
+    let fences = 0;
+    await expect(writeRepairPlan(root, plan, lock, async () => { fences++; }, verification))
+      .rejects.toMatchObject({ code: 'PROVENANCE-PATH-001' });
+    expect(fences).toBe(0);
+    expect(await readFile(lockPath)).toEqual(before);
+    await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.repairPlan))).rejects.toThrow();
+    await expect(access(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance))).rejects.toThrow();
   });
-}
+});

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import type { ReviewSnapshot } from '../../../src/execution/verification/session.ts';
+import { SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../../src/adapters/verification/platform/session/contract/session.ts';
 
 import { CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES, CODEX_CLEAN_REVIEW_CONGRATULATIONS, CODEX_CLEAN_REVIEW_VERDICT_PREFIX, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, assertReviewStabilityReceiptCurrent, createReviewSnapshotDigest, createReviewStabilityPolicy, createReviewStabilityReceipt, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, parseReviewStabilityPolicy, parseReviewStabilityReceipt, renderIndependentReviewTrailer, type ReviewStabilityReceiptInput } from '../../../src/adapters/verification/platform/review/contract/stability.ts';
 
@@ -339,6 +340,9 @@ test('Review rejects duplicate pagination observations and incomplete/blocking s
 });
 
 test('Review rejects non-independent principals and invalid producer provenance', () => {
+  expect(() => receipt({ producer: { ...input().producer,
+    executionIdentity: SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } }))
+    .toThrow('canonical independent read-only observer execution');
   const invalid: readonly [string, Partial<ReviewStabilityReceiptInput>][] = [
     ['candidate author', { independence: { candidateAuthorNodeId: 'BOT_kgDOC98s_g', integrationPrincipalNodeId: 'USER_integrator' } }],
     ['integrator', { independence: { candidateAuthorNodeId: 'USER_author', integrationPrincipalNodeId: 'BOT_kgDOC98s_g' } }],

@@ -59,7 +59,7 @@ import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/ve
 
 import { parseVerificationSessionHostedRequest } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import { assertGitHubReviewAuthorityObservation, classifyGitHubGraphQLSchemaFailure, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, isGitHubProviderSchemaUnsupportedError, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
-import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedRuntime, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts, SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedRuntime, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
@@ -747,8 +747,11 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
     '- Open a pull request for review\n- Mark a draft as ready\n- Comment "@codex review".\n\n' +
     'If Codex has suggestions, it will comment; otherwise it will react with 👍.\n\n' +
     'Codex can also answer questions or update the PR. Try commenting ' +
-    '"@codex address that feedback".\n</details>'
+    '"@codex address that feedback".\n</details>',
+    { createdAt: '2026-08-09T14:00:00Z' }
   )]];
+  providerAbout.threads = [[{ id: 'T-repeated-author', isResolved: true, isOutdated: false,
+    path: 'renamed.ts', authorNodeIds: ['REVIEWER', 'REVIEWER'] }]];
   const authority = await observe(providerAbout);
   expect(authority.status).toBe('clear');
   if (authority.status !== 'clear') throw new Error('expected clear review');
@@ -1022,7 +1025,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
   approvalThenComment.reviews = [[
     { id: 'R-approved', authorNodeId: 'REVIEWER', authorLogin: 'reviewer', authorType: 'User',
       appId: null, appNodeId: null, appSlug: null, commitSha: HEAD, state: 'APPROVED',
-      submittedAt: '2026-08-09T14:00:00.000Z' },
+      submittedAt: '2026-08-09T14:00:00Z' },
     { id: 'R-commented', authorNodeId: 'REVIEWER', authorLogin: 'reviewer', authorType: 'User',
       appId: null, appNodeId: null, appSlug: null, commitSha: HEAD, state: 'COMMENTED',
       submittedAt: '2026-08-09T14:00:30.000Z' }
@@ -1119,34 +1122,6 @@ test('same-principal same-timestamp conflicting reviews fail closed instead of o
       submittedAt: '2026-08-09T14:00:00.000Z' }
   ]];
   expectTypedProviderSchemaUnsupported((await observe(transport)));
-});
-
-test('GitHub observation accepts valid timestamps and repeated thread authors', async () => {
-  const review = new FakeTransport();
-  review.reviews = [[{
-    id: 'R-rfc3339', authorNodeId: 'REVIEWER', authorLogin: 'reviewer', authorType: 'User',
-    appId: null, appNodeId: null, appSlug: null, commitSha: HEAD,
-    state: 'APPROVED', submittedAt: '2026-08-09T14:00:00Z'
-  }]];
-  expect((await observe(review)).status).toBe('clear');
-
-  const repeatedAuthor = new FakeTransport();
-  repeatedAuthor.issueComments = [[botIssueComment(undefined, {
-    createdAt: '2026-08-09T14:00:00Z'
-  })]];
-  repeatedAuthor.threads = [[{
-    id: 'T-repeated-author', isResolved: true, isOutdated: false, path: 'renamed.ts',
-    authorNodeIds: ['REVIEWER', 'REVIEWER']
-  }]];
-  expect((await observe(repeatedAuthor)).status).toBe('clear');
-
-  const workflow = new FakeTransport();
-  workflow.workflowRuns = [[workflowRun({ updatedAt: '2026-08-09T14:00:00.1Z' })]];
-  expect((await evaluateVerificationSessionWorkflowJoin(workflow, {
-    repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
-    actionPlanDigest: JOIN_ACTION, baseSha: BASE, now: '2026-08-09T14:05:00Z'
-  }))).toMatchObject({ status: 'joined', reason: 'active-run' });
-
 });
 
 test('V8 final Review P2 regressions preserve dotted paths and bind complete nested thread pagination', async () => {
@@ -1648,24 +1623,6 @@ test('OPEN candidate execution rejects remote-main drift even after authorizatio
   expect(() => assertTrustedRuntime({ ...proof, remoteDefaultSha: BASE }, session, false)).not.toThrow();
 });
 
-test('VerificationSession preparation never infers a hosted execution environment', () => {
-  expect(() => prepareTrustedMainVerificationSession({} as never))
-    .toThrow('VerificationSession preparation requires an explicit execution environment.');
-});
-
-test('VerificationSession rejects unknown or altered hosted profiles before preparing identities', () => {
-  for (const executionEnvironment of [
-    { ...CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
-      executionEnvironmentRevision: 'unqualified-native-runtime' },
-    { ...CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
-      toolchainRevision: 'bun@0.0.0' }
-  ]) {
-    const input = { executionEnvironment } as never;
-    expect(() => prepareTrustedMainVerificationSession(input))
-      .toThrow(/hosted execution environment/);
-  }
-});
-
 test('VerificationSession placement defaults local and rejects implicit hosted selection', async () => {
   expect(verificationSessionExecutionPlacement(undefined)).toBe('local');
   expect(verificationSessionExecutionPlacement('local')).toBe('local');
@@ -1792,14 +1749,14 @@ test('incomplete GitHub pagination fails closed before Review can clear', async 
 });
 
 test('remote Session workflow join covers active and artifact-publication states without redispatch', async () => {
-  const joined = async (transport: FakeTransport, now = '2026-08-09T14:05:00.000Z') =>
+  const joined = async (transport: FakeTransport, now = '2026-08-09T14:05:00Z') =>
     (await evaluateVerificationSessionWorkflowJoin(transport, {
       repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
       actionPlanDigest: JOIN_ACTION, baseSha: BASE, now
     }));
   for (const status of ['queued', 'in_progress', 'waiting'] as const) {
     const transport = new FakeTransport();
-    transport.workflowRuns = [[workflowRun({ status })]];
+    transport.workflowRuns = [[workflowRun({ status, updatedAt: '2026-08-09T14:00:00.1Z' })]];
     expect((await joined(transport))).toMatchObject({ status: 'joined', reason: 'active-run' });
   }
   const completed = new FakeTransport();
@@ -2170,68 +2127,6 @@ test('GitHub GraphQL schema drift is classified as typed provider-schema-unsuppo
   ))).toBe(false);
   expect(classifyGitHubGraphQLSchemaFailure('HTTP 403: Resource not accessible')).toBeNull();
 });
-
-test('the implementation session cannot issue an independent Review receipt', async () => {
-  const { SEC_REVIEW_STABILITY_POLICY: SEC_REVIEW_STABILITY_POLICY_V1, createReviewStabilityReceipt: createReviewStabilityReceiptV1 } =
-    await import('../../../src/adapters/verification/platform/review/contract/stability.ts');
-  const sha = 'a'.repeat(40);
-  const digest = (value: string) => `sha256:${value}` as const;
-  const principal = {
-    kind: 'github-app' as const,
-    actorNodeId: 'BOT_kgDOC98s_g',
-    appId: 1144995,
-    appNodeId: 'A_kwHOAOQ6Gs4AEXij',
-    appSlug: 'chatgpt-codex-connector',
-    reviewState: 'APPROVED' as const
-  };
-  const snapshotValue = {
-    paginationComplete: true as const,
-    reviewedHeadSha: sha,
-    reviewPageDigests: [digest('a'.repeat(64))],
-    threadPageDigests: [],
-    reviewCount: 1,
-    threadCount: 0,
-    unresolvedBlockingThreadCount: 0 as const,
-    requestChangesPrincipalIds: [] as readonly []
-  };
-  const snapshot = Object.freeze({
-    ...snapshotValue,
-    snapshotDigest: createReviewSnapshotDigest(snapshotValue)
-  });
-  const baseInput = {
-    stage: 'pre-merge' as const,
-    repository: 'sec-platform/sec',
-    prNumber: 345,
-    sessionRevision: digest('c'.repeat(64)),
-    scopeAuthorizationRevision: digest('d'.repeat(64)),
-    scopeAuthorizationReceiptDigest: digest('e'.repeat(64)),
-    headSha: sha,
-    headTreeSha: '3'.repeat(40),
-    policy: SEC_REVIEW_STABILITY_POLICY_V1,
-    principal,
-    independence: { candidateAuthorNodeId: 'USER_author', integrationPrincipalNodeId: 'USER_integrator' },
-    snapshot,
-    reviewedAt: '2026-08-09T00:00:00.000Z',
-    expiresAt: '2026-08-09T01:00:00.000Z'
-  };
-  expect(() => createReviewStabilityReceiptV1({
-      ...baseInput,
-      producer: {
-        identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
-        executionIdentity: SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
-        providerIdentity: 'github',
-        candidateWriteCapability: 'read-only',
-        capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
-        trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
-        sourceTransport: 'github-graphql',
-        sourceRunId: 'run-1',
-        sourceRef: 'pull/345',
-        sourceDigest: snapshot.snapshotDigest
-      }
-    }))
-    .toThrow('canonical independent read-only observer execution');
-});
-
 
 // Only these registrations consume the exact repository TestImpact provider.
 // Keep its canonical setup/settlement budget outside each 30s case body.

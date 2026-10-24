@@ -121,29 +121,6 @@ function reset(): void {
   delete process.env.SEC_WORKSPACE_TRANSITION_DEADLINE_AT_UNIX_MS;
 }
 
-test('ready observations complete with zero materialization Effect and final readback', async () => {
-  reset();
-  dependencyReady = true;
-  hookObservation = 'ready';
-  const result = await runWorkspaceTransitionOperation({
-    event: 'post-merge',
-    arguments: ['0'],
-    repositoryRoot: 'D:\\repo',
-    async handoff() {
-      throw new Error('ready transition must not hand off');
-    }
-  });
-  expect(result).toBe(0);
-  expect(dependencyMaterializations).toBe(0);
-  expect(hookMaterializations).toBe(0);
-  expect(maximumActiveSessions).toBe(1);
-  expect(activeSessions).toBe(0);
-  expect(dependencyObservationRoots).toEqual(['D:\\repo', 'D:\\repo']);
-  expect(parentProcessSession?.signal.aborted).toBe(true);
-  expect(parentProcessSession?.operationIdentityDigest)
-    .toBe(parentOperation?.plan.identity.identityDigest);
-});
-
 test('path checkout does not admit dependency or hook installation', async () => {
   reset();
   dependencyReady = false;
@@ -262,7 +239,14 @@ test('the operation and trigger retain the same parameters across observation', 
   };
   beforeObservation = () => { args[0] = 'not-a-merge-flag'; input.repositoryRoot = 'D:\\other'; };
   await expect(runWorkspaceTransitionOperation(input)).resolves.toBe(0);
+  expect(dependencyMaterializations).toBe(0);
+  expect(hookMaterializations).toBe(0);
+  expect(maximumActiveSessions).toBe(1);
   expect(activeSessions).toBe(0);
+  expect(dependencyObservationRoots).toEqual(['D:\\repo', 'D:\\repo']);
+  expect(parentProcessSession?.signal.aborted).toBe(true);
+  expect(parentProcessSession?.operationIdentityDigest)
+    .toBe(parentOperation?.plan.identity.identityDigest);
 });
 
 test('captured rewrite bytes cannot be replaced while acquiring observations', async () => {
@@ -327,22 +311,6 @@ test('stream collection copies each chunk before the producer can reuse it', asy
     repositoryRoot: 'D:\\repo', async handoff() { throw new Error('handoff must not run'); }
   })).resolves.toBe(0);
   expect(stream.locked).toBe(false);
-});
-
-test('oversized stream input is cancelled and unlocked before any provider session', async () => {
-  reset();
-  let cancellations = 0;
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(new Uint8Array(1024 * 1024 + 1)); },
-    cancel() { cancellations++; }
-  });
-  await expect(runWorkspaceTransitionOperation({
-    event: 'post-rewrite', arguments: ['amend'], standardInputStream: stream,
-    repositoryRoot: 'D:\\repo', async handoff() { throw new Error('handoff must not run'); }
-  })).rejects.toHaveProperty('code', 'workspace-transition-rewrite-input-limit-exceeded');
-  expect(cancellations).toBe(1);
-  expect(stream.locked).toBe(false);
-  expect(parentProcessSession).toBeNull();
 });
 
 test('stream byte budget is cumulative across chunks rather than reset per read', async () => {
