@@ -411,14 +411,20 @@ const incrementalScenarios: readonly Readonly<{
   { name: 'resolution candidate shadowing', before: { 'src/example/choice/index.ts': 'export const choice = 1;\n', 'src/example/consumer.ts': "import { choice } from './choice'; export const result = choice;\n" }, after: { 'src/example/choice.ts': 'export const choice = 2;\n' }, mode: 'full' }
 ];
 
+// The eight unchanged-source predecessors are one immutable issued generation;
+// current inputs, clean comparisons and each case's timeout remain independent.
+let sharedIncrementalBaseline: RepositorySourceProgramCompilationReceipt | undefined;
 for (const scenario of incrementalScenarios) {
   test(`live baseline incremental/full facts agree for ${scenario.name}`, () => {
     const before = { ...incrementalFixtureBase, ...scenario.before };
     const after: Record<string, string> = { ...before, ...scenario.after };
     if (scenario.remove !== undefined) delete after[scenario.remove];
-    const baselineInput = incrementalFixture(before, `${scenario.name}:before`);
     const currentInput = incrementalFixture(after, `${scenario.name}:after`);
-    const baseline = compileVirtualRepositorySourceProgramCompilation(baselineInput);
+    const baseline = scenario.before === undefined
+      ? sharedIncrementalBaseline ??= compileVirtualRepositorySourceProgramCompilation(
+          incrementalFixture(incrementalFixtureBase, 'shared-incremental-baseline')
+        )
+      : compileVirtualRepositorySourceProgramCompilation(incrementalFixture(before, `${scenario.name}:before`));
     const beforeReuse = observeTypeScriptSourceProgramPerformanceForTests();
     const reused = compileVirtualRepositorySourceProgramCompilation({ ...currentInput, previousCompilation: baseline });
     const afterReuse = observeTypeScriptSourceProgramPerformanceForTests();

@@ -223,12 +223,12 @@ describe('private candidate Git input lifetime', () => {
   });
 
   test('same HEAD and tree cannot hide tracked bytes, config, extra refs or replacement common-directory drift', async () => {
+    const repository = repositoryFixture();
     const mutations = process.platform === 'win32'
       ? ['source', 'config', 'ref', 'git-directory'] as const
       : ['source', 'config', 'ref', 'git-directory', 'source-mode', 'config-mode', 'root-mode'] as const;
     // POSIX mode bits are not a Windows ACL or native directory identity.
     for (const mutation of mutations) {
-      const repository = repositoryFixture();
       let entered = false;
       let observedHead = '', observedTree = '', expectedTree = '';
       let currentFailure: unknown;

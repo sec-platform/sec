@@ -403,21 +403,11 @@ test('source program model finds capability producers, consumers, literals, and 
     sourceRevision,
     files: orderedFiles,
     moduleMembership,
-    typescriptModel: typeScriptModel
-  });
-
-  const model = compile(files);
-  const tcbReviewedModel = compileRepositorySourceProgramModel({
-    sourceRevision,
-    files,
-    moduleMembership,
     typescriptModel: typeScriptModel,
     reviewedProcessDispatchers: ['src/example/cli.ts::spawnSync:git']
   });
-  expect(tcbReviewedModel.candidates).toContainEqual(expect.objectContaining({
-    code: 'direct-process-transport-outside-owner',
-    subject: 'src/example/cli.ts'
-  }));
+
+  const model = compile(files);
   expect(new Set(model.candidates.map((candidate) => sha256(candidate))).size)
     .toBe(model.candidates.length);
   const versionReductionPlan = compileSourceProgramVersionSuffixReductionPlan(model, files, {
@@ -475,9 +465,11 @@ test('source program model finds capability producers, consumers, literals, and 
   expect(versionReductionPatch.patch).toContain('--- a/src/example/alias-consumer.ts');
   expect(versionReductionPatch.patch).not.toContain('--- a/src/example/index.ts');
   const unboundPackageSource = JSON.stringify({ ...packageManifest, source: undefined });
-  const unboundFiles = files.map((file) => file.path === 'package.json'
-    ? { ...file, source: unboundPackageSource, contentDigest: rawSha256(unboundPackageSource) }
-    : file);
+  const unboundFiles = files
+    .filter(({ path }) => path === 'package.json' || path === 'src/example/cli.ts')
+    .map((file) => file.path === 'package.json'
+      ? { ...file, source: unboundPackageSource, contentDigest: rawSha256(unboundPackageSource) }
+      : file);
   const unboundModel = compileRepositorySourceProgramModel({
     sourceRevision: sha256(unboundFiles.map(({ contentDigest, path }) => ({ contentDigest, path }))),
     files: unboundFiles,

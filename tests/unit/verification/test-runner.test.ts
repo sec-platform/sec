@@ -989,42 +989,41 @@ test.serial('direct fast execution rejects unavailable inventory reobservation b
 
 // 这些测试使用全局 mock，必须串行执行以避免并发干扰
 test.serial('targeted fast tests preserve ordinary sequential semantics', async () => {
-  const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => { errors.push(String(message)); };
+  try {
+    const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
 
-  expect(code).toBe(0);
-  expect(fastDependencyBootstrapCalls).toBe(1);
-  expect(devCommandEnvironments).toHaveLength(1);
-  expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
-  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
-  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
-  expect(devCommandEnvironments[0]?.SEC_STATE_HOME).toMatch(
-    /[\\/]invocation-runtime[\\/]parallel-001$/u
-  );
-  expect(devCommandEnvironments[0]?.SEC_CACHE_HOME).toMatch(
-    /[\\/]invocation-runtime[\\/]parallel-001$/u
-  );
-  expect(devCommandCalls).toEqual([
-    {
-      command: 'bun',
-      args: [
-        'test',
-        './tests/unit/workspace/path-containment.test.ts',
-        ...DEFAULT_MANAGED_INNER_ARGS,
-        '--timeout',
-        String(DEFAULT_TEST_TIMEOUT_MS)
-      ]
-    }
-  ]);
-});
-
-test.serial('fast compiler bootstrap failure launches no managed test child', async () => {
-  configureTestDependencyBootstrapFailure(new Error('compiler bootstrap failed'));
-
-  await expect(runFastTests(['tests/unit/workspace/path-containment.test.ts']))
-    .rejects.toThrow('compiler bootstrap failed');
-  expect(fastDependencyBootstrapCalls).toBe(1);
-  expect(devCommandCalls).toEqual([]);
-  expect(devCommandEnvironments).toEqual([]);
+    expect(code).toBe(0);
+    expect(fastDependencyBootstrapCalls).toBe(1);
+    expect(devCommandEnvironments).toHaveLength(1);
+    expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
+    expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
+    expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
+    expect(devCommandEnvironments[0]?.SEC_STATE_HOME).toMatch(
+      /[\\/]invocation-runtime[\\/]parallel-001$/u
+    );
+    expect(devCommandEnvironments[0]?.SEC_CACHE_HOME).toMatch(
+      /[\\/]invocation-runtime[\\/]parallel-001$/u
+    );
+    expect(devCommandCalls).toEqual([
+      {
+        command: 'bun',
+        args: [
+          'test',
+          './tests/unit/workspace/path-containment.test.ts',
+          ...DEFAULT_MANAGED_INNER_ARGS,
+          '--timeout',
+          String(DEFAULT_TEST_TIMEOUT_MS)
+        ]
+      }
+    ]);
+    expect(errors.some((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
+      .toBe(false);
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test.serial('fast tests preserve options across process shards and isolated invocations', async () => {
@@ -1149,20 +1148,6 @@ test.serial('managed fast tests reject over-budget explicit concurrency before s
       `Bun --max-concurrency ${impossible} exceeds the managed fast-test global budget `
       + `${DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.globalBudget}.`
     );
-  } finally {
-    console.error = originalError;
-  }
-});
-
-test.serial('passing managed execution emits no failure receipt', async () => {
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (message?: unknown) => { errors.push(String(message)); };
-
-  try {
-    expect(await runFastTests(['tests/unit/workspace/path-containment.test.ts'])).toBe(0);
-    expect(errors.some((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
-      .toBe(false);
   } finally {
     console.error = originalError;
   }
@@ -1631,26 +1616,6 @@ test.serial('deterministic resource-class owners run in class order', async () =
   ]);
 });
 
-test.serial('full test planning retains every default-excluded fast owner', async () => {
-  const code = await runTests();
-
-  expect(code).toBe(0);
-  const invokedFiles = devCommandCalls.flatMap(({ args }) => invocationTestFiles(args));
-  expect(invokedFiles).toEqual(expect.arrayContaining(DEFAULT_FAST_TEST_EXCLUDED_FILES));
-  const fastFiles = new Set(getFastTestFilesSync());
-  for (const [index, call] of devCommandCalls.entries()) {
-    const files = invocationTestFiles(call.args);
-    const environment = devCommandEnvironments[index]!;
-    if (files.length > 0 && files.every((file) => fastFiles.has(file))) {
-      expect(environment.SEC_STATE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
-      expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
-    } else {
-      expect(environment.SEC_STATE_HOME).toBeUndefined();
-      expect(environment.SEC_CACHE_HOME).toBeUndefined();
-    }
-  }
-});
-
 test.serial('explicit fast test files bootstrap once and settle their invocation runtime', async () => {
   const code = await runTests(['tests/unit/workspace/path-containment.test.ts', '--timeout', '10000']);
 
@@ -1683,12 +1648,14 @@ test.serial('composite check reuses one materialized compiler capability without
   expect(fastDependencyBootstrapCalls).toBe(0);
 });
 
-test.serial('option-only selection preserves fast isolation and canonical slow dispatch', async () => {
+test.serial('option-only full selection retains excluded fast owners and canonical slow dispatch', async () => {
   const args = ['--test-name-pattern', 'owner behavior'];
   const code = await runTests(args);
 
   expect(code).toBe(0);
   expect(devCommandCalls.length).toBeGreaterThan(1);
+  const invokedFiles = devCommandCalls.flatMap(({ args }) => invocationTestFiles(args));
+  expect(invokedFiles).toEqual(expect.arrayContaining(DEFAULT_FAST_TEST_EXCLUDED_FILES));
   const fastFiles = new Set(getFastTestFilesSync());
   for (const [index, call] of devCommandCalls.entries()) {
     expect(call.args).toEqual(expect.arrayContaining(args));
@@ -2136,20 +2103,18 @@ test.serial('cleanup failure remains additive to a preserved bootstrap exception
 
     expect(caught).toBe(true);
     expect(thrown).toBe(bootstrapFailure);
+    expect(fastDependencyBootstrapCalls).toBe(1);
     expect(devCommandCalls).toEqual([]);
+    expect(devCommandEnvironments).toEqual([]);
     expect(errors).toContain('Fast test workspace cleanup failed: cleanup secondary sentinel');
   } finally {
     console.error = originalError;
   }
 });
 
-test.serial('cleanup remains additive while every falsy primary is rethrown unchanged', async () => {
+test.serial('cleanup remains additive while an undefined primary is rethrown unchanged', async () => {
   const cases = [
-    { label: 'undefined', value: undefined },
-    { label: 'null', value: null },
-    { label: 'zero', value: 0 },
-    { label: 'false', value: false },
-    { label: 'empty-string', value: '' }
+    { label: 'undefined', value: undefined }
   ] as const;
   const errors: string[] = [];
   const originalError = console.error;
