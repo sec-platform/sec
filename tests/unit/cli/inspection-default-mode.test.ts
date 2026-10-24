@@ -76,12 +76,13 @@ for (const [command, mode] of legacyModes) {
       // alias itself is verified on available data below: repeating the same
       // missing-file failure through both routes does not add a new oracle.
       if (command === 'demo') {
-        for (const options of [[], ['--json'], ['--json', '--compact']]) {
-          const implicit = await runCliInProcess(root, [command, ...options]);
-          const explicit = await runCliInProcess(root, [command, mode, ...options]);
-          expect(explicit).toEqual(implicit);
-          expect(explicit.code).toBe(0);
-        }
+        // The common inspection registrar owns --json/--compact for default
+        // views and tests those transport modes independently. One concrete
+        // demo pair proves this domain retains its canonical default alias.
+        const implicit = await runCliInProcess(root, [command]);
+        const explicit = await runCliInProcess(root, [command, mode]);
+        expect(explicit).toEqual(implicit);
+        expect(explicit.code).toBe(0);
       } else {
         const missing = await runCliInProcess(root, [command]);
         expect(missing.code).toBe(1);

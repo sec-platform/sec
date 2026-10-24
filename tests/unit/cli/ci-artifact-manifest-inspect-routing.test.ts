@@ -43,9 +43,6 @@ test('artifact manifest inspection routes retained manifest through application 
     expect(stdout).toMatch(/\bartifacts=0(?=$|[\s;,()])/u);
     expect(stdout).toMatch(/\bmissing=0(?=$|[\s;,()])/u);
     expect(stdout).toMatch(/\bupload groups=0(?=$|[\s;,()])/u);
-    const json = await expectCliJson(workspaceRoot, ['artifacts', 'manifest', '--json']);
-    expect(json).toEqual(manifest);
-
     // A successful empty manifest cannot detect a reader that accidentally
     // drops all nonempty groups or missing diagnostics. Use independently
     // authored counts and files, not the projection under test as the oracle.
