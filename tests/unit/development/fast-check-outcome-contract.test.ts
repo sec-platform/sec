@@ -102,7 +102,7 @@ test('mixed failures wait for the still-running peer before leaving the operatio
     });
     try {
       await started;
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise<void>(resolve => setImmediate(resolve));
       assert.equal(settled, false, `peer exit code: ${peerExitCode}`);
     } finally { release(); }
     await checked;

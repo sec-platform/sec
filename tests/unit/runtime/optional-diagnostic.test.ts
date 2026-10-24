@@ -12,9 +12,9 @@ test('synchronous diagnostic rejection cannot seize authority for any thrown-val
 });
 
 test('asynchronous diagnostic rejection is observed without detached unhandled failures', async () => {
-  observeOptionalDiagnostic(() => Promise.reject('display'));
-  observeOptionalDiagnostic(() => ({ then() { throw new Error('thenable'); } }));
-  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(observeOptionalDiagnostic(() => Promise.reject('display')), undefined);
+  assert.equal(observeOptionalDiagnostic(() => ({ then() { throw new Error('thenable'); } })), undefined);
+  await new Promise<void>(resolve => setImmediate(resolve));
 });
 
 test('diagnostic promises never become a completion barrier', () => {

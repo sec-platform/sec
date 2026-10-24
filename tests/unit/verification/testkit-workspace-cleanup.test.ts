@@ -201,7 +201,13 @@ test('independent cleanups all run and settle before enclosing cleanup or failur
   const result = assert.rejects(pending, error => {
     assert.ok(error instanceof AggregateError); assert.deepEqual(error.errors, [primary, later]); return true;
   });
-  try { await started; await new Promise(r => setTimeout(r, 0)); assert.equal(returned, false); assert.equal(events.includes('parent'), false); }
+  // A controlled, still-held cleanup is the nonterminal witness; no delay threshold.
+  try {
+    await started;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(returned, false);
+    assert.equal(events.includes('parent'), false);
+  }
   finally { release(); }
   await result; assert.equal(events.at(-1), 'parent'); assert.ok(events.includes('third'));
 });

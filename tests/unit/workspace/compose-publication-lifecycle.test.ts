@@ -31,7 +31,7 @@ test('formatter joins every started publication before reporting a peer failure'
     .finally(() => { settled = true; });
   try {
     await second.promise;
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(settled, false);
     release.resolve();
     const result = await outcome;

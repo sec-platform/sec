@@ -45,9 +45,17 @@ test('all started installs are joined before batch failure returns', async () =>
   const running = registry.executeAll([step('a'), step('b')], context()).then(
     () => assert.fail('unexpected success'), e => { returned = true; assert.equal(e, primary); }
   );
-  await started.promise; await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(returned, false);
-  held.release(); await running; assert.equal(returned, true);
+  // The peer's explicit admission gate, rather than elapsed time, bounds the
+  // observation; always release the peer even if the assertion fails.
+  try {
+    await started.promise;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(returned, false);
+  } finally {
+    held.release();
+    await running;
+  }
+  assert.equal(returned, true);
 });
 
 test('cancellation during the owner fence prevents the selected effect', async () => {

@@ -26,7 +26,7 @@ test('a mapping failure stops acceptance but still joins a suspended mapper', as
     assert.fail('queued item ran after failure');
   }, { concurrency: 2 }).then(() => assert.fail('unexpected success'), error => { settled = true; assert.equal(error, failure); });
   try {
-    await started.promise; await new Promise(resolve => setTimeout(resolve, 0));
+    await started.promise; await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(settled, false);
   } finally { gate.resolve(); await result; }
 });
