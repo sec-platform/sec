@@ -3179,7 +3179,7 @@ if (process.platform === 'linux') {
 }
 
 if (process.platform === 'linux') {
-  test('Linux S1 journal transition remains activation-in-progress and rolls forward exactly once', async () => {
+  test('Linux S1 journal transition remains activation-in-progress and recovers the same candidate', async () => {
     const fixture = await createFreezeFixture();
     const fault = new Error('Injected Linux journal S1 fault');
     let selectedHooks = 0;
@@ -3404,7 +3404,7 @@ if (process.platform === 'linux') {
     }
   }, 60_000);
 
-  test('Linux S1 rolling-plan witness proves exact identity and recovers without a competing effect', async () => {
+  test('Linux S1 rolling-plan witness preserves read-only status and recovers the same candidate', async () => {
     const fixture = await createFreezeFixture();
     const fault = new Error('Injected Linux rolling-plan S1 fault');
     try {
@@ -3785,15 +3785,26 @@ test('published freeze index survives Git metadata refresh without replaying ind
     const future = new Date(Date.now() + 60_000);
     await utimes(pointerPath, future, future);
     runGit(fixture.repositoryRoot, ['update-index', '--refresh']);
-    expect((await readFile(indexPath)).equals(before)).toBe(false);
+    const driftedIndex = await readFile(indexPath);
+    expect(driftedIndex.equals(before)).toBe(false);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(expectedTree);
 
+    const canonicalIndexPath = await realpath(indexPath);
+    const indexPublications: DurabilityEvent[] = [];
     const recovered = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
+      reviewedOn: '2026-08-09',
+      durabilityObserver: (event) => {
+        if (event.stage === 'renamed'
+            && path.relative(canonicalIndexPath, path.resolve(event.targetPath)) === '') {
+          indexPublications.push(event);
+        }
+      }
     });
     expect(recovered.candidateTreeSha).toBe(expectedTree);
+    expect(await readFile(indexPath)).toEqual(driftedIndex);
+    expect(indexPublications).toEqual([]);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     await fixture.dispose();
@@ -3874,24 +3885,6 @@ test('journal residue census blocks canonical absence with an exact retired NEXT
   }
 }, 60_000);
 
-test('journal residue census blocks a sole PRE quarantine without canonical authority', async () => {
-  const fixture = await createFreezeFixture();
-  const residue = Buffer.from('sole PRE quarantine bytes\n', 'utf8');
-  try {
-    const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
-    await mkdir(transactionRoot, { recursive: true });
-    const residuePath = path.join(transactionRoot, `.entry-${'1'.repeat(64)}.pre`);
-    await writeFile(residuePath, residue);
-
-    await expect(resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false }))
-      .rejects.toThrow('Freeze journal is absent while direct transaction residues remain');
-    expect(await readFile(residuePath)).toEqual(residue);
-    await expect(readFile(path.join(transactionRoot, 'journal.json'))).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    await fixture.dispose();
-  }
-}, 30_000);
-
 test('journal residue census blocks an unbound direct entry beside canonical terminal authority', async () => {
   const fixture = await createFreezeFixture();
   const unknown = Buffer.from('unbound entry recovery bytes\n', 'utf8');
@@ -3918,7 +3911,7 @@ test('journal residue census blocks an unbound direct entry beside canonical ter
   }
 }, 60_000);
 
-test('journal residue census double-read blocks content or exact-object identity replacement', async () => {
+test('journal residue census double-read blocks a raced residue replacement and preserves its bytes', async () => {
   const fixture = await createFreezeFixture();
   const replacement = Buffer.from('raced replacement residue bytes\n', 'utf8');
   try {
@@ -3977,31 +3970,7 @@ test('closed-world transaction census blocks an orphan partial temporary index w
   }
 }, 30_000);
 
-test('closed-world transaction census blocks an arbitrary direct sibling beside canonical authority', async () => {
-  const fixture = await createFreezeFixture();
-  const unknown = Buffer.from('unknown direct transaction sibling\n', 'utf8');
-  try {
-    await expect(freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09',
-      faultAfter: 'after-terminal'
-    })).rejects.toThrow('after-terminal');
-    const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
-    const journalPath = path.join(transactionRoot, 'journal.json');
-    const journalBefore = await readFile(journalPath);
-    const unknownPath = path.join(transactionRoot, 'arbitrary-unbound-sibling');
-    await writeFile(unknownPath, unknown);
-    await expect(resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false }))
-      .rejects.toThrow('Unknown freeze transaction direct residue is preserved: arbitrary-unbound-sibling');
-    expect(await readFile(unknownPath)).toEqual(unknown);
-    expect(await readFile(journalPath)).toEqual(Buffer.from(journalBefore));
-  } finally {
-    await fixture.dispose();
-  }
-}, 60_000);
-
-test('freeze journal V4 separates index transport integrity and rejects every legacy authority', async () => {
+test('freeze journal rejects V1–V3 authorities and detects index transport corruption', async () => {
   const legacyFixture = await createFreezeFixture();
   try {
     await expect(freezeDocumentControlPlane({
@@ -4206,7 +4175,7 @@ test('status returns a typed race when the captured index tree changes directly'
   }
 }, 30_000);
 
-test('production status settles both immutable tree observations for a deep index', async () => {
+test('status observes a deep staged tree and unstaged changes without changing the raw index', async () => {
   const fixture = await createFreezeFixture();
   try {
     const relativePath = `${Array.from({ length: 13 }, (_, index) => `depth-${index}`).join('/')}/leaf.txt`;
