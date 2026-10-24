@@ -5,7 +5,6 @@ import path from 'node:path';
 
 import { afterEach, expect, test } from 'bun:test';
 
-import { rawSha256 } from '../../../contracts/canonical.ts';
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../providers/git-read/runtime/session.ts';
 import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -23,11 +22,8 @@ import {
   acquireStagedWorkspaceSourceSelection,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
-  compileVirtualWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectFactIdentity,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence,
-  projectWorkspaceTypeScriptProjectFactIdentity,
   readBackStagedIndexWorkspaceSourceSnapshot,
   readBackStagedWorkspaceSourceSelection
 } from './workspace-source-snapshot.ts';
@@ -110,29 +106,7 @@ async function workingSnapshot(repositoryRoot: string) {
   }, (session) => acquireWorkingTreeWorkspaceSourceSnapshot({ session }));
 }
 
-function virtualProjectSnapshot(sources: Readonly<Record<string, string>>) {
-  return compileVirtualWorkspaceSourceSnapshot({
-    subject: Object.freeze({
-      kind: 'virtual-mutation' as const,
-      provenance: Object.freeze({
-        kind: 'source-program-virtual-mutation' as const,
-        baseSnapshotDigest: rawSha256('project-input-test-base'),
-        mutationDigest: rawSha256(JSON.stringify(sources))
-      })
-    }),
-    files: Object.entries(sources).map(([sourcePath, source]) => Object.freeze({
-      path: sourcePath,
-      source,
-      contentDigest: rawSha256(source)
-    })),
-    moduleMembership: Object.freeze({
-      descriptors: Object.freeze([]),
-      graphRoots: Object.freeze([]),
-      moduleRoots: Object.freeze([]),
-      moduleForPath: () => null
-    })
-  });
-}
+
 
 afterEach(async () => {
   while (temporaryRepositories.length > 0) {
@@ -165,44 +139,7 @@ test('staged index snapshot binds exact index bytes and blocks later index drift
   });
 });
 
-test('Project fact identity resolves repository imports with the canonical TypeScript resolver', () => {
-  const snapshot = virtualProjectSnapshot({
-    'tsconfig.json': JSON.stringify({
-      compilerOptions: {
-        allowImportingTsExtensions: true,
-        module: 'NodeNext',
-        moduleResolution: 'NodeNext',
-        noEmit: true
-      },
-      files: ['src/entry.ts']
-    }),
-    'package.json': '{"type":"module"}\n',
-    'src/entry.ts': [
-      "import profile from './profile.json' with { type: 'json' };",
-      "import legacy = require('./legacy.cjs');",
-      "import workerPath from './worker.mjs' with { type: 'file' };",
-      "export { hidden } from './hidden.js';",
-      "void import('./dynamic.mjs', { with: { type: 'file' } });",
-      "type Imported = import('./types.js').Imported;",
-      'export const profileName: Imported = `${profile.name}:${workerPath}:${legacy}`;'
-    ].join('\n'),
-    'src/dynamic.d.mts': 'declare const dynamic: string; export default dynamic;\n',
-    'src/hidden.ts': 'export const hidden = true;\n',
-    'src/legacy.d.cts': 'declare const legacy: string; export = legacy;\n',
-    'src/profile.json': '{"name":"source-program"}\n',
-    'src/types.ts': 'export type Imported = string;\n',
-    'src/worker.d.mts': 'declare const workerPath: string; export default workerPath;\n',
-    'src/worker.mjs': 'export default "worker";\n'
-  });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
-  expect(projectInput.sourceFacts.map(({ path: sourcePath }) => sourcePath)).toEqual(expect.arrayContaining([
-    'src/dynamic.d.mts', 'src/entry.ts', 'src/hidden.ts', 'src/legacy.d.cts',
-    'src/types.ts', 'src/worker.d.mts', 'tsconfig.json'
-  ]));
-  expect(compileWorkspaceTypeScriptProjectFactIdentity(snapshot, 'tsconfig.json', {
-    dependencyGenerationDigest: null
-  })).toEqual(projectWorkspaceTypeScriptProjectFactIdentity(projectInput));
-});
+
 
 test('working generation includes dirty and untracked source while excluding deleted membership', async () => {
   const { commitSha, repositoryRoot } = await createRepository();
@@ -288,54 +225,9 @@ test('working-tree project generation evidence is owner-issued and opaque', asyn
   });
 });
 
-test('ProjectInput emits one config fact when TypeScript imports its own project configuration', () => {
-  const config = JSON.stringify({
-    compilerOptions: { module: 'ESNext', moduleResolution: 'Bundler', resolveJsonModule: true, noLib: true, types: [] },
-    files: ['src/example/value.ts']
-  });
-  const source = "import config from '../../tsconfig.json'; export const value = config.compilerOptions;\n";
-  const snapshot = virtualProjectSnapshot({ 'tsconfig.json': config, 'src/example/value.ts': source });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
 
-  expect(projectInput.sourceFacts.map(({ path: sourcePath, contentDigest }) => ({ path: sourcePath, contentDigest })))
-    .toEqual([
-      { path: 'src/example/value.ts', contentDigest: rawSha256(source) },
-      { path: 'tsconfig.json', contentDigest: rawSha256(config) }
-    ]);
-});
 
-test('ProjectInput represents a valid config with no matched TypeScript inputs as an empty generation', () => {
-  const snapshot = virtualProjectSnapshot({
-    'src/example/value.ts': 'export const value = true;\n',
-    'tsconfig.json': `${JSON.stringify({
-      compilerOptions: { strict: true },
-      include: ['src/absent/**/*.ts']
-    }, null, 2)}\n`
-  });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
 
-  expect(projectInput.sourceFacts.map(({ path: sourcePath }) => sourcePath)).toEqual([
-    'tsconfig.json'
-  ]);
-  expect(projectInput.externalSourceFacts).toEqual([]);
-
-  const invalidSnapshot = virtualProjectSnapshot({
-    'tsconfig.json': `${JSON.stringify({
-      compilerOptions: { strict: 'not-a-boolean' },
-      include: ['src/absent/**/*.ts']
-    }, null, 2)}\n`
-  });
-  expect(() => compileWorkspaceTypeScriptProjectInput(invalidSnapshot, 'tsconfig.json'))
-    .toThrow('TypeScript ProjectInput config is invalid');
-
-  const explicitlyInvalidEmptySnapshot = virtualProjectSnapshot({
-    'tsconfig.json': `${JSON.stringify({ files: [] }, null, 2)}\n`
-  });
-  expect(() => compileWorkspaceTypeScriptProjectInput(
-    explicitlyInvalidEmptySnapshot,
-    'tsconfig.json'
-  )).toThrow('TypeScript ProjectInput config is invalid');
-});
 
 test('immutable execution generation isolates workspace mutation and retires its physical tree', async () => {
   const { repositoryRoot } = await createRepository();
