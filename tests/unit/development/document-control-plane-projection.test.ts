@@ -14,6 +14,16 @@ import {
   promoteRollingPlan,
   renderActivePointer,
   requiresCommittedCandidateProjectionRefresh
+  assertInitiallyAbsentEntryTransition,
+  classifyFreezeConvergence,
+  classifyInitiallyAbsentEntryTuple,
+  classifyPublishedControlBinding,
+  classifyTerminalRetirementPrefix,
+  type InitiallyAbsentTuple,
+  type InitiallyAbsentTupleEdge,
+  type InitiallyAbsentTupleEntry,
+  type InitiallyAbsentTuplePlatform,
+  type InitiallyAbsentTupleState,
 } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
@@ -784,5 +794,200 @@ test('status continuation routes stale and invalid control facts to their existi
   expect(invalid.next).toEqual({
     owner: 'document-control', action: 'repair-active-binding', reason: 'candidate-manifest-absent',
     pointerManifest: 'config/repository/work-packages/prior.md'
+  });
+});
+
+test('initially-absent T/N/R contract covers normalized tuples, malformed entries and its five edges', () => {
+  const absent = Object.freeze({ byteClass: 'absent' as const, identity: null });
+  const exactA = Object.freeze({ byteClass: 'exact-next' as const, identity: 'A' });
+  const exactB = Object.freeze({ byteClass: 'exact-next' as const, identity: 'B' });
+  const unknown = Object.freeze({ byteClass: 'unknown' as const, identity: 'A' });
+  const entries = [absent, exactA, exactB, unknown] as const;
+  const tuple = (
+    target: InitiallyAbsentTupleEntry = absent,
+    next: InitiallyAbsentTupleEntry = absent,
+    retiredNext: InitiallyAbsentTupleEntry = absent
+  ): InitiallyAbsentTuple => Object.freeze({ target, next, retiredNext });
+  const expectedClassification = (
+    platform: InitiallyAbsentTuplePlatform,
+    observation: InitiallyAbsentTuple
+  ) => {
+    const values = [observation.target, observation.next, observation.retiredNext];
+    if (values.some((entry) => entry.byteClass === 'unknown')) {
+      return { status: 'invalid', reason: 'unknown-bytes' } as const;
+    }
+    const topology = values.map((entry) => entry.byteClass).join('/');
+    const stateByTopology: Readonly<Record<string, InitiallyAbsentTupleState>> = platform === 'win32'
+      ? {
+          'absent/absent/absent': 'win32-w0',
+          'absent/exact-next/absent': 'win32-w1',
+          'exact-next/absent/absent': 'win32-w2'
+        }
+      : {
+          'absent/absent/absent': 'linux-l0',
+          'absent/exact-next/absent': 'linux-l1',
+          'exact-next/exact-next/absent': 'linux-l2',
+          'exact-next/absent/exact-next': 'linux-l3'
+        };
+    const state = stateByTopology[topology];
+    if (state === undefined) return { status: 'invalid', reason: 'illegal-topology' } as const;
+    if ((state === 'linux-l2' && observation.target.identity !== observation.next.identity)
+        || (state === 'linux-l3' && observation.target.identity !== observation.retiredNext.identity)) {
+      return { status: 'invalid', reason: 'identity-mismatch' } as const;
+    }
+    return { status: 'legal', state } as const;
+  };
+
+  for (const platform of ['win32', 'linux'] as const) {
+    for (const target of entries) for (const next of entries) for (const retiredNext of entries) {
+      const observation = tuple(target, next, retiredNext);
+      expect(classifyInitiallyAbsentEntryTuple({ platform, tuple: observation })).toEqual(
+        expectedClassification(platform, observation)
+      );
+    }
+  }
+
+  const malformedRows = [
+    null,
+    [],
+    {},
+    { target: absent, next: absent },
+    { target: absent, next: absent, retiredNext: absent, extra: true },
+    { target: { byteClass: 'absent', identity: null, extra: true }, next: absent, retiredNext: absent },
+    { target: { byteClass: 'other', identity: 'A' }, next: absent, retiredNext: absent },
+    { target: { byteClass: 'exact-next', identity: 1 }, next: absent, retiredNext: absent },
+    { target: { byteClass: 'exact-next', identity: '' }, next: absent, retiredNext: absent },
+    { target: { byteClass: 'unknown', identity: '' }, next: absent, retiredNext: absent },
+    { target: absent, next: { byteClass: 'exact-next', identity: '' }, retiredNext: absent },
+    { target: absent, next: { byteClass: 'unknown', identity: '' }, retiredNext: absent },
+    { target: absent, next: absent, retiredNext: { byteClass: 'exact-next', identity: '' } },
+    { target: absent, next: absent, retiredNext: { byteClass: 'unknown', identity: '' } },
+    { target: { byteClass: 'absent', identity: 'A' }, next: unknown, retiredNext: unknown },
+    { target: { byteClass: 'exact-next', identity: null }, next: unknown, retiredNext: unknown },
+    { target: { byteClass: 'unknown', identity: null }, next: unknown, retiredNext: unknown },
+    { target: unknown, next: { byteClass: 'absent', identity: 'A' }, retiredNext: unknown },
+    { target: unknown, next: { byteClass: 'exact-next', identity: null }, retiredNext: unknown },
+    { target: unknown, next: { byteClass: 'unknown', identity: null }, retiredNext: unknown },
+    { target: unknown, next: unknown, retiredNext: { byteClass: 'absent', identity: 'A' } },
+    { target: unknown, next: unknown, retiredNext: { byteClass: 'exact-next', identity: null } },
+    { target: unknown, next: unknown, retiredNext: { byteClass: 'unknown', identity: null } }
+  ];
+  for (const malformed of malformedRows) {
+    expect(classifyInitiallyAbsentEntryTuple({
+      platform: 'linux', tuple: malformed as InitiallyAbsentTuple
+    })).toEqual({ status: 'invalid', reason: 'malformed-observation' });
+  }
+  expect(classifyInitiallyAbsentEntryTuple({
+    platform: 'darwin' as InitiallyAbsentTuplePlatform,
+    tuple: null as unknown as InitiallyAbsentTuple
+  })).toEqual({ status: 'invalid', reason: 'unsupported-platform' });
+
+  const legalTuples = {
+    win32: [tuple(), tuple(absent, exactA), tuple(exactA)],
+    linux: [tuple(), tuple(absent, exactA), tuple(exactA, exactA), tuple(exactA, absent, exactA)]
+  } as const;
+  const edges = {
+    win32: ['win32-w0->win32-w1', 'win32-w1->win32-w2'],
+    linux: ['linux-l0->linux-l1', 'linux-l1->linux-l2', 'linux-l2->linux-l3']
+  } as const satisfies Readonly<Record<InitiallyAbsentTuplePlatform, readonly InitiallyAbsentTupleEdge[]>>;
+  for (const platform of ['win32', 'linux'] as const) {
+    const states = legalTuples[platform];
+    const platformEdges = edges[platform];
+    for (let predecessorIndex = 0; predecessorIndex < states.length; predecessorIndex += 1) {
+      for (let successorIndex = 0; successorIndex < states.length; successorIndex += 1) {
+        for (const expectedEdge of platformEdges) {
+          const result = assertInitiallyAbsentEntryTransition({
+            platform,
+            predecessor: states[predecessorIndex]!,
+            successor: states[successorIndex]!,
+            expectedEdge
+          });
+          if (successorIndex === predecessorIndex + 1 && expectedEdge === platformEdges[predecessorIndex]) {
+            expect(result).toEqual(expectedClassification(platform, states[successorIndex]!));
+          } else {
+            expect(result).toEqual({ status: 'invalid', reason: 'illegal-topology' });
+          }
+        }
+      }
+    }
+  }
+  for (const discontinuity of [
+    { platform: 'win32', predecessor: tuple(absent, exactA), successor: tuple(exactB), expectedEdge: 'win32-w1->win32-w2' },
+    { platform: 'linux', predecessor: tuple(absent, exactA), successor: tuple(exactB, exactB), expectedEdge: 'linux-l1->linux-l2' },
+    { platform: 'linux', predecessor: tuple(exactA, exactA), successor: tuple(exactB, absent, exactB), expectedEdge: 'linux-l2->linux-l3' }
+  ] as const) {
+    expect(assertInitiallyAbsentEntryTransition(discontinuity)).toEqual({
+      status: 'invalid', reason: 'identity-mismatch'
+    });
+  }
+}, 30_000);
+
+test('terminal retirement accepts every canonical prefix cut and rejects namespace holes', () => {
+  const entryCount = 9;
+  for (let deletedPrefixCount = 0; deletedPrefixCount <= entryCount; deletedPrefixCount += 1) {
+    expect(classifyTerminalRetirementPrefix(
+      Array.from({ length: entryCount }, (_, index) => index >= deletedPrefixCount)
+    )).toEqual({ status: 'valid', deletedPrefixCount });
+  }
+  for (const hole of [1, 3, 7]) {
+    const presence = Array.from({ length: entryCount }, () => true);
+    presence[hole] = false;
+    expect(classifyTerminalRetirementPrefix(presence)).toEqual({
+      status: 'invalid',
+      reason: 'non-prefix-hole'
+    });
+  }
+});
+
+test('freeze convergence treats exact successor retirement as semantic current state', () => {
+  const exact = {
+    targetManifestMatches: true,
+    pointerMatches: true,
+    indexedRollingMatches: true,
+    worktreeRollingMatches: true,
+    retirementSatisfied: true
+  } as const;
+  expect(classifyFreezeConvergence(exact)).toBe('semantic-noop');
+  expect(classifyFreezeConvergence({
+    ...exact,
+    retirementSatisfied: false
+  })).toBe('publication-required');
+  expect(classifyFreezeConvergence({
+    ...exact,
+    candidateTreeMatches: false
+  })).toBe('publication-required');
+});
+
+test('published control binding classifies authority and binding without boolean XOR drift', () => {
+  const classify = (overrides: Partial<Parameters<
+    typeof classifyPublishedControlBinding
+  >[0]> = {}) => classifyPublishedControlBinding({
+    authorityProven: true,
+    historicalBaseIsLiveDefault: false,
+    pointerBindsDefault: false,
+    pointerBindsHistoricalRolling: false,
+    publishedTargetPresent: true,
+    rollingTransition: true,
+    ...overrides
+  });
+  expect(classify({ publishedTargetPresent: false })).toEqual({ kind: 'absent' });
+  expect(classify({ rollingTransition: false })).toEqual({
+    kind: 'blocked', reason: 'unbound-published-target'
+  });
+  expect(classify()).toEqual({ kind: 'blocked', reason: 'unbound-published-target' });
+  expect(classify({ pointerBindsDefault: true, pointerBindsHistoricalRolling: true })).toEqual({
+    kind: 'blocked', reason: 'ambiguous-binding'
+  });
+  expect(classify({ pointerBindsDefault: true, historicalBaseIsLiveDefault: true })).toEqual({
+    kind: 'blocked', reason: 'historical-base-is-live-default'
+  });
+  expect(classify({ pointerBindsDefault: true, authorityProven: false })).toEqual({
+    kind: 'blocked', reason: 'publication-proof-missing'
+  });
+  expect(classify({ pointerBindsDefault: true })).toEqual({
+    kind: 'repairable', pointerBinding: 'default'
+  });
+  expect(classify({ pointerBindsHistoricalRolling: true })).toEqual({
+    kind: 'repairable', pointerBinding: 'historical-rolling'
   });
 });
