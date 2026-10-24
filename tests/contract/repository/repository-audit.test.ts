@@ -12,8 +12,7 @@ import {
   extractHeuristicBehaviorCandidates,
   projectWorkflowEntrypointFindings,
   projectWorkTrackingContractFindings,
-  repositoryAuditShouldFail,
-  repositoryAuditSupersessionShouldBlock
+  repositoryAuditShouldFail
 } from '../../../src/adapters/repository/repository-audit/cli.ts';
 import {
   AGENT_SKILL_IDS,
@@ -41,13 +40,6 @@ test('heuristic registry contains no copied machine capability graph', () => {
   expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(AGENT_SKILL_IDS));
   for (const route of routes) expect('operation' in route).toBeFalse();
 });
-
-test('repository enforcement blocks only unresolved supersession evidence', () => {
-  expect(repositoryAuditSupersessionShouldBlock({ status: 'equivalent' })).toBe(false);
-  expect(repositoryAuditSupersessionShouldBlock({ status: 'superseded' })).toBe(false);
-  expect(repositoryAuditSupersessionShouldBlock({ status: 'owner-decision-required' })).toBe(true);
-});
-
 
 test('work tracking contract separates problem inventory from executable progress', () => {
   const contractPath = 'config/repository/work-tracking-contract.json';

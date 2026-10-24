@@ -20,15 +20,24 @@ function bound(lifecycle: unknown, beforeCommit = async () => {}) {
   return runtimeDependencyOperationOptions({ lockTimeoutMs: 1000, generatedStateLifecycle: lifecycle as RuntimeDependencyGeneratedStateLifecycle, beforeCommit });
 }
 
-for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot]) {
+for (const [adopt, expectedPath, expectedIdentity] of [
+  [bindExistingCompilerDependencyGeneration, 'node_modules', {
+    owner: 'compiler-dependency-runtime', producer: 'ensure-compiler-deps-ready', ruleId: 'compiler-node-modules'
+  }],
+  [bindExistingLegacySharedDependencyRoot, '.shared-deps', {
+    owner: 'project-runtime', producer: 'ensure-shared-deps-ready', ruleId: 'shared-dependency-cache'
+  }]
+] as const) {
   test(`${adopt.name} captures identity before read-only bind and preserves its private-field receiver`, async () => {
     const expected = { device: 'dev', inode: 'inode', objectId: 'object' };
     class Provider {
       #calls = 0;
       get bind() { expected.inode = 'replacement'; return this.selectedBind; }
-      async selectedBind(_path: string, expectation?: { physical?: { inode: string } }) {
+      async selectedBind(path: string, expectation?: { physical?: { inode: string } }) {
         this.#calls++;
-        assert.equal(expectation!.physical!.inode, 'inode');
+        assert.equal(path, expectedPath);
+        assert.deepEqual(expectation, { ...expectedIdentity,
+          physical: { device: 'dev', inode: 'inode', objectId: 'object' } });
         return registration;
       }
       get retired() { assert.fail('read-only consumer acquired retirement'); throw new Error('unreachable'); }
@@ -111,12 +120,13 @@ test('retirement owns its immutable identity and selected methods and returns th
   assert.deepEqual(events, ['bind', 'node_modules:replace']);
 });
 
-test('missing retirement is rejected before binding or retiring a preimage', async () => {
+test('missing required lifecycle methods reject before their selected effects', async () => {
   let calls = 0;
   await assert.rejects(bindAndRetireCompilerDependencyPreimage({ generatedStateLifecycle: {
     bind: async () => { calls++; return registration; }
   } } as never, physical, 'replace'), authority);
   assert.equal(calls, 0);
+  await assert.rejects(bindExistingCompilerDependencyGeneration({ generatedStateLifecycle: {} }, physical), authority);
 });
 
 test('recovery without an observation capability uses the same captured retirement path', async () => {
@@ -152,7 +162,12 @@ for (const failure of [null, undefined, 'plain failure', new Error('owner failed
   test(`adoption retains the original ${typeof failure} cause in its typed failure`, async () => {
     await assert.rejects(bindExistingLegacySharedDependencyRoot({ generatedStateLifecycle: {
       bind: async () => { throw failure; }
-    } }, physical), (error: unknown) => authority(error) && (error as Error).cause === failure);
+    } }, physical), (error: unknown) => {
+      assert.equal(authority(error), true);
+      assert.equal((error as Error).cause, failure);
+      if (failure instanceof Error) assert.deepEqual((error as CodedFailure).details, { cause: 'owner failed' });
+      return true;
+    });
   });
 }
 

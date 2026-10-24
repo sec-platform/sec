@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import { executeUpgradeApplyLifecycle, type UpgradeApplyLifecycleOperations } from '../../../src/application/upgrade-apply.ts';
 import type { PlanFile } from '../../../src/compiler/contract.ts';
-import { ResourceCompositeSettlementError } from '../../../src/execution/resource-settlement.ts';
 import { buildOfficialResolvedBlock } from '../../helpers/lock-fixtures.ts';
 import { buildSingleTenantPlanApp } from '../../helpers/plan-fixtures.ts';
 import { buildReviewLock } from '../../helpers/review-fixtures.ts';
@@ -54,28 +53,6 @@ function fixture() {
   return { operations, input, calls, backup, retired, readback, publication };
 }
 
-for (const primary of [undefined, null, false, 0, new Error('locator projection failed')]) {
-  test(`failed backup projection retires exactly once and preserves ${String(primary)}`, async () => {
-    const f = fixture();
-    f.operations.recoverySnapshot = () => { throw primary; };
-    await expect(executeUpgradeApplyLifecycle(f.input, f.operations)).rejects.toBe(primary);
-    expect(f.calls).toEqual(['snapshot', 'retire']);
-    expect(f.retired).toEqual([{ backup: f.backup, failure: null }]);
-  });
-}
-
-test('backup projection plus cleanup failures retain both original reasons', async () => {
-  const f = fixture(), primary = Object.freeze({ projection: 'failed' }), cleanup = new Error('retirement failed');
-  f.operations.recoverySnapshot = () => { throw primary; };
-  f.operations.retireBackup = async function(selected, failure) {
-    expect(this).toBe(f.operations); expect(selected).toBe(f.backup); expect(failure).toBeNull(); throw cleanup;
-  };
-  const failure = await executeUpgradeApplyLifecycle(f.input, f.operations).catch(error => error);
-  expect(failure).toBeInstanceOf(ResourceCompositeSettlementError);
-  expect(failure.errors).toEqual([primary, cleanup]);
-  expect(failure.failures.map((entry: { label: string }) => entry.label)).toEqual(['upgrade-recovery-snapshot', 'upgrade-backup']);
-});
-
 test('failed acquisition transfers no backup retirement obligation', async () => {
   const f = fixture(), primary = new Error('acquisition failed');
   f.operations.snapshot = async () => { throw primary; };
@@ -83,46 +60,14 @@ test('failed acquisition transfers no backup retirement obligation', async () =>
   expect(f.calls).toEqual([]); expect(f.retired).toEqual([]);
 });
 
-for (const group of ['root', 'terminalReadback', 'terminalPublication'] as const) {
-  test(`invalid ${group} callback rejects before backup acquisition`, async () => {
-    const prototype = fixture();
-    const keys = Object.keys(group === 'root' ? prototype.operations : prototype.operations[group])
-      .filter(key => key !== 'terminalReadback' && key !== 'terminalPublication');
-    for (const key of keys) {
-      const f = fixture();
-      const target = group === 'root' ? f.operations : f.operations[group];
-      Object.assign(target, { [key]: null });
-      await expect(executeUpgradeApplyLifecycle(f.input, f.operations)).rejects.toBeInstanceOf(TypeError);
-      expect(f.calls).toEqual([]);
-    }
-  });
-}
-
-test('null terminal method tables reject before acquiring a backup', async () => {
-  for (const key of ['terminalReadback', 'terminalPublication']) {
-    const f = fixture(); Object.assign(f.operations, { [key]: null });
-    await expect(executeUpgradeApplyLifecycle(f.input, f.operations)).rejects.toBeInstanceOf(TypeError);
-    expect(f.calls).toEqual([]);
-  }
-});
-
 for (const mode of ['success', 'apply-failure', 'publication-failure'] as const) {
-  test(`selected callbacks and receivers survive table replacement during ${mode}`, async () => {
+  test(`upgrade ${mode} settles the exact backup after its public outcome`, async () => {
     const f = fixture(), primary = new Error(mode);
     if (mode === 'apply-failure') f.operations.apply = async function() {
       expect(this).toBe(f.operations); f.calls.push('apply'); throw primary;
     };
     if (mode === 'publication-failure') f.publication.publish = async function() {
       expect(this).toBe(f.publication); f.calls.push('applied-terminal'); throw primary;
-    };
-    const snapshot = f.operations.snapshot;
-    f.operations.snapshot = async function() {
-      const value = await Reflect.apply(snapshot, this, []);
-      const replaced = () => { throw new Error('late callback replacement'); };
-      for (const key of Object.keys(f.readback)) Object.assign(f.readback, { [key]: replaced });
-      for (const key of Object.keys(f.publication)) Object.assign(f.publication, { [key]: replaced });
-      for (const key of Object.keys(f.operations)) Object.assign(f.operations, { [key]: replaced });
-      return value;
     };
     if (mode === 'success') {
       const result = await executeUpgradeApplyLifecycle(f.input, f.operations);

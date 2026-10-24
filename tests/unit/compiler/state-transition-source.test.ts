@@ -30,7 +30,31 @@ async function execute(text: string): Promise<Generated> {
 }
 
 test('the actual state renderer produces a runnable total transition map with only public transition data', async () => {
-  const generated = await execute(renderStateTransitionMapSource(task()));
+  const source = renderStateTransitionMapSource(task());
+  assert.ok(source.startsWith('// @generated semantic-task:workflow-map contract:workflow state:workflow\n'));
+  const parsed = ts.createSourceFile('generated.ts', source, ts.ScriptTarget.Latest, true);
+  assert.deepEqual(parsed.statements.map(statement => statement.kind), [
+    ts.SyntaxKind.ImportDeclaration, ts.SyntaxKind.VariableStatement,
+    ts.SyntaxKind.VariableStatement, ts.SyntaxKind.VariableStatement
+  ]);
+  const declaration = parsed.statements[0];
+  assert.ok(declaration && ts.isImportDeclaration(declaration));
+  assert.ok(ts.isStringLiteral(declaration.moduleSpecifier));
+  assert.equal(declaration.moduleSpecifier.text, './workflow-types.ts');
+  assert.equal(declaration.importClause?.isTypeOnly, true);
+  const bindings = declaration.importClause?.namedBindings;
+  assert.ok(bindings && ts.isNamedImports(bindings));
+  assert.deepEqual(bindings.elements.map(element => [element.name.text, element.propertyName?.text]), [['State', undefined]]);
+  assert.deepEqual(parsed.statements.slice(1).map(statement => {
+    assert.ok(ts.isVariableStatement(statement));
+    assert.ok(statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword));
+    assert.ok(statement.declarationList.flags & ts.NodeFlags.Const);
+    assert.equal(statement.declarationList.declarations.length, 1);
+    const name = statement.declarationList.declarations[0]!.name;
+    assert.ok(ts.isIdentifier(name));
+    return name.text;
+  }), ['WORKFLOW_VALUES', 'WORKFLOW_TRANSITIONS', 'NEXT_WORKFLOW']);
+  const generated = await execute(source);
   assert.deepEqual(generated.WORKFLOW_VALUES, ['done', 'pending']);
   assert.deepEqual(generated.NEXT_WORKFLOW, { done: 'done', pending: 'done' });
   assert.deepEqual(generated.WORKFLOW_TRANSITIONS, [
@@ -70,7 +94,7 @@ test('the empty state domain retains its existing valid empty-function interpret
   assert.deepEqual(generated.NEXT_WORKFLOW, {});
 });
 
-test('missing, duplicate and foreign transition endpoints retain the real validator rejection', () => {
+test('malformed transition functions and injected type bindings never publish generated source', () => {
   const missing = task(); missing.transitions.pop();
   const duplicate = task(); duplicate.transitions.push({ ...duplicate.transitions[0]! });
   const foreign = task(); foreign.transitions[0]!.to = 'undeclared';
@@ -79,6 +103,9 @@ test('missing, duplicate and foreign transition endpoints retain the real valida
     assert.throws(() => renderStateTransitionMapSource(input), error =>
       error instanceof Error && /State "workflow"/.test(error.message));
   }
+  const injected = task(); injected.typeBinding.name = 'State, Unexpected';
+  assert.throws(() => renderStateTransitionMapSource(injected), error =>
+    error instanceof TypeError && error.message === 'Named import must name one identifier');
 });
 
 test('rendering neither mutates caller plan data nor makes declaration order an output dependency', () => {
@@ -114,7 +141,9 @@ test('generated source is accepted for a TSX destination without changing its st
 });
 
 test('plan metadata remains a line comment rather than becoming executable source', async () => {
-  const input = task(); input.id = 'id\nthrow new Error("not data");';
+  const input = task();
+  input.id = ['\n', '\r', '\r\n', '\u2028', '\u2029']
+    .map(separator => `id${separator}throw new Error("not data");`).join('');
   const generated = await execute(renderStateTransitionMapSource(input));
   assert.equal(generated.NEXT_WORKFLOW.pending, 'done');
 });

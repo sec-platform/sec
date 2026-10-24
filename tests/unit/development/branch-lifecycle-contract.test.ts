@@ -75,9 +75,31 @@ test('GitHub repository identity parser accepts only exact supported remote form
 
 test('GitHub remote observation binds canonical URL and ignores every ambient Git config scope', () => {
   const hostileEnvironment = {
-    PATH: 'trusted-path',
+    [process.platform === 'win32' ? 'Path' : 'PATH']: 'trusted-path',
     HOME: 'hostile-global-home',
+    USERPROFILE: 'trusted-profile',
+    SSH_AUTH_SOCK: 'trusted-agent',
+    HTTPS_PROXY: 'trusted-proxy',
+    gh_prompt_disabled: '0',
     GIT_DIR: 'hostile-repository',
+    Git_Dir: 'forged-git-dir',
+    GIT_WORK_TREE: 'forged-worktree',
+    GIT_INDEX_FILE: 'forged-index',
+    GIT_OBJECT_DIRECTORY: 'forged-objects',
+    Git_Config_Count: '1',
+    git_config_value_0: 'forged-helper',
+    git_config_key_19: 'core.fsmonitor',
+    git_config_value_19: 'forged-monitor',
+    git_askpass: 'forged-git-askpass',
+    GIT_ASKPASS_REQUIRE: 'force',
+    ssh_askpass: 'forged-ssh-askpass',
+    SSH_ASKPASS_REQUIRE: 'force',
+    git_ssh: 'forged-git-ssh',
+    GIT_SSH_COMMAND: 'forged-git-ssh-command',
+    git_no_replace_objects: '0',
+    GIT_OPTIONAL_LOCKS: '1',
+    GIT_TERMINAL_PROMPT: '1',
+    git_terminal_prompt: '1',
     GIT_CONFIG_GLOBAL: 'hostile-global-config',
     GIT_CONFIG_SYSTEM: 'hostile-system-config',
     GIT_CONFIG_COUNT: '1',
@@ -95,13 +117,30 @@ test('GitHub remote observation binds canonical URL and ignores every ambient Gi
   expect(windows.environment).toMatchObject({
     PATH: 'trusted-path',
     HOME: 'hostile-global-home',
+    USERPROFILE: 'trusted-profile',
+    SSH_AUTH_SOCK: 'trusted-agent',
+    HTTPS_PROXY: 'trusted-proxy',
+    GH_PROMPT_DISABLED: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_NO_REPLACE_OBJECTS: '1',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: 'NUL',
     GIT_CONFIG_SYSTEM: 'NUL'
   });
-  expect(windows.environment.GIT_DIR).toBeUndefined();
-  expect(windows.environment.GIT_CONFIG_COUNT).toBeUndefined();
-  expect(windows.environment.GIT_CONFIG_KEY_0).toBeUndefined();
+  expect(Object.keys(windows.environment).filter((name) => name.toUpperCase() === 'PATH'))
+    .toEqual(['PATH']);
+  expect(Object.keys(windows.environment).filter((name) => name.toUpperCase() === 'GIT_NO_REPLACE_OBJECTS'))
+    .toEqual(['GIT_NO_REPLACE_OBJECTS']);
+  for (const name of Object.keys(windows.environment)) {
+    const canonicalName = name.toUpperCase();
+    expect([
+      'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_CONFIG_COUNT',
+      'GIT_ASKPASS', 'GIT_ASKPASS_REQUIRE', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE',
+      'GIT_SSH', 'GIT_SSH_COMMAND'
+    ]).not.toContain(canonicalName);
+    expect(canonicalName).not.toMatch(/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u);
+  }
 
   const linux = createBranchLifecycleGitHubRemoteObservation(
     'sec-platform/sec', hostileEnvironment, 'linux'

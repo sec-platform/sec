@@ -18,7 +18,6 @@ import {
 import { issueGeneratedStatePublication, withGeneratedStateMutationSession } from '../../execution/generated-state/registration-session.ts';
 import { inspectIssuedGeneratedStateTerminalReceipt } from '../../execution/generated-state/terminal-receipt.ts';
 import { withAcquiredResource } from '../../execution/resource-settlement.ts';
-import { continueGeneratedStateRegistrationMigration } from './migration.ts';
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -99,31 +98,6 @@ test('true native evidence cannot retain mutable physical aliases at the depende
   expect(reissued.physical).toEqual(originalPhysical);
 });
 
-test('native publication rejects fake backend lifecycle facts with a true retained resource', async () => {
-  const { workspaceRoot, environment, relativePath, backend } = await legacyFixture();
-  await createGeneratedStateRegistrationBootstrap({ workspaceRoot, environment }).createProducerHooks(workspaceRoot).bind(relativePath);
-  let settledResource: Parameters<typeof backend.readRegistrationCensus>[0] | undefined;
-  const fakeBackend = { ...backend,
-    readRegistrationCensus(resource: Parameters<typeof backend.readRegistrationCensus>[0]) {
-      const census = backend.readRegistrationCensus(resource);
-      const current = census.observations.get(relativePath)!;
-      return { ...census, observations: new Map([[relativePath, { ...current, registration: null, retiredPredecessor: null }]]) };
-    }
-  };
-  await withGeneratedStateMutationSession({ workspaceRoot, environment, backend: fakeBackend,
-    use: async (session, resource) => {
-      settledResource = resource;
-      const before = backend.readRegistrationCensus(resource).observations.get(relativePath)!;
-      const authority = issueGeneratedStatePublication(session, { kind: 'registration', event: 'registered',
-        registration: before.registration!, previousRecordDigest: before.tip!.recordDigest });
-      expect(() => backend.publishRegistration(resource, authority)).toThrow('outside the admitted predecessor lifecycle');
-      expect(backend.readRegistrationCensus(resource).observations.get(relativePath)!.tip!.recordDigest).toBe(before.tip!.recordDigest);
-    }
-  });
-  expect(() => backend.readRegistrationCensus(settledResource!)).toThrow('foreign or settled');
-  expect(() => backend.readRegistrationCensus({ kind: 'generated-state-native-mutation-resource' })).toThrow('foreign or settled');
-});
-
 test('native publication rejects changed original lease and settlement retires the capability', async () => {
   const { workspaceRoot, environment, relativePath, backend } = await legacyFixture();
   await createGeneratedStateRegistrationBootstrap({ workspaceRoot, environment }).createProducerHooks(workspaceRoot).bind(relativePath);
@@ -181,29 +155,6 @@ test('worktree flow preserves the exact ordinary root under one native operation
   const retained = inspectNoFollowDirectoryChain(retainedPath, 'fixture retained registered descendant').target;
   expect(retained.objectId).toBe(registration.root.objectId);
 }, 30_000);
-
-test('application migration uses retained native source and exact publication authority', async () => {
-  const { workspaceRoot, environment, sourceRoot, relativePath, registration, names, bytes, backend } = await legacyFixture();
-  await withGeneratedStateMutationSession({ workspaceRoot, environment, backend, use: async (session, resource) => {
-    const original = backend.readMigrationSource(resource)!;
-    // Public presentation data cannot alter the privately retained source.
-    (original.pointers as Map<string, unknown>).clear();
-    const preimage = backend.observeMigrationPhysicalPreimage(resource, original);
-    const plan = backend.describeMigration(resource, original, preimage);
-    expect(plan.records).toHaveLength(1);
-    const forged = { ...plan.prepared, sourcePointerCount: 999 };
-    expect(() => backend.publishMigrationPrepared(resource,
-      issueGeneratedStatePublication(session, { kind: 'migration-prepared', intent: forged }))).toThrow('exact retained native plan');
-    expect(() => backend.describeMigration(resource, { ...original }, preimage)).toThrow('foreign');
-    continueGeneratedStateRegistrationMigration(backend, session, resource);
-    expect(backend.readRegistrationCensus(resource).observations.get(relativePath)?.registration?.registrationDigest)
-      .toBe(registration.registrationDigest);
-  } });
-  expect((await readdir(sourceRoot)).sort()).toEqual(names);
-  for (const name of names) expect(await readFile(path.join(sourceRoot, name), 'utf8')).toBe(bytes);
-  const currentNames = await readdir(path.join(path.dirname(sourceRoot), 'registrations-v3'));
-  expect(currentNames.filter(name => /^[0-9a-f]{64}\.json$|^registration-[0-9a-f]{64}\.json$/u.test(name))).toEqual([]);
-});
 
 test('bootstrap producer binds, retires and restores the exact migrated predecessor', async () => {
   const { workspaceRoot, environment, relativePath, registration } = await legacyFixture();

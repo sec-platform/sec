@@ -5,7 +5,7 @@ import path from 'node:path';
 import { generatedStateProducerHooks } from '../../../../tests/helpers/generated-state-fixture.ts';
 import { parseGeneratedStateRegistration } from '../../../execution/generated-state/contract.ts';
 import {
-  createGeneratedStateRegistrationMutationBackend, openRuntimeStore,
+  openRuntimeStore,
   readRegistrationLedgerObservation, registrationKey
 } from './registration-store.ts';
 
@@ -32,6 +32,9 @@ async function registrationBytes(root: string) {
 test('current birth and retirement publish exact self-contained immutable ledger records', async () => {
   const value = await fixture();
   await value.producer.born(relativePath, 'native-publication-fixture');
+  const registeredBytes = await registrationBytes(value.store.registrationsRoot);
+  await expect(value.producer.born(relativePath, 'must-not-adopt')).rejects.toThrow('cannot adopt or replace');
+  expect(await registrationBytes(value.store.registrationsRoot)).toEqual(registeredBytes);
   const original = await value.producer.bind(relativePath);
   const born = readRegistrationLedgerObservation(value.store, relativePath);
   expect(born.registration?.registrationDigest).toBe(original.registrationDigest);
@@ -52,21 +55,6 @@ test('current birth and retirement publish exact self-contained immutable ledger
   expect(await readFile(path.join(value.generated, 'sentinel'), 'utf8')).toBe('original physical generation');
 });
 
-test('caller-shaped publication authority cannot publish through a live native resource', async () => {
-  const value = await fixture();
-  const backend = createGeneratedStateRegistrationMutationBackend();
-  const resource = await backend.acquireMutation({ workspaceRoot: value.repositoryRoot, ...value.options });
-  let before: Awaited<ReturnType<typeof registrationBytes>>;
-  try {
-    before = await registrationBytes(value.store.registrationsRoot);
-    expect(() => backend.publishRegistration(resource, { kind: 'generated-state-publication-authority' })).toThrow();
-    expect(await registrationBytes(value.store.registrationsRoot)).toEqual(before);
-  } finally { await backend.settleMutation(resource); }
-  expect(() => backend.publishRegistration(resource, { kind: 'generated-state-publication-authority' })).toThrow(/foreign or settled/);
-  expect(await registrationBytes(value.store.registrationsRoot)).toEqual(before);
-  expect(await readFile(path.join(value.generated, 'sentinel'), 'utf8')).toBe('original physical generation');
-});
-
 for (const residue of ['foreign-ledger', 'obsolete-pointer', 'orphan-generation'] as const) {
   test(`current publication preserves ${residue} instead of inventing migration authority`, async () => {
     const value = await fixture();
@@ -81,16 +69,3 @@ for (const residue of ['foreign-ledger', 'obsolete-pointer', 'orphan-generation'
     expect(await readFile(path.join(value.generated, 'sentinel'), 'utf8')).toBe('original physical generation');
   });
 }
-
-test('birth refuses to adopt an existing valid registration copied into its workspace', async () => {
-  const source = await fixture();
-  await source.producer.born(relativePath, 'source-owner');
-  const target = await fixture();
-  for (const [name, bytes] of await registrationBytes(source.store.registrationsRoot)) {
-    await writeFile(path.join(target.store.registrationsRoot, name!), bytes!);
-  }
-  const before = await registrationBytes(target.store.registrationsRoot);
-  await expect(target.producer.born(relativePath, 'target-owner')).rejects.toThrow();
-  expect(await registrationBytes(target.store.registrationsRoot)).toEqual(before);
-  expect(await readFile(path.join(target.generated, 'sentinel'), 'utf8')).toBe('original physical generation');
-});

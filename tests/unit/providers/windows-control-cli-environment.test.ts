@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../../../src/contracts/canonical.ts';
 
-import { computeWindowsControlCliEnvironmentSpecDigest, getWindowsControlCliExecutableBinding, parseWindowsControlCliEnvironmentAuthority, projectWindowsControlCliEnvironment, WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../../src/adapters/providers/windows-control-cli/contract/environment.ts';
+import { computeWindowsControlCliEnvironmentSpecDigest, getWindowsControlCliExecutableBinding, parseWindowsControlCliEnvironmentAuthority, WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 
 function source(): Record<string, unknown> {
   const { specDigest: _specDigest, ...body } = WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
@@ -14,6 +14,8 @@ test('installed control-CLI profile forbids runtime provisioning and persistent 
   expect(spec.adoptionContract.physicalClosure.runtimeProvisioning).toBe('forbidden');
   expect(spec.adoptionContract.physicalClosure.persistentExecutableCache).toBe('forbidden');
   expect(spec.rootClosure.positiveReceiptContract.persistentExecutableCache).toBe('forbidden');
+  expect(spec.rootClosure.status).toBe('live-adoption-required');
+  expect(spec.adoptionContract.discovery.selection).toBe('unique-authenticated-physical-closure');
 });
 
 test('canonical digest is derived from the strict profile content', () => {
@@ -27,6 +29,8 @@ test('canonical digest is derived from the strict profile content', () => {
 });
 
 test('Git and GitHub bindings describe installed executable bytes and one effective role', () => {
+  expect(WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.executableBindings.map(({ id }) => id))
+    .toEqual(['git', 'gh']);
   for (const id of ['git', 'gh'] as const) {
     const binding = getWindowsControlCliExecutableBinding(
       WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
@@ -48,23 +52,6 @@ test('Git and GitHub bindings describe installed executable bytes and one effect
   )!;
   expect(gh.launcherEntries).toHaveLength(1);
   expect(gh.launcherEntries[0]).toEqual(gh.effectiveEntry);
-});
-
-test('projection exposes only bounded physical adoption and executable identities', () => {
-  const projection = projectWindowsControlCliEnvironment(
-    WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
-  );
-  expect(projection.rootClosure.status).toBe('live-adoption-required');
-  expect(projection.adoptionBudget.discovery.selection)
-    .toBe('unique-authenticated-physical-closure');
-  expect(projection.executableBindings.map(({ id }) => id)).toEqual(['git', 'gh']);
-  expect(Object.hasOwn(projection.executableBindings[1]!, 'endpoints')).toBe(false);
-  expect(Object.keys(projection.resourceBudget)).toEqual(['maxSessionDurationMs']);
-  for (const binding of projection.executableBindings) {
-    expect(Object.hasOwn(binding, 'versionProbe')).toBe(false);
-    expect(Object.hasOwn(binding, 'commandContract')).toBe(false);
-    expect(Object.hasOwn(binding, 'commandBudget')).toBe(false);
-  }
 });
 
 test('unknown profile fields are rejected instead of becoming implicit authority', () => {

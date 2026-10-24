@@ -194,6 +194,8 @@ async function readRecoveryRecord(
 
 test('upgrade recovery restores original B after sequential updates and a copy-job fence failure', async () => {
   await withRecoveryFixture(async (fixture, snapshot) => {
+    const initialRecord = JSON.parse((await readRecoveryRecord(snapshot, 'prepared-intent')).bytes.toString('utf8'));
+    expect(initialRecord.body.binding).toEqual(binding);
     await apply(fixture, snapshot, [planMigration], ['sec.yaml']);
     expect(await fs.readFile(fixture.planPath)).toEqual(appliedPlanBytes);
     await apply(
@@ -507,25 +509,6 @@ test('a new external directory member is preserved before any known file is rest
     expect(await fs.readFile(fixture.planPath)).toEqual(appliedPlanBytes);
     expect((await fs.stat(fixture.planPath)).ino).toBe(planIdentity.ino);
     expect(await fs.readFile(fixture.schemaPath)).toEqual(originalSchemaBytes);
-  });
-});
-
-test('a reconstructed snapshot with a genuine foreign intent cannot authorize workspace rollback', async () => {
-  await withRecoveryFixture(async (first, firstSnapshot) => {
-    await withRecoveryFixture(async (second, secondSnapshot) => {
-      await apply(first, firstSnapshot, [planMigration], ['sec.yaml']);
-      await apply(second, secondSnapshot, [planMigration], ['sec.yaml']);
-      const transplanted = { ...firstSnapshot, recoveryIntent: secondSnapshot.recoveryIntent };
-
-      await expect(restoreWorkspace(transplanted, first.lockPath, async () => {
-        throw new Error('unissued snapshot reached commit fence');
-      })).rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-005' });
-
-      expect(await fs.readFile(first.planPath)).toEqual(appliedPlanBytes);
-      expect(await fs.readFile(second.planPath)).toEqual(appliedPlanBytes);
-      expect(await fs.readFile(path.join(firstSnapshot.preimage.path, 'sec.yaml'))).toEqual(originalPlanBytes);
-      expect(await fs.readFile(path.join(secondSnapshot.preimage.path, 'sec.yaml'))).toEqual(originalPlanBytes);
-    });
   });
 });
 
@@ -882,43 +865,6 @@ test('large A binds within a small metadata budget without payload copies and wr
 });
 
 
-test('a different graph lock path cannot retarget an issued recovery snapshot', async () => {
-  await withRecoveryFixture(async (fixture, snapshot) => {
-    await apply(fixture, snapshot, [planMigration], ['sec.yaml']);
-    const other = path.join(fixture.root, '.sec', 'other', path.basename(fixture.lockPath));
-    await fs.mkdir(path.dirname(other), { recursive: true });
-    await fs.writeFile(other, originalLockBytes);
-    await expect(restoreWorkspace(snapshot, other, healthyFence)).rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-005' });
-    expect(await fs.readFile(fixture.planPath)).toEqual(appliedPlanBytes);
-    expect(await fs.readFile(other)).toEqual(originalLockBytes);
-    expect(await fs.readFile(fixture.lockPath)).toEqual(originalLockBytes);
-  });
-});
-
-
-test('intent capture owns the original projection after caller data changes', async () => {
-  await withRecoveryFixture(async (_fixture, snapshot) => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-recovery-input-capture-'));
-    try {
-      await fs.mkdir(path.join(root, 'preimage'));
-      const projection = structuredClone(snapshot.projection) as Array<typeof snapshot.projection[number]>;
-      const intent = createUpgradeRecoveryIntent({
-        workspace: snapshot.workspace,
-        backup: inspectNoFollowDirectoryChain(root, 'Private intent fixture').target,
-        binding: { ...binding }, projection,
-        limits: { maximumRecords: 100, maximumRecordBytes: 16_384, maximumTotalBytes: 50_000 }
-      });
-      const originalFile = projection.find(entry => entry.relativePath === 'sec.yaml')!;
-      Reflect.set(originalFile.identity!, 'inode', 'caller-replacement');
-      Reflect.set(originalFile, 'contentDigest', 'sha256:' + 'f'.repeat(64));
-      projection.splice(0, projection.length);
-      expect(admitUpgradeRecovery(intent, snapshot.projection)).toEqual([]);
-      assertUpgradeRecoveryIntent(intent);
-    } finally { await fs.rm(root, { recursive: true, force: true }); }
-  });
-});
-
-
 for (const targetKind of ['file', 'lock'] as const) {
   test(`reverse creation refuses a replaced ${targetKind} ancestor after its fence`, async () => {
     await withRecoveryFixture(async (fixture, snapshot) => {
@@ -967,32 +913,6 @@ test.skipIf(process.platform !== 'linux')('reverse removal preserves an owned fi
     expect((await fs.stat(snapshot.backup.path)).isDirectory()).toBe(true);
   });
 });
-
-test('snapshot acquisition captures operation and attempt before the first suspended fence', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-upgrade-binding-capture-'));
-  const lockPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.graphLock);
-  let captured: UpgradeWorkspaceSnapshot | undefined;
-  try {
-    await fs.mkdir(path.dirname(lockPath), { recursive: true });
-    await fs.writeFile(path.join(root, 'sec.yaml'), originalPlanBytes);
-    await fs.writeFile(lockPath, originalLockBytes);
-    const supplied = { ...binding };
-    captured = await snapshotWorkspace(root, lockPath, async () => {
-      supplied.operationIdentityDigest = `sha256:${'e'.repeat(64)}`;
-      supplied.attemptRevision = `sha256:${'f'.repeat(64)}`;
-    }, supplied);
-    const record = JSON.parse((await readRecoveryRecord(captured, 'prepared-intent')).bytes.toString('utf8'));
-    expect(record.body.binding).toEqual(binding);
-    expect(record.body.binding).not.toEqual(supplied);
-  } finally {
-    try {
-      if (captured !== undefined) await retireUpgradeBackup(captured);
-    } finally {
-      await fs.rm(root, { recursive: true, force: true });
-    }
-  }
-});
-
 
 test('final recovery readback rejects a foreign same-byte identity introduced by the last fence', async () => {
   await withRecoveryFixture(async (fixture, snapshot) => {

@@ -257,6 +257,7 @@ test('completed native main absorption retires its proof and preparation without
       inventory: value.inventory, branch: BRANCH, expectedSha: headSha,
       mainSha, basis: 'native-ancestor', recoveryRoot: value.recoveryRoot
     });
+    expect(recovery.kind).toBe('main-absorption');
     unlinkSync(value.bundlePath);
     unlinkSync(`${value.bundlePath}.sha256`);
     unlinkSync(`${value.bundlePath}.preparation.json`);

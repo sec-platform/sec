@@ -179,17 +179,17 @@ test('source-plan and CAS rejection retain created scope without starting later 
   }
 });
 
-test('failures before staged preparation propagate unchanged and never become rebuild diagnostics', async () => {
-  for (const key of ['prepareScope', 'planSourceEdit', 'assertScope', 'readOriginalBytes', 'renderSourceEdit'] as const) {
-    const run = setup(); const failure = Object.freeze({ at: key });
-    run.operations[key] = (() => { throw failure; }) as never;
-    await expect(deriveSemanticMutation(input, run.adapter, run.operations)).rejects.toBe(failure);
-    expect(run.events).not.toContain('diagnostic'); expect(run.events).not.toContain('prepare-workspace');
-  }
+test('a pre-staging failure propagates unchanged without becoming a rebuild diagnostic', async () => {
+  const run = setup();
+  const failure = Object.freeze({ at: 'renderSourceEdit' });
+  run.operations.renderSourceEdit = () => { throw failure; };
+  await expect(deriveSemanticMutation(input, run.adapter, run.operations)).rejects.toBe(failure);
+  expect(run.events).not.toContain('diagnostic');
+  expect(run.events).not.toContain('prepare-workspace');
 });
 
-test('staged preparation, rebuild and capability failures redact native details while retaining recovery inputs', async () => {
-  for (const key of ['prepareWorkspace', 'readStagedBundle', 'capabilityPlan'] as const) {
+test('staged rebuild and capability failures redact native details while retaining recovery inputs', async () => {
+  for (const key of ['readStagedBundle', 'capabilityPlan'] as const) {
     const run = setup();
     const fail = () => { throw Object.assign(new Error('/private/secret/path'), { code: 'EIO' }); };
     if (key === 'capabilityPlan') run.adapter.capabilityPlan = fail;

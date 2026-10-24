@@ -17,12 +17,6 @@ const producingRun = { id: 20, run_attempt: 1, event: 'workflow_run',
   actor: { login: 'initiator', node_id: 'INITIATOR' } };
 const expected = { metadata, producingRun, baseSha: base, runId: '20', runAttempt: 1 };
 
-test('recovery artifact binds its workflow_run producing attempt independently of App publication', () => {
-  expect(() => assertHostedRecoveryArtifactProvenance(expected)).not.toThrow();
-  expect(() => assertHostedRecoveryArtifactProvenance({ ...expected,
-    metadata: { ...metadata, actorPermission: 'admin' } })).not.toThrow();
-});
-
 for (const [name, patch] of [
   ['compiler event', { eventName: 'repository_dispatch' }],
   ['foreign workflow', { workflowPath: '.github/workflows/foreign.yml' }],
@@ -114,18 +108,14 @@ function recoveryStepReadback() {
   };
 }
 
-test('recovery readback binds ordered preparation and upload to the exact current verifier', () => {
-  expect(decodeHostedRecoveryControlStepFacts(recoveryStepReadback())).toEqual({
+test('recovery job readback accepts the provider-omitted attempt only with its exact origin-bound identities', () => {
+  const value = recoveryStepReadback();
+  expect(Object.hasOwn(value.job, 'run_attempt')).toBe(false);
+  expect(decodeHostedRecoveryControlStepFacts(value)).toEqual({
     preparation: { name: 'Prepare exact integration recovery artifact', number: 7, status: 'completed', conclusion: 'success' },
     upload: { name: 'Upload exact branch closeout recovery artifact', number: 8, status: 'completed', conclusion: 'success' },
     uploadWindow: { startedAtUnixMs: Date.parse('2026-10-04T20:00:03Z'), completedAtUnixMs: Date.parse('2026-10-04T20:00:05Z') }
   });
-});
-
-test('recovery job readback accepts the provider-omitted attempt only with its exact origin-bound identities', () => {
-  const value = recoveryStepReadback();
-  expect(Object.hasOwn(value.job, 'run_attempt')).toBe(false);
-  expect(() => decodeHostedRecoveryControlStepFacts(value)).not.toThrow();
   expect(() => decodeHostedRecoveryControlStepFacts({ ...value,
     job: { ...value.job, run_attempt: 1 } })).not.toThrow();
   for (const run_attempt of [null, undefined, 2, '1']) {
@@ -223,6 +213,8 @@ test('recovery artifact timestamps must fit the actual upload even when other pr
   const window = { startedAtUnixMs: Date.parse('2026-10-04T20:00:03Z'), completedAtUnixMs: Date.parse('2026-10-04T20:00:05Z') };
   const artifact = { ...metadata, createdAt: '2026-10-04T20:00:03Z', updatedAt: '2026-10-04T20:00:05Z' };
   expect(() => assertHostedRecoveryArtifactProvenance({ ...expected, metadata: artifact })).not.toThrow();
+  expect(() => assertHostedRecoveryArtifactProvenance({ ...expected,
+    metadata: { ...artifact, actorPermission: 'admin' } })).not.toThrow();
   expect(() => assertHostedRecoveryArtifactUploadWindow(artifact, window)).not.toThrow();
   for (const patch of [{ createdAt: undefined }, { updatedAt: undefined }, { createdAt: 'invalid' },
     { updatedAt: 'invalid' }, { createdAt: '2026-10-04T20:00:02Z' },

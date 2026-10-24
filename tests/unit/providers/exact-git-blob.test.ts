@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
 import {
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -13,8 +12,8 @@ import { expect, test } from 'bun:test';
 
 import {
   listExactGitTreeEntries,
-  readExactGitTextBlobsBatch,
-  type ExactGitBlobCommandResult
+  parseExactGitBlobsBatch,
+  readExactGitTextBlobsBatch
 } from '../../../src/adapters/providers/git-read/exact-blob.ts';
 
 function git(
@@ -43,70 +42,6 @@ function initializeRepository(): string {
   git(repositoryRoot, ['config', 'core.autocrlf', 'true']);
   return repositoryRoot;
 }
-
-test('exact Git batch reader binds raw LF bytes despite a CRLF checkout', () => {
-  const repositoryRoot = initializeRepository();
-  try {
-    const repositoryPath = 'config/repository/work-packages/fixture.md';
-    const absolutePath = path.join(repositoryRoot, ...repositoryPath.split('/'));
-    mkdirSync(path.dirname(absolutePath), { recursive: true });
-    writeFileSync(absolutePath, 'line-one\nline-two\n', 'utf8');
-    git(repositoryRoot, ['add', repositoryPath]);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
-    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    writeFileSync(absolutePath, 'line-one\r\nline-two\r\n', 'utf8');
-    expect(readFileSync(absolutePath, 'utf8')).toBe('line-one\r\nline-two\r\n');
-
-    const entries = listExactGitTreeEntries({ repositoryRoot, commitSha });
-    expect(entries).toEqual([expect.objectContaining({ repositoryPath, mode: '100644', type: 'blob' })]);
-    const [result] = readExactGitTextBlobsBatch({ repositoryRoot, entries });
-    expect(result!.source).toBe('line-one\nline-two\n');
-  } finally {
-    rmSync(repositoryRoot, { force: true, recursive: true });
-  }
-});
-
-test('exact Git batch reader ignores replacement-object views', () => {
-  const repositoryRoot = initializeRepository();
-  try {
-    writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'original-bytes\n', 'utf8');
-    git(repositoryRoot, ['add', 'fixture.txt']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'original']);
-    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    const originalBlob = git(repositoryRoot, ['rev-parse', `${commitSha}:fixture.txt`]);
-    const replacementBlob = git(repositoryRoot, ['hash-object', '-w', '--stdin'], {
-      input: 'replacement-object-view\n'
-    });
-    git(repositoryRoot, ['replace', originalBlob, replacementBlob]);
-    expect(git(repositoryRoot, ['cat-file', 'blob', originalBlob])).toContain('replacement-object-view');
-
-    const entries = listExactGitTreeEntries({ repositoryRoot, commitSha });
-    const [result] = readExactGitTextBlobsBatch({ repositoryRoot, entries });
-    expect(result!.source).toBe('original-bytes\n');
-  } finally {
-    rmSync(repositoryRoot, { force: true, recursive: true });
-  }
-});
-
-test('exact Git batch reader ignores ambient repository redirection', () => {
-  const repositoryRoot = initializeRepository();
-  const previousGitDir = process.env.GIT_DIR;
-  try {
-    writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'repository-subject\n', 'utf8');
-    git(repositoryRoot, ['add', 'fixture.txt']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'subject']);
-    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
-
-    const entries = listExactGitTreeEntries({ repositoryRoot, commitSha });
-    const [result] = readExactGitTextBlobsBatch({ repositoryRoot, entries });
-    expect(result!.source).toBe('repository-subject\n');
-  } finally {
-    if (previousGitDir === undefined) delete process.env.GIT_DIR;
-    else process.env.GIT_DIR = previousGitDir;
-    rmSync(repositoryRoot, { force: true, recursive: true });
-  }
-});
 
 test('exact Git batch reader preserves absence and rejects invalid, nonordinary, or oversized requests', () => {
   const repositoryRoot = initializeRepository();
@@ -147,45 +82,52 @@ test('exact Git batch reader preserves absence and rejects invalid, nonordinary,
 
 test('exact Git batch reader rejects a cat-file byte-count mismatch', () => {
   const blobSha = '2'.repeat(40);
-  expect(() => readExactGitTextBlobsBatch({
-    repositoryRoot: path.resolve(tmpdir()),
-    entries: [{ blobSha, mode: '100644', type: 'blob', repositoryPath: 'fixture' }],
-    runGitBatch: (): ExactGitBlobCommandResult => ({
-      status: 0,
-      stderr: Buffer.alloc(0),
-      stdout: Buffer.from(`${blobSha} blob 4\nabc\n`, 'utf8')
-    })
-  })).toThrow('byte count is malformed');
+  expect(() => parseExactGitBlobsBatch(
+    [{ blobSha, repositoryPath: 'fixture' }],
+    Buffer.from(`${blobSha} blob 4\nabc\n`, 'utf8'),
+    1024
+  )).toThrow('byte count is malformed');
 });
 
-test('exact Git text batch preserves path-to-blob identity and rejects malformed output', () => {
+test('exact Git batch reader preserves LF path-to-blob identity despite checkout, replacement, and environment drift', () => {
   const repositoryRoot = initializeRepository();
+  const previousGitDir = process.env.GIT_DIR;
   try {
     writeFileSync(path.join(repositoryRoot, 'first.ts'), 'export const first = 1;\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'second.ts'), 'export const second = 2;\n', 'utf8');
     git(repositoryRoot, ['add', 'first.ts', 'second.ts']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'batch']);
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    const entries = listExactGitTreeEntries({ repositoryRoot, commitSha });
-    const source = readExactGitTextBlobsBatch({
-      repositoryRoot,
-      entries
+    const originalBlob = git(repositoryRoot, ['rev-parse', `${commitSha}:first.ts`]);
+    const replacementBlob = git(repositoryRoot, ['hash-object', '-w', '--stdin'], {
+      input: 'replacement-object-view\n'
     });
+    git(repositoryRoot, ['replace', originalBlob, replacementBlob]);
+    expect(git(repositoryRoot, ['cat-file', 'blob', originalBlob])).toBe('replacement-object-view');
+    writeFileSync(path.join(repositoryRoot, 'first.ts'), 'export const first = 1;\r\n', 'utf8');
+    expect(readFileSync(path.join(repositoryRoot, 'first.ts'), 'utf8')).toBe('export const first = 1;\r\n');
+    process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
+
+    // This synchronous reader still supplies exact compiler/TestImpact fixtures.
+    // Each diversion independently disagrees with these fixed committed bytes.
+    const entries = listExactGitTreeEntries({ repositoryRoot, commitSha });
+    expect(entries).toEqual([
+      expect.objectContaining({ repositoryPath: 'first.ts', mode: '100644', type: 'blob' }),
+      expect.objectContaining({ repositoryPath: 'second.ts', mode: '100644', type: 'blob' })
+    ]);
+    const source = readExactGitTextBlobsBatch({ repositoryRoot, entries });
     expect(source.map(({ repositoryPath, source: text }) => [repositoryPath, text])).toEqual([
       ['first.ts', 'export const first = 1;\n'],
       ['second.ts', 'export const second = 2;\n']
     ]);
-
-    expect(() => readExactGitTextBlobsBatch({
-      repositoryRoot,
-      entries: [entries[0]!],
-      runGitBatch: () => ({
-        status: 0,
-        stderr: Buffer.alloc(0),
-        stdout: Buffer.from(`${'f'.repeat(40)} blob 1\nx\n`, 'utf8')
-      })
-    })).toThrow('header does not match');
+    expect(() => parseExactGitBlobsBatch(
+      [entries[0]!],
+      Buffer.from(`${'f'.repeat(40)} blob 1\nx\n`, 'utf8'),
+      1024
+    )).toThrow('header does not match');
   } finally {
+    if (previousGitDir === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = previousGitDir;
     rmSync(repositoryRoot, { force: true, recursive: true });
   }
 });

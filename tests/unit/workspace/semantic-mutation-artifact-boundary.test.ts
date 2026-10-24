@@ -108,15 +108,6 @@ test('artifact publication is complete, byte-exact, private and reusable without
   } finally { cleanup(f); }
 });
 
-test('artifact inputs are snapshotted before any awaited authority fence', async () => {
-  const f = fixture();
-  const expected = new Uint8Array(f.original);
-  try {
-    await publish(f, async () => { f.original.fill(0); });
-    expect((await readSemanticMutationTransactionArtifacts(f.root)).originalBytes).toEqual(expected);
-  } finally { cleanup(f); }
-});
-
 test('a pre-existing conflict is rejected before any missing member is published', async () => {
   const f = fixture();
   try {

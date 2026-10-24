@@ -895,6 +895,14 @@ for (const lane of ['merged', 'retained'] as const) {
         : fixture.run(command, args, cwd, input)
     ));
     try {
+      if (lane === 'retained') {
+        writeFileSync(path.join(fixture.repositoryRoot, 'caller-index-only.txt'), 'unrelated staged bytes\n');
+        git(fixture.repositoryRoot, ['add', 'caller-index-only.txt']);
+        expect(spawnSync('git', ['diff-index', '--cached', '--exit-code',
+          git(fixture.repositoryRoot, ['rev-parse', `${fixture.headSha}^{tree}`]), '--'], {
+          cwd: fixture.repositoryRoot, windowsHide: true
+        }).status).not.toBe(0);
+      }
       const settled = await executeMergedLocalBranchResidueCloseout({
         repositoryRoot: fixture.repositoryRoot,
         recoveryRoot: fixture.recoveryRoot,
@@ -977,35 +985,6 @@ for (const lane of ['merged', 'retained'] as const) {
   }, 45_000);
 }
 
-test('retiring a worktree branch journal reads its ref history without the caller index', async () => {
-  const fixture = createEffectFixture('retired-worktree-index');
-  const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
-  try {
-    writeFileSync(path.join(fixture.repositoryRoot, 'caller-index-only.txt'), 'unrelated staged bytes\n');
-    git(fixture.repositoryRoot, ['add', 'caller-index-only.txt']);
-    expect(spawnSync('git', ['diff-index', '--cached', '--exit-code',
-      git(fixture.repositoryRoot, ['rev-parse', `${fixture.headSha}^{tree}`]), '--'], {
-      cwd: fixture.repositoryRoot, windowsHide: true
-    }).status).not.toBe(0);
-    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
-      command === 'gh' && args[0] === 'pr'
-        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-        : fixture.run(command, args, cwd, input)
-    ));
-    const settled = await executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: fixture.repositoryRoot,
-      recoveryRoot: fixture.recoveryRoot,
-      retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }],
-      run: noMergedPr
-    });
-    expect(settled.settled).toEqual(['fix/example']);
-    expect(existsSync(journalPath)).toBeFalse();
-  } finally {
-    fixture.dispose();
-  }
-}, 45_000);
-
-
 test('absent local ref recovery retires the applied journal left by a crash after exact ref CAS', async () => {
   const fixture = createEffectFixture('absent-ref-applied-journal');
   const journalPath = writeDevelopmentCommitJournal(
@@ -1087,6 +1066,7 @@ test('absent local ref recovery refuses a late valid applied journal outside the
       run: fixture.run,
       faults: { afterDelete: () => { throw new Error('crash-after-ref-effect-before-plan-ack'); } }
     })).rejects.toThrow('crash-after-ref-effect-before-plan-ack');
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
     const lateAttempt = 'f'.repeat(64);
     const latePath = path.join(
       fixture.repositoryRoot,
@@ -1105,28 +1085,6 @@ test('absent local ref recovery refuses a late valid applied journal outside the
     })).rejects.toThrow('family changed');
     expect(existsSync(journalPath)).toBeTrue();
     expect(existsSync(latePath)).toBeTrue();
-  } finally {
-    fixture.dispose();
-  }
-}, 45_000);
-
-test('absent local ref recovery refuses a late development journal before terminal receipt', async () => {
-  const fixture = createEffectFixture('absent-ref-journal');
-  try {
-    await expect(executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: fixture.repositoryRoot,
-      recoveryRoot: fixture.recoveryRoot,
-      run: fixture.run,
-      faults: { afterDelete: () => { throw new Error('crash-after-ref-effect'); } }
-    })).rejects.toThrow('crash-after-ref-effect');
-    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
-    const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'unknown');
-    await expect(executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: fixture.repositoryRoot,
-      recoveryRoot: fixture.recoveryRoot,
-      run: fixture.run
-    })).rejects.toThrow('family changed');
-    expect(existsSync(journalPath)).toBeTrue();
     expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.authorization.json')))
       .toBeTrue();
     expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.receipt.json')))

@@ -355,15 +355,6 @@ describe('closed-unmerged branch lifecycle operation', () => {
     });
   }
 
-  test('a same-name fork head is not a consumer of the repository target branch', async () => {
-    const closeout = operation();
-    const harness = providerHarness(inventory());
-    harness.mutate(value => value.pullRequests.push({ ...value.pullRequests[0]!,
-      number: 99, state: 'open', headBranch: BRANCH, isCrossRepository: true }));
-    expect((await executeClosedUnmergedCloseoutOperation({ operation: closeout, provider: harness.provider })).status)
-      .toBe('completed');
-  });
-
   test('a newly opened pull request using the target as base blocks every ref effect', async () => {
     const closeout = operation();
     const harness = providerHarness(inventory());
@@ -422,7 +413,7 @@ describe('closed-unmerged branch lifecycle operation', () => {
     } finally { writeFileSync(bundlePath, original); }
   });
 
-  test('native ancestor proof is live, while divergent branch cannot borrow that basis', () => {
+  test('native ancestor recovery refuses a divergent branch', () => {
     git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', MAIN_SHA]);
     const before = inventory();
     before.repository.root = repositoryRoot;
@@ -430,12 +421,6 @@ describe('closed-unmerged branch lifecycle operation', () => {
     before.worktrees[0]!.path = repositoryRoot;
     const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-absorption-'));
     try {
-      const { recovery } = createMainAbsorptionRecovery({
-        inventory: before, branch: BRANCH, expectedSha: BASE_SHA,
-        mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
-      });
-      expect(recovery.kind).toBe('main-absorption');
-      expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('success');
       expect(() => createMainAbsorptionRecovery({
         inventory: before, branch: BRANCH, expectedSha: HEAD_SHA,
         mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
@@ -522,7 +507,7 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(harness.counters.deleteRemoteRef).toBe(1);
   });
 
-  test('an exact prepared local ref is deleted by local CAS and read back absent', async () => {
+  test('an exact prepared local ref is deleted despite a same-name fork head', async () => {
     const before = inventory();
     before.localBranches.push({ branch: BRANCH, sha: HEAD_SHA });
     const result = compileClosedUnmergedCloseoutOperation({
@@ -532,6 +517,8 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') throw new Error(result.blockers.join(' | '));
     const harness = providerHarness(before);
+    harness.mutate(value => value.pullRequests.push({ ...value.pullRequests[0]!,
+      number: 99, state: 'open', headBranch: BRANCH, isCrossRepository: true }));
 
     const executed = await executeClosedUnmergedCloseoutOperation({
       operation: result.operation,
@@ -698,6 +685,12 @@ describe('closed-unmerged branch lifecycle operation', () => {
       });
 
       expect(result.status).not.toBe('completed');
+      if (recreated === 'remote') {
+        expect(result.status).toBe('preserved');
+        expect(result.status === 'preserved' ? result.reasons : []).toEqual([
+          'remote branch exists after the terminal receipt'
+        ]);
+      }
       expect(result.status === 'completed' ? null : result.stage).toBe('terminal-live-readback');
       expect(() => assertClosedUnmergedCloseoutCompletedSettlement(closeout, result)).toThrow(
         'Closed-unmerged recovery retirement requires an exact owner-issued completed settlement.'
@@ -830,23 +823,7 @@ describe('closed-unmerged branch lifecycle operation', () => {
       });
     }
 
-    test('terminal recovery refuses a recreated remote ref without performing any mutation', async () => {
-      const recreated = inventory();
-      const harness = providerHarness(recreated);
-      harness.setTerminal(closeout.operationId, terminal);
 
-      const replay = await executeClosedUnmergedCloseoutOperation({
-        operation: closeout, provider: harness.provider
-      });
-
-      expect(replay.status).toBe('preserved');
-      expect(replay.status === 'preserved' ? replay.stage : null).toBe('terminal-live-readback');
-      expect(replay.status === 'preserved' ? replay.reasons : []).toEqual([
-        'remote branch exists after the terminal receipt'
-      ]);
-      expect(harness.counters).toEqual({ deleteRemoteRef: 0,
-        deleteLocalRef: 0, pruneRemote: 0 });
-    });
   });
 
   test('main movement without a terminal cannot authorize new effects', async () => {

@@ -7,6 +7,7 @@ import {
   acquireWorkspaceWriteLease,
   assertWorkspaceWriteLease,
   createWorkspaceWriteLeaseManager,
+  inspectWorkspaceWriteLease,
   WorkspaceWriteLeaseError
 } from '../../../src/adapters/filesystem/write-lease.ts';
 import { runCommand } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
@@ -232,7 +233,7 @@ test.skipIf(process.platform !== 'win32')('an aborted live command terminates bo
   }, 'engineering-compiler-live-command-tree-fence-');
 }, 120000);
 
-test('workspace writer lease contends with and reclaims an orphaned child process', async () => {
+test('workspace writer lease preserves an orphaned child generation without effect-settlement proof', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const signalPath = path.join(workspaceRoot, 'child-lease-ready');
     const moduleUrl = new URL('../../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
@@ -247,6 +248,7 @@ test('workspace writer lease contends with and reclaims an orphaned child proces
       stdout: 'pipe',
       stderr: 'pipe'
     });
+    let unexpectedReplacement: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>> | undefined;
 
     try {
       let ready = false;
@@ -274,12 +276,27 @@ test('workspace writer lease contends with and reclaims an orphaned child proces
       await child.exited;
       await Bun.sleep(150);
 
-      const replacement = await contender.acquire(workspaceRoot);
-      await replacement.assertOwned();
-      await replacement.release();
+      // Direct-child exit does not close every delegated effect. Preserve the
+      // original generation until its owner has qualified settlement evidence.
+      const leaseRoot = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
+      const ownerPath = await activeOwnerPath(leaseRoot);
+      const originalOwner = await fs.readFile(ownerPath);
+      const before = await inspectWorkspaceWriteLease(workspaceRoot);
+      expect(before.ownerGenerations).toEqual([1]);
+      expect(before.terminalGenerations).toEqual([]);
+      await expect(contender.acquire(workspaceRoot).then(handle => {
+        unexpectedReplacement = handle;
+        return handle;
+      })).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-003',
+        details: { phase: 'legacy-recovery', reason: 'effect-quiescence-unproven' }
+      });
+      expect(await fs.readFile(ownerPath)).toEqual(originalOwner);
+      expect(await inspectWorkspaceWriteLease(workspaceRoot)).toEqual(before);
     } finally {
       child.kill();
       await child.exited;
+      await unexpectedReplacement?.release();
     }
   }, 'engineering-compiler-workspace-lease-child-process-');
 }, 120000);

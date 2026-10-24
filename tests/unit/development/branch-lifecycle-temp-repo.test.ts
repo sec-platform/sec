@@ -11,7 +11,7 @@ import {
   utimesSync,
   writeFileSync
 } from 'node:fs';
-import { devNull, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
@@ -20,7 +20,6 @@ import {
   rehydratePreparedBranchCloseoutRecoveryArtifact
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import {
-  createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
@@ -34,75 +33,6 @@ import {
   issueActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
 } from '../../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
-
-test('canonical Git child environment removes ambient steering and preserves host integration', () => {
-  if (process.platform === 'win32') {
-    expect(() => createBranchLifecycleGitChildEnvironment({
-      Path: 'trusted-path', PATH: 'duplicate-path'
-    })).toThrow('conflicting case variants of "PATH"');
-  }
-  const environment = createBranchLifecycleGitChildEnvironment({
-    [process.platform === 'win32' ? 'Path' : 'PATH']: 'trusted-path',
-    HOME: 'trusted-home',
-    USERPROFILE: 'trusted-profile',
-    gh_prompt_disabled: '0',
-    SSH_AUTH_SOCK: 'trusted-agent',
-    HTTPS_PROXY: 'trusted-proxy',
-    Git_Dir: 'forged-git-dir',
-    GIT_WORK_TREE: 'forged-worktree',
-    GIT_INDEX_FILE: 'forged-index',
-    GIT_OBJECT_DIRECTORY: 'forged-objects',
-    GIT_CONFIG_COUNT: '1',
-    Git_Config_Count: '1',
-    GIT_CONFIG_KEY_0: 'core.worktree',
-    GIT_CONFIG_VALUE_0: 'forged-worktree',
-    git_config_value_0: 'forged-helper',
-    git_config_key_19: 'core.fsmonitor',
-    git_config_value_19: 'forged-monitor',
-    GIT_CONFIG_GLOBAL: 'forged-config',
-    git_askpass: 'forged-git-askpass',
-    GIT_ASKPASS_REQUIRE: 'force',
-    ssh_askpass: 'forged-ssh-askpass',
-    SSH_ASKPASS_REQUIRE: 'force',
-    git_ssh: 'forged-git-ssh',
-    GIT_SSH_COMMAND: 'forged-git-ssh-command',
-    git_no_replace_objects: '0',
-    GIT_OPTIONAL_LOCKS: '1',
-    GIT_TERMINAL_PROMPT: '1',
-    git_terminal_prompt: '1'
-  });
-  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
-    .toEqual(['PATH']);
-  expect(environment.PATH).toBe('trusted-path');
-  expect(environment.HOME).toBe('trusted-home');
-  expect(environment.USERPROFILE).toBe('trusted-profile');
-  expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent');
-  expect(environment.HTTPS_PROXY).toBe('trusted-proxy');
-  expect(environment.GH_PROMPT_DISABLED).toBe('1');
-  expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
-  expect(environment.GIT_OPTIONAL_LOCKS).toBe('0');
-  expect(environment.GIT_NO_REPLACE_OBJECTS).toBe('1');
-  expect(environment.GIT_CONFIG_GLOBAL).toBe(process.platform === 'win32' ? 'NUL' : devNull);
-  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'GIT_NO_REPLACE_OBJECTS'))
-    .toEqual(['GIT_NO_REPLACE_OBJECTS']);
-  for (const name of Object.keys(environment)) {
-    const canonicalName = name.toUpperCase();
-    expect([
-      'GIT_DIR',
-      'GIT_WORK_TREE',
-      'GIT_INDEX_FILE',
-      'GIT_OBJECT_DIRECTORY',
-      'GIT_CONFIG_COUNT',
-      'GIT_ASKPASS',
-      'GIT_ASKPASS_REQUIRE',
-      'SSH_ASKPASS',
-      'SSH_ASKPASS_REQUIRE',
-      'GIT_SSH',
-      'GIT_SSH_COMMAND'
-    ]).not.toContain(canonicalName);
-    expect(canonicalName).not.toMatch(/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u);
-  }
-});
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
