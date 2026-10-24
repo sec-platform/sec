@@ -1,6 +1,6 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -20,21 +20,67 @@ function git(root: string, ...args: string[]): string {
   return result.stdout.trim();
 }
 
+// The source repository has no linked worktree yet. Every test receives its
+// own physical .git and working tree, then exercises actual native add/closeout.
+type CandidateGitBase = Readonly<{ root: string; headSha: string; headTreeSha: string }>;
+let immutableCandidateGitBase: CandidateGitBase | undefined;
+
+afterAll(() => {
+  if (immutableCandidateGitBase !== undefined) {
+    rmSync(immutableCandidateGitBase.root, { recursive: true, force: true });
+    immutableCandidateGitBase = undefined;
+  }
+});
+
+function candidateGitBase(): CandidateGitBase {
+  if (immutableCandidateGitBase !== undefined) return immutableCandidateGitBase;
+  const root = mkdtempSync(path.join(tmpdir(), 'local-candidate-base-'));
+  try {
+    git(root, 'init', '--quiet', '-b', 'main');
+    writeFileSync(path.join(root, '.gitignore'), '.tmp/\\n'.replace('\\n', '\n'));
+    writeFileSync(path.join(root, 'source.txt'), 'candidate source\\n'.replace('\\n', '\n'));
+    git(root, 'add', '.');
+    git(root, '-c', 'user.name=Candidate Fixture', '-c', 'user.email=candidate@example.invalid', 'commit', '--quiet', '-m', 'fixture');
+    git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git(root, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    immutableCandidateGitBase = Object.freeze({
+      root, headSha: git(root, 'rev-parse', 'HEAD'),
+      headTreeSha: git(root, 'rev-parse', 'HEAD^{tree}')
+    });
+    return immutableCandidateGitBase;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Candidate Git base and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
 function fixture() {
-  const root = mkdtempSync(path.join(tmpdir(), 'local-candidate-'));
-  git(root, 'init', '--quiet', '-b', 'main');
-  writeFileSync(path.join(root, '.gitignore'), '.tmp/\n');
-  writeFileSync(path.join(root, 'source.txt'), 'candidate source\n');
-  git(root, 'add', '.');
-  git(root, '-c', 'user.name=Candidate Fixture', '-c', 'user.email=candidate@example.invalid', 'commit', '--quiet', '-m', 'fixture');
-  git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-  git(root, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
-  return { root, input: { authorityRoot: root,
-    candidate: { headSha: git(root, 'rev-parse', 'HEAD'), headTreeSha: git(root, 'rev-parse', 'HEAD^{tree}') },
-    sessionRevision: `sha256:${'1'.repeat(64)}` as const,
-    actionPlanDigest: `sha256:${'2'.repeat(64)}` as const,
-    maximumRepositoryObservations: 4
-  } };
+  const ownedRoot = mkdtempSync(path.join(tmpdir(), 'local-candidate-'));
+  try {
+    const base = candidateGitBase();
+    const root = path.join(ownedRoot, 'r');
+    cpSync(base.root, root, { recursive: true });
+    return {
+      ownedRoot,
+      root,
+      input: {
+        authorityRoot: root,
+        candidate: { headSha: base.headSha, headTreeSha: base.headTreeSha },
+        sessionRevision: `sha256:${'1'.repeat(64)}` as const,
+        actionPlanDigest: `sha256:${'2'.repeat(64)}` as const,
+        maximumRepositoryObservations: 4
+      }
+    };
+  } catch (error) {
+    try { rmSync(ownedRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Candidate Git copy and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 async function withFixture(run: (value: ReturnType<typeof fixture>, lease: LocalCandidateWorktreeLease) => Promise<void>) {
@@ -45,7 +91,7 @@ async function withFixture(run: (value: ReturnType<typeof fixture>, lease: Local
     await run(value, lease);
   } finally {
     await lease?.release();
-    rmSync(value.root, { recursive: true, force: true });
+    rmSync(value.ownedRoot, { recursive: true, force: true });
   }
 }
 
@@ -118,7 +164,7 @@ test.skipIf(process.platform !== 'linux')('settled native checkout failure canno
     const registered = git(value.root, 'worktree', 'list', '--porcelain').includes(`worktree ${target}\n`);
     expect(registered).toBe(existsSync(target));
     if (registered) expect(git(target, 'status', '--porcelain=v1')).not.toBe('');
-  } finally { rmSync(value.root, { recursive: true, force: true }); }
+  } finally { rmSync(value.ownedRoot, { recursive: true, force: true }); }
 }, 30_000);
 
 test('prepared acquisition failure remains retryable with native reuse and exact closeout', async () => {
@@ -146,7 +192,7 @@ test('prepared acquisition failure remains retryable with native reuse and exact
     expect(lstatSync(lease.owner.candidateRoot, { throwIfNoEntry: false })).toBeUndefined();
     expect(lstatSync(markerPath, { throwIfNoEntry: false })).toBeUndefined();
     expect(git(value.root, 'worktree', 'list', '--porcelain')).not.toContain(lease.owner.candidateRoot);
-  } finally { await lease?.release(); rmSync(value.root, { recursive: true, force: true }); }
+  } finally { await lease?.release(); rmSync(value.ownedRoot, { recursive: true, force: true }); }
 }, 30_000);
 
 for (const residue of ['present', 'absent'] as const) {
@@ -259,7 +305,7 @@ for (const residue of ['present', 'absent'] as const) {
         try { process.kill(-nativeChild.pid!, 0); throw new Error('Fixture native Git process group remains live.'); }
         catch (error) { expect((error as NodeJS.ErrnoException).code).toBe('ESRCH'); }
       }
-      rmSync(value.root, { recursive: true, force: true });
+      rmSync(value.ownedRoot, { recursive: true, force: true });
     }
   }, 30_000);
 }
