@@ -54,9 +54,14 @@ test('coverage summary and target fields use the same captured observations', ()
   });
   const projected = projectAcceptanceTargets(source);
   assert.deepEqual([declaredReads, coveredReads, uncoveredReads], [1, 1, 1]);
-  assert.equal(projected.coveredCount, 1); assert.equal(projected.targets[0]!.uncovered, false);
-  assert.equal(projected.targets[0]!.declaredAcceptanceCount, projected.targets[0]!.declaredAcceptance.length);
-  assert.equal(projected.targets[0]!.coveredByCount, projected.targets[0]!.coveredBy.length);
+  assert.equal(projected.coveredCount, 1);
+  assert.equal(projected.targets[0]!.id, 'block');
+  assert.equal(projected.targets[0]!.uncovered, false);
+  // Lists must agree with independently authored fixture values, not just their own counts.
+  assert.deepEqual(projected.targets[0]!.declaredAcceptance, ['declaration']);
+  assert.deepEqual(projected.targets[0]!.coveredBy, ['coverage']);
+  assert.equal(projected.targets[0]!.declaredAcceptanceCount, 1);
+  assert.equal(projected.targets[0]!.coveredByCount, 1);
 });
 
 test('runtime getters are read once for each count/list pair', () => {
@@ -78,7 +83,6 @@ test('block index derives from the emitted diagnostic rather than re-reading raw
   let reads = 0;
   const projected = projectReviewDiagnostics({ ciSummary: { status: 'passed' }, failurePoints: [], conflictHints: [], regressionRisks: [risk] } as unknown as ReviewInput);
   const emittedBlock = (projected.diagnostics[0] as { blockId?: string }).blockId;
-  assert.ok(['initial', 'emitted', 'different'].includes(emittedBlock ?? ''));
   assert.deepEqual(projected.blocks, [emittedBlock]);
   assert.equal(projected.blockCount, 1);
 });
