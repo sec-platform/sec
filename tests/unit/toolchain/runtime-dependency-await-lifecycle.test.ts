@@ -216,7 +216,10 @@ test('the fence performs a terminal budget check after a successfully resolved p
   });
   const result = await observed(runtimeDependencyOperationEffectFence(options, 'terminal-budget')).settled;
   assert.equal(result.kind, 'rejected');
-  if (result.kind === 'rejected') assert.ok(result.error instanceof CodedFailure);
+  if (result.kind === 'rejected') {
+    assert.ok(result.error instanceof CodedFailure);
+    assert.match(result.error.message, /deadline/);
+  }
 });
 
 test('a hook-free fence still observes cancellation before returning effect admission', async () => {

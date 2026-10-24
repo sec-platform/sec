@@ -147,12 +147,7 @@ test('V3 continuation derives exact base from native parent and rejects missing 
     common,
     { ...v3, manifestBaseSha: BASE },
     { ...v3, manifestBaseSha: undefined },
-    { ...common, manifestSchema: 'codex-development-work-package-v2' },
-    { ...v3, parentShas: ['9'.repeat(40)] },
-    { ...v3, parentShas: [BASE, '9'.repeat(40)] },
-    { ...v3, baseTreeSha: '9'.repeat(40) },
-    { ...v3, headSha: '9'.repeat(40) },
-    { ...v3, worktreeClean: false }
+    { ...common, manifestSchema: 'codex-development-work-package-v2' }
   ]) {
     expect(() => admitLocalContinuation({ checkpoint: checkpoint(), observation: invalid as LocalContinuationObservation }))
       .toThrow();

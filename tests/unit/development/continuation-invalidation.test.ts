@@ -16,7 +16,8 @@ function decide(overrides: Partial<Parameters<typeof compileContinuationInvalida
 }
 
 test('exact snapshot and local candidate edits do not trigger remote census by themselves', () => {
-  expect(decide()).toMatchObject({
+  const original = decide();
+  expect(original).toMatchObject({
     disposition: 'reuse-zero-remote',
     remoteOwners: [],
     checkpointLifecycle: 'active'
@@ -26,6 +27,17 @@ test('exact snapshot and local candidate edits do not trigger remote census by t
     remoteOwners: [],
     checkpointLifecycle: 'active'
   });
+  expect(original.decisionDigest).toBe(decide().decisionDigest);
+  const nextCheckpoint = `sha256:${'b'.repeat(64)}` as const;
+  const rebound = decide({ checkpointDigest: nextCheckpoint });
+  expect(original.checkpointDigest).toBe(CHECKPOINT);
+  expect(rebound.checkpointDigest).toBe(nextCheckpoint);
+  expect(rebound).toMatchObject({
+    disposition: 'reuse-zero-remote',
+    remoteOwners: [],
+    checkpointLifecycle: 'active'
+  });
+  expect(rebound.decisionDigest).not.toBe(original.decisionDigest);
 });
 
 test('each external authority boundary refreshes exactly its canonical owner', () => {
@@ -36,13 +48,16 @@ test('each external authority boundary refreshes exactly its canonical owner', (
     merge: 'merge-readback',
     closeout: 'closeout'
   } as const;
-  for (const [boundary, owner] of Object.entries(expected)) {
-    expect(decide({ externalBoundary: boundary as keyof typeof expected })).toMatchObject({
+  const decisions = Object.fromEntries(Object.entries(expected).map(([boundary, owner]) => {
+    const decision = decide({ externalBoundary: boundary as keyof typeof expected });
+    expect(decision).toMatchObject({
       disposition: 'refresh-live-owner',
       remoteOwners: [owner],
       checkpointLifecycle: 'active'
     });
-  }
+    return [boundary, decision];
+  }));
+  expect(decisions.review!.decisionDigest).not.toBe(decisions['main-health']!.decisionDigest);
 });
 
 test('known external change stales the snapshot while local control drift requires orientation', () => {
@@ -65,22 +80,4 @@ test('terminal session retires continuation without inventing a remote read', ()
     checkpointLifecycle: 'terminal',
     reasonCodes: ['session-terminal']
   });
-});
-
-test('invalidation digest is stable and binds its checkpoint and owner decision', () => {
-  const original = decide();
-  expect(original.decisionDigest).toBe(decide().decisionDigest);
-  expect(decide({ externalBoundary: 'review' }).decisionDigest)
-    .not.toBe(decide({ externalBoundary: 'main-health' }).decisionDigest);
-
-  const nextCheckpoint = `sha256:${'b'.repeat(64)}` as const;
-  const rebound = decide({ checkpointDigest: nextCheckpoint });
-  expect(original.checkpointDigest).toBe(CHECKPOINT);
-  expect(rebound.checkpointDigest).toBe(nextCheckpoint);
-  expect(rebound).toMatchObject({
-    disposition: 'reuse-zero-remote',
-    remoteOwners: [],
-    checkpointLifecycle: 'active'
-  });
-  expect(rebound.decisionDigest).not.toBe(original.decisionDigest);
 });

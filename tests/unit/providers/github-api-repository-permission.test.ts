@@ -28,6 +28,7 @@ test('custom, contradictory and malformed permission responses never normalize t
   for (const source of [
     null, [], 'admin', {}, { permission: 'owner', role_name: 'admin' },
     { permission: 'write', role_name: 'custom-maintainer' },
+    { permission: 'maintain', role_name: 'custom-maintainer' },
     { permission: 'admin', role_name: 'custom-admin' },
     { permission: 'write', role_name: 'Maintain' },
     { permission: 'write', role_name: ' maintain ' },

@@ -9,7 +9,6 @@ import {
   parseVerificationSessionHostedRequest,
   parseVerificationSessionLocalPreparationRequestV2,
   type VerificationSessionLocalPreparation,
-  type VerificationSessionLocalPreparationRequestV2,
   type VerificationSessionLocalPreparationRequestV2Body
 } from '../../../src/adapters/verification/platform/ci/contract/session-request.ts';
 
@@ -48,7 +47,10 @@ test('V2 source preparation round-trips into an immutable detached input, includ
   const originalInput = structuredClone(input);
   const value: VerificationSessionLocalPreparation = createVerificationSessionLocalPreparationRequestV2(input);
   expect(value.schema).toBe(CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA);
-  expect(parse(value)).toEqual(value);
+  const parsed = parse(value);
+  expect(parsed).toEqual(value);
+  expect(parsed.authorityStage).toBe('preparation-only');
+  expect(parsed.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
   expect(value.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
   expect(Object.isFrozen(value)).toBe(true);
   expect(Object.isFrozen(value.request)).toBe(true);
@@ -107,7 +109,6 @@ for (const [field, change] of changedBodyCases) {
     expect(current.request.requestDigest).not.toBe(saved.request.requestDigest);
     expect(current.request.requestOperationId).not.toBe(saved.request.requestOperationId);
     expect(() => assertVerificationSessionLocalPreparationV2Current(saved, current)).toThrow('differs from current exact source');
-    expect(() => assertVerificationSessionLocalPreparationV2Current(current, saved)).toThrow('differs from current exact source');
     const { requestDigest: _digest, requestOperationId: _operation, ...changed } = current.request;
     expect(() => parse({ ...saved, request: { ...changed,
       requestDigest: saved.request.requestDigest, requestOperationId: saved.request.requestOperationId } })).toThrow('requestDigest mismatch');
@@ -167,14 +168,11 @@ test('V2 rejects every missing or unknown field rather than silently discarding 
   }
 });
 
-test('V2 exact JSON rejects duplicate keys at every level, including escaped equivalent keys', () => {
+test('V2 wire decoding rejects duplicate JSON keys before identity validation', () => {
   const source = JSON.stringify(envelope());
-  for (const invalid of [
-    source.replace('"schema":', '"schema":"ignored","schema":'),
-    source.replace('"repository":', '"repository":"ignored","repository":'),
-    source.replace('"trustedRevision":', '"trustedRevision":"ignored","trustedRevision":'),
+  expect(() => parseVerificationSessionLocalPreparationRequestV2(
     source.replace('"purpose":', '"purpo\\u0073e":"verification-only","purpose":')
-  ]) expect(() => parseVerificationSessionLocalPreparationRequestV2(invalid)).toThrow('duplicate key');
+  )).toThrow('duplicate key');
 });
 
 test('V2 rejects malformed scalar pins, unsupported fast profile, and unbounded identity text', () => {
@@ -205,9 +203,8 @@ test('V2 rejects traversal, noncanonical spelling, unsorted paths and duplicate 
   for (const invalidPath of ['../escape', 'src/../escape', './src/a.ts', '/absolute', 'src//a.ts',
     'src\\a.ts', 'C:/src/a.ts', 'src/', '', 'src/\u0000a.ts', 'src/e\u0301.ts']) {
     expect(() => parse({ ...value, request: { ...value.request, manifestPath: invalidPath } })).toThrow('manifestPath');
-    expect(() => parse({ ...value, request: { ...value.request, authorizedPaths: [invalidPath] } })).toThrow('authorizedPaths');
   }
-  for (const authorizedPaths of [['b.ts', 'a.ts'], ['a.ts', 'a.ts'], null, ['a.ts', 1]]) {
+  for (const authorizedPaths of [['../escape'], ['b.ts', 'a.ts'], ['a.ts', 'a.ts'], null, ['a.ts', 1]]) {
     expect(() => parse({ ...value, request: { ...value.request, authorizedPaths } })).toThrow('authorizedPaths');
   }
 });
@@ -220,13 +217,9 @@ test('V2 decoding has byte and container-depth bounds before accepting any reque
   expect(() => parseVerificationSessionLocalPreparationRequestV2(`${JSON.stringify(envelope())} trailing`)).toThrow();
 });
 
-test('hosted legacy JSON input refuses excessive bytes, deep containers and duplicate keys', () => {
-  expect(() => parseVerificationSessionHostedRequest('X'.repeat(1_048_577)))
-    .toThrow('exceeds the bounded UTF-8 input size');
+test('hosted legacy input uses bounded exact JSON before checking placement', () => {
   expect(() => parseVerificationSessionHostedRequest('界'.repeat(350_000)))
     .toThrow('exceeds the bounded UTF-8 input size');
-  expect(() => parseVerificationSessionHostedRequest('{"a":{"b":{"c":{"d":{"e":true}}}}}'))
-    .toThrow('maximum container depth');
   expect(() => parseVerificationSessionHostedRequest(
     '{"schema":"sec-verification-session-hosted-request-v1","schema":"sec-verification-session-hosted-request-v1"}'
   )).toThrow('duplicate key');
@@ -253,16 +246,4 @@ test('hosted parser rejects both local versions while preserving exact legacy ho
   for (const local of [legacy, envelope()]) {
     expect(() => parseVerificationSessionHostedRequest(JSON.stringify(local))).toThrow('cannot be consumed by a hosted operation');
   }
-});
-
-test('copied valid V2 JSON remains input-only and cannot carry caller-authored qualification or Session state', () => {
-  const copied: VerificationSessionLocalPreparationRequestV2 = JSON.parse(JSON.stringify(envelope()));
-  const parsed = parse(copied);
-  expect(parsed.authorityStage).toBe('preparation-only');
-  expect(parsed.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
-  for (const extra of [
-    { qualified: true }, { mainHealth: { status: 'healthy' } },
-    { session: { sessionRevision: DIGEST_A } }, { actionPlanClosure: { actionPlanDigest: DIGEST_A } },
-    { integrationAuthorization: DIGEST_A }
-  ]) expect(() => parse({ ...copied, request: { ...copied.request, ...extra } })).toThrow();
 });

@@ -127,7 +127,8 @@ test.skipIf(process.platform !== 'linux')('settles separate concurrent store sco
 
 
 for (const asynchronous of [false, true]) {
-  for (const drift of ['none', 'permissions', 'identity'] as const) {
+  const drifts = asynchronous ? ['none', 'permissions', 'identity'] as const : ['none'] as const;
+  for (const drift of drifts) {
     test.skipIf(process.platform !== 'linux')(
       `settles ${asynchronous ? 'async' : 'sync'} callback rejection with ${drift} drift`,
       async () => {

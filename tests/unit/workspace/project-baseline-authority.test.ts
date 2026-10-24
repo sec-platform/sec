@@ -7,6 +7,7 @@ import {
   getProjectBaselinePath,
   readProjectBaseline
 } from '../../../src/adapters/workspace/project-baseline.ts';
+import { parseProjectBaseline, parseProjectBaselineJson } from '../../../src/workspace/contract/project-baseline.ts';
 import { ProjectIntegrityError } from '../../../src/workspace/contract/project-integrity.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
@@ -48,9 +49,11 @@ test('project baseline accepts only canonical unique portable artifact hash reco
     expect(Object.isFrozen(baseline)).toBe(true);
     expect(Object.isFrozen(baseline!.artifacts)).toBe(true);
 
+    await writeRawBaseline(workspaceRoot, { formatVersion: 'stale', artifacts: [] });
+    expectDriftFailure(() => readProjectBaseline(workspaceRoot));
+
     const decomposedUnicodePath = `app/${'e\u0301'}.tsx`;
     for (const malformed of [
-      { formatVersion: 'stale', artifacts: [] },
       { formatVersion: '1', artifacts: {} },
       { formatVersion: '1', artifacts: [{ path: 'app\\page.tsx', hash: 'a'.repeat(64) }] },
       { formatVersion: '1', artifacts: [{ path: '../page.tsx', hash: 'a'.repeat(64) }] },
@@ -82,17 +85,14 @@ test('project baseline accepts only canonical unique portable artifact hash reco
         artifacts: [{ path: 'app/page.tsx', hash: 'a'.repeat(64), surprise: true }]
       }
     ]) {
-      await writeRawBaseline(workspaceRoot, malformed);
-      expectDriftFailure(() => readProjectBaseline(workspaceRoot));
+      expect(() => parseProjectBaseline(malformed)).toThrow();
     }
 
-    for (const ambiguous of [
-      '{"formatVersion":"1","formatVersion":"1","artifacts":[]}\n',
+    await writeRawBaselineSource(workspaceRoot, '{"formatVersion":"1","formatVersion":"1","artifacts":[]}\n');
+    expectDriftFailure(() => readProjectBaseline(workspaceRoot));
+    expect(() => parseProjectBaselineJson(
       `{"formatVersion":"1","artifacts":[{"path":"app/page.tsx","path":"app/page.tsx","hash":"${'a'.repeat(64)}"}]}\n`
-    ]) {
-      await writeRawBaselineSource(workspaceRoot, ambiguous);
-      expectDriftFailure(() => readProjectBaseline(workspaceRoot));
-    }
+    )).toThrow(expect.objectContaining({ kind: 'duplicate-key' }));
 
     await writeRawBaselineSource(workspaceRoot, Buffer.concat([
       Buffer.from('{"formatVersion":"1","artifacts":[{"path":"app/'),

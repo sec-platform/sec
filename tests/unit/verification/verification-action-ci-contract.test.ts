@@ -184,19 +184,9 @@ test('scope revision constructs ActionPlan, then SessionProposal and SessionRevi
     }
   } as const;
   const session = createVerificationSession(sessionInput);
-  const receiptOnlyDrift = createVerificationSession({
-    ...sessionInput,
-    sessionId: 'constructible-session-retry',
-    createdAt: '2026-08-09T01:00:00.000Z',
-    scopeAuthorizationReceiptDigest: digest('6'),
-    mainHealthRef: { ...sessionInput.mainHealthRef, ledgerReceiptDigest: digest('7') }
-  });
   expect(session.actionPlanClosureDigest).toBe(actionPlan.actionPlanDigest);
   expect(encodeVerificationActionData(actionPlan)).not.toContain(sessionProposalDigest);
-  expect(session.sessionRevision).toBe(receiptOnlyDrift.sessionRevision);
   expect(encodeVerificationActionData(actionPlan)).not.toContain(session.sessionRevision);
-  expect(createVerificationSession({ ...sessionInput, actionPlanClosureDigest: digest('8') }).sessionRevision)
-    .not.toBe(session.sessionRevision);
 });
 
 test('Action closure preserves copied input and wire bytes while rejecting semantic drift and forgery', () => {

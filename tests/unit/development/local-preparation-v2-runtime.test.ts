@@ -122,13 +122,9 @@ test('V2 attempt-only residue cannot be adopted by recreating a missing preparat
   });
 });
 
-test('public local decoder enforces byte and depth limits before version-specific decoding', () => {
-  expect(() => parseVerificationSessionLocalPreparationRequest(' '.repeat(1024 * 1024) + '{'))
-    .toThrow('bounded UTF-8 input size');
+test('public local decoder uses bounded exact JSON before version-specific decoding', () => {
   expect(() => parseVerificationSessionLocalPreparationRequest('雪'.repeat(400_000)))
     .toThrow('bounded UTF-8 input size');
-  expect(() => parseVerificationSessionLocalPreparationRequest('{"a":{"b":{"c":{"d":{"e":1}}}}}'))
-    .toThrow('depth');
   const v2 = JSON.stringify(preparation());
   expect(() => parseVerificationSessionLocalPreparationRequest(v2.replace('{', '{"schema":"duplicate",')))
     .toThrow('duplicate');

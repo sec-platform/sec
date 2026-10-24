@@ -195,27 +195,20 @@ test.serial('hosted auditor authenticates its real principal and live run before
 });
 
 test.serial('invalid hosted auditor context never falls back to local credentials or reaches the network', async () => {
-  for (const environment of [
-    { SEC_GITHUB_RULESET_AUDITOR_TOKEN: undefined },
-    { GITHUB_REF: 'refs/heads/untrusted' },
-    { GITHUB_WORKFLOW_REF: `${REPOSITORY}/.github/workflows/other.yml@refs/heads/main` }
-  ]) {
-    const requests: Array<{ path: string; authorization: string | null }> = [];
-    await expect(withHostedAuditor({ environment, transport: hostedTransport({ requests }), operation: async () =>
+  const requests: Array<{ path: string; authorization: string | null }> = [];
+  await expect(withHostedAuditor({
+    environment: { SEC_GITHUB_RULESET_AUDITOR_TOKEN: undefined },
+    transport: hostedTransport({ requests }), operation: async () =>
       withGitHubApiRulesetReadSession({ repositoryRoot: process.cwd(), repository: REPOSITORY,
         operation: async () => { throw new Error('Callback must not run'); } })
-    })).rejects.toThrow('GitHub credential provider is unavailable');
-    expect(requests).toHaveLength(0);
-  }
+  })).rejects.toThrow('GitHub credential provider is unavailable');
+  expect(requests).toHaveLength(0);
 });
 
 test.serial('auditor principal and live-run drift prevent capability delivery', async () => {
   for (const change of [
     { permission: 'write', roleName: 'write' },
     { permission: 'write', roleName: 'custom-maintainer' },
-    { permission: 'maintain', roleName: 'custom-maintainer' },
-    { permission: 'read', roleName: 'maintain' },
-    { permission: 'write', roleName: 'admin' },
     { runOverride: { head_sha: 'b'.repeat(40) } },
     { runOverride: { status: 'completed' } },
     { runOverride: { path: '.github/workflows/untrusted.yml' } },

@@ -349,47 +349,24 @@ test('pre-rename durability faults preserve original bytes and mode', async () =
   });
 });
 
-test('candidate publication restores the captured target mode despite creation defaults', async () => {
+test('complete import write set preserves target mode and hardlink aliases under one durable transaction', async () => {
   await withWorkspace(async (root) => {
-    const target = path.join(root, 'a.ts');
-    await writeFile(target, 'a0\n');
-    await chmod(target, 0o755);
-    const originalMode = (await stat(target)).mode & 0o777;
-    const outcome = await publishImportTransformTransaction(root, [
-      { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') }
-    ]);
-    expect(outcome.status).toBe('accepted');
-    expect((await stat(target)).mode & 0o777).toBe(originalMode);
-  });
-});
-
-test('handle-bound reads preserve hard-linked target semantics', async () => {
-  await withWorkspace(async (root) => {
-    const target = path.join(root, 'a.ts');
+    const executable = path.join(root, 'a.ts');
+    const linked = path.join(root, 'b.ts');
     const alias = path.join(root, 'alias.ts');
-    await writeFile(target, 'a0\n');
-    await link(target, alias);
-    const outcome = await publishImportTransformTransaction(root, [{
-      relativePath: 'a.ts',
-      expectedBytes: Buffer.from('a0\n'),
-      replacementBytes: Buffer.from('a1\n')
-    }]);
-    expect(outcome.status).toBe('accepted');
-    expect(await readFile(target, 'utf8')).toBe('a1\n');
-    expect(await readFile(alias, 'utf8')).toBe('a0\n');
-  });
-});
-
-test('complete import write set is accepted under one durable transaction', async () => {
-  await withWorkspace(async (root) => {
-    await Promise.all([writeFile(path.join(root, 'a.ts'), 'a0\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
+    await Promise.all([writeFile(executable, 'a0\n'), writeFile(linked, 'b0\n')]);
+    await chmod(executable, 0o755);
+    const originalMode = (await stat(executable)).mode & 0o777;
+    await link(linked, alias);
     const outcome = await publishImportTransformTransaction(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') },
       { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
     ]);
     expect(outcome.status).toBe('accepted');
-    expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a1\n');
-    expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('b1\n');
+    expect(await readFile(executable, 'utf8')).toBe('a1\n');
+    expect((await stat(executable)).mode & 0o777).toBe(originalMode);
+    expect(await readFile(linked, 'utf8')).toBe('b1\n');
+    expect(await readFile(alias, 'utf8')).toBe('b0\n');
     expect(terminalJournalEntry(await readFile(outcome.journalPath, 'utf8'))).toMatchObject({ state: 'accepted' });
   });
 });

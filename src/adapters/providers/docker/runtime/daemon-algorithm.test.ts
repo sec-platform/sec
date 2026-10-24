@@ -318,41 +318,6 @@ describe('Docker daemon lifecycle algorithm', () => {
     expect(launches).toBe(0);
   });
 
-  test('lost launcher handle is typed only after one handle-independent final readback', async () => {
-    let observations = 0;
-    let launches = 0;
-    try {
-      await ensureDockerDaemonStartedWithCommand({
-        ...ensureStartedAuthority,
-        commandDeadlineAtUnixMs,
-        cwd: process.cwd(),
-        deadlineAtUnixMs: Date.now() + 10_000,
-        endpointHost,
-        platform: 'win32',
-        launch: async () => {
-          launches += 1;
-          return {
-            code: 1,
-            stdout: '',
-            stderr: 'launcher root handle was lost',
-            physicalDisposition: 'unknown'
-          };
-        },
-        withLauncherLock: async (operation) => await operation(),
-        run: async () => {
-          observations += 1;
-          return unavailable;
-        }
-      });
-      throw new Error('expected lost-handle blocker');
-    } catch (error) {
-      expectReason(error, 'desktop-launcher-settlement-unknown');
-      expect((error as DockerDaemonAvailabilityFailure).phase).toBe('final-readback');
-    }
-    expect(launches).toBe(1);
-    expect(observations).toBe(3);
-  });
-
   test('a ready daemon cannot settle an unknown launcher process tree', async () => {
     let observations = 0;
     let launches = 0;

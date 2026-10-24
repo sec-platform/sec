@@ -145,27 +145,28 @@ test('fresh or newly narrowed exhausted absolute deadlines still fail closed', (
   } finally { Date.now = original; }
 });
 
-test('a clock callback cannot replace the captured admission hook', async () => {
+test('coordinator capture fixes the deadline and admission hook before clock execution', async () => {
+  const original = Date.now;
+  Date.now = () => 1000;
   const calls: string[] = [];
   const originalHook = async () => { calls.push('original'); };
   const replacementHook = async () => { calls.push('replacement'); };
-  const input: RuntimeDependencyInstallOptions = { beforeCommit: originalHook };
-  input.monotonicNowMs = () => { input.beforeCommit = replacementHook; return 0; };
-  const normalized = normalize(input);
-  await fence(normalized, 'publish');
-  assert.deepEqual(calls, ['original']);
-});
-
-test('deadline accessors are sampled once into the normalized input', () => {
-  const original = Date.now;
-  Date.now = () => 1000;
-  let reads = 0;
   try {
-    const input = { get deadlineAtUnixMs() { reads++; return 1100; }, monotonicNowMs: () => 0 };
+    let deadline = 1100;
+    const input: RuntimeDependencyInstallOptions = {
+      beforeCommit: originalHook,
+      get deadlineAtUnixMs() {
+        const selected = deadline;
+        deadline = 2100;
+        return selected;
+      }
+    };
+    input.monotonicNowMs = () => { input.beforeCommit = replacementHook; return 0; };
     const normalized = normalize(input);
-    assert.equal(reads, 1);
     assert.equal(normalized.deadlineAtUnixMs, 1100);
     assert.equal(contextOf(normalized).deadlineAtMonotonicMs, 100);
+    await fence(normalized, 'publish');
+    assert.deepEqual(calls, ['original']);
   } finally { Date.now = original; }
 });
 

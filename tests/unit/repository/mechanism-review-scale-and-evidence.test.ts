@@ -102,7 +102,11 @@ test('a capability with a missing enclosing declaration is not reused after its 
 });
 
 test('a capability with a wrong enclosing path cannot contribute to distributed transport', () => {
-  const result = review({ ...facts(), capabilities: [capability(), capability({ path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'a', observationId: 'b-effect' })] });
+  const result = review({ ...facts(), capabilities: [
+    capability({ path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'b' }),
+    // This fact matches its owner's module; only the enclosing path is wrong.
+    capability({ path: 'src/b.ts', owningDeclarationObservationId: 'a', observationId: 'b-effect' })
+  ] });
   assert.equal(result.coverage.unresolvedCapabilities, 1);
   assert.equal(result.counts['distributed-direct-transport'], 0);
 });

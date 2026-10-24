@@ -26,10 +26,20 @@ async function write(root: string, relative: string, text: string) {
 
 const absent = (file: string) => assert.rejects(fs.lstat(file), error => (error as { code?: string }).code === 'ENOENT');
 
-test('independent copies preserve file bytes and empty directories without mutable sibling sharing', () => using(async (root, source, target) => {
+test('captured-root copies preserve ordinary files, symlink text and independent sibling bytes', () => using(async (root, source, target) => {
   await write(source, 'src/main.ts', 'original'); await fs.mkdir(path.join(source, 'empty'));
+  await fs.writeFile(path.join(root, 'outside'), 'external');
+  await fs.symlink('../outside', path.join(source, 'link'), 'file');
+  const originalTarget = await fs.readlink(path.join(source, 'link'));
   const sibling = path.join(root, 'sibling');
-  await copyWorkspaceFixture(source, target); await copyWorkspaceFixture(source, sibling);
+  const cwd = process.cwd();
+  try {
+    process.chdir(root);
+    const pending = copyWorkspaceFixture('source', 'target');
+    process.chdir(tmpdir());
+    await pending;
+  } finally { process.chdir(cwd); }
+  await copyWorkspaceFixture(source, sibling);
   assert.equal(await fs.readFile(path.join(target, 'src/main.ts'), 'utf8'), 'original');
   // Mutate the existing file, so a hard-linked copy would also change its peers.
   await fs.writeFile(path.join(target, 'src/main.ts'), 'target-only', { flag: 'r+' });
@@ -41,6 +51,9 @@ test('independent copies preserve file bytes and empty directories without mutab
   assert.equal(await fs.readFile(path.join(target, 'src/main.ts'), 'utf8'), 'target-only');
   assert.equal(await fs.readFile(path.join(sibling, 'src/main.ts'), 'utf8'), 'sibling-only');
   assert.deepEqual(await fs.readdir(path.join(target, 'empty')), []);
+  assert.equal((await fs.lstat(path.join(target, 'link'))).isSymbolicLink(), true);
+  assert.equal(await fs.readlink(path.join(target, 'link')), originalTarget);
+  assert.equal(await fs.readFile(path.join(root, 'outside'), 'utf8'), 'external');
 }));
 
 test('local-state projection case-folds declared snapshots and excludes transient state', () => using(async (_root, source, target) => {
@@ -64,16 +77,6 @@ test('local-state projection case-folds declared snapshots and excludes transien
   assert.equal(await fs.readFile(path.join(target, '.sec/artifacts/state/graph.lock.json'), 'utf8'), '{"kind":"lock"}\n');
   for (const file of ['.sec/locks', '.sec/workspace-write-lease', '.sec/semantic-mutation', '.sec/future-state',
     'node_modules', 'nested/node_modules', '.template-ready', 'nested/.template-ready']) await absent(path.join(target, file));
-}));
-
-test('ordinary symlinks keep their textual target instead of copying the referred external content', () => using(async (root, source, target) => {
-  await fs.writeFile(path.join(root, 'outside'), 'external');
-  await fs.symlink('../outside', path.join(source, 'link'), 'file');
-  const originalTarget = await fs.readlink(path.join(source, 'link'));
-  await copyWorkspaceFixture(source, target);
-  assert.equal((await fs.lstat(path.join(target, 'link'))).isSymbolicLink(), true);
-  assert.equal(await fs.readlink(path.join(target, 'link')), originalTarget);
-  assert.equal(await fs.readFile(path.join(root, 'outside'), 'utf8'), 'external');
 }));
 
 test('protected snapshot aliases fail before ordinary destination writes', async () => {
@@ -131,14 +134,6 @@ test('workspace fixture copies reject a local-state cache alias', () => using(as
   await fs.mkdir(external);
   await fs.symlink(external, path.join(source, '.sec', 'cache'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(copyWorkspaceFixture(source, target), /Workspace fixture \.sec\/cache must be a physical directory/);
-}));
-
-test('root bindings survive a caller cwd change during ordinary IO', () => using(async (root, source, target) => {
-  await write(source, 'value', 'captured'); const cwd = process.cwd();
-  try {
-    process.chdir(root); const pending = copyWorkspaceFixture('source', 'target'); process.chdir(tmpdir());
-    await pending; assert.equal(await fs.readFile(path.join(target, 'value'), 'utf8'), 'captured');
-  } finally { process.chdir(cwd); }
 }));
 
 test('a source root symlink is rejected instead of turning a mutable fixture into a directory alias', () => using(async (root, source, target) => {

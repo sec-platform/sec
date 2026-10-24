@@ -81,30 +81,31 @@ for (const source of [
   });
 }
 
-test('project declarations retain the existing report shape and coalesce equal duplicates', () => {
+test('aliased project declarations coalesce, isolate callers and retain every source report', () => {
   const f = fixture();
   try {
-    f.write('fixture.yaml', JSON.stringify({ policies: [row(), row()] }));
-    const result = loadPolicyDeclarations(f.root);
-    assert.deepEqual(result.project.policies, [row().id]);
-    assert.equal(result.project.definitions.length, 1);
-    assert.equal(result.project.sources.length, 1);
-    assert.deepEqual(result.project.sources[0]!.policyIds, [row().id]);
-    assert.deepEqual(result.definitions.get(row().id)?.policy, row());
-    assert.equal(result.definitions.get(row().id)?.sourceScope, 'project');
-  } finally { f.cleanup(); }
-});
+    f.write('a.yaml', `policies:\n  - &p\n    id: policy-reuse-fixture\n    severity: warn\n    appliesTo: [block/a]\n    rule: ${POLICY_RULE_IDS[0]}\n  - *p\n`);
+    const first = loadPolicyDeclarations(f.root);
+    assert.deepEqual(first.project.policies, [row().id]);
+    assert.equal(first.project.definitions.length, 1);
+    assert.equal(first.project.sources.length, 1);
+    assert.deepEqual(first.project.sources[0]!.policyIds, [row().id]);
+    assert.deepEqual(first.definitions.get(row().id)?.policy, row());
+    assert.equal(first.definitions.get(row().id)?.sourceScope, 'project');
+    assert.deepEqual(first.project.definitions.map(value => value.policy), [row()]);
+    assert.equal('evaluation' in first, false);
 
-test('equal project declarations retain every source report', () => {
-  const f = fixture();
-  try {
-    f.write('a.yaml', JSON.stringify({ policies: [row()] }));
+    const second = loadPolicyDeclarations(f.root);
+    first.project.definitions[0]!.policy.appliesTo.push('block/b');
+    assert.deepEqual(second.project.definitions[0]!.policy.appliesTo, ['block/a']);
+    assert.deepEqual(loadPolicyDeclarations(f.root).project.definitions[0]!.policy.appliesTo, ['block/a']);
+
     f.write('z.yml', JSON.stringify({ policies: [row()] }));
-    const result = loadPolicyDeclarations(f.root);
-    assert.equal(result.definitions.get(row().id)?.sourcePath, 'model/policies/z.yml');
-    assert.equal(result.project.definitions.length, 2);
-    assert.equal(result.project.sources.length, 2);
-    assert.deepEqual(result.project.policies, [row().id]);
+    const combined = loadPolicyDeclarations(f.root);
+    assert.equal(combined.definitions.get(row().id)?.sourcePath, 'model/policies/z.yml');
+    assert.equal(combined.project.definitions.length, 2);
+    assert.equal(combined.project.sources.length, 2);
+    assert.deepEqual(combined.project.policies, [row().id]);
   } finally { f.cleanup(); }
 });
 
@@ -129,16 +130,6 @@ test('a higher precedence source cannot hide invalid lower precedence declaratio
   } finally { f.cleanup(); }
 });
 
-test('declared aliases retain normal YAML meaning and no consumer gains semantic assurance from parsing', () => {
-  const f = fixture();
-  try {
-    f.write('fixture.yaml', `policies:\n  - &p\n    id: policy-reuse-fixture\n    severity: warn\n    appliesTo: [block/a]\n    rule: ${POLICY_RULE_IDS[0]}\n  - *p\n`);
-    const result = loadPolicyDeclarations(f.root);
-    assert.deepEqual(result.project.definitions.map(value => value.policy), [row()]);
-    assert.equal('evaluation' in result, false);
-  } finally { f.cleanup(); }
-});
-
 test('per-source parsing budget rejects oversized text without changing inventory capacity', () => {
   const f = fixture();
   try {
@@ -155,16 +146,5 @@ test('invalid byte encoding remains a retained decoding failure rather than an e
     assert.throws(() => loadPolicyDeclarations(f.root), error =>
       error instanceof Error && /\bUTF-8\b/u.test(error.message)
       && error.message.includes('fixture.yaml') && error.cause instanceof TypeError);
-  } finally { f.cleanup(); }
-});
-
-test('each invocation returns policy arrays isolated from caller mutation', () => {
-  const f = fixture();
-  try {
-    f.write('fixture.yaml', JSON.stringify({ policies: [row()] }));
-    const first = loadPolicyDeclarations(f.root), second = loadPolicyDeclarations(f.root);
-    first.project.definitions[0]!.policy.appliesTo.push('block/b');
-    assert.deepEqual(second.project.definitions[0]!.policy.appliesTo, ['block/a']);
-    assert.deepEqual(loadPolicyDeclarations(f.root).project.definitions[0]!.policy.appliesTo, ['block/a']);
   } finally { f.cleanup(); }
 });

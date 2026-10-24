@@ -2013,7 +2013,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
 
   test('resolution keeps completed-success job admission despite later-failure recovery of other Action slots', async () => {
     for (const patch of [{ status: 'in_progress', conclusion: null, completed_at: null },
-      { conclusion: 'failure' }, { conclusion: 'cancelled' }, { conclusion: 'timed_out' }]) {
+      { conclusion: 'failure' }]) {
       const value = resolutionFixture();
       Object.assign(value.job, patch);
       await expect(provider.readHostedResumeResolutionTransport({ origin: resumeOrigin,
@@ -2024,14 +2024,10 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   });
 
   test('resolution source, exact attempt, unique producer and upload window are mandatory before archive capture', async () => {
+    // Common attempt/census/timestamp grammar is exercised by the start slot;
+    // this entry owns resolver wiring and refusal before archive capture.
     const forgeries: Array<(value: ReturnType<typeof resolutionFixture>) => void> = [
-      value => { value.job.run_attempt = null; }, value => { value.job.run_attempt = 2; },
-      value => { value.job.run_attempt = '1'; },
-      value => { value.job.head_sha = HEAD; }, value => { value.job.name = 'claim-verification-action'; },
-      value => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...value.job }); },
-      value => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...value.job, id: 9999 }); },
-      value => { value.job.steps = []; },
-      value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[0]!, number: 8 }); },
+      value => { value.job.name = 'claim-verification-action'; },
       value => { (value.job.steps as Record<string, unknown>[])[0]!.conclusion = 'failure'; },
       value => { (value.job.steps as Record<string, unknown>[])[1]!.number = 4; },
       value => { (value.job.steps as Record<string, unknown>[])[1]!.conclusion = 'skipped'; },
@@ -2039,8 +2035,8 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       value => { (value.job.steps as Record<string, unknown>[])[1]!.completed_at = '2026-08-10T01:00:00Z';
         value.job.completed_at = '2026-08-10T01:00:01Z';
         fakeGh.artifactMetadataOverrides['7004'] = { updated_at: '2026-08-10T01:00:00Z' }; },
-      ...[{ created_at: undefined }, { updated_at: undefined }, { created_at: '2026-08-09T00:59:02Z' },
-        { updated_at: '2026-08-09T00:59:06Z' }, { updated_at: '2026-08-09T00:59:02Z' }].map(patch =>
+      ...[{ created_at: '2026-08-09T00:59:02Z' },
+        { updated_at: '2026-08-09T00:59:06Z' }].map(patch =>
         (_value: ReturnType<typeof resolutionFixture>) => { fakeGh.artifactMetadataOverrides['7004'] = patch; }),
       _value => { fakeGh.workflowSourceHook = call => call === 2
         ? `${CANONICAL_WORKFLOW_SOURCE}\n  extra-resolution-writer:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo unexpected\n` : null; }
@@ -2146,15 +2142,10 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   }
 
   test('delegated source requires whole-workflow, exact attempt, unique receiver and successful ordered session upload', async () => {
+    // Keep receiver/slot qualification and its unqualified/no-emitter result;
+    // do not repeat the common publisher's complete job-census matrix here.
     const forgeries: Array<(value: ReturnType<typeof delegatedSessionFixture>) => void> = [
-      value => { value.job.run_attempt = null; }, value => { value.job.run_attempt = 2; },
-      value => { value.job.run_attempt = '1'; }, value => { value.job.run_id = 9401; },
-      value => { value.job.head_sha = HEAD; }, value => { value.job.name = 'coordinate-verification-session'; },
-      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job }); },
-      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job, id: 6401 }); },
-      _value => { fakeGh.jobPageHook = (_page, _call, runId) => runId === DELEGATED_RUN_ID ? { totalCount: 2 } : null; },
-      value => { value.job.steps = []; },
-      value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[0]!, number: 8 }); },
+      value => { value.job.name = 'coordinate-verification-session'; },
       value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[2]!, number: 8 }); },
       value => { (value.job.steps as Record<string, unknown>[])[0]!.conclusion = 'failure'; },
       value => { (value.job.steps as Record<string, unknown>[])[2]!.conclusion = 'skipped'; },
@@ -2162,8 +2153,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       value => { (value.job.steps as Record<string, unknown>[])[2]!.name = 'Upload complete original resume dispatch outcome observations'; },
       value => { (value.job.steps as Record<string, unknown>[])[1]!.number = 5; },
       value => { value.job.status = 'in_progress'; value.job.conclusion = null; value.job.completed_at = null; },
-      ...['failure', 'cancelled', 'timed_out'].map(conclusion =>
-        (value: ReturnType<typeof delegatedSessionFixture>) => { value.job.conclusion = conclusion; }),
+      value => { value.job.conclusion = 'failure'; },
       _value => { fakeGh.exactRunOverrides[`${DELEGATED_RUN_ID}:1`]!.conclusion = 'failure'; },
       _value => { fakeGh.workflowSourceHook = call => call === 1
         ? `${CANONICAL_WORKFLOW_SOURCE}\n  extra-session-writer:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo unexpected\n` : null; }
@@ -2182,24 +2172,16 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
 
   test('delegated archive must remain in its actual session upload interval and original producer budget', async () => {
     const forgeries: Array<(value: ReturnType<typeof delegatedSessionFixture>) => void> = [
-      value => { value.job.started_at = undefined; }, value => { value.job.completed_at = '2026-08-09T01:01:09Z'; },
-      value => { (value.job.steps as Record<string, unknown>[])[0]!.started_at = null; },
+      // Reversed producer duration supplements the start slot's ordering
+      // predicates; the receiver also has its own policy budget.
       value => { (value.job.steps as Record<string, unknown>[])[0]!.completed_at = '2026-08-09T01:01:00Z'; },
-      value => { (value.job.steps as Record<string, unknown>[])[2]!.started_at = '2026-08-09T01:01:01Z'; },
-      value => { (value.job.steps as Record<string, unknown>[])[2]!.completed_at = null; },
-      value => { (value.job.steps as Record<string, unknown>[])[2]!.completed_at = '2026-08-09T01:01:05Z'; },
       value => { const upload = (value.job.steps as Record<string, unknown>[])[2]!;
         upload.started_at = '2026-08-10T01:01:06Z'; upload.completed_at = '2026-08-10T01:01:10Z';
         value.job.completed_at = '2026-08-10T01:01:12Z';
         fakeGh.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)] = {
           created_at: upload.started_at, updated_at: upload.completed_at }; },
-      ...[{ created_at: undefined }, { updated_at: undefined }, { created_at: 'invalid' },
-        { created_at: '2026-08-09T01:01:05Z' }, { updated_at: '2026-08-09T01:01:11Z' },
-        { updated_at: '2026-08-09T01:01:05Z' },
-        { workflow_run: { id: Number(DELEGATED_RUN_ID), head_sha: HEAD } }].map(patch =>
-        (_value: ReturnType<typeof delegatedSessionFixture>) => {
-          Object.assign(fakeGh.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)]!, patch);
-        })
+      _value => { Object.assign(fakeGh.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)]!,
+        { created_at: '2026-08-09T01:01:05Z' }); }
     ];
     for (const forge of forgeries) {
       const value = delegatedSessionFixture();
@@ -2374,31 +2356,18 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   }, 30_000);
 
   test('outcome carrier requires its exact ended receiver, source-owned slot and actual upload interval', async () => {
+    // Outcome admits a failed producer, but still binds its ended receiver,
+    // own upload and chronology before yielding observer-only history.
     const forgeries: Array<(value: ReturnType<typeof outcomeHistoryFixture>) => void> = [
-      value => { value.job.id = 6401; }, value => { value.job.run_id = 9401; },
-      value => { value.job.run_attempt = null; }, value => { value.job.run_attempt = 2; },
-      value => { value.job.run_attempt = '1'; }, value => { value.job.head_sha = HEAD; },
+      value => { value.job.id = 6401; },
       value => { value.job.name = 'coordinate-verification-session'; },
-      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job }); },
-      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job, id: 6401 }); },
-      _value => { fakeGh.jobPageHook = (_page, _call, runId) => runId === DELEGATED_RUN_ID ? { totalCount: 2 } : null; },
       value => { value.job.status = 'in_progress'; value.job.conclusion = null; value.job.completed_at = null; },
-      value => { value.job.started_at = undefined; }, value => { value.job.completed_at = '2026-08-09T01:01:04Z'; },
-      value => { value.job.steps = []; },
-      value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[0]!, number: 8 }); },
+      value => { value.job.completed_at = '2026-08-09T01:01:04Z'; },
       value => { (value.job.steps as Record<string, unknown>[])[0]!.conclusion = 'cancelled'; },
       value => { (value.job.steps as Record<string, unknown>[])[1]!.conclusion = 'failure'; },
       value => { (value.job.steps as Record<string, unknown>[])[1]!.name = 'Upload resumed terminal Verification Session artifact'; },
       value => { (value.job.steps as Record<string, unknown>[])[1]!.number = 4; },
-      value => { (value.job.steps as Record<string, unknown>[])[1]!.started_at = null; },
-      value => { (value.job.steps as Record<string, unknown>[])[1]!.started_at = '2026-08-09T01:01:00Z'; },
-      value => { (value.job.steps as Record<string, unknown>[])[1]!.completed_at = '2026-08-09T01:01:02Z'; },
-      value => { const upload = (value.job.steps as Record<string, unknown>[])[1]!;
-        upload.started_at = '2026-08-10T01:01:03Z'; upload.completed_at = '2026-08-10T01:01:05Z';
-        value.job.completed_at = '2026-08-10T01:01:12Z';
-        fakeGh.artifactMetadataOverrides[String(OUTCOME_ARTIFACT_ID)] = { created_at: upload.started_at, updated_at: upload.completed_at }; },
-      ...[{ created_at: undefined }, { updated_at: 'invalid' }, { created_at: '2026-08-09T01:01:02Z' },
-        { updated_at: '2026-08-09T01:01:06Z' }, { updated_at: '2026-08-09T01:01:02Z' },
+      ...[{ updated_at: '2026-08-09T01:01:06Z' },
         { workflow_run: { id: Number(DELEGATED_RUN_ID), head_sha: HEAD } }].map(patch =>
         (_value: ReturnType<typeof outcomeHistoryFixture>) => {
           Object.assign(fakeGh.artifactMetadataOverrides[String(OUTCOME_ARTIFACT_ID)]!, patch);

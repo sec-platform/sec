@@ -3,13 +3,20 @@ import assert from 'node:assert/strict';
 import { runtimeDependencyOperationEffectFence } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
-test('effect callback is fixed before a budget clock can replace it', async () => {
+test('effect callback getter is fixed before clock execution and provider dispatch', async () => {
   let armed = false, calls = 0;
   const controls = runtimeDependencyOperationControls({ lockTimeoutMs: 1000, monotonicNowMs() {
-    if (armed) input.beforeCommit = async () => assert.fail('replacement effect');
+    if (armed) Object.defineProperty(input, 'beforeCommit', {
+      value: async () => assert.fail('clock replacement effect'), configurable: true
+    });
     return 0;
   }});
-  const input = { ...controls, beforeCommit: async () => { calls++; } };
+  let callback = async () => { calls++; };
+  const input = { ...controls, get beforeCommit() {
+    const selected = callback;
+    callback = async () => assert.fail('getter reread effect');
+    return selected;
+  } };
   armed = true;
   await runtimeDependencyOperationEffectFence(input, 'capture');
   assert.equal(calls, 1);
@@ -29,17 +36,6 @@ for(const callback of [null,false,7,'not callable']){
     await assert.rejects(runtimeDependencyOperationEffectFence({...controls,beforeCommit:callback as never},'invalid'),TypeError);
   });
 }
-
-test('callback getter runs once, not again at provider dispatch',async()=>{
-  let reads=0,calls=0;const controls=runtimeDependencyOperationControls({lockTimeoutMs:1000,monotonicNowMs:()=>0});
-  const input={...controls,get beforeCommit(){reads++;return async()=>{calls++;};}};
-  await runtimeDependencyOperationEffectFence(input,'getter');assert.equal(reads,1);assert.equal(calls,1);
-});
-
-test('post-callback exhaustion cannot turn into successful admission',async()=>{
-  let now=0;const controls=runtimeDependencyOperationControls({lockTimeoutMs:100,monotonicNowMs:()=>now});
-  await assert.rejects(runtimeDependencyOperationEffectFence({...controls,beforeCommit:async()=>{now=101;}},'exhausted'),/deadline/);
-});
 
 test('arbitrary provider rejection retains its identity',async()=>{
   const controls=runtimeDependencyOperationControls({lockTimeoutMs:1000,monotonicNowMs:()=>0});

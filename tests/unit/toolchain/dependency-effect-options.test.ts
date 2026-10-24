@@ -33,11 +33,16 @@ test('original receiver survives capture and public method replacement', async (
   assert.equal(raw.calls, 1);
 });
 
-test('callback selection precedes clock callbacks', async () => {
+test('callback getter selection precedes clock callbacks and later effect dispatch', async () => {
   let called = 0;
+  let callback = async () => { called++; };
   const raw = { lockTimeoutMs: 100, monotonicNowMs: () => {
-    raw.beforeCommit = async () => assert.fail('clock replacement'); return 0;
-  }, beforeCommit: async () => { called++; } };
+    callback = async () => assert.fail('clock replacement'); return 0;
+  }, get beforeCommit() {
+    const selected = callback;
+    callback = async () => assert.fail('getter reread');
+    return selected;
+  } };
   await runtimeDependencyOperationEffectFence(runtimeDependencyEffectFenceOptions(raw), 'clock');
   assert.equal(called, 1);
 });
@@ -68,14 +73,3 @@ for (const callback of [null, false, 0, 'callback']) {
       monotonicNowMs: () => assert.fail('invalid input sampled clock') }), TypeError);
   });
 }
-
-test('all selected control and callback getters are captured only once', async () => {
-  const reads = new Map<string, number>();
-  const raw = {};
-  for (const [key, value] of Object.entries({ lockTimeoutMs: 100, pollIntervalMs: 2,
-    monotonicNowMs: (): number => 0, beforeCommit: async () => {} })) {
-    Object.defineProperty(raw, key, { enumerable: true, get() { reads.set(key, (reads.get(key) ?? 0) + 1); return value; } });
-  }
-  await runtimeDependencyOperationEffectFence(runtimeDependencyEffectFenceOptions(raw), 'getters');
-  assert.deepEqual([...reads.values()], [1, 1, 1, 1]);
-});

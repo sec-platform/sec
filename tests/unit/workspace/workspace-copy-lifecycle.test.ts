@@ -23,43 +23,39 @@ async function absent(p: string) {
 
 // Uses actual ordinary Node/Bun filesystem operations. The two tests wrapping
 // fs.copyFile add controlled scheduling/failure but do not replace other IO.
-test('one traversal copies nested files and preserves empty directories', async () => {
-  const f = await fixture();
+test('one traversal preserves nested bytes and empty directories across a cwd-changing fence', async () => {
+  const f = await fixture(), original = process.cwd();
   try {
     await fs.mkdir(path.join(f.source, 'a', 'empty'), { recursive: true });
     await fs.mkdir(path.join(f.source, 'b'));
     await fs.writeFile(path.join(f.source, 'root.bin'), Uint8Array.of(0, 255, 10));
     await fs.writeFile(path.join(f.source, 'a', 'nested.txt'), 'nested');
-    await copyRecursive(f.source, f.target);
+    process.chdir(f.root);
+    await copyRecursive('source', 'target', async () => { process.chdir(tmpdir()); });
     assert.deepEqual(await fs.readFile(path.join(f.target, 'root.bin')), Buffer.from([0, 255, 10]));
     assert.equal(await fs.readFile(path.join(f.target, 'a', 'nested.txt'), 'utf8'), 'nested');
     assert.equal((await fs.lstat(path.join(f.target, 'a', 'empty'))).isDirectory(), true);
     assert.deepEqual(await fs.readdir(path.join(f.target, 'b')), []);
-  } finally { await fs.rm(f.root, { recursive: true, force: true }); }
-});
-
-test('relative source and destination remain bound when the effect fence changes cwd', async () => {
-  const f = await fixture(), original = process.cwd();
-  try {
-    await fs.writeFile(path.join(f.source, 'file'), 'original');
-    process.chdir(f.root);
-    await copyRecursive('source', 'target', async () => { process.chdir(tmpdir()); });
-    assert.equal(await fs.readFile(path.join(f.target, 'file'), 'utf8'), 'original');
   } finally { process.chdir(original); await fs.rm(f.root, { recursive: true, force: true }); }
 });
 
-for (const target of ['same', 'descendant', 'ancestor']) {
-  test(`${target} overlap is rejected before the first effect`, async () => {
-    const f = await fixture();
-    try {
-      await fs.writeFile(path.join(f.source, 'kept'), 'original');
+test('overlap, cancelled admission and an invalid fence perform no copy effects', async () => {
+  const f = await fixture(), controller = new AbortController(), reason = new Error('cancel');
+  controller.abort(reason);
+  try {
+    await fs.writeFile(path.join(f.source, 'kept'), 'original');
+    await assert.rejects(copyRecursive(f.source, f.target, undefined, controller.signal), error => error === reason);
+    assert.equal(await absent(f.target), true);
+    await assert.rejects(copyRecursive(f.source, f.target, 7 as never), TypeError);
+    assert.equal(await absent(f.target), true);
+    for (const target of ['same', 'descendant', 'ancestor']) {
       const destination = target === 'same' ? f.source : target === 'ancestor' ? f.root : path.join(f.source, 'new');
       await assert.rejects(copyRecursive(f.source, destination, async () => assert.fail('effect')), /overlap/);
       assert.equal(await fs.readFile(path.join(f.source, 'kept'), 'utf8'), 'original');
       assert.equal(await absent(path.join(f.source, 'new')), true);
-    } finally { await fs.rm(f.root, { recursive: true, force: true }); }
-  });
-}
+    }
+  } finally { await fs.rm(f.root, { recursive: true, force: true }); }
+});
 
 test('a later symbolic-link source refuses the complete plan before destination creation', async () => {
   const f = await fixture();
@@ -68,16 +64,6 @@ test('a later symbolic-link source refuses the complete plan before destination 
     const outside = path.join(f.root, 'outside'); await fs.writeFile(outside, 'external');
     await fs.symlink(outside, path.join(f.source, 'z-link'), 'file');
     await assert.rejects(copyRecursive(f.source, f.target), /symbolic-link/);
-    assert.equal(await absent(f.target), true);
-  } finally { await fs.rm(f.root, { recursive: true, force: true }); }
-});
-
-test('cancelled admission and an invalid fence perform no destination effects', async () => {
-  const f = await fixture(), controller = new AbortController(), reason = new Error('cancel');
-  controller.abort(reason);
-  try {
-    await assert.rejects(copyRecursive(f.source, f.target, undefined, controller.signal), error => error === reason);
-    await assert.rejects(copyRecursive(f.source, f.target, 7 as never), TypeError);
     assert.equal(await absent(f.target), true);
   } finally { await fs.rm(f.root, { recursive: true, force: true }); }
 });
@@ -100,7 +86,7 @@ test('a changed source at the final fence is not copied as the admitted input', 
   } finally { await fs.rm(f.root, { recursive: true, force: true }); }
 });
 
-test('destination hardlinks are detached without rewriting the other file', async () => {
+test('single-file copying detaches destination hardlinks without rewriting a peer or the source', async () => {
   const f = await fixture();
   try {
     const source = path.join(f.source, 'file'), peer = path.join(f.root, 'peer');
@@ -109,17 +95,10 @@ test('destination hardlinks are detached without rewriting the other file', asyn
     await copyRecursive(source, path.join(f.target, 'file'));
     assert.equal(await fs.readFile(peer, 'utf8'), 'old');
     assert.equal(await fs.readFile(path.join(f.target, 'file'), 'utf8'), 'source');
-  } finally { await fs.rm(f.root, { recursive: true, force: true }); }
-});
-
-test('single-file copying to another hardlink of itself retains the source', async () => {
-  const f = await fixture();
-  try {
-    const source = path.join(f.source, 'file'); await fs.writeFile(source, 'source'); await fs.mkdir(f.target);
-    await fs.link(source, path.join(f.target, 'file'));
-    await copyRecursive(source, path.join(f.target, 'file'));
+    await fs.link(source, path.join(f.target, 'source-link'));
+    await copyRecursive(source, path.join(f.target, 'source-link'));
     assert.equal(await fs.readFile(source, 'utf8'), 'source');
-    assert.equal(await fs.readFile(path.join(f.target, 'file'), 'utf8'), 'source');
+    assert.equal(await fs.readFile(path.join(f.target, 'source-link'), 'utf8'), 'source');
   } finally { await fs.rm(f.root, { recursive: true, force: true }); }
 });
 

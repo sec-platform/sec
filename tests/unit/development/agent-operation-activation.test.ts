@@ -425,16 +425,13 @@ test('hosted phase selector returns the phase for an exact job and phase data pa
   })).toBe('prepare-parent-plan');
 });
 
-test('hosted phase selector rejects empty, incomplete and extra selector tokens', () => {
+test('hosted phase selector requires exactly the canonical job and phase flags', () => {
   for (const argv of [
     [],
-    ['--job'],
-    ['--job', 'agent-operation-activation'],
     ['--job', 'agent-operation-activation', '--phase'],
-    ['--phase', 'produce-hosted'],
     ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', 'extra'],
-    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--json'],
-    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--phase', 'publish-hosted']
+    ['--job-id', 'agent-operation-activation', '--phase', 'produce-hosted'],
+    ['--job', 'agent-operation-activation', '--command', 'produce-hosted']
   ]) {
     expect(() => selectHostedJobRuntimePhase({ argv,
       authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
@@ -455,29 +452,6 @@ test('hosted phase selector compares both supplied job and phase identities exac
     expect(() => selectHostedJobRuntimePhase({ argv, ...pair })).toThrow();
   }
 });
-
-test('hosted phase selector rejects reordered flags and legacy unbounded command options', () => {
-  for (const argv of [
-    ['--phase', 'produce-hosted', '--job', 'agent-operation-activation'],
-    ['--job-id', 'agent-operation-activation', '--phase', 'produce-hosted'],
-    ['--job', 'agent-operation-activation', '--command', 'produce-hosted'],
-    ['--job', 'agent-operation-activation', '--job', 'produce-hosted'],
-    ['--phase', 'agent-operation-activation', '--phase', 'produce-hosted'],
-    ['--job=agent-operation-activation', '--phase=produce-hosted'],
-    ['request'], ['observe'], ['produce-hosted'], ['publish-hosted'],
-    ['produce-hosted', '--json', '--json'],
-    ['publish-hosted', '--arbitrary-program', 'candidate.js'],
-    ['produce-hosted', '--runtime-root', '.', '--candidate-root', '.', '--request', 'request.json',
-      '--output', 'output.json', '--json', '--skip-source-guard', 'true'],
-    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--arbitrary-program', 'candidate.js'],
-    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--skip-source-guard', 'true']
-  ]) {
-    expect(() => selectHostedJobRuntimePhase({ argv,
-      authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
-    })).toThrow();
-  }
-});
-
 
 test('actual activation Git ports ignore ambient config, trace and repository redirects inside the private lifetime', async () => {
   await inGitProtocolRepository(async (root, git) => {
