@@ -13,3 +13,9 @@ derived/只是移除短写后的/2只读对照，不在活动范围；changes/ov
 ## 名义结果接合修订
 
 本次累计修订将CheckOutcome、TouchBody、OverlapBody、CanonicalTouch、CanonicalOverlap的outcome参数统一引用已公开的`local:Outcome`，不再在签名中复制匿名variant。类型形状、关系规则和所有函数主体保持；Goal及接口仍引用同一结果类型。此项修复不等于运行Reader或完整产品类型检查。
+
+## 调用方不重写已选关系的完整保证
+
+应用选择CanonicalTouch即采用该准确关系中的覆盖、顺序、端点、错误与相接合并规则；无需再加同义Goal逐条声明它们。后继选择CanonicalOverlap改变的是相接边界这个独立含义，其他由新关系共同保持的部分继续引用，不能因二者接口相同就沿用旧方法全部资格。排序扫描、树或其他实现可在完整合同内自动选择，应用作者未主动指定时不维护这些算法。
+
+约束由库解释不等于Normalize已有可运行实现；输入不变、错误归属、数值范围、资源及正常进展仍需实际Method与所选目标保持。相关源、候选解释和旧有限核对保留，本次只将其作者责任接入[合同继承](../../../docs/作者/第一层语言.md#inherited-contract-author-delta)、[编译消费者](../../../docs/开发/第一层编译承接.md#inherited-contract-elaboration)及[验收](../../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)，不增加第二份可写关系或新运行成绩。

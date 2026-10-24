@@ -12,6 +12,19 @@
 
 短写合同见[紧凑结构与同源编辑](../../docs/作者/紧凑结构与同源编辑.md#vscode-sparse-author-source)；宿主接合见[VS Code原生接合](../../docs/开发/VSCode原生接合.md#vscode-native-author-surface)。所有活动交付不再包含旧独立HTML壳。
 
+## 继承完整含义，后继只改独立差异
+
+这些工程通过准确库引用选择完整关系，不要求应用作者再逐条声明库已经拥有的不变量。完整库、候选解释和实际方法仍有自己的维护与验证责任，不能把它们藏起后宣称只有一行的总成本。各例的第一层新增差异及下层证据边界如下；共同规则见[合同继承](../../docs/作者/第一层语言.md#inherited-contract-author-delta)和[实际编译承接](../../docs/开发/第一层编译承接.md#inherited-contract-elaboration)。
+
+| 实际源例 | 本次真正选择或改变的内容 | 自动承接及未取得的内容 |
+|---|---|---|
+| [区间](interval/README.md) | CanonicalTouch切换CanonicalOverlap，改变相接端点是否合并 | 两个关系各自的合法输入、覆盖、重数相关处理、顺序和错误仍由库定义；没有运行Normalize或目标资格。 |
+| [预留](reservations/README.md) | 选择NoOversell，后继改为KeepOneFree的准入政策 | 实际状态关系、错误和不超额由所选合同承担；共享资源、真实提交、恢复与活性仍需Method/Provider。 |
+| [观察包络](observation-bounds/README.md) | AtLeast变Exactly，改变所求数量关系 | 库解释合法包络及判定；真实数据的覆盖与来源不从自填数值取得。 |
+| compatible/proposed与new-author | 前者等义换编码；后者新建不同条款身份 | 等义展开不删除独立接受来源；新身份不自动继承旧两条款的证据，iff投影不自签等价。 |
+
+这里只解释现有源和消费者，不改机器定义，不发布示意Payment/Commerce标准包，也不新增另一作者语言或把完整合同机械回填到应用文件。验收接入[原第一层案例](../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)，本次文档整合不重报历史有限核对为新运行结果。
+
 ## 区间与编码边界范本
 
 interval/是含完整解释库的新范本：活动源码使用compact codec，复杂定义的原形是同一codec的正常分支；derived/是只读/2结构对照且不在sourceScopes内；changes/保存单行语义修改及对照。README给出实际范围、独立数学论证与未实现部分。codec-boundaries/提供普通数据与语法分派的边界源例。

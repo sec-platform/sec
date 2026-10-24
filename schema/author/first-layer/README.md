@@ -15,3 +15,9 @@
 requirement旧方言仍由它原来的Body合同负责；本次只给实际校准与同构适配，不复制一份缩水专业语义。通用类型、未知帧、Unicode等新构造属于候选codec的明确修订，不借供给注册覆盖旧核心解释。
 
 `model-contract`在原Interpret内部按准确profile返回现有Rule声明角色，并由require消费；供给清单没有新增公共consumer。当前签名增加了profile到结果角色的明确分派。Norm的独立补救引用及接受事件按当前语义修订解码，不能回用旧规则猜义。
+
+## 与第一层继承及原消费者的关系
+
+专业模型的准确合同经实际Rule/Use绑定进入共同义务，引用者不重复书写模型已经确定的不变量；该条件合同不自动提供现实前提、实现资格或执行权限。来源、实例、条件及独立接受关系继续由[第一层作者](../../../docs/作者/第一层语言.md#inherited-contract-author-delta)和[编译承接](../../../docs/开发/第一层编译承接.md#inherited-contract-elaboration)接到原Requirement/BoundaryView、C0—C6及Claim，专业意义仍由本目录的精确语义拥有。
+
+[语言分层与26项范围](../../../docs/作者/表达范围与专业接合.md)定位编码、专业解释、决定坐标和阶段的区别；[验收](../../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)检查应用差异和下层责任，不增Schema字段、公共Interpret接口或另一套证明模型。此阅读接合未修改供给摘要列明的语义、签名或结构成员；原摘要范围、NOT_IMPLEMENTED及有限画像限制保持。

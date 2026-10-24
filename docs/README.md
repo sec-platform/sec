@@ -56,7 +56,11 @@
 
 | 要回答的问题 | 定义与下一步 |
 |---|---|
+| 语言分层、决定坐标、专业扩展与编译阶段是什么关系？ | [分层责任对应](作者/表达范围与专业接合.md#language-layer-responsibility-map)，保留原核心/领域、A/B/C/D与I/P责任，不组成作者必填栈 |
+| 已有能力的哪些保证自动继承，作者真正需要决定什么？ | [完整意图与作者差异](作者/第一层语言.md#inherited-contract-author-delta)及[原需求含义接合](作者/需求含义与实现责任.md#intent-inheritance-and-first-layer) |
 | 开发者最终编辑什么，怎样保留同一个作者对象？ | [结构化作者面的同源投影](作者/结构化源码.md#author-surface-projection) |
+| 紧凑源码与26项专业表达怎样保持精确旧义？ | [紧凑结构](作者/紧凑结构与同源编辑.md#vscode-sparse-author-source)、[专业接合](作者/表达范围与专业接合.md)及[完整第一层例](../examples/第一层作者/README.md)；候选编码不静默替换旧Reader |
+| 从短引用到完整合同、合格实现及后继修改由谁承担？ | [第一层编译承接](开发/第一层编译承接.md#inherited-contract-elaboration)及[相交验收](运行/验收/第一层开发面.md#inherited-contract-acceptance)，继续进入原C0—C6/P0—P7 |
 | 可以设置哪些工程事实，省略的细节从哪里来？ | [完整开发设定面](作者/需求关系与能力边界.md#developer-decision-surface)与[作者信息完整性](作者/需求关系与能力边界.md#author-information-completeness) |
 | 怎样自动选择、固定、禁止或限定目标？ | [Auto/Pin/Forbid/Profile与scope](作者/组合/稀疏控制与目标限定.md#developer-control-ux)，再看[有效控制投影](作者/组合/稀疏控制与目标限定.md#effective-control-projection) |
 | 原生配置由谁维护，怎样与作者选择接合？ | [配置所有权与生态适配](作者/工程源/资产与非源码.md#configuration-ownership-and-adapters) |
