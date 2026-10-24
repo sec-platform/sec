@@ -5,7 +5,6 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  SEMANTIC_MUTATION_ISOLATED_CHILD_OUTCOME_FORMAT,
   buildSemanticMutationIsolatedChildOutcome,
   parseSemanticMutationIsolatedChildOutcomeBytes,
   semanticMutationIsolatedChildOutcomeBytes
@@ -16,45 +15,24 @@ import {
   semanticMutationIsolatedChildOutcomePendingPath
 } from './isolated-verification-child-outcome.ts';
 
-test('isolated child outcome round-trips only its canonical durable bytes', () => {
+test('isolated child outcome accepts only its bounded exact canonical wire', () => {
+  const expected = { formatVersion: 'semantic-mutation-isolated-child-outcome-v1',
+    status: 'failed', stage: 'verify-all', boundary: 'pipeline-verify' };
+  const canonical = '{"formatVersion":"semantic-mutation-isolated-child-outcome-v1","status":"failed","stage":"verify-all","boundary":"pipeline-verify"}\n';
   const outcome = buildSemanticMutationIsolatedChildOutcome('verify-all', 'pipeline-verify');
   const bytes = semanticMutationIsolatedChildOutcomeBytes(outcome);
-
-  expect(parseSemanticMutationIsolatedChildOutcomeBytes(bytes)).toEqual(outcome);
-  expect(() => parseSemanticMutationIsolatedChildOutcomeBytes(
-    new TextEncoder().encode(`${new TextDecoder().decode(bytes)}[]`)
-  )).toThrow('bytes are invalid');
+  expect(bytes).toEqual(new TextEncoder().encode(canonical));
+  expect(parseSemanticMutationIsolatedChildOutcomeBytes(bytes)).toEqual(expected);
+  for (const source of [
+    `${canonical}[]`,
+    '{"formatVersion":"semantic-mutation-isolated-child-outcome-v1","status":"failed","status":"failed","stage":"preflight"}',
+    '{"formatVersion":"semantic-mutation-isolated-child-outcome-v1","status":"failed","stage":{"value":"preflight"}}',
+    '{"formatVersion":"semantic-mutation-isolated-child-outcome-v1","status":"failed","stage":"preflight"}' + ' '.repeat(512)
+  ]) {
+    expect(() => parseSemanticMutationIsolatedChildOutcomeBytes(new TextEncoder().encode(source)))
+      .toThrow('bytes are invalid');
+  }
 });
-
-test('isolated child outcome rejects duplicate keys before its domain validator', () => {
-  const bytes = new TextEncoder().encode(JSON.stringify({
-    formatVersion: SEMANTIC_MUTATION_ISOLATED_CHILD_OUTCOME_FORMAT,
-    status: 'failed',
-    stage: 'preflight'
-  }).replace('"status":"failed"', '"status":"failed","status":"failed"'));
-
-  expect(() => parseSemanticMutationIsolatedChildOutcomeBytes(bytes))
-    .toThrow('bytes are invalid');
-});
-
-test('isolated child outcome rejects nested and oversized noncanonical documents', () => {
-  const nested = new TextEncoder().encode(JSON.stringify({
-    formatVersion: SEMANTIC_MUTATION_ISOLATED_CHILD_OUTCOME_FORMAT,
-    status: 'failed',
-    stage: { value: 'preflight' }
-  }));
-  const oversized = new TextEncoder().encode(JSON.stringify({
-    formatVersion: SEMANTIC_MUTATION_ISOLATED_CHILD_OUTCOME_FORMAT,
-    status: 'failed',
-    stage: 'preflight'
-  }) + ' '.repeat(512));
-
-  expect(() => parseSemanticMutationIsolatedChildOutcomeBytes(nested))
-    .toThrow('bytes are invalid');
-  expect(() => parseSemanticMutationIsolatedChildOutcomeBytes(oversized))
-    .toThrow('bytes are invalid');
-});
-
 
 test.skipIf(process.platform === 'win32')(
   'isolated child outcome publication refuses a substituted pending leaf',

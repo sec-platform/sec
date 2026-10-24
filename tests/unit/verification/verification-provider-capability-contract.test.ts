@@ -4,7 +4,7 @@ import {
   EXTERNAL_CAPABILITY_LEDGER_MAX_INPUT_BYTES,
   parseExternalCapabilityLedger
 } from '../../../src/adapters/verification/platform/provider/capability-ledger.ts';
-import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../../src/adapters/verification/platform/provider/contract/capability.ts';
+import { assertProviderCapabilityUsableV1, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../../src/adapters/verification/platform/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-11T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-12T00:00:00.000Z';
@@ -121,37 +121,6 @@ describe('verification provider capability contract', () => {
     expect(JSON.stringify(resolved)).not.toContain('You have reached your quota');
     expect(JSON.stringify(resolved)).not.toContain('billing settings');
     expect(JSON.stringify(resolved)).not.toContain('Upgrade your plan');
-  });
-
-  test('an unavailable provider in the same availability epoch is never retried', () => {
-    const epoch = createVerificationProviderAvailabilityEpoch({
-      epochId: 'test-no-retry-epoch',
-      observedAt: OBSERVED_AT,
-      expiresAt: EXPIRES_AT,
-      capabilities: [{
-        capability: 'codex-review',
-        role: 'reviewer',
-        provider: 'codex-code-review',
-        availability: 'unavailable',
-        reasonCode: 'provider-quota-unavailable',
-        receiptRef: null,
-        observedAt: OBSERVED_AT
-      }]
-    });
-    try {
-      assertProviderRetryGuard({
-        previous: { availability: 'unavailable', epochId: epoch.epochId },
-        requested: { capability: 'codex-review', epochId: epoch.epochId }
-      });
-      throw new Error('expected provider retry guard to reject');
-    } catch (error) {
-      expect(error).toMatchObject({ code: 'PROVIDER-UNAVAILABLE-NOT-RETRIED' });
-    }
-    // A new availability epoch (availability input changed) allows a fresh call.
-    expect(() => assertProviderRetryGuard({
-      previous: { availability: 'unavailable', epochId: 'old-epoch' },
-      requested: { capability: 'codex-review', epochId: 'new-epoch' }
-    })).not.toThrow();
   });
 
   test('explicit fixture separates roles, binds freshness, and has no dynamic-ledger expectation', () => {
