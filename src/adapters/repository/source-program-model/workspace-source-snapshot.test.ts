@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, utimes, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'bun:test';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../providers/git-read/runtime/session.ts';
@@ -42,9 +42,14 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-async function createRepository(): Promise<Readonly<{ commitSha: string; repositoryRoot: string }>> {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-workspace-source-generation-'));
-  temporaryRepositories.push(repositoryRoot);
+// The committed Git source program is immutable fixture input. Its actual
+// worktree, index and refs are copied into each independent native observation.
+type SourceGenerationFixture = Readonly<{ commitSha: string; repositoryRoot: string }>;
+let sourceGenerationTemplate: Promise<SourceGenerationFixture> | undefined;
+
+async function buildSourceGenerationTemplate(): Promise<SourceGenerationFixture> {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-workspace-source-template-'));
+  try {
   git(repositoryRoot, ['init', '--quiet']);
   git(repositoryRoot, ['config', 'user.email', 'tests@example.com']);
   git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
@@ -90,6 +95,31 @@ async function createRepository(): Promise<Readonly<{ commitSha: string; reposit
     commitSha: git(repositoryRoot, ['rev-parse', 'HEAD']),
     repositoryRoot
   });
+  } catch (error) {
+    try { await rm(repositoryRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Source snapshot base setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+
+afterAll(async () => {
+  if (sourceGenerationTemplate === undefined) return;
+  const settled = await Promise.allSettled([sourceGenerationTemplate]);
+  if (settled[0]?.status === 'fulfilled') {
+    await rm(settled[0].value.repositoryRoot, { recursive: true, force: true });
+  }
+  sourceGenerationTemplate = undefined;
+});
+
+async function createRepository(): Promise<SourceGenerationFixture> {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-workspace-source-generation-'));
+  temporaryRepositories.push(repositoryRoot);
+  const template = await (sourceGenerationTemplate ??= buildSourceGenerationTemplate());
+  await cp(template.repositoryRoot, repositoryRoot, { recursive: true });
+  return Object.freeze({ repositoryRoot, commitSha: template.commitSha });
 }
 
 async function exactSnapshot(repositoryRoot: string, commitSha: string) {
