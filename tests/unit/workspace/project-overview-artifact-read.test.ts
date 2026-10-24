@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildReviewSummary } from '../../../src/adapters/compilation/emit/write-review-summary.ts';
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
+import { prepareReviewRefreshRead, readRequiredExplanationProvenance } from '../../../src/adapters/workspace/explanation-read.ts';
 import { readProjectOverviewArtifacts } from '../../../src/adapters/workspace/project-overview-read.ts';
 import { CI_ARTIFACT_FILES as files } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../../src/assurance/verification/profile/contract/product.ts';
@@ -82,12 +83,26 @@ test('partial verification publication remains malformed, never absence or an em
     await fixture(root);
     await fs.unlink(resolveWorkspaceArtifactPath(root, files.runtimeReport));
     expect(() => readProjectOverviewArtifacts(root, 'custom explain')).toThrow('is partially published');
+    for (const artifact of [files.verificationReport, files.runtimeReport, files.policyReport, files.acceptanceCoverage]) {
+      await put(root, artifact, null);
+    }
+    expect(() => readProjectOverviewArtifacts(root, 'custom explain')).toThrow('must not be JSON null');
   });
 });
 
 test('overview preserves canonical provenance, exact UTF-8, manifest and malformed lock diagnostics', async () => {
   await withTempWorkspace(async root => {
     const original = await fixture(root);
+    const refresh = await prepareReviewRefreshRead(root);
+    await fs.unlink(resolveWorkspaceArtifactPath(root, files.provenance));
+    expect(refresh()).toBeNull();
+    await put(root, files.provenance, null);
+    expect(() => readProjectOverviewArtifacts(root, 'custom explain')).toThrow('Provenance report is malformed:');
+    await expect(readRequiredExplanationProvenance(root, 'Provenance report')).rejects.toMatchObject({
+      code: 'EXPLAIN-BLOCKED-003',
+      message: expect.stringContaining('Provenance report is malformed:')
+    });
+    expect(refresh).toThrow('Provenance report is malformed:');
     await put(root, files.provenance, {});
     expect(() => readProjectOverviewArtifacts(root, 'custom explain')).toThrow('Provenance report is malformed:');
     await put(root, files.provenance, original.provenance);

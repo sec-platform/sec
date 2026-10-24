@@ -46,6 +46,16 @@ test('verification checks provenance until a current baseline supersedes it and 
     const previousContent = 'export const value = 1;';
     const currentContent = 'export const value = 2;';
 
+    await checkProjectWriteBoundary(workspaceRoot);
+    await checkProjectBeforeVerify(workspaceRoot);
+    await writeJson(provenancePath, null);
+    for (const check of [checkProjectWriteBoundary, checkProjectBeforeVerify]) {
+      await expect(check(workspaceRoot)).rejects.toMatchObject({
+        code: 'ERROR-DRIFT-001',
+        message: expect.stringContaining('Canonical provenance cannot be decoded or validated:')
+      });
+    }
+
     await ensureDir(path.dirname(absolutePath));
     await writeText(absolutePath, previousContent);
     await writeJson(provenancePath, provenanceFor(artifactPath, previousContent));
@@ -60,6 +70,9 @@ test('verification checks provenance until a current baseline supersedes it and 
     await writeText(absolutePath, currentContent);
     await writeProjectBaseline(workspaceRoot, baselinePathInput(artifactPath));
     await checkProjectBeforeVerify(workspaceRoot);
+    await writeJson(provenancePath, null);
+    await checkProjectBeforeVerify(workspaceRoot);
+    await checkProjectWriteBoundary(workspaceRoot);
 
     await writeText(absolutePath, `${currentContent}\nexport const changed = true;`);
     await expect(checkProjectBeforeVerify(workspaceRoot)).rejects.toMatchObject({
