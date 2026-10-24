@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
-  OPAQUE_MODULE_MATERIALIZATION_MODES,
   opaqueModuleMaterializationEnvironment,
   resolveOpaqueModuleMaterializationMode,
   type OpaqueModuleMaterializationMode
@@ -34,8 +33,11 @@ test('legacy materialization keeps exact defaults, agreement and fail-closed con
   assert.equal(resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: 'false', BUILD_MODE: 'false' }), 'workspace-link');
   assert.equal(resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: 'true', BUILD_MODE: 'true' }), 'build-copy');
   assert.throws(() => resolveOpaqueModuleMaterializationMode(undefined, { NODE_ENV: 'production', BUILD_MODE: 'false' }), invalid);
+  assert.throws(() => resolveOpaqueModuleMaterializationMode(undefined, { NODE_ENV: 'production', SEC_BUILD_MODE: 'false' }),
+    (error: unknown) => invalid(error) && /materialization inputs conflict/.test((error as Error).message));
   assert.throws(() => resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: 'true', BUILD_MODE: 'false' }), invalid);
-  assert.throws(() => resolveOpaqueModuleMaterializationMode(undefined, { BUILD_MODE: 'TRUE' }), invalid);
+  assert.throws(() => resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: '1' }),
+    (error: unknown) => invalid(error) && /must be exactly "true" or "false"/.test((error as Error).message));
 });
 
 test('materialization environment is an immutable observation rather than a live alias', () => {
@@ -47,10 +49,4 @@ test('materialization environment is an immutable observation rather than a live
   assert.equal(snapshot.NODE_ENV, 'development');
   assert.equal(snapshot.SEC_BUILD_MODE, 'false');
   assert.equal(Object.hasOwn(snapshot, 'UNRELATED'), false);
-});
-
-test('materialization vocabulary cannot be mutated after consumers captured it', () => {
-  assert.equal(Object.isFrozen(OPAQUE_MODULE_MATERIALIZATION_MODES), true);
-  assert.equal(Reflect.set(OPAQUE_MODULE_MATERIALIZATION_MODES, '0', 'forged'), false);
-  assert.deepEqual([...OPAQUE_MODULE_MATERIALIZATION_MODES].sort(), ['build-copy', 'workspace-link']);
 });

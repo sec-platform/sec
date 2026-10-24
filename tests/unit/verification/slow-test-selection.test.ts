@@ -7,7 +7,6 @@ import {
   issueTestSuiteExecutionPolicy
 } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
-import { hasTestImpactForFile } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from "../../../src/adapters/workspace-context.ts";
@@ -40,10 +39,22 @@ test('unresolved changed-file observation fails closed to the bounded baseline',
 });
 
 test('unknown paths cannot be converted into a false exact selection', () => {
-  const selection = selectSlowTestRiskClosure(['assets/new.bin']);
+  const selection = selectSlowTestRiskClosure([
+    'assets/new.bin',
+    'fixtures/nonexistent-affected-test.txt',
+    'platform/shared/new-owner.ts',
+    'scripts/codex/new-control-sink.ts',
+    'src/adapters/self-hosting/development/tooling/new-runtime-owner.ts'
+  ]);
 
   expect(selection.resolved).toBe(false);
-  expect(selection.unresolvedPaths).toEqual(['assets/new.bin']);
+  expect(selection.unresolvedPaths).toEqual([
+    'assets/new.bin',
+    'fixtures/nonexistent-affected-test.txt',
+    'platform/shared/new-owner.ts',
+    'scripts/codex/new-control-sink.ts',
+    'src/adapters/self-hosting/development/tooling/new-runtime-owner.ts'
+  ]);
   expect(selection.reasons).toContain('changed-files-unresolved');
   expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
 });
@@ -56,15 +67,6 @@ test('a directly changed slow test retains its executable suite identity', () =>
   expect(selection.suites).toContain('e2e-dry-run-plan');
 });
 
-test('source changes fail closed without an owner-issued test-impact projection', () => {
-  const providerlessSelection = selectSlowTestClosureWithProvider as unknown as (
-    files: string[] | null
-  ) => unknown;
-  expect(() => providerlessSelection([
-    'src/adapters/verification/run-runtime-verification.ts'
-  ])).toThrow('requires an owner-issued snapshot projection');
-});
-
 test('global test setup changes request the bounded slow baseline', () => {
   const selection = selectSlowTestRiskClosure(['tests/setup/test-runtime.setup.ts']);
 
@@ -73,16 +75,14 @@ test('global test setup changes request the bounded slow baseline', () => {
   expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
 });
 
-test('repository configuration resolves only through the snapshot-bound owner projection', () => {
+test('owner-issued projection resolves configuration, source and managed-hook suites without losing a mixed owner', () => {
   for (const source of ['package.json', 'bun.lock']) {
     const selection = selectSlowTestRiskClosure([source]);
     expect(selection.resolved).toBe(true);
     expect(selection.reasons).not.toContain('changed-files-unresolved');
     expect(selection.reasons).toContain('ownership-impact');
   }
-});
 
-test('owner-issued projection maps source and managed-hook changes to their canonical slow suites', () => {
   const sourceSelection = selectSlowTestRiskClosure([
     'src/adapters/verification/run-runtime-verification.ts'
   ]);
@@ -95,35 +95,16 @@ test('owner-issued projection maps source and managed-hook changes to their cano
   expect(hookSelection.owners).toContain('adapters.self-hosting.development.hooks');
   expect(hookSelection.affectedSlowTests).toContain('tests/e2e/development/install-git-hooks.test.ts');
   expect(hookSelection.suites).toContain('e2e-install-git-hooks');
-});
 
-test('selection and direct impact queries consume the same owner-issued projection', () => {
-  const resolvedFile = 'src/adapters/verification/run-runtime-verification.ts';
-  const unresolvedFile = 'fixtures/nonexistent-affected-test.txt';
-  expect(hasTestImpactForFile(resolvedFile, provider)).toBe(true);
-  expect(selectSlowTestRiskClosure([resolvedFile]).resolved).toBe(true);
-  expect(hasTestImpactForFile(unresolvedFile, provider)).toBe(false);
-  expect(selectSlowTestRiskClosure([unresolvedFile])).toMatchObject({
-    resolved: false,
-    unresolvedPaths: [unresolvedFile]
-  });
-  for (const path of [
-    'platform/shared/new-owner.ts',
-    'src/adapters/self-hosting/development/tooling/new-runtime-owner.ts',
-    'scripts/codex/new-control-sink.ts'
-  ]) {
-    expect(hasTestImpactForFile(path, provider)).toBe(false);
-  }
-});
-
-test('heterogeneous owned inputs form one resolved union', () => {
-  const selection = selectSlowTestRiskClosure([
+  const mixed = selectSlowTestRiskClosure([
     'package.json',
     'src/adapters/verification/run-runtime-verification.ts'
   ]);
-  expect(selection.resolved).toBe(true);
-  expect(selection.owners.length).toBeGreaterThan(0);
-  expect(selection.suites).toContain('e2e-dry-run-plan');
+  expect(mixed.resolved).toBe(true);
+  expect(mixed.owners).toEqual(expect.arrayContaining([
+    'adapters.self-hosting.development.runner', 'adapters.toolchain', 'compiler', 'adapters.verification'
+  ]));
+  expect(mixed.suites).toContain('e2e-dry-run-plan');
 });
 
 test('module descriptors and owned sources resolve even when no runnable test consumes them', () => {

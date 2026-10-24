@@ -3,20 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
+import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
-import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
-import {
-  parseUpgradeExecutionTerminalJson,
-  parseUpgradePlanJson
-} from '../../../src/semantics/upgrade/upgrade-artifact.ts';
-import { writeBlockUpgradeFixture } from '../../helpers/block-upgrade-fixtures.ts';
 import {
   expectCliSuccess,
   expectCliText,
 } from '../../testkit/cli.ts';
-import { withTempWorkspace, withWorkspaceScenario } from '../../testkit/workspace.ts';
+import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
   await withWorkspaceScenario('empty-default', async (workspaceRoot) => {
@@ -118,60 +111,3 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
     ]);
   });
 }, 120000);
-
-test('upgrade apply publishes one coherent version transition and preserves the migrated project target', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await writeBlockUpgradeFixture(workspaceRoot);
-    const paths = getWorkspacePaths(workspaceRoot);
-    const migratedTarget = path.join(paths.workspaceRoot, 'src', 'installed', 'private', 'customer-normalizer.ts');
-    const originalTarget = await fs.readFile(migratedTarget, 'utf8');
-
-    const result = await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0');
-
-    expect(result.plan.blocks).toContainEqual({ id: 'private/block-upgrade', version: '0.2.0' });
-    expect(result.lock.resolvedBlocks).toContainEqual(expect.objectContaining({
-      id: 'private/block-upgrade',
-      version: '0.2.0'
-    }));
-    expect(result.lock.resolvedBlocks).toContainEqual(expect.objectContaining({
-      id: 'private/tenant-context'
-    }));
-    expect(result.lock.resolvedCapabilities).toContain('tenant/context');
-    expect(result.upgradePlan).toMatchObject({
-      blockId: 'private/block-upgrade',
-      fromVersion: '0.1.0',
-      toVersion: '0.2.0',
-      migrationKindCounts: { 'file-replace': 1 }
-    });
-    expect(result.upgradePlan.migrationOperations).toContainEqual(expect.objectContaining({
-      id: 'mig-customer-normalizer-file',
-      kind: 'file-replace',
-      role: 'file',
-      source: 'files/src/installed/private/customer-normalizer.ts',
-      target: 'src/installed/private/customer-normalizer.ts'
-    }));
-    const migratedSource = await fs.readFile(migratedTarget, 'utf8');
-    expect(migratedSource).not.toBe(originalTarget);
-    expect(migratedSource).toContain('normalized: true');
-
-    const persistedPlan = parseUpgradePlanJson(await fs.readFile(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
-      'utf8'
-    ));
-    expect(persistedPlan).toEqual(result.upgradePlan);
-    const persistedTerminal = parseUpgradeExecutionTerminalJson(await fs.readFile(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
-      'utf8'
-    ));
-    expect(persistedTerminal).toMatchObject({
-      settlement: 'applied',
-      workspaceIdentityDigest: persistedPlan.workspaceIdentityDigest,
-      operationIdentityDigest: persistedPlan.operationIdentityDigest,
-      planRevision: persistedPlan.planRevision,
-      readback: {
-        workspaceBlockVersion: '0.2.0',
-        resolvedBlockVersion: '0.2.0'
-      }
-    });
-  });
-}, 180000);

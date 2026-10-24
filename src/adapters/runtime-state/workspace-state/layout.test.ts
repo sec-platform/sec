@@ -143,6 +143,23 @@ test('corrupt workspace pointer fails safe and prevents collection of repository
   });
 }, 30_000);
 
+test('unknown object-store entry vetoes the entire deletion pass, regardless of enumeration order', async () => {
+  await withTemporaryRoot('sec-runtime-unknown-entry-', async root => {
+    const value = fixture(root);
+    await persistActiveContinuationCheckpoint({ layout: value.layout,
+      repositoryRoot: value.repositoryRoot, checkpoint: value.checkpoint, environment: value.environment });
+    await clearActiveContinuation({ layout: value.layout,
+      repositoryRoot: value.repositoryRoot, environment: value.environment });
+    const objectPath = path.join(value.layout.continuationObjectRoot,
+      `${value.checkpoint.checkpointDigest.slice(7)}.json`);
+    mkdirSync(path.join(value.layout.continuationObjectRoot, 'zz-unknown-entry'));
+    const result = await gcContinuationObjects({ layout: value.layout,
+      repositoryRoot: value.repositoryRoot, environment: value.environment, retentionMs: 0 });
+    expect(result.removed).toBe(0); expect(result.retained).toBe(1);
+    expect(lstatSync(objectPath).isFile()).toBe(true);
+  });
+}, 30_000);
+
 test('physical Runtime State rejects a symlink or junction into the repository before writing', async () => {
   await withTemporaryRoot('sec-runtime-alias-', async root => {
     const repositoryRoot = path.join(root, 'repo');

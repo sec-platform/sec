@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -641,6 +642,10 @@ test('TestImpact fixture authority is bound to its fixture-owned exact Git commi
   expect(path.resolve(testImpactFixture.repositoryRoot)).not.toBe(path.resolve(compilerRoot));
 });
 
+function portableTestSpellings(file: string): string[] {
+  return [file, `./${file}`, file.replaceAll('/', '\\'), `.\\${file.replaceAll('/', '\\')}`];
+}
+
 test('native parallel planning preserves every selected file and isolates external resources', () => {
   const concurrentFiles = ['tests/unit/a.test.ts', 'tests/unit/b.test.ts'];
   const isolatedFiles = [
@@ -668,6 +673,25 @@ test('native parallel planning preserves every selected file and isolates extern
   expect(new Set(plannedFiles).size).toBe(files.length);
   expect(planFastTestProcesses(files)).toEqual(plan);
   expect(planFastTestProcesses(concurrentFiles).parallelFiles).toEqual(concurrentFiles);
+
+  {
+    const independent = 'tests/unit/development/command-runner.test.ts';
+    const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
+    const original = ['tests/unit/z.test.ts', independent, 'src/alpha_spec.ts', shared, 'tests/unit/a.test.ts'];
+    const input = original.map((file, index) => portableTestSpellings(file)[index % 4]!);
+    const before = [...input];
+    const plan = planFastTestProcesses(input);
+    assert.deepEqual(plan.parallelFiles, ['tests/unit/z.test.ts', 'src/alpha_spec.ts', 'tests/unit/a.test.ts']);
+    assert.deepEqual(plan.resourceQueues['independent-process'], [independent]);
+    assert.deepEqual(plan.resourceQueues['shared-host-runtime'], [shared]);
+    assert.deepEqual(input, before);
+    assert.deepEqual(plan, planFastTestProcesses(original));
+  }
+
+  {
+    const files = ['tests/unit/Sample.test.ts', 'tests/unit/sample.test.ts', 'src/sample.test.ts'];
+    assert.deepEqual(planFastTestProcesses(files).parallelFiles, files);
+  }
 });
 
 
@@ -687,6 +711,42 @@ test('fast process policy covers default-excluded files and rejects stale or dup
   const definition = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!;
   expect(() => assertUniqueFastTestProcessIsolationDefinitions([definition, definition]))
     .toThrow(`Fast-test process isolation registration is duplicated: ${definition.file}`);
+
+  {
+    for (const spelling of portableTestSpellings('tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts')) {
+      assert.equal(isDefaultFastTestFile(spelling), false);
+    }
+    assert.equal(isDefaultFastTestFile('tests/unit/unregistered.test.ts'), true);
+  }
+
+  {
+    const independent = 'tests/unit/development/command-runner.test.ts';
+    const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
+    for (const file of [independent, shared, 'tests/unit/plain.test.ts']) {
+      for (const spelling of portableTestSpellings(file)) {
+        assert.throws(() => planFastTestProcesses([file, spelling]), /unique files/);
+      }
+    }
+  }
+
+  {
+    const independent = 'tests/unit/development/command-runner.test.ts';
+    const definition = { file: independent, reason: 'fixture isolation', resourceClass: 'independent-process' as const };
+    for (const spelling of portableTestSpellings(independent)) {
+      assert.throws(() => assertUniqueFastTestProcessIsolationDefinitions([definition, { ...definition, file: spelling }]), /duplicated/);
+    }
+    assert.doesNotThrow(() => assertUniqueFastTestProcessIsolationDefinitions([
+      definition, { ...definition, file: 'src/command-runner.test.ts' }
+    ]));
+  }
+
+  {
+    const independent = 'tests/unit/development/command-runner.test.ts';
+    const files = [...new Set([...DEFAULT_FAST_TEST_EXCLUDED_FILES,
+      ...FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(entry => entry.file)])];
+    assert.throws(() => assertFastTestProcessPolicyInventory([...files, `./${independent}`]), /duplicated/);
+    assert.throws(() => assertFastTestProcessPolicyInventory(files.filter(file => file !== independent)), /stale/);
+  }
 });
 
 test('fast process resource classes uniquely derive limits and isolate production runtime owners', () => {
@@ -732,6 +792,19 @@ test('fast process resource classes uniquely derive limits and isolate productio
     'host-profile': []
   });
   expect(resourcePlan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
+
+  {
+    const independent = 'tests/unit/development/command-runner.test.ts';
+    const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
+    for (const [file, resourceClass] of [[independent, 'independent-process'], [shared, 'shared-host-runtime']] as const) {
+      for (const spelling of portableTestSpellings(file)) {
+        assert.equal(isSecRepositoryTestModulePath(spelling), true);
+        const partition = planFastTestProcesses([spelling]);
+        assert.deepEqual(partition.parallelFiles, []);
+        assert.deepEqual(partition.resourceQueues[resourceClass], [file]);
+      }
+    }
+  }
 });
 
 test('per-file execution rejects shared reporter and coverage output without an aggregate owner', () => {

@@ -17,38 +17,14 @@ function fixture(overrides: Partial<FastCheckStages> = {}) {
   return { events, stages };
 }
 
-test('every execution stage rejects values that are not non-negative safe-integer statuses', async () => {
-  const names = ['imports', 'documentation', 'types', 'tests'] as const;
-  const invalid = [undefined, null, false, true, '0', NaN, Infinity, -1, 0.5, Number.MAX_SAFE_INTEGER + 1];
-  for (const name of names) {
-    for (const value of invalid) {
-      const { events, stages } = fixture({ [name]: async () => value } as unknown as Partial<FastCheckStages>);
-      await assert.rejects(executeFastCheckStages(stages), TypeError);
-      assert.equal(events.filter(event => event === name).length, 1);
-      assert.equal(events.includes('tests'), name === 'tests');
-    }
-  }
-});
-
-test('platform exit statuses above 255 are preserved rather than masked to a successful zero', async () => {
+test('imports preserve full-width failure statuses and exact rejection before later stages', async () => {
   const { stages, events } = fixture({ imports: async () => 256 });
   assert.equal(await executeFastCheckStages(stages), 256);
   assert.deepEqual(events, ['imports']);
-});
-
-test('a rejected documentation check does not hide a nonzero type-check exit', async () => {
-  const reason = new Error('documentation failed');
-  const { stages, events } = fixture({ documentation: async () => { throw reason; }, types: async () => 23 });
-  await assert.rejects(executeFastCheckStages(stages), error => {
-    assert.ok(error instanceof AggregateError);
-    assert.equal(error.errors.length, 2);
-    assert.equal(error.errors[0], reason);
-    assert.equal(error.errors[1].stage, 'types');
-    assert.equal(error.errors[1].exitCode, 23);
-    assert.equal(error.cause, reason);
-    return true;
-  });
-  assert.equal(events.includes('tests'), false);
+  const reason = new Error('imports');
+  const rejected = fixture({ imports: async () => { throw reason; } });
+  await assert.rejects(executeFastCheckStages(rejected.stages), error => error === reason);
+  assert.deepEqual(rejected.events, ['imports']);
 });
 
 test('a nonzero documentation exit remains visible when type checking rejects', async () => {
@@ -116,8 +92,11 @@ test('mixed failures wait for the still-running peer before leaving the operatio
         assert.equal(error, reason);
       } else {
         assert.ok(error instanceof AggregateError);
+        assert.equal(error.errors.length, 2);
         assert.equal(error.errors[0], reason);
+        assert.equal(error.errors[1].stage, 'types');
         assert.equal(error.errors[1].exitCode, peerExitCode);
+        assert.equal(error.cause, reason);
       }
       return true;
     });

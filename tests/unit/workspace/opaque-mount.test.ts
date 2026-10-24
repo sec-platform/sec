@@ -5,46 +5,7 @@ import { installOpaqueModules } from '../../../src/adapters/compilation/compose/
 import { pathExists, readJson, writeJson } from "../../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
-import { resolveOpaqueModuleMaterializationMode } from '../../../src/compiler/target-materialization.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-
-describe('resolveOpaqueModuleMaterializationMode', () => {
-  test('defaults to workspace linking when no source makes a build decision', () => {
-    expect(resolveOpaqueModuleMaterializationMode(undefined, {})).toBe('workspace-link');
-  });
-
-  test('admits each retained legacy build source through one canonical resolver', () => {
-    expect(resolveOpaqueModuleMaterializationMode(undefined, { NODE_ENV: 'production' }))
-      .toBe('build-copy');
-    expect(resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: 'true' }))
-      .toBe('build-copy');
-    expect(resolveOpaqueModuleMaterializationMode(undefined, { BUILD_MODE: 'true' }))
-      .toBe('build-copy');
-    expect(resolveOpaqueModuleMaterializationMode(undefined, { SEC_BUILD_MODE: 'false' }))
-      .toBe('workspace-link');
-  });
-
-  test('explicit typed input owns the decision over legacy environment candidates', () => {
-    expect(resolveOpaqueModuleMaterializationMode('workspace-link', {
-      NODE_ENV: 'production',
-      SEC_BUILD_MODE: 'true',
-      BUILD_MODE: 'true'
-    })).toBe('workspace-link');
-  });
-
-  test('conflicting legacy candidates fail closed instead of being combined with boolean OR', () => {
-    expect(() => resolveOpaqueModuleMaterializationMode(undefined, {
-      NODE_ENV: 'production',
-      SEC_BUILD_MODE: 'false'
-    })).toThrow(/materialization inputs conflict/);
-  });
-
-  test('invalid legacy boolean syntax is rejected instead of silently becoming false', () => {
-    expect(() => resolveOpaqueModuleMaterializationMode(undefined, {
-      SEC_BUILD_MODE: '1'
-    })).toThrow(/must be exactly "true" or "false"/);
-  });
-});
 
 describe('installOpaqueModules', () => {
   test('returns empty if opaque directory does not exist', async () => {
