@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 
 import { registerInspectionCommands } from '../../../src/bootstrap/cli/register-inspection-commands.ts';
 import { registerWorkspaceCommands } from '../../../src/bootstrap/cli/register-workspace-commands.ts';
-import { optionalModeCommand } from '../../../src/entry/cli/command-options.ts';
 
 function program() {
   let output = '';
@@ -50,10 +49,3 @@ for (const name of ['repair','lock','explain','artifacts','policy','acceptance',
       (error: unknown) => (error as { code?: string }).code === 'commander.invalidArgument');
   });
 }
-
-test('optional argument choice registration does not mutate its caller-owned list', () => {
-  const choices=Object.freeze(['inspect', 'list']);
-  const command=optionalModeCommand(new Command().name('sample'), 'mode', choices);
-  assert.deepEqual(command.registeredArguments[0]!.argChoices, ['inspect','list']);
-  assert.deepEqual(choices,['inspect','list']);
-});

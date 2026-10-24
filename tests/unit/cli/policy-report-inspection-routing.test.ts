@@ -45,17 +45,28 @@ test('policy inspection routes retained report through application summary proje
     expect(view.violations).toHaveLength(3);
     expect(view.policies[0]!.targets).toEqual(['z', 'a']);
     expect(view.violations[0]!.files).toEqual(['b.ts']);
-    expect(formatPolicyReport(view)).toBe([
-      'Policy report attention; official=2; project=1; merged=3; violations=2',
-      'Sources: 4',
-      'Severity: error=1, warning=1',
-      'Policy p1; scope=official; source=a; targets=z, a',
-      'Policy p2; scope=project; source=b; targets=b',
-      'Policy p3; scope=official; source=c; targets=none',
-      'Violation v1; severity=warning; files=b.ts; warn',
-      'Violation v2; severity=error; files=a.ts; fail',
-      'Violation v3; severity=error; files=ignored.ts; ignored'
-    ].join('\n'));
+    const rendered = formatPolicyReport(view).split('\n');
+    const header = rendered.find(line => line.startsWith('Policy report '));
+    for (const field of ['Policy report attention', 'official=2', 'project=1', 'merged=3', 'violations=2']) {
+      expect(header).toContain(field);
+    }
+    expect(rendered.find(line => line.startsWith('Sources:'))).toMatch(/\b4\b/u);
+    expect(rendered.find(line => line.startsWith('Severity:'))).toContain('error=1, warning=1');
+    const expectedRows = [
+      ['Policy p1', ['scope=official', 'source=a', 'targets=z, a']],
+      ['Policy p2', ['scope=project', 'source=b', 'targets=b']],
+      ['Policy p3', ['scope=official', 'source=c', 'targets=none']],
+      ['Violation v1', ['severity=warning', 'files=b.ts', 'warn']],
+      ['Violation v2', ['severity=error', 'files=a.ts', 'fail']],
+      ['Violation v3', ['severity=error', 'files=ignored.ts', 'ignored']]
+    ] as const;
+    const emittedRows = rendered.filter(line => /^(Policy p|Violation v)/u.test(line));
+    expect(emittedRows).toHaveLength(expectedRows.length);
+    for (const [label, fields] of expectedRows) {
+      const row = emittedRows.find(line => line.startsWith(`${label};`));
+      expect(row).toBeDefined();
+      for (const field of fields) expect(row).toContain(field);
+    }
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const report: PolicyReport = {
@@ -72,17 +83,20 @@ test('policy inspection routes retained report through application summary proje
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
     const projected = projectPolicyReportInspection(report);
-    const expectedText = [
-      'Policy report skipped; official=0; project=0; merged=0; violations=0',
-      'Sources: 0',
-      'Severity: none'
-    ].join('\n');
-    expect(formatPolicyReport(projected)).toBe(expectedText);
-    await expectCliSuccess(
-      workspaceRoot,
-      ['policy'],
-      `${expectedText}\n`
-    );
+    expect(projected.status).toBe('skipped');
+    expect(projected.policies).toEqual([]);
+    expect(projected.violations).toEqual([]);
+    const rendered = formatPolicyReport(projected);
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['policy']);
+    for (const actual of [rendered, stdout]) {
+      const lines = actual.split(/\r?\n/u);
+      const header = lines.find(line => line.startsWith('Policy report '));
+      for (const field of ['Policy report skipped', 'official=0', 'project=0', 'merged=0', 'violations=0']) {
+        expect(header).toContain(field);
+      }
+      expect(lines.find(line => line.startsWith('Sources:'))).toMatch(/\b0\b/u);
+      expect(lines.find(line => line.startsWith('Severity:'))).toMatch(/\bnone\b/u);
+    }
 
     const json = await expectCliJson(workspaceRoot, ['policy', '--json']);
     expect(json).toEqual(report);

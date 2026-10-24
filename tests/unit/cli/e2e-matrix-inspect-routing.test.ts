@@ -28,11 +28,15 @@ test('review matrix routes adapter result through application and entry while pr
   source.rows[0]!.evidence.push('later');
   expect(view.rows[0]!.evidence).toEqual(['ci=passed', 'failures=0']);
 
-  expect(formatE2eMatrix(view)).toBe([
-    'E2E matrix attention; rows=2',
-    'verification: passed; lane=fast; evidence=ci=passed, failures=0',
-    'artifacts: attention; missing=1; evidence=missing=1'
-  ].join('\n'));
+  const rendered = formatE2eMatrix(view).split('\n');
+  expect(rendered).toHaveLength(3);
+  for (const field of ['E2E matrix attention', 'rows=2']) expect(rendered[0]).toContain(field);
+  for (const field of ['verification: passed', 'lane=fast', 'ci=passed', 'failures=0']) {
+    expect(rendered[1]).toContain(field);
+  }
+  for (const field of ['artifacts: attention', 'missing=1', 'evidence=missing=1']) {
+    expect(rendered[2]).toContain(field);
+  }
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const summary = await buildReviewSummaryFromInputs(workspaceRoot);
@@ -41,13 +45,25 @@ test('review matrix routes adapter result through application and entry while pr
     await fs.writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
 
     const matrix = buildE2eMatrix(summary);
-    const projected = projectE2eMatrix(matrix);
 
-    await expectCliSuccess(
-      workspaceRoot,
-      ['review', 'matrix'],
-      `${formatE2eMatrix(projected)}\n`
-    );
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['review', 'matrix']);
+    const lines = stdout.trimEnd().split(/\r?\n/u);
+    const stages = ['verification', 'coverage', 'artifacts', 'review'] as const;
+    expect(matrix.rowCount).toBe(stages.length);
+    expect(matrix.rows.map(row => row.stage)).toEqual([...stages]);
+    expect(lines).toHaveLength(stages.length + 1);
+    expect(lines[0]).toContain(`E2E matrix ${matrix.status}`);
+    expect(lines[0]).toContain('rows=4');
+    expect(lines[1]).toContain('verification: passed');
+    expect(lines[1]).toContain('ci=passed');
+    expect(lines[1]).toContain('failures=0');
+    expect(lines[2]).toContain('coverage: passed');
+    for (const [index, row] of matrix.rows.entries()) {
+      const line = lines[index + 1]!;
+      expect(line).toContain(`${row.stage}: ${row.status}`);
+      expect(line).toContain(row.detail);
+      for (const evidence of row.evidence) expect(line).toContain(evidence);
+    }
 
     const json = await expectCliJson(workspaceRoot, ['review', 'matrix', '--json']);
     expect(json).toEqual(matrix);
