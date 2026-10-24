@@ -64,15 +64,10 @@ test('repository-common hook generation runs when an older worktree creates the 
       );
       await chmod(hookPath, 0o755);
     }));
-    git(repoRoot, [
-      'add',
-      '.gitattributes',
-      'README.md',
-      '.githooks'
-    ]);
-    for (const hook of managedHookNames) {
-      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
-    }
+    // One native staging operation sets each managed hook's executable index
+    // bit. Keep unrelated tracked documents non-executable.
+    git(repoRoot, ['add', '.gitattributes', 'README.md']);
+    git(repoRoot, ['add', '--chmod=+x', '.githooks']);
     git(repoRoot, ['commit', '--quiet', '-m', 'install managed hooks']);
     const managedHead = git(repoRoot, ['rev-parse', 'HEAD']);
 

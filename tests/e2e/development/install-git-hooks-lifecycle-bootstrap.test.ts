@@ -33,10 +33,10 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
       await writeFile(hookPath, managedHookSource(hook), 'utf8');
       await chmod(hookPath, 0o755);
     }));
-    git(repoRoot, ['add', '.gitattributes', 'README.md', '.githooks']);
-    for (const hook of managedHookNames) {
-      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
-    }
+    // One native staging operation sets each managed hook's executable index
+    // bit. Keep unrelated tracked documents non-executable.
+    git(repoRoot, ['add', '.gitattributes', 'README.md']);
+    git(repoRoot, ['add', '--chmod=+x', '.githooks']);
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
     git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-fixture', linkedRoot]);
     const linkedPostMerge = path.join(linkedRoot, '.githooks', 'post-merge');
