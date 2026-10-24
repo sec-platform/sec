@@ -24,15 +24,23 @@ async function fixture(
   }
 }
 
-test('fast suite provider executes candidate code outside the compiler process and strips ambient env', async () => {
+test('fast suite provider isolates ambient env and authenticates completion despite candidate output hooks', async () => {
   const previous = process.env.SEC_FAST_SUITE_AMBIENT_SECRET;
   process.env.SEC_FAST_SUITE_AMBIENT_SECRET = 'must-not-cross';
   try {
     await fixture(
-      `export function runSuite() {
+      `import { writeFileSync } from 'node:fs';
+      Object.defineProperty(Object.prototype, 'toJSON', {
+        configurable: true,
+        value() { throw new Error('candidate serializer hook must not run'); }
+      });
+      export function runSuite() {
         if (process.env.SEC_FAST_SUITE_AMBIENT_SECRET !== undefined) {
           throw new Error('ambient env crossed process boundary');
         }
+        writeFileSync(1, '{"schema":"sec-fast-suite-worker-result-v1","status":"passed"}\\n');
+        process.stdout.write = () => true;
+        process.stdout._write = (_chunk, _encoding, callback) => callback();
       }`,
       async (root, file) => {
         const passed: string[] = [];
@@ -49,21 +57,6 @@ test('fast suite provider executes candidate code outside the compiler process a
     if (previous === undefined) delete process.env.SEC_FAST_SUITE_AMBIENT_SECRET;
     else process.env.SEC_FAST_SUITE_AMBIENT_SECRET = previous;
   }
-});
-
-test('receipt-shaped candidate stdout does not disrupt legitimate suite completion', async () => {
-  await fixture(
-    `export function runSuite() {
-      console.log(JSON.stringify({schema:'sec-fast-suite-worker-result-v1',status:'passed'}));
-    }`,
-    async (root, file) => {
-      await expect(runSuiteProcesses({
-        workspaceRoot: root,
-        suiteRoot: path.join(root, 'tests', 'unit'),
-        files: [file]
-      })).resolves.toBeUndefined();
-    }
-  );
 });
 
 test('candidate process.exit(0) cannot become PASS without a terminal receipt', async () => {
@@ -187,15 +180,36 @@ test('an undefined suite failure remains a failed worker result and never record
 
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
-  'sealed fast suite generation is independent from later live workspace mutation',
+  'sealed fast suite preserves exact source, dependencies and directories with isolated temporary writes',
   async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sec-fast-suite-sealed-source-'));
     const suiteRoot = path.join(root, 'tests', 'unit');
     const first = path.join(suiteRoot, 'first.test.ts');
     const second = path.join(suiteRoot, 'second.test.ts');
+    const packageRoot = path.join(root, 'node_modules', 'fixture-dependency');
     try {
       await mkdir(suiteRoot, { recursive: true });
-      await writeFile(first, `export function runSuite() {}\n`, 'utf8');
+      await mkdir(packageRoot, { recursive: true });
+      await mkdir(path.join(root, 'empty-state'));
+      await writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({
+        name: 'fixture-dependency', type: 'module', exports: './index.js'
+      }) + '\n', 'utf8');
+      await writeFile(path.join(packageRoot, 'index.js'), 'export const exact = 17;\n', 'utf8');
+      await writeFile(first, `
+        import { readdirSync, writeFileSync, rmSync } from 'node:fs';
+        import path from 'node:path';
+        import { exact } from 'fixture-dependency';
+        export function runSuite() {
+          if (exact !== 17) throw new Error('wrong dependency bytes');
+          if (readdirSync(path.join(process.cwd(), 'empty-state')).length !== 0) {
+            throw new Error('empty directory was not preserved');
+          }
+          const root = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP;
+          if (!root) throw new Error('temporary root missing');
+          const target = path.join(root, 'candidate-write.txt');
+          writeFileSync(target, 'allowed');
+          rmSync(target);
+        }\n`, 'utf8');
       await writeFile(second, `export function runSuite() {}\n`, 'utf8');
       const passed: string[] = [];
       await runSuiteProcesses({
@@ -243,71 +257,8 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
-  'sealed fast suite still permits writes inside its isolated temporary root',
-  async () => {
-    await fixture(
-      `import { writeFileSync, rmSync } from 'node:fs';
-       import path from 'node:path';
-       export function runSuite() {
-         const root = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP;
-         if (!root) throw new Error('temporary root missing');
-         const target = path.join(root, 'candidate-write.txt');
-         writeFileSync(target, 'allowed');
-         rmSync(target);
-       }`,
-      async (root, file) => {
-        await expect(runSuiteProcesses({
-          workspaceRoot: root,
-          suiteRoot: path.join(root, 'tests', 'unit'),
-          files: [file],
-          workspaceInputMode: 'sealed-generation'
-        })).resolves.toBeUndefined();
-      }
-    );
-  }
-);
 
 
-test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
-  'sealed fast suite executes the exact staging node_modules bytes instead of substituting host dependencies',
-  async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-fast-suite-exact-deps-'));
-    const suiteRoot = path.join(root, 'tests', 'unit');
-    const packageRoot = path.join(root, 'node_modules', 'fixture-dependency');
-    const file = path.join(suiteRoot, 'candidate.test.ts');
-    try {
-      await mkdir(suiteRoot, { recursive: true });
-      await mkdir(packageRoot, { recursive: true });
-      await writeFile(
-        path.join(packageRoot, 'package.json'),
-        JSON.stringify({
-          name: 'fixture-dependency',
-          type: 'module',
-          exports: './index.js'
-        }) + '\n',
-        'utf8'
-      );
-      await writeFile(path.join(packageRoot, 'index.js'), 'export const exact = 17;\n', 'utf8');
-      await writeFile(
-        file,
-        `import { exact } from 'fixture-dependency';
-         export function runSuite() {
-           if (exact !== 17) throw new Error('wrong dependency bytes');
-         }\n`,
-        'utf8'
-      );
-      await expect(runSuiteProcesses({
-        workspaceRoot: root,
-        suiteRoot,
-        files: [file],
-        workspaceInputMode: 'sealed-generation'
-      })).resolves.toBeUndefined();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-);
 
 test.skipIf(process.platform !== 'linux')(
   'sealed fast suite denies dynamic imports outside the exact execution generation',
@@ -358,37 +309,5 @@ test.skipIf(process.platform !== 'linux')(
         })).rejects.toThrow();
       }
     );
-  }
-);
-
-test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
-  'sealed fast suite preserves explicit empty directory state',
-  async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-fast-suite-empty-dir-'));
-    const suiteRoot = path.join(root, 'tests', 'unit');
-    const file = path.join(suiteRoot, 'candidate.test.ts');
-    try {
-      await mkdir(suiteRoot, { recursive: true });
-      await mkdir(path.join(root, 'empty-state'));
-      await writeFile(
-        file,
-        `import { readdirSync } from 'node:fs';
-         import path from 'node:path';
-         export function runSuite() {
-           if (readdirSync(path.join(process.cwd(), 'empty-state')).length !== 0) {
-             throw new Error('empty directory was not preserved');
-           }
-         }\n`,
-        'utf8'
-      );
-      await expect(runSuiteProcesses({
-        workspaceRoot: root,
-        suiteRoot,
-        files: [file],
-        workspaceInputMode: 'sealed-generation'
-      })).resolves.toBeUndefined();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   }
 );

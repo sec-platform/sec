@@ -31,31 +31,6 @@ test('candidate top-level Reflect.apply replacement cannot skip its failing runS
   });
 });
 
-test('candidate inherited toJSON cannot intercept the terminal receipt', async () => {
-  await fixture(`
-    Object.defineProperty(Object.prototype, 'toJSON', {
-      configurable: true,
-      value() { throw new Error('candidate serializer hook must not run'); }
-    });
-    export function runSuite() {}
-  `, async input => {
-    const passed: string[] = [];
-    await runSuiteProcesses({ ...input, onSuitePassed: file => passed.push(file) });
-    expect(passed).toEqual([...input.files]);
-  });
-});
-
-test('candidate stdout stream wrappers do not own terminal publication', async () => {
-  await fixture(`
-    export function runSuite() {
-      process.stdout.write = () => true;
-      process.stdout._write = (_chunk, _encoding, callback) => callback();
-    }
-  `, async input => {
-    await expect(runSuiteProcesses(input)).resolves.toBeUndefined();
-  });
-});
-
 test('candidate error accessors cannot terminate the harness during failure projection', async () => {
   await fixture(`
     export function runSuite() {

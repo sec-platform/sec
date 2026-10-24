@@ -18,6 +18,7 @@ import {
   statSync,
   symlinkSync,
   truncateSync,
+  unlinkSync,
   writeFileSync,
   writeSync
 } from 'node:fs';
@@ -834,32 +835,42 @@ test.skipIf(process.platform !== 'linux')('Linux bulk copy preserves contained r
 });
 
 test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or projected-away link closures before creating the target', async () => {
-  for (const fault of ['default', 'escape', 'absolute', 'dangling', 'cycle', 'ancestor-cycle', 'ancestor-escape', 'excluded']) {
-    const root = fixtureRoot();
-    try {
-      const sourcePath = path.join(root, 'source');
-      mkdirSync(path.join(sourcePath, 'real'), { recursive: true });
-      writeFileSync(path.join(sourcePath, 'real', 'value'), 'retained');
-      const raw = fault === 'escape' ? '../outside' : fault === 'absolute' ? path.join(sourcePath, 'real', 'value')
-        : fault === 'dangling' ? 'missing' : fault === 'cycle' ? 'other' : fault === 'ancestor-cycle' ? 'real/link'
-        : fault === 'ancestor-escape' ? 'alias/../outside' : 'real/value';
-      symlinkSync(raw, path.join(sourcePath, 'link'));
-      if (fault === 'cycle') symlinkSync('link', path.join(sourcePath, 'other'));
-      if (fault === 'ancestor-escape') symlinkSync('.', path.join(sourcePath, 'alias'));
-      if (fault === 'ancestor-cycle') {
-        symlinkSync('real', path.join(sourcePath, 'alias'));
-        symlinkSync('../alias/link', path.join(sourcePath, 'real', 'link'));
+  const root = fixtureRoot();
+  try {
+    const sourcePath = path.join(root, 'source');
+    const target = path.join(root, 'target');
+    mkdirSync(path.join(sourcePath, 'real'), { recursive: true });
+    writeFileSync(path.join(sourcePath, 'real', 'value'), 'retained');
+    for (const fault of ['default', 'escape', 'absolute', 'dangling', 'cycle', 'ancestor-cycle', 'ancestor-escape', 'excluded']) {
+      const links: string[] = [];
+      const link = (raw: string, relativePath: string): void => {
+        const name = path.join(sourcePath, relativePath);
+        symlinkSync(raw, name);
+        links.push(name);
+      };
+      try {
+        const raw = fault === 'escape' ? '../outside' : fault === 'absolute' ? path.join(sourcePath, 'real', 'value')
+          : fault === 'dangling' ? 'missing' : fault === 'cycle' ? 'other' : fault === 'ancestor-cycle' ? 'real/link'
+          : fault === 'ancestor-escape' ? 'alias/../outside' : 'real/value';
+        link(raw, 'link');
+        if (fault === 'cycle') link('link', 'other');
+        if (fault === 'ancestor-escape') link('.', 'alias');
+        if (fault === 'ancestor-cycle') {
+          link('real', 'alias');
+          link('../alias/link', 'real/link');
+        }
+        await expect(copyNoFollowDirectoryTreesBulk([{ source: inspectNoFollowDirectoryChain(sourcePath).target, target }], {
+          preserveContainedRelativeSymbolicLinks: fault !== 'default',
+          ...(fault === 'excluded' ? { includeRelativePaths: ['link'] } : {}), maximumEntries: 128, maximumBytes: 128
+        })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+        expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
+        expect(readFileSync(path.join(sourcePath, 'real', 'value'), 'utf8')).toBe('retained');
+      } finally {
+        for (const name of links.reverse()) unlinkSync(name);
       }
-      const target = path.join(root, 'target');
-      await expect(copyNoFollowDirectoryTreesBulk([{ source: inspectNoFollowDirectoryChain(sourcePath).target, target }], {
-        preserveContainedRelativeSymbolicLinks: fault !== 'default',
-        ...(fault === 'excluded' ? { includeRelativePaths: ['link'] } : {}), maximumEntries: 128, maximumBytes: 128
-      })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
-      expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
-      expect(readFileSync(path.join(sourcePath, 'real', 'value'), 'utf8')).toBe('retained');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

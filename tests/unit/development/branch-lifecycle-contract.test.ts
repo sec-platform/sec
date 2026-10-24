@@ -6,7 +6,6 @@ import {
   selectBranchLifecyclePullRequests
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import {
-  createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs,
   createBranchLifecycleGitHubRemoteObservation
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
@@ -72,60 +71,6 @@ test('GitHub repository identity parser accepts only exact supported remote form
   expect(parseRepositoryFullName('ssh://git@github.com/sec-platform/sec.git')).toBe('sec-platform/sec');
   expect(parseRepositoryFullName('https://attacker.invalid/github.com/sec-platform/sec.git')).toBeNull();
   expect(parseRepositoryFullName('https://github.com/sec-platform/sec/extra')).toBeNull();
-});
-
-test('canonical bounded GitHub credential helper is deterministic', () => {
-  expect(createBranchLifecycleGitHubCredentialArgs()).toEqual([
-    '-c', 'http.extraHeader=',
-    '-c', 'http.https://github.com/.extraheader=',
-    '-c', 'credential.helper=',
-    '-c', 'credential.helper=!gh auth git-credential'
-  ]);
-});
-
-test('canonical Git child environment removes ambient askpass and SSH command authority', () => {
-  const environment = createBranchLifecycleGitChildEnvironment({
-    PATH: 'trusted-path',
-    HOME: 'trusted-home',
-    gh_prompt_disabled: '0',
-    SSH_AUTH_SOCK: 'trusted-agent-channel',
-    git_askpass: 'forged-git-askpass',
-    GIT_ASKPASS_REQUIRE: 'force',
-    ssh_askpass: 'forged-ssh-askpass',
-    SSH_ASKPASS_REQUIRE: 'force',
-    git_ssh: 'forged-git-ssh',
-    GIT_SSH_COMMAND: 'forged-git-ssh-command',
-    Git_Config_Count: '1',
-    GIT_CONFIG_KEY_0: 'credential.helper',
-    git_config_value_0: 'forged-helper',
-    git_terminal_prompt: '1',
-    GIT_OPTIONAL_LOCKS: '1',
-    git_no_replace_objects: '0'
-  });
-
-  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
-    .toEqual(['PATH']);
-  expect(environment.HOME).toBe('trusted-home');
-  expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent-channel');
-  for (const name of Object.keys(environment)) {
-    expect([
-      'GIT_ASKPASS',
-      'GIT_ASKPASS_REQUIRE',
-      'SSH_ASKPASS',
-      'SSH_ASKPASS_REQUIRE',
-      'GIT_SSH',
-      'GIT_SSH_COMMAND',
-      'GIT_CONFIG_COUNT',
-      'GIT_CONFIG_KEY_0',
-      'GIT_CONFIG_VALUE_0'
-    ]).not.toContain(name.toUpperCase());
-  }
-  expect(environment).toMatchObject({
-    GH_PROMPT_DISABLED: '1',
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_OPTIONAL_LOCKS: '0',
-    GIT_NO_REPLACE_OBJECTS: '1'
-  });
 });
 
 test('GitHub remote observation binds canonical URL and ignores every ambient Git config scope', () => {

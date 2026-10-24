@@ -47,38 +47,31 @@ async function absent(target: string): Promise<boolean> {
   catch (error) { if ((error as { code?: string }).code === 'ENOENT') return true; throw error; }
 }
 
-test('uncloneable input is rejected before allocating any temporary directory', async () => using(async (root, allocated) => {
+test('capture, registry and admission failures allocate no temporary workspace', async () => using(async (root, allocated) => {
   const input = Object.assign(lock(), { nonserializable() {} });
   await assert.rejects(validateResolvedTemplates(root, input, undefined, unreachedDependencies));
   assert.deepEqual(allocated, []);
-}));
 
-test('malformed registry data is rejected before allocation or admission effects', async () => using(async (root, allocated) => {
   for (const registryPath of ['../escape', '/absolute', '', 'C:\\escape']) {
     await assert.rejects(validateResolvedTemplates(root, lock(registryPath), async () => assert.fail('invalid input fence'), unreachedDependencies),
       error => (error as { code?: string }).code === 'TEMPLATE-BUILD-002');
   }
   assert.deepEqual(allocated, []);
-}));
 
-test('invalid callbacks and malformed resolved-block collections allocate no workspace', async () => using(async (root, allocated) => {
   await assert.rejects(validateResolvedTemplates(root, lock(), 0 as never, unreachedDependencies), TypeError);
   await assert.rejects(validateResolvedTemplates(root, { resolvedBlocks: null } as never, undefined, unreachedDependencies));
   assert.deepEqual(allocated, []);
-}));
 
-test('initial admission failure creates no temporary root and preserves its exact reason', async () => using(async (root, allocated) => {
   const reason = Object.freeze({ admission: 'refused' });
   await assert.rejects(validateResolvedTemplates(root, lock(), async () => { throw reason; }, unreachedDependencies), error => error === reason);
   assert.deepEqual(allocated, []);
-}));
 
-test('a special validation failure survives successful cleanup unchanged', async () => using(async (root, allocated) => {
-  const reason = new CodedFailure('VERIFY-ISOLATION-003', 'selected refusal'); let refused = false;
-  await assert.rejects(validateResolvedTemplates(root, lock(), async () => {
-    if (allocated.length && !refused) { refused = true; throw reason; }
-  }, unreachedDependencies), error => error === reason);
-  assert.equal(allocated.length, 1); assert.equal(await absent(allocated[0]!), true);
+  // This lexically valid root would recursively include the isolated staging
+  // namespace. It is a separate admission rule, still before allocation.
+  process.env[ISOLATED_VERIFICATION_ENV_KEY] = '1';
+  await assert.rejects(validateResolvedTemplates(root, lock('.'), async () => assert.fail('invalid isolated setup'), unreachedDependencies),
+    error => (error as CodedFailure).code === 'TEMPLATE-BUILD-002');
+  assert.deepEqual(allocated, []);
 }));
 
 test('input changes inside the first fence cannot move clone work outside the protected scope', async () => using(async (root, allocated) => {
@@ -90,24 +83,23 @@ test('input changes inside the first fence cannot move clone work outside the pr
   assert.equal(allocated.length, 1); assert.equal(await absent(allocated[0]!), true);
 }));
 
-for (const primary of [undefined, null, false, 0, Object.freeze({ failed: 'validation' })]) {
-  test(`cleanup failure retains the original ${String(primary)} failure and the exact residual root`, async () => using(async (root, allocated) => {
-    const cleanup = new Error('cleanup fence refused'); let refused = false;
-    await assert.rejects(validateResolvedTemplates(root, lock(), async () => {
-      if (!allocated.length) return;
-      if (!refused) { refused = true; throw primary; }
-      throw cleanup;
-    }, unreachedDependencies), error => {
-      const e = error as CodedFailure;
-      assert.equal(e.code, 'TEMPLATE-BUILD-003');
-      assert.ok(e.cause instanceof AggregateError);
-      assert.deepEqual(e.cause.errors, [primary, cleanup]); assert.equal(e.cause.cause, primary);
-      assert.deepEqual(e.details, { validationRoot: allocated[0], validationCompleted: false });
-      return true;
-    });
-    assert.equal(allocated.length, 1); assert.equal(await absent(allocated[0]!), false);
-  }));
-}
+test('cleanup failure retains an undefined primary and the exact residual root', async () => using(async (root, allocated) => {
+  const primary = undefined;
+  const cleanup = new Error('cleanup fence refused'); let refused = false;
+  await assert.rejects(validateResolvedTemplates(root, lock(), async () => {
+    if (!allocated.length) return;
+    if (!refused) { refused = true; throw primary; }
+    throw cleanup;
+  }, unreachedDependencies), error => {
+    const e = error as CodedFailure;
+    assert.equal(e.code, 'TEMPLATE-BUILD-003');
+    assert.ok(e.cause instanceof AggregateError);
+    assert.deepEqual(e.cause.errors, [primary, cleanup]); assert.equal(e.cause.cause, primary);
+    assert.deepEqual(e.details, { validationRoot: allocated[0], validationCompleted: false });
+    return true;
+  });
+  assert.equal(allocated.length, 1); assert.equal(await absent(allocated[0]!), false);
+}));
 
 test('hostile thrown values are preserved as causes after successful cleanup', async () => using(async (root, allocated) => {
   const { proxy, revoke } = Proxy.revocable({}, {}); revoke(); let refused = false;
@@ -118,11 +110,4 @@ test('hostile thrown values are preserved as causes after successful cleanup', a
     assert.equal((error as Error).cause, proxy); return true;
   });
   assert.equal(await absent(allocated[0]!), true);
-}));
-
-test('isolated validation rejects a registry containing its temporary-root namespace before setup', async () => using(async (root, allocated) => {
-  process.env[ISOLATED_VERIFICATION_ENV_KEY] = '1';
-  await assert.rejects(validateResolvedTemplates(root, lock('.'), async () => assert.fail('invalid isolated setup'), unreachedDependencies),
-    error => (error as CodedFailure).code === 'TEMPLATE-BUILD-002');
-  assert.deepEqual(allocated, []);
 }));

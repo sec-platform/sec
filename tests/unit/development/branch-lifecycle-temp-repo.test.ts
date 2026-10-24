@@ -45,6 +45,7 @@ test('canonical Git child environment removes ambient steering and preserves hos
     [process.platform === 'win32' ? 'Path' : 'PATH']: 'trusted-path',
     HOME: 'trusted-home',
     USERPROFILE: 'trusted-profile',
+    gh_prompt_disabled: '0',
     SSH_AUTH_SOCK: 'trusted-agent',
     HTTPS_PROXY: 'trusted-proxy',
     Git_Dir: 'forged-git-dir',
@@ -52,23 +53,32 @@ test('canonical Git child environment removes ambient steering and preserves hos
     GIT_INDEX_FILE: 'forged-index',
     GIT_OBJECT_DIRECTORY: 'forged-objects',
     GIT_CONFIG_COUNT: '1',
+    Git_Config_Count: '1',
     GIT_CONFIG_KEY_0: 'core.worktree',
     GIT_CONFIG_VALUE_0: 'forged-worktree',
+    git_config_value_0: 'forged-helper',
     git_config_key_19: 'core.fsmonitor',
     git_config_value_19: 'forged-monitor',
     GIT_CONFIG_GLOBAL: 'forged-config',
+    git_askpass: 'forged-git-askpass',
     GIT_ASKPASS_REQUIRE: 'force',
+    ssh_askpass: 'forged-ssh-askpass',
+    SSH_ASKPASS_REQUIRE: 'force',
+    git_ssh: 'forged-git-ssh',
+    GIT_SSH_COMMAND: 'forged-git-ssh-command',
     git_no_replace_objects: '0',
     GIT_OPTIONAL_LOCKS: '1',
-    GIT_TERMINAL_PROMPT: '1'
+    GIT_TERMINAL_PROMPT: '1',
+    git_terminal_prompt: '1'
   });
   expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
-    .toHaveLength(1);
+    .toEqual(['PATH']);
   expect(environment.PATH).toBe('trusted-path');
   expect(environment.HOME).toBe('trusted-home');
   expect(environment.USERPROFILE).toBe('trusted-profile');
   expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent');
   expect(environment.HTTPS_PROXY).toBe('trusted-proxy');
+  expect(environment.GH_PROMPT_DISABLED).toBe('1');
   expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
   expect(environment.GIT_OPTIONAL_LOCKS).toBe('0');
   expect(environment.GIT_NO_REPLACE_OBJECTS).toBe('1');
@@ -83,7 +93,12 @@ test('canonical Git child environment removes ambient steering and preserves hos
       'GIT_INDEX_FILE',
       'GIT_OBJECT_DIRECTORY',
       'GIT_CONFIG_COUNT',
-      'GIT_ASKPASS_REQUIRE'
+      'GIT_ASKPASS',
+      'GIT_ASKPASS_REQUIRE',
+      'SSH_ASKPASS',
+      'SSH_ASKPASS_REQUIRE',
+      'GIT_SSH',
+      'GIT_SSH_COMMAND'
     ]).not.toContain(canonicalName);
     expect(canonicalName).not.toMatch(/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u);
   }
@@ -328,12 +343,19 @@ test('remote-absent preparation recovers the exact local branch without mutating
 }, 180_000);
 
 test('canonical GitHub credential prefix masks checkout HTTP authorization before gh lookup', () => {
+  const credentialArgs = createBranchLifecycleGitHubCredentialArgs();
+  expect(credentialArgs).toEqual([
+    '-c', 'http.extraHeader=',
+    '-c', 'http.https://github.com/.extraheader=',
+    '-c', 'credential.helper=',
+    '-c', 'credential.helper=!gh auth git-credential'
+  ]);
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-credential-'));
   try {
     git(root, ['init']);
     git(root, ['config', 'http.https://github.com/.extraheader', 'AUTHORIZATION: ambient-checkout-token']);
     const observed = spawnSync('git', [
-      ...createBranchLifecycleGitHubCredentialArgs(),
+      ...credentialArgs,
       'config', '--get-urlmatch', 'http.extraheader', 'https://github.com/sec-platform/sec.git'
     ], {
       cwd: root,
