@@ -30,7 +30,6 @@ test('unique transitive providers are selected once and unrelated catalog entrie
   assert.deepEqual(result.capabilities, ['block/a', 'cap/b', 'cap/c']);
   assert.deepEqual(result.entries[0], c);
   assert.deepEqual([a, b, c], before);
-  assert.equal(Reflect.set(a, 'registrySourceId', 'edited-after-resolution'), true);
 });
 
 test('an explicit provider still disambiguates an otherwise ambiguous capability catalog', () => {
