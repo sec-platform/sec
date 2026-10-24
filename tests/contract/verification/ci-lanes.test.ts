@@ -5,10 +5,7 @@ import {
   isDocumentationVerificationInputPath
 } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 
-import { bindDocumentationVerificationGateInput, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
-import {
-  CodexDevelopmentChangedFilesFromRecords
-} from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { bindDocumentationVerificationGateInput, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, type CodexDevelopmentVerificationPlanProfile } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { resolveTestOwnership } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { parseGitChangedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
@@ -112,32 +109,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', asyn
   expect(documentationExample.gates.map(({ id }) => id)).not.toContain('imports');
 });
 
-test('changed-file canonicalization shares the repository path contract', () => {
-  expect(CodexDevelopmentCanonicalChangedFiles([
-    'config/repository/current-state.yaml',
-    'README.md',
-    'README.md'
-  ])).toEqual(['README.md', 'config/repository/current-state.yaml']);
 
-  for (const file of [
-    '',
-    '/config/repository/current-state.yaml',
-    'C:/absolute.md',
-    'C:relative.md',
-    'file:/docs/readme.md',
-    'docs\\work\\current-state.yaml',
-    'docs/file:stream.md',
-    'docs//x.md',
-    'docs/./x.md',
-    'config/repository/../evidence/probe.yaml',
-    'config/repository/\0state.yaml',
-    'docs/e\u0301.md'
-  ]) {
-    expect(() => CodexDevelopmentCanonicalChangedFiles([file])).toThrow(
-      'not canonical repository-relative POSIX'
-    );
-  }
-});
 
 test('Git raw path identity reaches canonical validation without separator laundering', async () => {
   const raw = new TextEncoder().encode('M\0docs\\work\\current-state.yaml\0');
@@ -170,20 +142,4 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
   expect(runtimeHeavy.some((suite) => !suite.parallelSafe)).toBe(true);
 });
 
-test('CI changed files derive from one immutable changed-record snapshot', () => {
-  const changedPath = 'scripts/fixture-ci.ts';
-  const orchestrationPath = 'scripts/codex/fixture-core.ts';
-  expect(CodexDevelopmentChangedFilesFromRecords([
-    { status: 'changed', path: changedPath },
-    {
-      status: 'renamed',
-      previousPath: 'scripts/old-ci.ts',
-      path: changedPath
-    },
-    { status: 'added', path: orchestrationPath }
-  ])).toEqual([
-    orchestrationPath,
-    changedPath,
-    'scripts/old-ci.ts'
-  ]);
-});
+

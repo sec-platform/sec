@@ -17,6 +17,7 @@ import {
   CodexDevelopmentBuildVerificationPlan
 } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
+  CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentDefaultGitRevision,
   CodexDevelopmentDefaultTrackedTreeIsClean,
@@ -399,4 +400,22 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       { label: 'fixture-root', settle: () => { rmSync(repositoryRoot, { recursive: true, force: true }); } }
     ] });
   }
+});
+
+test('CI changed files derive from one immutable changed-record snapshot', () => {
+  const changedPath = 'scripts/fixture-ci.ts';
+  const orchestrationPath = 'scripts/codex/fixture-core.ts';
+  expect(CodexDevelopmentChangedFilesFromRecords([
+    { status: 'changed', path: changedPath },
+    {
+      status: 'renamed',
+      previousPath: 'scripts/old-ci.ts',
+      path: changedPath
+    },
+    { status: 'added', path: orchestrationPath }
+  ])).toEqual([
+    orchestrationPath,
+    changedPath,
+    'scripts/old-ci.ts'
+  ]);
 });

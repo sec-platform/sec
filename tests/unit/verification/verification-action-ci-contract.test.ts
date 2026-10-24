@@ -4,7 +4,7 @@ import historicalSourcePlan from '../../fixtures/ci-source-transition-legacy-pla
 
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, assertCiVerificationCurrentOperation, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, parseCiVerificationNormalizedOperation, resolveCiVerificationDevRunnerTarget, sourceProgramTransitionGate, type CiVerificationActionCandidate } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
-import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentCanonicalChangedFiles } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest } from '../../../src/adapters/verification/platform/session/contract/session.ts';
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
@@ -501,4 +501,31 @@ test('historical source Action bytes decode unchanged but cannot issue new execu
   })] })).toThrow('exact adopted-base comparison grammar');
   expect(() => parseCiVerificationNormalizedOperation({ ...operation,
     target: { ...operation.target, args: ['--arbitrary-old-command'] } })).toThrow('read-only grammar');
+});
+
+test('changed-file canonicalization shares the repository path contract', () => {
+  expect(CodexDevelopmentCanonicalChangedFiles([
+    'config/repository/current-state.yaml',
+    'README.md',
+    'README.md'
+  ])).toEqual(['README.md', 'config/repository/current-state.yaml']);
+
+  for (const file of [
+    '',
+    '/config/repository/current-state.yaml',
+    'C:/absolute.md',
+    'C:relative.md',
+    'file:/docs/readme.md',
+    'docs\\work\\current-state.yaml',
+    'docs/file:stream.md',
+    'docs//x.md',
+    'docs/./x.md',
+    'config/repository/../evidence/probe.yaml',
+    'config/repository/\0state.yaml',
+    'docs/e\u0301.md'
+  ]) {
+    expect(() => CodexDevelopmentCanonicalChangedFiles([file])).toThrow(
+      'not canonical repository-relative POSIX'
+    );
+  }
 });
