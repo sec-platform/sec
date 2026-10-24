@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { createBranchCloseoutRecoveryArtifact, parseBranchCloseoutRecoveryArtifact } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 
 import { VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, createVerificationSessionProposalDigest, parseVerificationRegistryProjection, parseVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
 
@@ -91,4 +92,30 @@ test('session proposal digest is precomputable without session identity or recei
   const digest=createVerificationSessionProposalDigest(proposal);
   expect(createVerificationSessionProposalDigest({...proposal,actionPlanClosureDigest:`sha256:${'a'.repeat(64)}`})).not.toBe(digest);
   expect(createVerificationSessionProposalDigest({...proposal,testImpactTransitionDigest:`sha256:${'b'.repeat(64)}`})).not.toBe(digest);
+});
+
+const RECOVERY_SESSION = `sha256:${'6'.repeat(64)}` as const;
+
+test('provider recovery artifact binds exact envelope and bundle bytes', () => {
+  const artifact = createBranchCloseoutRecoveryArtifact({
+    repository: 'sec-platform/sec',
+    pullRequestNumber: 42,
+    sessionRevision: RECOVERY_SESSION,
+    headSha: HEAD_SHA,
+    headTreeSha: HEAD_SHA,
+    preparedEnvelopeBytes: '{"schema":"prepared-fixture"}\n',
+    recoveryBundleBytes: Buffer.from('exact recovery bundle bytes')
+  });
+  expect(parseBranchCloseoutRecoveryArtifact(JSON.stringify(artifact))).toEqual(artifact);
+  expect(artifact.preparedEnvelopeByteLength).toBe(30);
+  expect(artifact.recoveryBundleByteLength).toBe(27);
+
+  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact,
+    recoveryBundleBase64: Buffer.from('substituted recovery bundle').toString('base64') }))
+    .toThrow('recovery bundle digest mismatch');
+  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact, callerPath: 'untrusted.json' }))
+    .toThrow('fields are not exact');
+  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact,
+    preparedEnvelopeBase64: `${artifact.preparedEnvelopeBase64}=\n` }))
+    .toThrow('canonical base64');
 });

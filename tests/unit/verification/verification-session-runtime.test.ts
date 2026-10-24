@@ -33,9 +33,7 @@ import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopment
 
 import type { GitHubWorkflowJobObservation } from '../../../src/adapters/providers/github-api/contract.ts';
 import {
-  authorizeBranchCloseout, createBranchCloseoutPreparation,
-  createBranchCloseoutRecoveryArtifact,
-  parseBranchCloseoutRecoveryArtifact
+  authorizeBranchCloseout, createBranchCloseoutPreparation
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
   BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
@@ -58,7 +56,7 @@ import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPAT
 import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 
 import { parseVerificationSessionHostedRequest } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
-import { assertGitHubReviewAuthorityObservation, classifyGitHubGraphQLSchemaFailure, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, isGitHubProviderSchemaUnsupportedError, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+import { assertGitHubReviewAuthorityObservation, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedRuntime, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
@@ -71,7 +69,6 @@ import {
   verificationSessionCli,
   verificationSessionExecutionPlacement
 } from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import { routePreparedWorktreeCleanupAttempt } from '../../../src/application/verification-session-hosted.ts';
 import { parseHostedVerificationCommand } from '../../../src/entry/verification-session-hosted-cli.ts';
 import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
@@ -588,29 +585,7 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
   expect(visited).toEqual([null, '2', null, '2']);
 });
 
-test('provider recovery artifact binds exact envelope and bundle bytes', () => {
-  const artifact = createBranchCloseoutRecoveryArtifact({
-    repository: 'sec-platform/sec',
-    pullRequestNumber: 42,
-    sessionRevision: JOIN_SESSION,
-    headSha: HEAD,
-    headTreeSha: HEAD,
-    preparedEnvelopeBytes: '{"schema":"prepared-fixture"}\n',
-    recoveryBundleBytes: Buffer.from('exact recovery bundle bytes')
-  });
-  expect(parseBranchCloseoutRecoveryArtifact(JSON.stringify(artifact))).toEqual(artifact);
-  expect(artifact.preparedEnvelopeByteLength).toBe(30);
-  expect(artifact.recoveryBundleByteLength).toBe(27);
 
-  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact,
-    recoveryBundleBase64: Buffer.from('substituted recovery bundle').toString('base64') }))
-    .toThrow('recovery bundle digest mismatch');
-  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact, callerPath: 'untrusted.json' }))
-    .toThrow('fields are not exact');
-  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact,
-    preparedEnvelopeBase64: `${artifact.preparedEnvelopeBase64}=\n` }))
-    .toThrow('canonical base64');
-});
 
 async function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
   return (await resumeHostedVerificationSession({ repositoryRoot: fixture.repositoryRoot,
@@ -1890,66 +1865,6 @@ afterAll(() => {
   ] });
 });
 
-test('prepared cleanup route never calls a local consumer for foreign observations', async () => {
-  const calls: string[] = [];
-  const foreign = await routePreparedWorktreeCleanupAttempt({
-    foreignWorktreeObservationDigests: [PAGE],
-    targetCount: 1,
-    consumeLocalPreparedTargets: async () => {
-      calls.push('physical');
-      return ['unreachable'];
-    }
-  });
-  expect(foreign).toEqual([]);
-  expect(calls).toEqual([]);
-
-  const noTarget = await routePreparedWorktreeCleanupAttempt({
-    foreignWorktreeObservationDigests: [],
-    targetCount: 0,
-    consumeLocalPreparedTargets: async () => {
-      calls.push('empty-target');
-      return ['unreachable'];
-    }
-  });
-  expect(noTarget).toEqual([]);
-  expect(calls).toEqual([]);
-});
-
-test('prepared cleanup route invokes the local sequence once for the exact target count', async () => {
-  const calls: string[] = [];
-  const tokens = await routePreparedWorktreeCleanupAttempt({
-    foreignWorktreeObservationDigests: [],
-    targetCount: 2,
-    consumeLocalPreparedTargets: async () => {
-      calls.push('prepare', 'execute', 'assert');
-      return ['opaque-one', 'opaque-two'];
-    }
-  });
-  expect(calls).toEqual(['prepare', 'execute', 'assert']);
-  expect(tokens).toEqual(['opaque-one', 'opaque-two']);
-  await expect(routePreparedWorktreeCleanupAttempt({
-    foreignWorktreeObservationDigests: [],
-    targetCount: 2,
-    consumeLocalPreparedTargets: async () => ['one']
-  })).rejects.toThrow('same-host-worktree-closeout-required');
-});
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 test('rehydrated prepared envelope preserves remote history and composes with closeout authorization', () => {
   const inventory = (root: string, state: 'open' | 'merged'): BranchLifecycleInventory => ({
     schema: 'sec-branch-lifecycle-inventory-v1',
@@ -2034,19 +1949,6 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
   expect(authorization.localAction).toBe('blocked');
 });
 
-test('GitHub GraphQL schema drift is classified as typed provider-schema-unsupported', () => {
-  const observed = "gh: Field 'id' doesn't exist on type 'Actor'";
-  const failure = classifyGitHubGraphQLSchemaFailure(observed);
-  expect(failure).not.toBeNull();
-  expect(failure!.status).toBe(PROVIDER_SCHEMA_UNSUPPORTED_STATUS);
-  expect(failure!.reasonCode).toBe('github-graphql-schema-unsupported');
-  expect(failure!.responseDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(isGitHubProviderSchemaUnsupportedError(Object.assign(
-    new Error('x'),
-    { code: PROVIDER_SCHEMA_UNSUPPORTED_STATUS, reasonCode: 'r', responseDigest: failure!.responseDigest }
-  ))).toBe(false);
-  expect(classifyGitHubGraphQLSchemaFailure('HTTP 403: Resource not accessible')).toBeNull();
-});
 
 // Only these registrations consume the exact repository TestImpact provider.
 // Keep its canonical setup/settlement budget outside each 30s case body.

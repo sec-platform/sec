@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test';
 
 import {
+  classifyGitHubGraphQLSchemaFailure,
   classifyGitHubObservationFailure,
+  isGitHubProviderSchemaUnsupportedError,
+  PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
   parseGitHubCheckPages
 } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 
@@ -70,4 +73,18 @@ test('GitHub check census accepts exact zero and classifies reached malformed by
       kind: 'provider-invalid'
     });
   }
+});
+
+test('GitHub GraphQL schema drift is classified as typed provider-schema-unsupported', () => {
+  const observed = "gh: Field 'id' doesn't exist on type 'Actor'";
+  const failure = classifyGitHubGraphQLSchemaFailure(observed);
+  expect(failure).not.toBeNull();
+  expect(failure!.status).toBe(PROVIDER_SCHEMA_UNSUPPORTED_STATUS);
+  expect(failure!.reasonCode).toBe('github-graphql-schema-unsupported');
+  expect(failure!.responseDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(isGitHubProviderSchemaUnsupportedError(Object.assign(
+    new Error('x'),
+    { code: PROVIDER_SCHEMA_UNSUPPORTED_STATUS, reasonCode: 'r', responseDigest: failure!.responseDigest }
+  ))).toBe(false);
+  expect(classifyGitHubGraphQLSchemaFailure('HTTP 403: Resource not accessible')).toBeNull();
 });

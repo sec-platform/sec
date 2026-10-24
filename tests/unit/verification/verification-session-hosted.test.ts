@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../src/adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
 import {
   sendHostedSessionResume, executeHostedSessionResumeReceiver, verifyHostedIntegrationRecovery,
+  routePreparedWorktreeCleanupAttempt,
   type HostedControlStepFact, type HostedRecoveryVerificationPorts
 } from '../../../src/application/verification-session-hosted.ts';
 import { sha256 } from '../../../src/contracts/canonical.ts';
@@ -416,4 +417,51 @@ test('terminal resume awaits its original writer and preserves its failure', asy
   expect(fixture.order).toEqual(['capture', 'authenticated-reread', 'candidate', 'candidate', 'prepare',
     'member:0', 'member:1', 'compose', 'qualify-completion', 'finalize']);
   expect(fixture.forbiddenEffects).toEqual([]);
+});
+
+// Same digest bytes as the external Session fixture, without loading its graph.
+const FOREIGN_WORKTREE_PAGE = `sha256:${'a'.repeat(64)}` as const;
+
+test('prepared cleanup route never calls a local consumer for foreign observations', async () => {
+  const calls: string[] = [];
+  const foreign = await routePreparedWorktreeCleanupAttempt({
+    foreignWorktreeObservationDigests: [FOREIGN_WORKTREE_PAGE],
+    targetCount: 1,
+    consumeLocalPreparedTargets: async () => {
+      calls.push('physical');
+      return ['unreachable'];
+    }
+  });
+  expect(foreign).toEqual([]);
+  expect(calls).toEqual([]);
+
+  const noTarget = await routePreparedWorktreeCleanupAttempt({
+    foreignWorktreeObservationDigests: [],
+    targetCount: 0,
+    consumeLocalPreparedTargets: async () => {
+      calls.push('empty-target');
+      return ['unreachable'];
+    }
+  });
+  expect(noTarget).toEqual([]);
+  expect(calls).toEqual([]);
+});
+
+test('prepared cleanup route invokes the local sequence once for the exact target count', async () => {
+  const calls: string[] = [];
+  const tokens = await routePreparedWorktreeCleanupAttempt({
+    foreignWorktreeObservationDigests: [],
+    targetCount: 2,
+    consumeLocalPreparedTargets: async () => {
+      calls.push('prepare', 'execute', 'assert');
+      return ['opaque-one', 'opaque-two'];
+    }
+  });
+  expect(calls).toEqual(['prepare', 'execute', 'assert']);
+  expect(tokens).toEqual(['opaque-one', 'opaque-two']);
+  await expect(routePreparedWorktreeCleanupAttempt({
+    foreignWorktreeObservationDigests: [],
+    targetCount: 2,
+    consumeLocalPreparedTargets: async () => ['one']
+  })).rejects.toThrow('same-host-worktree-closeout-required');
 });
