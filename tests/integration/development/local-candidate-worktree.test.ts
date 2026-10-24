@@ -6,6 +6,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
 
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import { createLocalGitWorktreeAddFailureActorForTests } from '../../../src/adapters/providers/git/local-worktree.ts';
@@ -86,13 +87,13 @@ function fixture() {
 async function withFixture(run: (value: ReturnType<typeof fixture>, lease: LocalCandidateWorktreeLease) => Promise<void>) {
   const value = fixture();
   let lease: LocalCandidateWorktreeLease | undefined;
-  try {
+  return settleWorkspaceCallback(async () => {
     lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
     await run(value, lease);
-  } finally {
-    await lease?.release();
-    rmSync(value.ownedRoot, { recursive: true, force: true });
-  }
+  }, () => settleWorkspaceCleanups([
+    async () => { await lease?.release(); },
+    async () => { rmSync(value.ownedRoot, { recursive: true, force: true }); }
+  ]));
 }
 
 test.skipIf(process.platform !== 'linux')('a substituted .git marker blocks retained Git use and preserves candidate ownership', async () => {
@@ -170,7 +171,7 @@ test.skipIf(process.platform !== 'linux')('settled native checkout failure canno
 test('prepared acquisition failure remains retryable with native reuse and exact closeout', async () => {
   const value = fixture();
   let lease: LocalCandidateWorktreeLease | undefined;
-  try {
+  await settleWorkspaceCallback(async () => {
     const failureActor = createLocalGitWorktreeAddFailureActorForTests({ phase: 'before-start',
       fail: async () => { throw new Error('fixture admission failed before native start'); } });
     await expect(acquireLocalCandidateWorktree({ ...value.input, failureActor }, worktreePhysicalCloseoutOperations)).rejects.toThrow('before native start');
@@ -192,7 +193,10 @@ test('prepared acquisition failure remains retryable with native reuse and exact
     expect(lstatSync(lease.owner.candidateRoot, { throwIfNoEntry: false })).toBeUndefined();
     expect(lstatSync(markerPath, { throwIfNoEntry: false })).toBeUndefined();
     expect(git(value.root, 'worktree', 'list', '--porcelain')).not.toContain(lease.owner.candidateRoot);
-  } finally { await lease?.release(); rmSync(value.ownedRoot, { recursive: true, force: true }); }
+  }, () => settleWorkspaceCleanups([
+    async () => { await lease?.release(); },
+    async () => { rmSync(value.ownedRoot, { recursive: true, force: true }); }
+  ]));
 }, 30_000);
 
 for (const residue of ['present', 'absent'] as const) {
