@@ -1261,6 +1261,86 @@
     {
       "document_id": "urn:uuid:c7200302-f407-4904-bb71-e91245fca890",
       "path": "docs/演进/覆盖场景/机制适用性/风险观测与保证.md"
+    },
+    {
+      "document_id": "urn:uuid:e56bdb1a-f7c0-41b5-86a5-7b431ac81c09",
+      "path": "docs/作者/第一层语言.md"
+    },
+    {
+      "document_id": "urn:uuid:ebd7d7d8-a963-4b53-a9d5-4edc830ff4c8",
+      "path": "docs/作者/紧凑结构与同源编辑.md"
+    },
+    {
+      "document_id": "urn:uuid:4dd0f45a-de7b-433c-b8cb-ba9bf47076dd",
+      "path": "docs/作者/表达范围与专业接合.md"
+    },
+    {
+      "document_id": "urn:uuid:1c9631a4-e1fa-43ac-afe7-a72bf4610ebe",
+      "path": "docs/依据/来源/第一层/convergence-sources.md"
+    },
+    {
+      "document_id": "urn:uuid:9715376d-cce1-4e97-99d1-100fe5be59e8",
+      "path": "docs/依据/来源/第一层/observation-evolution-sources.md"
+    },
+    {
+      "document_id": "urn:uuid:6a280434-9171-4d42-b120-e9558577bf0f",
+      "path": "docs/依据/来源/第一层/semantic-contract-sources.md"
+    },
+    {
+      "document_id": "urn:uuid:c26380ae-0afe-49aa-b246-913e6122b8ee",
+      "path": "docs/开发/VSCode原生接合.md"
+    },
+    {
+      "document_id": "urn:uuid:b4233daf-90e9-49e1-b40f-54b2b2dc527c",
+      "path": "docs/开发/第一层编译承接.md"
+    },
+    {
+      "document_id": "urn:uuid:d9653c16-5146-45ae-bd99-0975fcfe04d9",
+      "path": "docs/运行/验收/第一层开发面.md"
+    },
+    {
+      "document_id": "urn:uuid:12779727-3f0a-4a22-94c2-5ae6da32bf54",
+      "path": "examples/第一层作者/README.md"
+    },
+    {
+      "document_id": "urn:uuid:47a9d713-db7e-47a0-be92-47360d3afb8c",
+      "path": "examples/第一层作者/closed-boolean/README.md"
+    },
+    {
+      "document_id": "urn:uuid:d84af54f-a75c-4a57-9978-3261d53571c9",
+      "path": "examples/第一层作者/codec-boundaries/README.md"
+    },
+    {
+      "document_id": "urn:uuid:125d0b27-2689-4468-952c-e215278e3718",
+      "path": "examples/第一层作者/convergence/README.md"
+    },
+    {
+      "document_id": "urn:uuid:18f46711-fab9-4d77-9235-6caaa32a5ffa",
+      "path": "examples/第一层作者/interval/README.md"
+    },
+    {
+      "document_id": "urn:uuid:995bdb48-6a93-4fce-8b17-57015d5b2206",
+      "path": "examples/第一层作者/model-contracts/README.md"
+    },
+    {
+      "document_id": "urn:uuid:eb7f1f88-8767-4af7-a92c-a00d39cced2a",
+      "path": "examples/第一层作者/observation-bounds/README.md"
+    },
+    {
+      "document_id": "urn:uuid:91aac0cc-acc2-4fb4-b094-06fa85571ca1",
+      "path": "examples/第一层作者/reservations/README.md"
+    },
+    {
+      "document_id": "urn:uuid:e2fdd6fb-d9a0-478c-94c0-0cf4cd4f7293",
+      "path": "examples/第一层作者/连续修改与反例.md"
+    },
+    {
+      "document_id": "urn:uuid:4e1ff6e4-304d-444d-898d-5a78d9ad24ff",
+      "path": "schema/author/first-layer/README.md"
+    },
+    {
+      "document_id": "urn:uuid:c64c5b81-4501-49f6-bf9d-9e6b349a9966",
+      "path": "schema/author/first-layer/SEMANTICS.md"
     }
   ]
 }
