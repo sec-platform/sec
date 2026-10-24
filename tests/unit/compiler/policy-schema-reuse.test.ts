@@ -5,7 +5,7 @@ import { PolicyRuleSchema, PolicySpecSchema } from '../../../src/semantics/polic
 import type { PolicyRule, PolicySeverity, PolicySpec } from '../../../src/semantics/policies/types.ts';
 
 const policy = () => ({ id: 'policy-reuse', severity: 'warn' as const,
-  appliesTo: ['block/a', 'block/b'], rule: POLICY_RULE_IDS[0] });
+  appliesTo: ['block/a', 'block/b'], rule: 'tenant_context_must_flow_to_query' as const });
 
 test('decoding preserves every supported severity and rule identity', () => {
   // This is the currently accepted independent semantic policy rule. A

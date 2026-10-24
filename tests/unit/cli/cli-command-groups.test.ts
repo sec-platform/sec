@@ -29,6 +29,9 @@ test('workspace and inspection commands expose native help', async () => {
     names.filter(Boolean).sort(),
     'every accepted public CLI command must remain registered'
   );
+  const contract = program().command.commands.find(command => command.name() === 'contract');
+  assert.deepEqual(contract?.registeredArguments[0]?.argChoices, ['errors', 'ci'],
+    'both public contract inspection selectors must stay reachable');
   for (const name of names) {
     const { command, output } = program();
     await assert.rejects(command.parseAsync([...(name ? [name] : []), '--help'], { from: 'user' }),

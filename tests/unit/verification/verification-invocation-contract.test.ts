@@ -2,9 +2,19 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { captureVerifyProjectOptions } from '../../../src/adapters/verification/verify-invocation.ts';
 
-for (const value of [null, 0, 'false', {}]) {
-  test('emitTiming rejects a non-boolean without coercion', () => {
-    assert.throws(() => captureVerifyProjectOptions({ emitTiming: value } as never), TypeError);
+for (const field of ['emitTiming', 'isolated'] as const) {
+  test(`${field} rejects invalid booleans without invoking caller conversion hooks`, () => {
+    let coercions = 0;
+    const hostile = {
+      [Symbol.toPrimitive]() { coercions++; return true; },
+      toString() { coercions++; return 'true'; },
+      valueOf() { coercions++; return true; }
+    };
+    // Null, numeric, string and object inputs remain separate checked samples.
+    for (const value of [null, 0, 'false', {}, hostile]) {
+      assert.throws(() => captureVerifyProjectOptions({ [field]: value } as never), TypeError);
+    }
+    assert.equal(coercions, 0);
   });
 }
 
