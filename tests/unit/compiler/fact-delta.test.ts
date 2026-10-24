@@ -169,6 +169,12 @@ test('Assertion add/remove and authority/provenance identity changes use set cha
   expectDeepFrozen(addDelta);
   expectDeepFrozen(removeDelta);
   const addedAssertion = addDelta.changed[0]?.addedAssertions[0];
+  expect(addedAssertion).toMatchObject({
+    authority: 'inferred',
+    confidence: 0.7,
+    provenance: [{ kind: 'ai', sourceId: 'delta-review' }],
+    evidence: [{ kind: 'review', ref: 'review:delta' }]
+  });
   expect(addDelta.changed).toHaveLength(1);
   expect(addDelta.changed[0]?.addedAssertions).toHaveLength(1);
   expect(addDelta.changed[0]?.removedAssertions).toEqual([]);
