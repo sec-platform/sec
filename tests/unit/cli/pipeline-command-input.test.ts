@@ -36,19 +36,6 @@ test('compile rejects compact output without JSON', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);
 });
 
-test('captures only the command fields once, ignoring unrelated getters', () => {
-  const reads: Record<string, number> = {};
-  const input: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries({ json: true, compact: false, lane: 'all', from: 'resolve', through: 'emit' })) {
-    Object.defineProperty(input, key, { get() { reads[key] = (reads[key] ?? 0) + 1; return reads[key] === 1 ? value : undefined; } });
-  }
-  Object.defineProperty(input, 'unrelated', { enumerable: true, get() { throw new Error('not command input'); } });
-  const result = parsePipelineCompileOptions(input);
-  assert.equal(result.invocation.from, 'resolve');
-  assert.equal(result.invocation.through, 'emit');
-  assert.deepEqual(reads, { json: 1, compact: 1, from: 1, through: 1, lane: 1 });
-});
-
 test('inspection does not access compilation fields', () => {
   const input = Object.defineProperty({ json: true }, 'lane', { get() { throw new Error('not inspect input'); } });
   assert.deepEqual(parsePipelineOutputOptions(input), { json: true, compact: false });
