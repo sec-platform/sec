@@ -7,7 +7,8 @@ import {
   createBranchCloseoutOperationReceipt,
   createBranchCloseoutPreparation,
   createBranchCloseoutReceipt,
-  parseBranchCloseoutOperationReceipt
+  parseBranchCloseoutOperationReceipt,
+  parseBranchCloseoutReceipt
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
@@ -25,6 +26,7 @@ import {
   renderPublishedBranchCloseoutReceiptComment
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
 import { branchLifecycleDigest } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
+import { parseRestCloseoutReceiptCommentCandidates } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-parsers.ts';
 import { BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
 
@@ -254,12 +256,27 @@ test('legacy published closeout receipt remains a strict read-only round trip', 
     receiptDigest: `sha256:${'c'.repeat(64)}`
   };
   const value = { ...payload, publicationDigest: branchLifecycleDigest(payload) };
-  expect(parsePublishedBranchCloseoutReceiptComment(
-    renderPublishedBranchCloseoutReceiptComment(value)
-  )).toEqual(value);
+  const body = renderPublishedBranchCloseoutReceiptComment(value);
+  expect(parsePublishedBranchCloseoutReceiptComment(body)).toEqual(value);
+  const source = JSON.stringify([
+    [
+      { id: 1, body: 'ordinary discussion', user: { login: 'user-a' }, author_association: 'MEMBER' },
+      { id: 2, body, user: null, author_association: 'MEMBER' }
+    ],
+    [{ id: 3, body, user: { login: 'maintainer' }, author_association: 'MEMBER' }]
+  ]);
+  expect(parseRestCloseoutReceiptCommentCandidates(source, 42)).toEqual([{
+    body,
+    author: 'maintainer',
+    authorAssociation: 'MEMBER'
+  }]);
 });
 
 test('effect-start and terminal comments bind the exact operation and marker', () => {
+  expect(() => parseBranchCloseoutReceipt(JSON.stringify({
+    schema: 'sec-branch-closeout-receipt-v1',
+    receiptDigest: `sha256:${'a'.repeat(64)}`
+  }))).toThrow('Branch closeout receipt digest mismatch.');
   const operation = operationReceipt();
   expect(parseBranchCloseoutOperationReceipt(
     `${JSON.stringify(operation, null, 2)}\n`

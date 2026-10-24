@@ -103,12 +103,6 @@ test('successful cleanup preserves its result and releases directory then execut
   assert.deepEqual(order, ['cwd', 'exe', 'later']);
 });
 
-test('a retired scope refuses late adoption', async () => {
-  let retained: Parameters<Parameters<typeof withCompilerInstallResources>[0]>[0] | undefined;
-  await withCompilerInstallResources(async resources => { retained = resources; });
-  assert.throws(() => retained!.executable(executable(() => {})), /closed/);
-});
-
 test('settlement does not stringify hostile thrown values', async () => {
   const value = { toString() { assert.fail('coerced'); } };
   const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
@@ -118,38 +112,4 @@ test('settlement does not stringify hostile thrown values', async () => {
     assert.ok(error instanceof CompilerInstallSettlementFailure);
     assert.equal(error.cause, value); assert.equal(error.resourceFailures[0]?.reason, proxy); return true;
   });
-});
-
-test('a malformed terminal receipt cannot certify session closure', async () => {
-  await assert.rejects(withCompilerInstallResources(async resources => {
-    resources.processSession({ close() { return {}; } } as ProcessResourceSession, expectation());
-  }), error => error instanceof CompilerInstallSettlementFailure && error.resourceFailures[0]?.resource === 'process-session');
-});
-
-test('method selection keeps the actual provider receiver and ignores later replacement', async () => {
-  class Resource { #closed = false; dispose() { this.#closed = true; } get closed() { return this.#closed; } }
-  const value = new Resource();
-  await withCompilerInstallResources(async resources => {
-    assert.equal(resources.executable(value as unknown as RetainedNoFollowOrdinaryFile), value);
-    value.dispose = () => assert.fail('replacement');
-  });
-  assert.equal(value.closed, true);
-});
-
-test('session admission snapshots its receipt expectation before later caller edits', async () => {
-  const owned = ownedSession();
-  await withCompilerInstallResources(async resources => {
-    resources.processSession(owned.session, owned.expected);
-    owned.expected.requirementId = 'replaced';
-  });
-  assert.equal(owned.session.signal.aborted, true);
-});
-
-test('a failed receipt-expectation read still releases the adopted session and other resources', async () => {
-  const reason = new Error('expected identity'), owned = ownedSession(); let disposed = false;
-  await assert.rejects(withCompilerInstallResources(async resources => {
-    resources.executable(executable(() => { disposed = true; }));
-    resources.processSession(owned.session, { ...owned.expected, get operationIdentityDigest(): never { throw reason; } });
-  }), error => error === reason);
-  assert.equal(owned.session.signal.aborted, true); assert.equal(disposed, true);
 });

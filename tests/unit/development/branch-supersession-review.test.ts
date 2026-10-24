@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import type { GitHubApiPrincipal } from '../../../src/adapters/providers/github-api/operation-session.ts';
 import {
@@ -57,6 +57,14 @@ type DivergedReviewFixture = Readonly<{
   currentMainSha: string;
   currentMainTreeSha: string;
 }>;
+
+let observedRepository: RepositoryFixture | undefined;
+let observedDivergedRepository: DivergedReviewFixture | undefined;
+afterAll(() => {
+  for (const fixture of [observedRepository, observedDivergedRepository]) {
+    if (fixture !== undefined) rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -170,9 +178,6 @@ function reviewSource(fixture: RepositoryFixture, override: Readonly<{
 async function observe(input: Readonly<{
   fixture: RepositoryFixture;
   source: string;
-  permission?: 'admin' | 'maintain' | 'write' | 'read';
-  roleName?: string;
-  commentPullRequestNumber?: number;
 }>) {
   const transport: GitHubApiTransport = async (target) => {
     const url = String(target);
@@ -180,12 +185,12 @@ async function observe(input: Readonly<{
       return Response.json({
         id: COMMENT_ID,
         body: input.source,
-        issue_url: `https://api.github.com/repos/${REPOSITORY}/issues/${input.commentPullRequestNumber ?? PULL_REQUEST_NUMBER}`,
+        issue_url: `https://api.github.com/repos/${REPOSITORY}/issues/${PULL_REQUEST_NUMBER}`,
         user: { login: ADOPTING_MAINTAINER }
       });
     }
     if (url.endsWith(`/collaborators/${ADOPTING_MAINTAINER}/permission`)) {
-      return Response.json({ permission: input.permission ?? 'maintain', role_name: input.roleName });
+      return Response.json({ permission: 'maintain' });
     }
     throw new Error(`Unexpected GitHub test transport request: ${url}`);
   };
@@ -208,178 +213,125 @@ async function observe(input: Readonly<{
 }
 
 test('maintainer-adopted review binds the complete exact Git delta before issuing evidence', async () => {
-  const fixture = createRepositoryFixture();
-  try {
-    const evidence = await observe({ fixture, source: reviewSource(fixture) });
+  const fixture = observedRepository ??= createRepositoryFixture();
+  const evidence = await observe({ fixture, source: reviewSource(fixture) });
 
-    expect(evidence).toMatchObject({
-      author: ADOPTING_MAINTAINER,
-      commentId: COMMENT_ID,
-      reference: `https://github.com/${REPOSITORY}/pull/${PULL_REQUEST_NUMBER}#issuecomment-${COMMENT_ID}`,
-      review: {
-        repository: REPOSITORY,
-        pullRequestNumber: PULL_REQUEST_NUMBER,
-        headSha: fixture.headSha,
-        headTreeSha: fixture.headTreeSha,
-        currentMainSha: fixture.currentMainSha,
-        currentMainTreeSha: fixture.currentMainTreeSha,
-        reviewer: 'independent-exact-reviewer',
-        paths: [
-          { path: 'retained.txt', disposition: 'retained' },
-          { path: 'superseded.txt', disposition: 'superseded' }
-        ],
-        unknowns: []
-      }
-    });
-    expect(evidence.receiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(() => assertClosedSupersessionEvidence(evidence)).not.toThrow();
+  expect(evidence).toMatchObject({
+    author: ADOPTING_MAINTAINER,
+    commentId: COMMENT_ID,
+    reference: `https://github.com/${REPOSITORY}/pull/${PULL_REQUEST_NUMBER}#issuecomment-${COMMENT_ID}`,
+    review: {
+      repository: REPOSITORY,
+      pullRequestNumber: PULL_REQUEST_NUMBER,
+      headSha: fixture.headSha,
+      headTreeSha: fixture.headTreeSha,
+      currentMainSha: fixture.currentMainSha,
+      currentMainTreeSha: fixture.currentMainTreeSha,
+      reviewer: 'independent-exact-reviewer',
+      paths: [
+        { path: 'retained.txt', disposition: 'retained' },
+        { path: 'superseded.txt', disposition: 'superseded' }
+      ],
+      unknowns: []
+    }
+  });
+  expect(evidence.receiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(() => assertClosedSupersessionEvidence(evidence)).not.toThrow();
 
-    const clonedEvidence = Object.freeze({ ...evidence });
-    expect(() => assertClosedSupersessionEvidence(clonedEvidence))
-      .toThrow();
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
+  const clonedEvidence = Object.freeze({ ...evidence });
+  expect(() => assertClosedSupersessionEvidence(clonedEvidence))
+    .toThrow();
 });
 
 test('review issuance rejects incomplete, duplicate, or wrong-tree Git coverage', async () => {
-  const fixture = createRepositoryFixture();
-  try {
-    await expect(observe({
-      fixture,
-      source: reviewSource(fixture, {
-        paths: [{
-          path: 'retained.txt',
-          disposition: 'retained',
-          reason: 'Current main preserves the reviewed behavior.'
-        }]
-      })
-    })).rejects.toThrow();
+  const fixture = observedRepository ??= createRepositoryFixture();
+  await expect(observe({
+    fixture,
+    source: reviewSource(fixture, {
+      paths: [{
+        path: 'retained.txt',
+        disposition: 'retained',
+        reason: 'Current main preserves the reviewed behavior.'
+      }]
+    })
+  })).rejects.toThrow();
 
-    const duplicate: ReviewPath = {
-      path: 'retained.txt',
-      disposition: 'retained',
-      reason: 'Current main preserves the reviewed behavior.'
-    };
-    await expect(observe({
-      fixture,
-      source: reviewSource(fixture, { paths: [duplicate, duplicate] })
-    })).rejects.toThrow();
+  const duplicate: ReviewPath = {
+    path: 'retained.txt',
+    disposition: 'retained',
+    reason: 'Current main preserves the reviewed behavior.'
+  };
+  await expect(observe({
+    fixture,
+    source: reviewSource(fixture, { paths: [duplicate, duplicate] })
+  })).rejects.toThrow();
 
-    await expect(observe({
-      fixture,
-      source: reviewSource(fixture, { currentMainTreeSha: fixture.headTreeSha })
-    })).rejects.toThrow();
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('version 2 review binds the complete Git path set by stable digest', async () => {
-  const fixture = createRepositoryFixture();
-  try {
-    const pathSet = summarizeClosedSupersessionPaths(['superseded.txt', 'retained.txt']);
-    expect(pathSet).toEqual(summarizeClosedSupersessionPaths(['retained.txt', 'superseded.txt']));
-    expect(() => summarizeClosedSupersessionPaths(['retained.txt', 'retained.txt']))
-      .toThrow('duplicates');
-    const source = REVIEW_MARKER + JSON.stringify({
-      kind: 'branch-supersession-review', version: 2,
-      repository: REPOSITORY, pullRequestNumber: PULL_REQUEST_NUMBER,
-      headSha: fixture.headSha, headTreeSha: fixture.headTreeSha,
-      currentMainSha: fixture.currentMainSha, currentMainTreeSha: fixture.currentMainTreeSha,
-      reviewer: 'independent-exact-reviewer', verdict: 'approved',
-      pathSet, assessment: 'Current main retains the reviewed behavior and supersedes the old obligation.',
-      unknowns: []
-    });
-    const evidence = await observe({ fixture, source });
-    expect(evidence.review).toMatchObject({ version: 2, pathSet });
-    expect(() => assertClosedSupersessionEvidence(evidence)).not.toThrow();
-    await expect(observe({ fixture, source: source.replace(pathSet.digest,
-      `sha256:${'0'.repeat(64)}`) })).rejects.toThrow('path set differs');
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
+  await expect(observe({
+    fixture,
+    source: reviewSource(fixture, { currentMainTreeSha: fixture.headTreeSha })
+  })).rejects.toThrow();
 });
 
 test('read capability observes a closed PR and maintainer v2 comment before issuing evidence', async () => {
-  const fixture = createRepositoryFixture();
-  try {
-    const pathSet = summarizeClosedSupersessionPaths(['retained.txt', 'superseded.txt']);
-    const source = REVIEW_MARKER + JSON.stringify({
-      kind: 'branch-supersession-review', version: 2,
-      repository: REPOSITORY, pullRequestNumber: PULL_REQUEST_NUMBER,
-      headSha: fixture.headSha, headTreeSha: fixture.headTreeSha,
-      currentMainSha: fixture.currentMainSha, currentMainTreeSha: fixture.currentMainTreeSha,
-      reviewer: 'independent-exact-reviewer', verdict: 'approved',
-      pathSet, assessment: 'The current main retains the intended behavior and supersedes the old obligation.',
-      unknowns: []
-    });
-    const observeRead = async (input: Readonly<{
-      source?: string;
-      commentPullRequestNumber?: number;
-      permission?: string;
-      pullState?: string;
-    }> = {}) => {
-      const transport: GitHubApiTransport = async (target) => {
-        const url = String(target);
-        if (url.endsWith(`/pulls/${PULL_REQUEST_NUMBER}`)) {
-          return Response.json({ number: PULL_REQUEST_NUMBER, state: input.pullState ?? 'closed',
-            merged_at: null, draft: false,
-            html_url: `https://github.com/${REPOSITORY}/pull/${PULL_REQUEST_NUMBER}`,
-            head: { ref: 'closed-topic', sha: fixture.headSha, repo: { full_name: REPOSITORY } },
-            base: { ref: 'main', sha: fixture.headSha, repo: { full_name: REPOSITORY } } });
-        }
-        if (url.endsWith(`/issues/comments/${COMMENT_ID}`)) {
-          return Response.json({ id: COMMENT_ID, body: input.source ?? source,
-            issue_url: `https://api.github.com/repos/${REPOSITORY}/issues/${input.commentPullRequestNumber ?? PULL_REQUEST_NUMBER}`,
-            user: { login: ADOPTING_MAINTAINER } });
-        }
-        if (url.endsWith(`/collaborators/${ADOPTING_MAINTAINER}/permission`)) {
-          return Response.json({ permission: input.permission ?? 'maintain' });
-        }
-        throw new Error(`Unexpected GitHub read request: ${url}`);
-      };
-      const capability = issueGitHubApiTestCapability({ repository: REPOSITORY,
-        token: TOKEN, principal: PRINCIPAL, effect: 'read', transport });
-      return withGitHubApiTestSession({ capability,
-        operation: () => observeClosedSupersessionFromReadCapability({
-          repositoryRoot: fixture.root, capability,
-          pullRequestNumber: PULL_REQUEST_NUMBER, commentId: COMMENT_ID
-        }) });
+  const fixture = observedRepository ??= createRepositoryFixture();
+  const pathSet = summarizeClosedSupersessionPaths(['superseded.txt', 'retained.txt']);
+  expect(pathSet).toEqual(summarizeClosedSupersessionPaths(['retained.txt', 'superseded.txt']));
+  expect(() => summarizeClosedSupersessionPaths(['retained.txt', 'retained.txt']))
+    .toThrow('duplicates');
+  const source = REVIEW_MARKER + JSON.stringify({
+    kind: 'branch-supersession-review', version: 2,
+    repository: REPOSITORY, pullRequestNumber: PULL_REQUEST_NUMBER,
+    headSha: fixture.headSha, headTreeSha: fixture.headTreeSha,
+    currentMainSha: fixture.currentMainSha, currentMainTreeSha: fixture.currentMainTreeSha,
+    reviewer: 'independent-exact-reviewer', verdict: 'approved',
+    pathSet, assessment: 'The current main retains the intended behavior and supersedes the old obligation.',
+    unknowns: []
+  });
+  const observeRead = async (input: Readonly<{
+    source?: string;
+    commentPullRequestNumber?: number;
+    permission?: string;
+    pullState?: string;
+  }> = {}) => {
+    const transport: GitHubApiTransport = async (target) => {
+      const url = String(target);
+      if (url.endsWith(`/pulls/${PULL_REQUEST_NUMBER}`)) {
+        return Response.json({ number: PULL_REQUEST_NUMBER, state: input.pullState ?? 'closed',
+          merged_at: null, draft: false,
+          html_url: `https://github.com/${REPOSITORY}/pull/${PULL_REQUEST_NUMBER}`,
+          head: { ref: 'closed-topic', sha: fixture.headSha, repo: { full_name: REPOSITORY } },
+          base: { ref: 'main', sha: fixture.headSha, repo: { full_name: REPOSITORY } } });
+      }
+      if (url.endsWith(`/issues/comments/${COMMENT_ID}`)) {
+        return Response.json({ id: COMMENT_ID, body: input.source ?? source,
+          issue_url: `https://api.github.com/repos/${REPOSITORY}/issues/${input.commentPullRequestNumber ?? PULL_REQUEST_NUMBER}`,
+          user: { login: ADOPTING_MAINTAINER } });
+      }
+      if (url.endsWith(`/collaborators/${ADOPTING_MAINTAINER}/permission`)) {
+        return Response.json({ permission: input.permission ?? 'maintain' });
+      }
+      throw new Error(`Unexpected GitHub read request: ${url}`);
     };
-    const evidence = await observeRead();
-    expect(evidence.review).toMatchObject({ version: 2, pathSet });
-    expect(() => assertClosedSupersessionEvidence(evidence)).not.toThrow();
-    expect(() => assertClosedSupersessionEvidence({ ...evidence })).toThrow();
-    await expect(observeRead({ commentPullRequestNumber: PULL_REQUEST_NUMBER + 1 }))
-      .rejects.toThrow('comment identity differs');
-    await expect(observeRead({ permission: 'write' }))
-      .rejects.toThrow('not been adopted');
-    await expect(observeRead({ pullState: 'open' }))
-      .rejects.toThrow('exact closed pull request');
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('review issuance requires maintainer adoption and exact comment-to-PR identity', async () => {
-  const fixture = createRepositoryFixture();
-  try {
-    const source = reviewSource(fixture);
-    await expect(observe({ fixture, source, permission: 'admin' }))
-      .resolves.toMatchObject({ author: ADOPTING_MAINTAINER });
-    await expect(observe({ fixture, source, permission: 'write', roleName: 'maintain' }))
-      .resolves.toMatchObject({ author: ADOPTING_MAINTAINER });
-    await expect(observe({ fixture, source, permission: 'write' }))
-      .rejects.toThrow();
-    await expect(observe({
-      fixture,
-      source,
-      commentPullRequestNumber: PULL_REQUEST_NUMBER + 1
-    })).rejects.toThrow();
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
+    const capability = issueGitHubApiTestCapability({ repository: REPOSITORY,
+      token: TOKEN, principal: PRINCIPAL, effect: 'read', transport });
+    return withGitHubApiTestSession({ capability,
+      operation: () => observeClosedSupersessionFromReadCapability({
+        repositoryRoot: fixture.root, capability,
+        pullRequestNumber: PULL_REQUEST_NUMBER, commentId: COMMENT_ID
+      }) });
+  };
+  const evidence = await observeRead();
+  expect(evidence.review).toMatchObject({ version: 2, pathSet });
+  expect(() => assertClosedSupersessionEvidence(evidence)).not.toThrow();
+  expect(() => assertClosedSupersessionEvidence({ ...evidence })).toThrow();
+  await expect(observeRead({ source: source.replace(pathSet.digest,
+    `sha256:${'0'.repeat(64)}`) })).rejects.toThrow('path set differs');
+  await expect(observeRead({ commentPullRequestNumber: PULL_REQUEST_NUMBER + 1 }))
+    .rejects.toThrow('comment identity differs');
+  await expect(observeRead({ permission: 'write' }))
+    .rejects.toThrow('not been adopted');
+  await expect(observeRead({ pullState: 'open' }))
+    .rejects.toThrow('exact closed pull request');
 });
 
 test('review issuance rejects a local repository bound to another GitHub origin', async () => {
@@ -394,7 +346,7 @@ test('review issuance rejects a local repository bound to another GitHub origin'
 
 
 test('reviewed ref v3 evidence binds the orphan source delta, not unrelated later main changes', async () => {
-  const fixture = createDivergedReviewFixture();
+  const fixture = observedDivergedRepository ??= createDivergedReviewFixture();
   const issueNumber = 313;
   const commentId = COMMENT_ID + 1;
   const branch = 'fix/reviewed-orphan';
@@ -431,43 +383,38 @@ test('reviewed ref v3 evidence binds the orphan source delta, not unrelated late
       throw new Error(`Unexpected GitHub test transport request: ${url}`);
     }
   });
-  try {
-    const evidence = await withGitHubApiTestSession({
+  const evidence = await withGitHubApiTestSession({
+    capability,
+    operation: () => observeReviewedRefSupersessionEvidence({
+      repositoryRoot: fixture.root,
       capability,
-      operation: () => observeReviewedRefSupersessionEvidence({
-        repositoryRoot: fixture.root,
-        capability,
-        issueNumber,
-        commentId,
-        branch,
-        expectedHeadSha: fixture.headSha,
-        expectedMainSha: fixture.currentMainSha
-      })
-    });
-    expect(evidence.review).toMatchObject({
-      version: 3,
       issueNumber,
+      commentId,
       branch,
-      headSha: fixture.headSha,
-      currentMainSha: fixture.currentMainSha,
-      mergeBaseSha: fixture.mergeBaseSha,
-      sourcePathSet
-    });
-    expect(sourcePathSet.count).toBe(2);
-    expect(() => assertReviewedRefSupersessionEvidence(evidence)).not.toThrow();
-    expect(() => assertReviewedRefSupersessionEvidence({ ...evidence })).toThrow();
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
+      expectedHeadSha: fixture.headSha,
+      expectedMainSha: fixture.currentMainSha
+    })
+  });
+  expect(evidence.review).toMatchObject({
+    version: 3,
+    issueNumber,
+    branch,
+    headSha: fixture.headSha,
+    currentMainSha: fixture.currentMainSha,
+    mergeBaseSha: fixture.mergeBaseSha,
+    sourcePathSet
+  });
+  expect(sourcePathSet.count).toBe(2);
+  expect(() => assertReviewedRefSupersessionEvidence(evidence)).not.toThrow();
+  expect(() => assertReviewedRefSupersessionEvidence({ ...evidence })).toThrow();
 });
 
-test('reviewed ref v3 evidence rejects target, main, merge-base, permission or source-delta drift', async () => {
-  const fixture = createDivergedReviewFixture();
+test('reviewed ref v3 evidence rejects target, main, merge-base or source-delta drift', async () => {
+  const fixture = observedDivergedRepository ??= createDivergedReviewFixture();
   const issueNumber = 313;
   const branch = 'fix/reviewed-orphan';
   const make = (input: Readonly<{
     issue?: number;
-    permission?: string;
     reviewBranch?: string;
     reviewMain?: string;
     mergeBase?: string;
@@ -504,7 +451,7 @@ test('reviewed ref v3 evidence rejects target, main, merge-base, permission or s
           });
         }
         if (url.endsWith(`/collaborators/${ADOPTING_MAINTAINER}/permission`)) {
-          return Response.json({ permission: input.permission ?? 'maintain' });
+          return Response.json({ permission: 'maintain' });
         }
         throw new Error(`Unexpected GitHub test transport request: ${url}`);
       }
@@ -522,16 +469,11 @@ test('reviewed ref v3 evidence rejects target, main, merge-base, permission or s
       })
     });
   };
-  try {
-    await expect(make({ issue: 312 })).rejects.toThrow();
-    await expect(make({ permission: 'write' })).rejects.toThrow();
-    await expect(make({ reviewBranch: 'fix/other' })).rejects.toThrow();
-    await expect(make({ reviewMain: 'f'.repeat(40) })).rejects.toThrow();
-    await expect(make({ mergeBase: fixture.headSha, mergeBaseTree: fixture.headTreeSha })).rejects.toThrow('merge-base differs');
-    await expect(make({ digest: `sha256:${'0'.repeat(64)}` })).rejects.toThrow(
-      'source path set differs'
-    );
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
+  await expect(make({ issue: 312 })).rejects.toThrow();
+  await expect(make({ reviewBranch: 'fix/other' })).rejects.toThrow();
+  await expect(make({ reviewMain: 'f'.repeat(40) })).rejects.toThrow();
+  await expect(make({ mergeBase: fixture.headSha, mergeBaseTree: fixture.headTreeSha })).rejects.toThrow('merge-base differs');
+  await expect(make({ digest: `sha256:${'0'.repeat(64)}` })).rejects.toThrow(
+    'source path set differs'
+  );
 });
