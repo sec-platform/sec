@@ -70,5 +70,12 @@ test('test-budget CLI preserves current repository membership and consistent sui
     ]);
     expect(contract.slowSuites.every(({ owner, logicalRunTimeoutMs, files }) =>
       owner.length > 0 && logicalRunTimeoutMs > 0 && files.length > 0)).toBe(true);
+    // Cover the actual issued CLI budget rather than re-evaluating this
+    // resource-class membership through an independent slow graph fixture.
+    const runtimeHeavy = contract.slowSuites.filter(suite => suite.resourceClass === 'runtime-heavy');
+    expect(runtimeHeavy.length).toBeGreaterThan(0);
+    expect(runtimeHeavy.every(suite => suite.files.length > 0)).toBe(true);
+    expect(runtimeHeavy.some(suite => suite.parallelSafe)).toBe(true);
+    expect(runtimeHeavy.some(suite => !suite.parallelSafe)).toBe(true);
   });
 }, { timeout: 15_000 });

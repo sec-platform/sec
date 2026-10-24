@@ -6,7 +6,7 @@ import {
 } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 
 import { bindDocumentationVerificationGateInput, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, type CodexDevelopmentVerificationPlanProfile } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { resolveTestOwnership } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { parseGitChangedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
@@ -30,7 +30,6 @@ const buildVerificationPlanForTest = async (
   files: readonly string[] | null
 ) => buildVerificationPlanWithProvider(profile, files, await testImpactProvider());
 const slowTestPrRiskBaselineSuiteIds = async () => snapshotBaselineSuiteIds(await testBudgetProjection());
-const getSlowTestSuitesSync = async () => getSnapshotSlowTestSuites(await testBudgetProjection());
 
 
 
@@ -132,14 +131,3 @@ test('Ticket semantic Contract reaches CI through the owner-issued plan boundary
   expect(selection.affectedOwners).toContain('semantics.definitions');
   expect(selection.affectedOwners).not.toContain('bounded-slow-risk');
 });
-
-test('slow suite budget distinguishes state safety from runtime resource pressure', async () => {
-  const suites = await getSlowTestSuitesSync();
-  const runtimeHeavy = suites.filter((suite) => suite.resourceClass === 'runtime-heavy');
-  expect(runtimeHeavy.length).toBeGreaterThan(0);
-  expect(runtimeHeavy.every((suite) => suite.files.length > 0)).toBe(true);
-  expect(runtimeHeavy.some((suite) => suite.parallelSafe)).toBe(true);
-  expect(runtimeHeavy.some((suite) => !suite.parallelSafe)).toBe(true);
-});
-
-
