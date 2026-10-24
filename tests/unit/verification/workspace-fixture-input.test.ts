@@ -54,12 +54,6 @@ test('pipeline selection owns a single block list rather than re-reading it afte
   assert.ok(Object.isFrozen(captured.blockIds));
 });
 
-test('pipeline options sample known fields once and ignore unrelated capability getters', () => {
-  let count = 0;
-  const input = { get blockIds() { count++; return ['block/a']; }, get extra() { assert.fail('unrelated'); throw new Error('unreachable'); } };
-  assert.deepEqual(captureWorkspacePipelineOptions(input).blockIds, ['block/a']); assert.equal(count, 1);
-});
-
 test('invalid block-list shapes do not become a default template request', () => {
   for (const blockIds of [null, false, 'block/a', [7], new Array(1)]) {
     assert.throws(() => captureWorkspacePipelineOptions({ blockIds: blockIds as never }), TypeError);

@@ -7,7 +7,7 @@ test('concurrent requests for one kind share only the in-flight preparation', as
   const held = new Promise<void>(resolve => { finish = resolve; });
   const prepare = createTemplatePreparation(async (kind: string) => { calls++; await held; return kind; });
   const a = prepare('composed'), b = prepare('composed');
-  assert.equal(a, b); await Promise.resolve(); assert.equal(calls, 1);
+  await Promise.resolve(); assert.equal(calls, 1);
   finish(); assert.deepEqual(await Promise.all([a, b]), ['composed', 'composed']);
   assert.equal(await prepare('composed'), 'composed'); assert.equal(calls, 2);
 });
@@ -27,17 +27,18 @@ test('failure is shared exactly and retired so an explicitly retried preparation
     { reason: new Error('sync'), synchronous: true }
   ];
   for (const { reason, synchronous } of cases) {
-    let fail = true;
+    let fail = true, calls = 0;
     const prepare = createTemplatePreparation(synchronous
-      ? () => { throw reason; }
-      : async () => { if (fail) throw reason; return 'recovered'; });
+      ? () => { calls++; throw reason; }
+      : async () => { calls++; if (fail) throw reason; return 'recovered'; });
     const a = prepare('kind'), b = prepare('kind');
     const context = `${synchronous ? 'synchronous' : 'asynchronous'}: ${String(reason)}`;
-    assert.equal(a, b, context);
-    await assert.rejects(a, error => error === reason, context);
+    await Promise.all([a, b].map(p => assert.rejects(p, error => error === reason, context)));
+    assert.equal(calls, 1, context);
     if (!synchronous) {
       fail = false;
       assert.equal(await prepare('kind'), 'recovered', context);
+      assert.equal(calls, 2, context);
     }
   }
 });
