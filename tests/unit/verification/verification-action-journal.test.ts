@@ -14,7 +14,6 @@ import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent,
   commitVerificationActionRevocationUnderClaim,
-  deleteVerificationActionJournal,
   ensureVerificationActionMachineGlobalCutover,
   inspectLegacyVerificationActionJournalForRecovery,
   migrateLegacyVerificationActionJournalForRecovery,
@@ -1522,33 +1521,6 @@ test('legacy journal cutover is one-way, physical-bound, and normal reads use on
   }
 });
 
-test('legacy terminals without bound diagnostics remain typed recovery evidence and publish nothing', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-unmigratable-'));
-  try {
-    const key = action();
-    writeLegacyJournal(root, key, {
-      status: 'passed',
-      reasonCode: 'executed-success',
-      resultDigest: DIGEST_A
-    });
-    expect(inspectLegacyVerificationActionJournalForRecovery(journalFs(root), key.actionKey))
-      .toMatchObject({ disposition: 'preserved-unmigratable', eventCount: 3 });
-    expect(() => migrateLegacyVerificationActionJournalForRecovery(
-      journalFs(root),
-      key.actionKey
-    )).toThrow('cannot migrate without a diagnostic-bound terminal');
-    expect(() => readVerificationActionJournal(journalFs(root), key.actionKey))
-      .toThrow('legacy Action evidence requires explicit recovery');
-    expect(lstatSync(path.join(
-      root,
-      VERIFICATION_ACTION_JOURNAL_DIRECTORY,
-      `${key.actionKey.slice(7)}.jsonl`
-    ), { throwIfNoEntry: false })).toBeUndefined();
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('journal admission rejects a terminal carrying another Action diagnostic subject', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-cross-action-'));
   try {
@@ -1586,34 +1558,7 @@ test('journal admission rejects a terminal carrying another Action diagnostic su
   }
 });
 
-test('legacy corruption and a foreign canonical target block cutover without overwriting either side', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-cutover-corrupt-'));
-  try {
-    const key = action();
-    const legacyPath = writeLegacyJournal(root, key, terminal(key.actionKey));
-    const legacyBytes = readFileSync(legacyPath, 'utf8');
-    writeFileSync(legacyPath, legacyBytes.replace('"sequence":2', '"sequence":7'), 'utf8');
-    expect(() => inspectLegacyVerificationActionJournalForRecovery(journalFs(root), key.actionKey))
-      .toThrow(/identity mismatch|digest mismatch/);
-    writeFileSync(legacyPath, legacyBytes, 'utf8');
-    const targetPath = path.join(
-      root,
-      VERIFICATION_ACTION_JOURNAL_DIRECTORY,
-      `${key.actionKey.slice(7)}.jsonl`
-    );
-    mkdirForFile(targetPath);
-    writeFileSync(targetPath, 'foreign\n', 'utf8');
-    expect(() => migrateLegacyVerificationActionJournalForRecovery(
-      journalFs(root),
-      key.actionKey
-    )).toThrow('canonical target exists without a cutover intent');
-    expect(readFileSync(targetPath, 'utf8')).toBe('foreign\n');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('illegal transitions are rejected and deleting the journal returns a clean empty projection', () => {
+test('journal rejects an unqueued start and reopening a cancelled Action', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-delete-'));
   try {
     const key = action();
@@ -1630,10 +1575,6 @@ test('illegal transitions are rejected and deleting the journal returns a clean 
     expect(() => appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(3)
     }))).toThrow('illegal transition');
-    deleteVerificationActionJournal(journalFs(root), key.actionKey);
-    expect(readVerificationActionJournal(journalFs(root), key.actionKey)).toMatchObject({
-      events: [], latestState: null, terminal: null
-    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

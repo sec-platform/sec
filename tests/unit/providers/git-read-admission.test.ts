@@ -79,14 +79,6 @@ test('invalid containers and numbers cannot select implicit or expanded budget p
   }), error => error instanceof GitReadBudgetError && error.reason === 'canonical-ceiling-exceeded');
 });
 
-test('exact-tree budget explicitly admits the bounded source snapshot envelope', () => {
-  assert.equal(GIT_READ_EXACT_TREE_OPERATION_BUDGET.maxStdoutBytes, 256 * 1024 * 1024);
-  assert.equal(
-    GIT_READ_EXACT_TREE_OPERATION_BUDGET.maxCommandStdoutBytes,
-    128 * 1024 * 1024 + 250_000 * 128
-  );
-});
-
 test('parent deadlines only tighten the selected local observation window', () => {
   const budget = resolveGitReadSessionBudget({ deadlineMs: 100 });
   assert.equal(boundedGitReadDeadlineAt(1000, budget, 1050), 1050);

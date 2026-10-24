@@ -367,41 +367,18 @@ test('complete import write set preserves target mode and hardlink aliases under
     expect((await stat(executable)).mode & 0o777).toBe(originalMode);
     expect(await readFile(linked, 'utf8')).toBe('b1\n');
     expect(await readFile(alias, 'utf8')).toBe('b0\n');
-    expect(terminalJournalEntry(await readFile(outcome.journalPath, 'utf8'))).toMatchObject({ state: 'accepted' });
-  });
-});
-
-test('durable journal progress does not copy transform payloads into every record', async () => {
-  await withWorkspace(async (root) => {
-    const writes = Array.from({ length: 8 }, (_, index) => ({
-      relativePath: `file-${index}.ts`,
-      expectedBytes: Buffer.from(`before-${index}\n`),
-      replacementBytes: Buffer.from(`after-${index}\n`)
-    }));
-    await Promise.all(writes.map(({ relativePath, expectedBytes }) => writeFile(
-      path.join(root, relativePath), expectedBytes
-    )));
-    const outcome = await publishImportTransformTransaction(root, writes);
-    expect(outcome.status).toBe('accepted');
     const journal = await readFile(outcome.journalPath, 'utf8');
-    expect(journal).not.toContain('before-0');
-    expect(journal).not.toContain('after-0');
     expect(terminalJournalEntry(journal)).toMatchObject({ state: 'accepted' });
-
-    const largerWrites = Array.from({ length: 16 }, (_, index) => ({
-      relativePath: `larger-${index}.ts`,
-      expectedBytes: Buffer.from(`before-${index}-${'x'.repeat(256)}\n`),
-      replacementBytes: Buffer.from(`after-${index}-${'y'.repeat(256)}\n`)
-    }));
-    await Promise.all(largerWrites.map(({ relativePath, expectedBytes }) => writeFile(
-      path.join(root, relativePath), expectedBytes
-    )));
-    const larger = await publishImportTransformTransaction(root, largerWrites);
-    expect(larger.status).toBe('accepted');
-    const largerJournal = await readFile(larger.journalPath, 'utf8');
-    expect(Buffer.byteLength(largerJournal)).toBeLessThan(Buffer.byteLength(journal) * 8);
-    expect(largerJournal).not.toContain('before-0-' + 'x'.repeat(256));
-    expect(largerJournal).not.toContain('after-0-' + 'y'.repeat(256));
+    expect(journal).not.toContain('a0\\n');
+    expect(journal).not.toContain('a1\\n');
+    for (const line of journal.trimEnd().split('\n')) {
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      expect(Object.keys(entry).sort()).toEqual([
+        'bindingDigest', 'formatVersion', 'outstandingCount', 'publicationReasonCode',
+        'publishedCount', 'recoveryReasonCode', 'state', 'transactionId'
+      ]);
+      expect(entry.formatVersion).toBe('sec-import-transform-journal-entry-v3');
+    }
   });
 });
 

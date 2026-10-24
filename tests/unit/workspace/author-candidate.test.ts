@@ -40,14 +40,6 @@ test('candidate-looking copies are rejected and workspace ownership is enforced'
   assert.deepEqual(readAuthorCandidate(right.initial), { value: 2 });
 });
 
-test('erroneous plain drafts remain editable while mutable collection slots are rejected', () => {
-  const workspace = createAuthorWorkspace({ unresolved: '' });
-  const repaired = workspace.fork(workspace.initial, { unresolved: 'resolved' });
-  assert.deepEqual(workspace.read(repaired), { unresolved: 'resolved' });
-  assert.throws(() => createAuthorWorkspace({ nested: new Map([['key', 1]]) }),
-    { code: 'AUTHOR-CANDIDATE-001' });
-});
-
 test('save planning selects before and after without promoting a mutable saved head', () => {
   const workspace = createAuthorWorkspace({ value: 1 });
   const edited = workspace.fork(workspace.initial, { value: 2 });

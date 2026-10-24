@@ -6,7 +6,6 @@ import { createRuntime } from '../../../src/bootstrap/create-runtime.ts';
 import { createAuthorWorkspace } from '../../../src/workspace/author-candidate.ts';
 import {
   assertAuthorSourceCaptureBudget,
-  DEFAULT_AUTHOR_SOURCE_CAPTURE_BUDGET,
   requireAuthorSourceCaptureBudget
 } from '../../../src/workspace/author-source-capture-budget.ts';
 
@@ -30,7 +29,6 @@ function input() {
 }
 
 test('source budget must be a complete, fixed set of positive finite ceilings', () => {
-  assert.deepEqual(requireAuthorSourceCaptureBudget(), DEFAULT_AUTHOR_SOURCE_CAPTURE_BUDGET);
   for (const invalid of [
     null, { ...limits, maximumNodes: 0 }, { ...limits, maximumEntries: Infinity },
     { ...limits, maximumDepth: 1.5 }, { maximumNodes: 4 },
@@ -44,15 +42,6 @@ test('source budget must be a complete, fixed set of positive finite ceilings', 
   });
   assert.throws(() => requireAuthorSourceCaptureBudget(dynamic), TypeError);
   assert.equal(calls, 0);
-});
-
-test('source input admission rejects sparse entry explosions before cloning', () => {
-  const payload = input();
-  const overlong = Object.assign(payload.engineeringIRInput, {
-    candidateRecords: new Array<unknown>(1_000_000)
-  });
-  assert.throws(() => prepareSemanticQuery({ purpose: 'analyze', input: { engineeringIRInput: overlong } }, limits),
-    { code: 'AUTHOR-SOURCE-RESOURCE-001' });
 });
 
 test('source input enforces node, text-byte and depth budgets independently', () => {
@@ -120,7 +109,8 @@ test('runtime enforces the same budget for direct inputs and workspace candidate
     const workspace = runtime.workspace(valid);
     assert.equal((await runtime.handle({ purpose: 'analyze', candidate: workspace.initial })).purpose,
       'analyze');
-    const unsafe = { ...valid, records: new Array(10_000) };
+    const unsafe = { ...valid, engineeringIRInput: { ...valid.engineeringIRInput,
+      candidateRecords: new Array<unknown>(1_000_000) } };
     await assert.rejects(runtime.handle({ purpose: 'analyze', input: unsafe }),
       { code: 'AUTHOR-SOURCE-RESOURCE-001' });
     assert.throws(() => runtime.workspace(unsafe), { code: 'AUTHOR-SOURCE-RESOURCE-001' });

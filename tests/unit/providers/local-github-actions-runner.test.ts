@@ -21,11 +21,8 @@ import {
   assertRepositoryIdentityMatchesOrigin,
   assertRepositoryIdentityMatchesRemoteUrls,
   createLocalGitHubActionsRunnerBuildInputProjection,
-  createLocalGitHubActionsRunnerDockerfile,
   createLocalGitHubActionsRunnerEnvironmentSpec,
-  createLocalGitHubActionsRunnerOciBakeDefinition,
   createLocalGitHubActionsRunnerOciCandidateBinding,
-  createLocalGitHubActionsRunnerProjectionBuildxArgs,
   createLocalGitHubActionsRunnerState,
   LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER,
   LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
@@ -189,7 +186,7 @@ function container(role: LocalGitHubActionsRunnerRole, overrides: Record<string,
 }
 
 describe('local GitHub Actions runner contract', () => {
-  test('pins the Linux provider toolchain and contains the SUT sandbox', () => {
+  test('retained runner images and materialization identities preserve their historical authority', () => {
     const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
     const retiredImage = authority.image.retirements.find(({ imageTag }) =>
       imageTag.endsWith('-archive-v7'));
@@ -203,42 +200,6 @@ describe('local GitHub Actions runner contract', () => {
       retiredImage!.imageId
     )).toThrow('superseding frozen image identity differs from its decision');
 
-    const dockerfile = createLocalGitHubActionsRunnerDockerfile();
-    expect(dockerfile).toContain(`FROM ${authority.ubuntu.baseReference}`);
-    expect(dockerfile).toContain(`ADD --checksum=${authority.archives.runner.digest}`);
-    expect(dockerfile).toContain(`ADD --checksum=${authority.archives.node.digest}`);
-    expect(dockerfile).toContain(
-      `ADD --checksum=${authority.archives.githubCli.digest}`
-    );
-    expect(dockerfile).toContain(
-      `gh_${authority.archives.githubCli.version}_linux_amd64/bin/gh`
-    );
-    expect(dockerfile).toContain(
-      `grep -E '^gh version ${authority.archives.githubCli.version.replaceAll('.', '\\.')}`
-    );
-    expect(dockerfile).toContain(`ADD --chmod=0444 --checksum=${authority.archives.bootstrapCa.digest}`);
-    expect(dockerfile).toContain(`ARG UBUNTU_SNAPSHOT=${authority.ubuntu.snapshot}`);
-    expect(dockerfile).toContain('URIs: https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}');
-    expect(dockerfile).toContain('Acquire::https::CAInfo=/tmp/bootstrap-cacert.pem');
-    expect(dockerfile).toContain('mount=type=cache,id=sec-ubuntu-noble-apt-cache-v1');
-    expect(dockerfile).toContain('tar --no-same-owner -xzf /tmp/runner.tar.gz');
-    expect(dockerfile).toContain('python3 unzip xz-utils');
-    expect(dockerfile).toContain('command -v unzip >/dev/null');
-    expect(dockerfile).toContain(`test "$(node --version)" = "v${authority.archives.node.version}"`);
-    expect(dockerfile).toContain(`test "$(python3 --version)" = "Python ${authority.runtime.pythonVersion}"`);
-    expect(dockerfile).toContain(
-      `LABEL sec.local-runner.image-schema=${authority.image.lineageSchema}`
-    );
-    expect(dockerfile).not.toContain(
-      `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA}`
-    );
-    expect(dockerfile).not.toContain(':latest');
-    expect(dockerfile).not.toContain('http://archive.ubuntu.com');
-    expect(dockerfile).not.toContain('http://security.ubuntu.com');
-    expect(dockerfile).not.toContain('Verify-Peer');
-    expect(dockerfile).not.toContain('curl -');
-    expect(dockerfile).not.toMatch(/apt-get install[^\n]*\bnodejs\b/u);
-
     const environmentSpec = createLocalGitHubActionsRunnerEnvironmentSpec();
     expect(environmentSpec).not.toHaveProperty('command');
     expect(environmentSpec).not.toHaveProperty('buildx');
@@ -250,36 +211,12 @@ describe('local GitHub Actions runner contract', () => {
       'github-cli', 'node', 'runner', 'runner-build-input-closure'
     ]);
 
-    const ociBake = JSON.parse(createLocalGitHubActionsRunnerOciBakeDefinition('D:\\cache\\candidate'));
     const buildInputProjection = createLocalGitHubActionsRunnerBuildInputProjection();
     expect(JSON.stringify(buildInputProjection)).toContain('<candidate-layout>');
     expect(JSON.stringify(buildInputProjection)).toContain('<layout>');
     expect(JSON.stringify(buildInputProjection)).toContain(
       authority.image.runtimeContentDigest
     );
-    expect(ociBake.group.default.targets).toEqual(['runner-oci']);
-    expect(ociBake.target['runner-oci'].attest).toEqual(['type=provenance,mode=max']);
-    expect(ociBake.target['runner-oci'].output[0]).toContain('type=oci');
-    const bakeDockerfile = ociBake.target['runner-oci']['dockerfile-inline'] as string;
-    expect(bakeDockerfile).toBe(dockerfile.replaceAll('${', () => '$${'));
-    expect(bakeDockerfile).toContain('$${UBUNTU_SNAPSHOT}');
-    expect(bakeDockerfile).toContain('$${Package}=$${Version}');
-    expect(bakeDockerfile).toContain('$(stat -c %a /tmp/bootstrap-cacert.pem)');
-    expect(bakeDockerfile).toContain('$(python3 --version)');
-    expect(bakeDockerfile).toContain('$(node --version)');
-    expect(bakeDockerfile).not.toContain('$$(stat');
-    expect(bakeDockerfile).not.toContain('$$(python3');
-    expect(bakeDockerfile).not.toContain('$$(node');
-    expect(bakeDockerfile).not.toContain('$$UBUNTU_SNAPSHOT');
-    const providerLayoutPath = path.resolve('cache', 'layout');
-    const projectionArgs = createLocalGitHubActionsRunnerProjectionBuildxArgs(providerLayoutPath);
-    expect(projectionArgs).toContain(
-      `runtime=oci-layout://${providerLayoutPath.split(path.sep).join('/')}@`
-        + authority.image.runtimeContentDigest
-    );
-    expect(projectionArgs).toContain('type=docker');
-    expect(projectionArgs).toContain('--provenance=false');
-
     const frozenImage = {
       Id: authority.image.dockerProjectionDigest,
       Config: { Labels: {

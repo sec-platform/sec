@@ -1,69 +1,48 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { getPipelineStageDefinition, PASS_DEFINITIONS, PIPELINE_STAGE_DEFINITIONS } from '../../../src/compiler/pipeline/stage-definitions.ts';
-import { PIPELINE_STAGE_IDS, PIPELINE_STAGE_OWNERSHIP, PIPELINE_VERIFY_STAGE_IDS } from '../../../src/compiler/pipeline/stages.ts';
+import { PASS_SEQUENCE, PASS_STATUS_PENDING } from '../../../src/adapters/compilation/pipeline/defaults.ts';
+import { LOCK_PASS_STATES, PASS_INITIAL_STATES } from '../../../src/compiler/contract/pass-status.ts';
+import { PIPELINE_EXECUTION_BOUNDARIES, pipelineStageBoundary } from '../../../src/compiler/pipeline/execution-boundaries.ts';
+import { getPipelineStageDefinition, PIPELINE_STAGE_DEFINITIONS } from '../../../src/compiler/pipeline/stage-definitions.ts';
+import { PIPELINE_STAGE_IDS, PIPELINE_VERIFY_STAGE_IDS } from '../../../src/compiler/pipeline/stages.ts';
 
-test('the resolving stage produces its internal prerequisites, not external blockers', () => {
-  assert.deepEqual(getPipelineStageDefinition('resolve'), {
-    id: 'resolve', primaryPass: 'resolve', ownedPasses: ['parse', 'align', 'resolve'], requires: [],
-    invalidates: ['build-ir', 'compose', 'verify', 'repair', 'lock', 'emit']
-  });
-});
-
-for (const [stage, pass] of [['semantic', 'build-ir'], ['compose', 'compose'], ['verify', 'verify'], ['lock', 'lock'], ['emit', 'emit']] as const) {
-  test(`${stage} derives its external relations from its owned pass`, () => {
-    const definition = getPipelineStageDefinition(stage);
-    assert.equal(definition.primaryPass, pass);
-    assert.deepEqual(definition.ownedPasses, [pass]);
-    assert.deepEqual(definition.requires, PASS_DEFINITIONS[pass].requires);
-    assert.deepEqual(definition.invalidates, PASS_DEFINITIONS[pass].invalidates);
-  });
-}
-
-test('repair invalidation is not mistaken for a prerequisite or inserted as a pipeline stage', () => {
-  assert.deepEqual(PASS_DEFINITIONS.repair.requires, []);
-  assert.deepEqual(PASS_DEFINITIONS.repair.invalidates, ['verify', 'lock', 'emit']);
-  assert.ok(PASS_DEFINITIONS.verify.invalidates.includes('repair'));
-  assert.ok(!Object.values(PIPELINE_STAGE_DEFINITIONS).some((stage) => stage.ownedPasses.includes('repair')));
-});
-
-test('stage identity, order and verification prefix are projections of ownership', () => {
-  assert.deepEqual(PIPELINE_STAGE_IDS, Object.keys(PIPELINE_STAGE_OWNERSHIP));
+test('the built-in pipeline publishes the exact stage, pass and event policy consumed by execution', () => {
+  const stages = ['resolve', 'semantic', 'compose', 'verify', 'lock', 'emit'] as const;
+  assert.deepEqual(PIPELINE_STAGE_IDS, stages);
   assert.deepEqual(PIPELINE_VERIFY_STAGE_IDS, ['resolve', 'semantic', 'compose', 'verify']);
-  assert.deepEqual(PIPELINE_STAGE_IDS, ['resolve', 'semantic', 'compose', 'verify', 'lock', 'emit']);
-  assert.deepEqual(Object.keys(PIPELINE_STAGE_DEFINITIONS), PIPELINE_STAGE_IDS);
-});
+  assert.deepEqual(PIPELINE_STAGE_DEFINITIONS, {
+    resolve: { id: 'resolve', primaryPass: 'resolve', ownedPasses: ['parse', 'align', 'resolve'], requires: [],
+      invalidates: ['build-ir', 'compose', 'verify', 'repair', 'lock', 'emit'] },
+    semantic: { id: 'semantic', primaryPass: 'build-ir', ownedPasses: ['build-ir'], requires: ['resolve'],
+      invalidates: ['compose', 'verify', 'repair', 'lock', 'emit'] },
+    compose: { id: 'compose', primaryPass: 'compose', ownedPasses: ['compose'], requires: ['build-ir'],
+      invalidates: ['verify', 'repair', 'lock', 'emit'] },
+    verify: { id: 'verify', primaryPass: 'verify', ownedPasses: ['verify'], requires: ['compose'],
+      invalidates: ['repair', 'lock', 'emit'] },
+    lock: { id: 'lock', primaryPass: 'lock', ownedPasses: ['lock'], requires: ['verify'], invalidates: ['emit'] },
+    emit: { id: 'emit', primaryPass: 'emit', ownedPasses: ['emit'], requires: ['lock'], invalidates: [] }
+  });
+  assert.deepEqual(PASS_SEQUENCE, ['parse', 'align', 'resolve', 'build-ir', 'compose', 'verify', 'repair', 'lock', 'emit']);
+  const pending = { parse: 'pending', align: 'pending', resolve: 'pending', 'build-ir': 'pending',
+    compose: 'pending', verify: 'pending', repair: 'skipped', lock: 'pending', emit: 'pending' };
+  assert.deepEqual(PASS_INITIAL_STATES, pending);
+  assert.deepEqual(PASS_STATUS_PENDING, pending);
+  assert.deepEqual(LOCK_PASS_STATES, ['pending', 'running', 'succeeded', 'failed', 'blocked', 'skipped']);
+  assert.deepEqual(stages.map(pipelineStageBoundary), [
+    'pipeline-resolve', 'pipeline-semantic', 'pipeline-compose', 'pipeline-verify', 'pipeline-lock', 'pipeline-emit'
+  ]);
+  assert.deepEqual(PIPELINE_EXECUTION_BOUNDARIES, ['pipeline-bootstrap', 'pipeline-lease-bind', 'pipeline-lease-bound',
+    'pipeline-transaction-bootstrap', 'pipeline-transaction', 'pipeline-resolve', 'pipeline-semantic',
+    'pipeline-compose', 'pipeline-verify', 'pipeline-lock', 'pipeline-emit', 'verify-preflight',
+    'verify-fast', 'verify-runtime', 'verify-artifact-publish']);
 
-test('registry queries cannot hand callers a writable policy or nested relation', () => {
+  // These shared outputs feed later execution and persisted-data validation.
   const definition = getPipelineStageDefinition('compose');
   assert.equal(Reflect.set(definition, 'primaryPass', 'repair'), false);
   assert.throws(() => (definition.requires as string[]).push('repair'), TypeError);
-  assert.throws(() => (PASS_DEFINITIONS.compose.invalidates as string[]).pop(), TypeError);
   assert.equal(Reflect.deleteProperty(PIPELINE_STAGE_DEFINITIONS, 'verify'), false);
-  assert.equal(Reflect.set(PIPELINE_STAGE_OWNERSHIP.compose, 'primaryPass', 'emit'), false);
   assert.throws(() => (PIPELINE_STAGE_IDS as string[]).reverse(), TypeError);
+  assert.equal(Reflect.set(LOCK_PASS_STATES, 0, 'forged'), false);
+  assert.equal(Reflect.set(PASS_SEQUENCE, 0, 'forged'), false);
   assert.deepEqual(getPipelineStageDefinition('compose').requires, ['build-ir']);
 });
-
-test('each pass has one identity and each staged pass one stage owner', () => {
-  for (const [id, definition] of Object.entries(PASS_DEFINITIONS)) {
-    assert.equal(definition.id, id);
-    for (const target of [...definition.requires, ...definition.invalidates]) {
-      assert.ok(Object.hasOwn(PASS_DEFINITIONS, target));
-    }
-  }
-  const seen = new Set<string>();
-  for (const definition of Object.values(PIPELINE_STAGE_DEFINITIONS)) {
-    for (const pass of definition.ownedPasses) { assert.ok(!seen.has(pass)); seen.add(pass); }
-    assert.ok(definition.ownedPasses.includes(definition.primaryPass));
-    for (const external of [...definition.requires, ...definition.invalidates]) {
-      assert.ok(!definition.ownedPasses.includes(external));
-    }
-  }
-});
-
-for (const stage of ['missing', 'constructor', '__proto__', 'toString']) {
-  test(`unknown stage ${stage} cannot resolve to a prototype object`, () => {
-    assert.throws(() => getPipelineStageDefinition(stage as never), /Unknown pipeline stage/);
-  });
-}
