@@ -47,23 +47,27 @@ test('cancellation during format joins the provider and never publishes its late
   });
 });
 
-test('all target paths are admitted before formatter configuration or effects', async () => {
+test('formatter admits every target before effects, rejects invalid output and deduplicates unchanged files', async () => {
   const effects: string[] = [];
-  await fixture(async () => { effects.push('format'); return 'formatted'; }, async root => {
-    writeFileSync(path.join(root, 'src/a.ts'), 'original');
+  await fixture((async () => { effects.push('format'); return undefined; }) as unknown as Format, async root => {
+    const target = path.join(root, 'src/a.ts');
+    writeFileSync(target, 'original');
     await assert.rejects(formatOutputFiles(root, ['src/a.ts', '../escape.ts']));
     assert.deepEqual(effects, []);
-    assert.equal(readFileSync(path.join(root, 'src/a.ts'), 'utf8'), 'original');
-  }, async () => { effects.push('config'); return {}; });
-});
+    assert.equal(readFileSync(target, 'utf8'), 'original');
 
-test('duplicate paths format once and unchanged text never asks for a write grant', async () => {
-  let calls = 0;
-  await fixture(async source => { calls++; return source; }, async root => {
-    writeFileSync(path.join(root, 'src/a.ts'), 'same');
+    await assert.rejects(formatOutputFiles(root, ['src/a.ts'], async () => assert.fail('invalid output published')), /did not return text/);
+    assert.equal(readFileSync(target, 'utf8'), 'original');
+
+    // Each invocation captures its own formatter and target bytes; a rejected
+    // result must not become a cached success for the following no-op.
+    let calls = 0;
+    formatter.format = async source => { calls++; return source; };
+    formatter.resolveConfig = async () => ({});
+    writeFileSync(target, 'same');
     await formatOutputFiles(root, ['src/a.ts', 'src/a.ts'], async () => assert.fail('unchanged file written'));
     assert.equal(calls, 1);
-  });
+  }, async () => { effects.push('config'); return {}; });
 });
 
 test('relative workspace and selected formatter remain fixed across asynchronous config lookup', async () => {
@@ -82,13 +86,5 @@ test('relative workspace and selected formatter remain fixed across asynchronous
     formatter.format = async () => assert.fail('replacement formatter');
     process.chdir(tmpdir());
     return {};
-  });
-});
-
-test('invalid formatter output fails before requesting a publication grant', async () => {
-  await fixture((async () => undefined) as unknown as Format, async root => {
-    writeFileSync(path.join(root, 'src/a.ts'), 'original');
-    await assert.rejects(formatOutputFiles(root, ['src/a.ts'], async () => assert.fail('invalid output published')), /did not return text/);
-    assert.equal(readFileSync(path.join(root, 'src/a.ts'), 'utf8'), 'original');
   });
 });

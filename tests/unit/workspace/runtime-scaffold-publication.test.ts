@@ -21,35 +21,31 @@ async function fixture(run: (root: string, target: string) => Promise<void>) {
   try { await run(root, target); } finally { TemplateEngine.render = render; rmSync(root, { recursive: true, force: true }); }
 }
 
-test('runtime scaffold refuses a modified existing target instead of overwriting it', async () => fixture(async (root, target) => {
-  writeFileSync(target, 'old');
-  await assert.rejects(generateRuntimeLibraryScaffold(root, lock(), async () => { writeFileSync(target, 'user'); }), /preimage changed/);
-  assert.equal(readFileSync(target, 'utf8'), 'user');
-}));
-
-test('a concurrently created scaffold file with different bytes is not overwritten', async () => fixture(async (root, target) => {
-  await assert.rejects(generateRuntimeLibraryScaffold(root, lock(), async () => { writeFileSync(target, 'user'); }));
-  assert.equal(readFileSync(target, 'utf8'), 'user');
-}));
-
-test('unchanged scaffold content needs no write grant', async () => fixture(async (root, target) => {
-  writeFileSync(target, 'generated');
-  const paths = await generateRuntimeLibraryScaffold(root, lock(), async () => assert.fail('no-op write'));
-  assert.ok(paths.includes('src/runtime/store.ts')); assert.equal(readFileSync(target, 'utf8'), 'generated');
-}));
-
-test('an aborted scaffold invocation cannot render or acquire write authority', async () => fixture(async root => {
+test('scaffold re-observes target preimages while preserving cancellation, root capture and no-op admission', async () => fixture(async (root, target) => {
   const controller = new AbortController(), reason = new Error('cancelled'); controller.abort(reason);
   TemplateEngine.render = () => assert.fail('cancelled render');
   await assert.rejects(generateRuntimeLibraryScaffold(root, lock(), async () => assert.fail('cancelled write'), controller.signal), error => error === reason);
-}));
 
-test('render callbacks cannot change the selected workspace of this invocation', async () => fixture(async (root, target) => {
+  TemplateEngine.render = () => 'generated';
+  await assert.rejects(generateRuntimeLibraryScaffold(root, lock(), async () => { writeFileSync(target, 'user'); }));
+  assert.equal(readFileSync(target, 'utf8'), 'user');
+
+  writeFileSync(target, 'old');
+  await assert.rejects(generateRuntimeLibraryScaffold(root, lock(), async () => { writeFileSync(target, 'user'); }), /preimage changed/);
+  assert.equal(readFileSync(target, 'utf8'), 'user');
+
+  // The previous calls have joined their writers. Restore the absent-target
+  // premise before testing capture ahead of the caller's render callback.
+  rmSync(target);
   const cwd = process.cwd();
   try {
     process.chdir(root); TemplateEngine.render = () => { process.chdir(tmpdir()); return 'generated'; };
     await generateRuntimeLibraryScaffold('.', lock()); assert.equal(readFileSync(target, 'utf8'), 'generated');
   } finally { process.chdir(cwd); }
+
+  TemplateEngine.render = () => 'generated';
+  const paths = await generateRuntimeLibraryScaffold(root, lock(), async () => assert.fail('no-op write'));
+  assert.ok(paths.includes('src/runtime/store.ts')); assert.equal(readFileSync(target, 'utf8'), 'generated');
 }));
 
 test('generated fast registration preserves hostile names as inert literals', async () => fixture(async root => {
