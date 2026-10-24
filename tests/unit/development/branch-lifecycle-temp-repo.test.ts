@@ -55,29 +55,38 @@ function repositoryFixture(): Readonly<{
   mainSha: string;
 }> {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-lifecycle-v6-'));
-  const remote = path.join(root, 'remote.git');
-  const repository = path.join(root, 'repository');
-  git(root, ['init', '--bare', remote]);
-  git(root, ['clone', remote, repository]);
-  git(repository, ['config', 'user.name', 'SEC Test']);
-  git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-  git(repository, ['config', '--local', 'fetch.prune', 'true']);
-  git(repository, ['config', '--local', 'remote.origin.prune', 'true']);
-  git(repository, ['config', '--local', 'fetch.pruneTags', 'true']);
-  writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-  git(repository, ['add', 'README.md']);
-  git(repository, ['commit', '-m', 'initial main']);
-  git(repository, ['branch', '-M', 'main']);
-  git(repository, ['push', '-u', 'origin', 'main']);
-  const mainSha = git(repository, ['rev-parse', 'HEAD']);
-  const branch = 'feat/v6-closeout';
-  git(repository, ['switch', '-c', branch]);
-  writeFileSync(path.join(repository, 'candidate.txt'), 'candidate\n', 'utf8');
-  git(repository, ['add', 'candidate.txt']);
-  git(repository, ['commit', '-m', 'candidate']);
-  const headSha = git(repository, ['rev-parse', 'HEAD']);
-  git(repository, ['push', '-u', 'origin', branch]);
-  return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
+  try {
+    const remote = path.join(root, 'remote.git');
+    const repository = path.join(root, 'repository');
+    git(root, ['init', '--bare', remote]);
+    git(root, ['clone', remote, repository]);
+    git(repository, ['config', 'user.name', 'SEC Test']);
+    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
+    git(repository, ['config', '--local', 'fetch.prune', 'true']);
+    git(repository, ['config', '--local', 'remote.origin.prune', 'true']);
+    git(repository, ['config', '--local', 'fetch.pruneTags', 'true']);
+    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
+    git(repository, ['add', 'README.md']);
+    git(repository, ['commit', '-m', 'initial main']);
+    git(repository, ['branch', '-M', 'main']);
+    git(repository, ['push', '-u', 'origin', 'main']);
+    const mainSha = git(repository, ['rev-parse', 'HEAD']);
+    const branch = 'feat/v6-closeout';
+    git(repository, ['switch', '-c', branch]);
+    writeFileSync(path.join(repository, 'candidate.txt'), 'candidate\n', 'utf8');
+    git(repository, ['add', 'candidate.txt']);
+    git(repository, ['commit', '-m', 'candidate']);
+    const headSha = git(repository, ['rev-parse', 'HEAD']);
+    git(repository, ['push', '-u', 'origin', branch]);
+    return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
+  } catch (error) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Branch repository preparation and cleanup both failed');
+    }
+    throw error;
+  }
 }
 
 let observedRepository: ReturnType<typeof repositoryFixture> | undefined;

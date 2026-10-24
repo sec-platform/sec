@@ -84,19 +84,24 @@ export function hostProviderResolutionForTest(repoRoot: string): GitReadSessionR
 export function installGitHooksInIsolatedProcess(repoRoot: string, lifecycle = false): { status: string } {
   const installerUrl = new URL('../../../../src/adapters/self-hosting/development/hooks/install.ts', import.meta.url).href;
   const providerUrl = new URL('../../../../src/adapters/providers/git-read/test/session.ts', import.meta.url).href;
+  const settlementUrl = new URL('../../../testkit/workspace-cleanup.ts', import.meta.url).href;
   const script = `
     const { installGitHooksForTest } = await import(${JSON.stringify(installerUrl)});
     const { createHostGitReadSessionForTests } = await import(${JSON.stringify(providerUrl)});
+    const { settleWorkspaceCallback } = await import(${JSON.stringify(settlementUrl)});
     const root = process.env.SEC_HOOK_FIXTURE_ROOT;
     if (!root) throw new Error('Hook fixture root is missing');
     const session = createHostGitReadSessionForTests({ cwd: root, budget: { deadlineMs: 120000 } });
     if (session.failure !== null || session.gitExecutableIdentity === null) {
       throw new Error('Hook fixture Git provider is unavailable');
     }
-    const result = await installGitHooksForTest({
-      repoRoot: root, lifecycle: process.env.SEC_HOOK_FIXTURE_LIFECYCLE === '1',
-      providerResolutionForTest: { status: 'ready', route: 'host-local-git-v1', session }
-    });
+    const result = await settleWorkspaceCallback(
+      () => installGitHooksForTest({
+        repoRoot: root, lifecycle: process.env.SEC_HOOK_FIXTURE_LIFECYCLE === '1',
+        providerResolutionForTest: { status: 'ready', route: 'host-local-git-v1', session }
+      }),
+      async () => { await session.close?.(); }
+    );
     console.log(JSON.stringify(result));
   `;
   const result = spawnSync(process.execPath, ['-e', script], {
