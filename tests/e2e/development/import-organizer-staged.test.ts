@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import pLimit from 'p-limit';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import {
   runCandidateImportCheck,
@@ -68,7 +69,6 @@ async function createRepositoryTemplate(
   afterDirectoryCreated?: (repoRoot: string) => Promise<void>
 ): Promise<string> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-template-'));
-  let ownershipTransferred = false;
   try {
     await afterDirectoryCreated?.(repoRoot);
     git(repoRoot, ['init', '--quiet']);
@@ -76,7 +76,7 @@ async function createRepositoryTemplate(
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     git(repoRoot, ['config', 'core.autocrlf', 'false']);
     git(repoRoot, ['config', 'core.hooksPath', '.git/hooks']);
-    await Promise.all([
+    const writes = await Promise.allSettled([
       writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
         compilerOptions: {
           allowImportingTsExtensions: true,
@@ -90,19 +90,24 @@ async function createRepositoryTemplate(
       writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
       writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8')
     ]);
+    const writeFailures = writes.flatMap(item => item.status === 'rejected' ? [item.reason] : []);
+    if (writeFailures.length === 1) throw writeFailures[0];
+    if (writeFailures.length > 1) {
+      throw new AggregateError(writeFailures, 'Import template source writes failed');
+    }
     git(repoRoot, ['add', '--all']);
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
     const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', head]);
-    ownershipTransferred = true;
     return repoRoot;
-  } finally {
-    if (!ownershipTransferred) {
-      await rm(repoRoot, { recursive: true, force: true });
+  } catch (error) {
+    try { await rm(repoRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Import template setup and cleanup both failed');
     }
+    throw error;
   }
 }
-
 async function copyRepositoryTemplate(
   copyRepository: (sourceRoot: string, targetRoot: string) => Promise<void> = async (
     sourceRoot,
@@ -119,16 +124,16 @@ async function copyRepositoryTemplate(
     throw new Error('Import organizer repository template is unavailable');
   }
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-case-'));
-  await rm(repoRoot, { recursive: true, force: true });
-  let ownershipTransferred = false;
   try {
+    await rm(repoRoot, { recursive: true, force: true });
     await copyRepository(repositoryTemplateRoot, repoRoot);
-    ownershipTransferred = true;
     return repoRoot;
-  } finally {
-    if (!ownershipTransferred) {
-      await rm(repoRoot, { recursive: true, force: true });
+  } catch (error) {
+    try { await rm(repoRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Import template copy and cleanup both failed');
     }
+    throw error;
   }
 }
 
@@ -137,19 +142,17 @@ beforeAll(async () => {
   repositoryTemplateInitializationCount += 1;
 });
 
-afterAll(async () => {
-  try {
-    expect(repositoryTemplateInitializationCount).toBe(1);
-    expect(activeRepositoryCount).toBe(0);
-    expect(peakRepositoryCount).toBeGreaterThan(0);
-    expect(peakRepositoryCount).toBeLessThanOrEqual(repositoryConcurrency);
-  } finally {
-    if (repositoryTemplateRoot) {
-      await rm(repositoryTemplateRoot, { recursive: true, force: true });
-      repositoryTemplateRoot = undefined;
-    }
+afterAll(() => settleWorkspaceCallback(async () => {
+  expect(repositoryTemplateInitializationCount).toBe(1);
+  expect(activeRepositoryCount).toBe(0);
+  expect(peakRepositoryCount).toBeGreaterThan(0);
+  expect(peakRepositoryCount).toBeLessThanOrEqual(repositoryConcurrency);
+}, async () => {
+  if (repositoryTemplateRoot) {
+    await rm(repositoryTemplateRoot, { recursive: true, force: true });
+    repositoryTemplateRoot = undefined;
   }
-});
+}));
 
 async function stagedBytes(repoRoot: string, fileName: string): Promise<Buffer> {
   const objectId = String(git(repoRoot, ['rev-parse', `:${fileName}`])).trim();
@@ -171,14 +174,12 @@ async function withRepositoryActivity<T>(run: () => Promise<T>): Promise<T> {
 async function withRepository(run: (repoRoot: string) => Promise<void>): Promise<void> {
   return withRepositoryActivity(async () => {
     let repoRoot: string | undefined;
-    try {
+    return settleWorkspaceCallback(async () => {
       repoRoot = await copyRepositoryTemplate();
       await run(repoRoot);
-    } finally {
-      if (repoRoot) {
-        await rm(repoRoot, { recursive: true, force: true });
-      }
-    }
+    }, async () => {
+      if (repoRoot !== undefined) await rm(repoRoot, { recursive: true, force: true });
+    });
   });
 }
 
