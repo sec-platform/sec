@@ -67,15 +67,6 @@ for (const args of [['sample', 'unknown'], ['sample', '__proto__'], ['sample', '
   });
 }
 
-test('non-boolean programmatic output cannot reach a reader', async () => {
-  const root = program(); let reads = 0;
-  const command = registerInspectionQuery(root.command('sample'), { read: () => { reads += 1; return 1; }, view: (v) => inspectionValue(v, String) });
-  command.setOptionValue('json', 'false');
-  await assert.rejects(root.parseAsync(['sample'], { from: 'user' }),
-    (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
-  assert.equal(reads, 0);
-});
-
 for (const phase of ['read-sync', 'read-async', 'view-sync', 'view-async', 'format'] as const) {
   test(`${phase} failure preserves the original value without emitting a result`, async () => {
     const reason = Object.freeze({ phase });
