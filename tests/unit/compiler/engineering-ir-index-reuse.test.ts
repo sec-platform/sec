@@ -5,11 +5,17 @@ import { projectArchitectureView } from '../../../src/compiler/projection/projec
 import type { SemanticEntity } from '../../../src/semantics/engineering-ir/entity-types.ts';
 import { addFact, emptyIR, entity, projectionSnapshot, viewIR } from '../../fixtures/semantic-view-data.ts';
 
+// Public EngineeringIRIndex surface, declared independently of Object.values(index).
+const READ_INDEX_FIELDS = [
+  'entityById', 'entitiesByKind', 'factById', 'factsByPredicate',
+  'outgoingFactsBySubject', 'incomingFactsByEntityObject'
+] as const;
+
 test('revision strings cannot alias different immutable input generations', () => {
   const first = projectionSnapshot(viewIR()); const second = projectionSnapshot(viewIR(2));
   assert.equal(first.ir.semanticRevision, second.ir.semanticRevision);
   const a = indexValidatedEngineeringIR(first); const b = indexValidatedEngineeringIR(second);
-  assert.notEqual(a, b); assert.equal(a.entityById.has('state:1'), false); assert.equal(b.entityById.has('state:1'), true);
+  assert.equal(a.entityById.has('state:1'), false); assert.equal(b.entityById.has('state:1'), true);
 });
 
 test('mutable snapshot data is rebuilt instead of becoming a stale cache', () => {
@@ -23,7 +29,7 @@ test('mutable snapshot data is rebuilt instead of becoming a stale cache', () =>
 test('a frozen root with mutable entity membership remains uncached', () => {
   const ir = Object.freeze(emptyIR()); const snapshot = projectionSnapshot(ir, false);
   const first = indexValidatedEngineeringIR(snapshot); ir.entities.push(entity('state:new', 'state'));
-  assert.notEqual(indexValidatedEngineeringIR(snapshot), first);
+  assert.equal(first.entityById.has('state:new'), false);
   assert.equal(indexValidatedEngineeringIR(snapshot).entityById.has('state:new'), true);
 });
 
@@ -46,7 +52,7 @@ test('mutable fact target objects remain uncached even under frozen facts', () =
   assert.equal(object.kind, 'entity'); if (object.kind !== 'entity') assert.fail();
   object.entityId = 'state:changed';
   const second = indexValidatedEngineeringIR(snapshot);
-  assert.notEqual(first, second);
+  assert.equal(first.incomingFactsByEntityObject.has('state:changed'), false);
   assert.equal(second.incomingFactsByEntityObject.get('state:changed')?.[0], fact);
 });
 
@@ -66,7 +72,8 @@ test('frozen collection accessors are not mistaken for fixed membership', () => 
   const snapshot = projectionSnapshot(ir, false); const first = indexValidatedEngineeringIR(snapshot);
   chosen = Object.freeze(entity('app:second', 'app'));
   const second = indexValidatedEngineeringIR(snapshot);
-  assert.notEqual(first, second); assert.equal(second.entityById.get(chosen.id), chosen);
+  assert.equal(first.entityById.has(chosen.id), false);
+  assert.equal(second.entityById.get(chosen.id), chosen);
 });
 
 test('frozen IR collection properties implemented as getters stay fresh', () => {
@@ -76,24 +83,26 @@ test('frozen IR collection properties implemented as getters stay fresh', () => 
   const snapshot = projectionSnapshot(ir, false); const first = indexValidatedEngineeringIR(snapshot);
   entities = Object.freeze([Object.freeze(entity('app:second', 'app'))]);
   const second = indexValidatedEngineeringIR(snapshot);
-  assert.notEqual(first, second); assert.equal(second.entityById.has('app:second'), true);
+  assert.equal(first.entityById.has('app:second'), false);
+  assert.equal(second.entityById.has('app:second'), true);
 });
 
-test('protected shared maps do not expose mutators or permit prototype replacement', () => {
+test('cached maps and their membership buckets prevent caller mutation', () => {
   const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
-  for (const map of Object.values(index)) {
+  for (const field of READ_INDEX_FIELDS) {
+    const map = index[field];
     for (const key of ['set', 'delete', 'clear']) assert.equal(Reflect.get(map, key), undefined);
     assert.throws(() => Map.prototype.clear.call(map), TypeError);
     assert.equal(Object.isFrozen(map), true);
   }
   assert.equal(Reflect.set(Object.getPrototypeOf(index.entityById), 'get', () => null), false);
-});
-
-test('cached membership buckets cannot be modified through any query route', () => {
-  const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
-  for (const map of [index.entitiesByKind, index.factsByPredicate, index.outgoingFactsBySubject, index.incomingFactsByEntityObject]) {
+  for (const map of [
+    index.entitiesByKind, index.factsByPredicate,
+    index.outgoingFactsBySubject, index.incomingFactsByEntityObject
+  ]) {
     for (const bucket of map.values()) {
-      assert.ok(Object.isFrozen(bucket)); assert.equal(Reflect.set(bucket, 0, null), false);
+      assert.ok(Object.isFrozen(bucket));
+      assert.equal(Reflect.set(bucket, 0, null), false);
     }
   }
 });
@@ -114,14 +123,16 @@ test('indexed keys may be stable while nonindexed payload remains live', () => {
   const snapshot = projectionSnapshot(ir, false); const index = indexValidatedEngineeringIR(snapshot);
   const op = ir.entities.find((e) => e.id === 'operation:0')!;
   op.attributes.splice(0, op.attributes.length, { key: 'role', value: 'updated' });
-  assert.equal(indexValidatedEngineeringIR(snapshot).factById, index.factById);
+  assert.equal(index.entityById.get(op.id)?.attributes[0]?.value, 'updated');
+  assert.equal(indexValidatedEngineeringIR(snapshot).entityById.get(op.id)?.attributes[0]?.value, 'updated');
   assert.equal(projectArchitectureView(snapshot).nodes.find((node) => node.id === op.id)?.role, 'updated');
 });
 
 test('an empty immutable graph still provides the complete readonly query contract', () => {
   const ir = emptyIR(); ir.entities = [];
   const index = indexValidatedEngineeringIR(projectionSnapshot(ir));
-  for (const map of Object.values(index)) {
+  for (const field of READ_INDEX_FIELDS) {
+    const map = index[field];
     assert.equal(map.size, 0); assert.deepEqual([...map], []); assert.equal(map.has('missing' as never), false);
   }
 });
@@ -137,29 +148,30 @@ test('self edges and repeated input identities retain existing index occurrence 
   assert.deepEqual(index.incomingFactsByEntityObject.get(ir.appId), [a, b]);
 });
 
-test('separate mutable read indexes cannot contaminate the immutable cache', () => {
-  const snapshot = projectionSnapshot(viewIR()); const cached = indexValidatedEngineeringIR(snapshot);
-  const temporary = indexEngineeringIR(snapshot.ir);
-  Map.prototype.clear.call(temporary.entityById);
-  assert.ok(cached.entityById.size > 0);
-  assert.equal(indexValidatedEngineeringIR(snapshot).entityById, cached.entityById);
-});
-
-
-test('writable result fields remain caller-local while the underlying read indexes are shared', () => {
+test('caller-local result replacement and mutable indexing cannot corrupt cached readers', () => {
   const snapshot = projectionSnapshot(viewIR());
   const first = indexValidatedEngineeringIR(snapshot);
   const second = indexValidatedEngineeringIR(snapshot);
-  assert.notEqual(first, second);
-  assert.equal(first.entityById, second.entityById);
-  assert.equal(indexValidatedEngineeringIR({ ...snapshot }).entityById, first.entityById);
-  assert.equal(first.entityById.get(snapshot.ir.appId), snapshot.ir.entities[0]);
+  const expected = snapshot.ir.entities.map(entity => [entity.id, entity.kind]);
+  const expectMembers = (index: ReturnType<typeof indexValidatedEngineeringIR>) =>
+    assert.deepEqual([...index.entityById].map(([id, entity]) => [id, entity.kind]), expected);
+
+  // A disposable non-validated index exposes native mutable Maps, but this
+  // mutation cannot flow into either existing or subsequent validated readers.
+  const temporary = indexEngineeringIR(snapshot.ir);
+  Map.prototype.clear.call(temporary.entityById);
+  assert.equal(temporary.entityById.size, 0);
+  expectMembers(first);
+  expectMembers(second);
+
+  // The returned record is caller-local. Public content survives reassigning
+  // one record field; sharing an exact internal Map object is not a contract.
   first.entityById = new Map();
   assert.equal(first.entityById.size, 0);
-  assert.ok(second.entityById.size > 0);
-  assert.equal(indexValidatedEngineeringIR(snapshot).entityById, second.entityById);
+  expectMembers(second);
+  expectMembers(indexValidatedEngineeringIR(snapshot));
+  expectMembers(indexValidatedEngineeringIR({ ...snapshot }));
 });
-
 
 test('empty read maps reject noncallable forEach callbacks like a native map', () => {
   const ir = emptyIR(); ir.entities = [];

@@ -113,6 +113,14 @@ for (const frozen of [false, true]) {
       ...[0, 1, 2].map((i) => projectScenarioView(snapshot, `scenario:${i}`)),
       ...[0, 1, 2].map((i) => projectStateView(snapshot, `state:${i}`))];
     const result = buildSemanticViewSet(snapshot);
+    // The composition equality proves wiring; this independent fixture witness
+    // prevents two mutually empty or incorrectly selected projections passing.
+    assert.deepEqual(result.views.map(view => [view.viewKind, view.subject ?? null]), [
+      ['architecture', null],
+      ['scenario', 'scenario:0'], ['scenario', 'scenario:1'], ['scenario', 'scenario:2'],
+      ['state', 'state:0'], ['state', 'state:1'], ['state', 'state:2']
+    ]);
+    assert.equal(result.formatVersion, '1');
     assert.deepEqual(result.views, expected); assert.ok(Object.isFrozen(result.views));
     assert.equal(JSON.stringify(snapshot.ir), before);
   });
