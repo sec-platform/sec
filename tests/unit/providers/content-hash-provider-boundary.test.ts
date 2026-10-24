@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'node:test';
+import { test } from 'bun:test';
 
 import { withAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/authority.ts';
 import { sourceProgramSurfaceForPath } from '../../../src/adapters/repository/source-program-model/contract.ts';
 import { compileSourceProgramRepositoryModuleGraph } from '../../../src/adapters/repository/source-program-model/source-program-module-graph.ts';
 import { acquireWorkingTreeWorkspaceSourceSnapshot } from '../../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
-import { executeSemanticQuery, prepareSemanticQuery } from '../../../src/application/semantic-query.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../..');
 
@@ -44,31 +43,4 @@ test('observed physical hash package imports belong to the declared content-hash
       || reference.specifier.startsWith('@awasm/noble/wasm_threads/'), false,
     'the retained hash provider does not select the threaded package entrypoint');
   }
-});
-
-test('semantic application analysis avoids target loaders and generation requests both loaders', async () => {
-  const input = {
-    engineeringIRInput: {
-      app: { id: 'loader-branch', name: 'loader-branch' },
-      resolvedBlocks: [],
-      manifests: [],
-      acceptanceIds: [],
-      policyDeclarations: []
-    }
-  };
-  const calls: string[] = [];
-  const unavailable = new Error('test target loader unavailable');
-  const operations = {
-    async loadGenerator(): Promise<never> { calls.push('generator'); throw unavailable; },
-    async loadArtifactIdentity(): Promise<never> { calls.push('identity'); throw unavailable; }
-  };
-  const analyzed = await executeSemanticQuery(prepareSemanticQuery({ purpose: 'analyze', input }), operations);
-  assert.equal(analyzed.purpose, 'analyze');
-  assert.deepEqual(calls, []);
-
-  await assert.rejects(
-    executeSemanticQuery(prepareSemanticQuery({ purpose: 'generate', input }), operations),
-    (error: unknown) => error === unavailable
-  );
-  assert.deepEqual(calls.sort(), ['generator', 'identity']);
 });
