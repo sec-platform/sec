@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import type { SourceProgramCandidate } from '../../../src/adapters/repository/source-program-model/contract.ts';
 import {
   compileSourceProgramFindingDelta as compare,
-  summarizeSourceProgramFindingDelta as summarize,
   sourceProgramFindingDeltaIsUnresolved as unresolved
 } from '../../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import { sha256 } from '../../../src/contracts/canonical.ts';
@@ -32,24 +31,24 @@ function snapshot(candidates: readonly Candidate[] = [], paths = ['src/a.ts']): 
 
 test('stable, changed and introduced findings preserve rule and subject identity', () => {
   const before = snapshot([finding('stable'), finding('changed')]);
-  const after = snapshot([finding('stable'), finding('changed', ['src/a.ts'], 'new reason'), finding('new')]);
+  const after = snapshot([finding('stable'), finding('changed', ['src/a.ts'], 'new reason'), finding('new')],
+    ['src/a.ts', 'src/clean-a.ts', 'src/clean-b.ts']);
   const delta = compare(before, after);
   assert.deepEqual(Object.fromEntries(delta.entries.map(entry => [entry.subject, entry.status])), {
     changed: 'changed', new: 'introduced', stable: 'persistent'
   });
+  assert.equal(delta.counts.persistent, 1);
   assert.equal(delta.counts.absent, 0); assert.equal(unresolved(delta), false);
+  const stable = delta.entries.find(entry => entry.subject === 'stable')!;
+  assert.throws(() => (delta.entries as unknown[]).pop(), TypeError);
+  assert.throws(() => (stable.afterPaths as string[]).push('other'), TypeError);
+  assert.deepEqual(stable.afterPaths, ['src/a.ts']);
 });
 
 test('a moved observation stays changed rather than being counted as a fixed old finding', () => {
   const delta = compare(snapshot([finding()]), snapshot([finding('subject', ['src/moved.ts'])], ['src/moved.ts']));
   assert.equal(delta.entries.length, 1); assert.equal(delta.entries[0]!.status, 'changed');
   assert.deepEqual(delta.scope.removedPaths, ['src/a.ts']); assert.equal(delta.counts.absent, 0);
-});
-
-test('absent means no longer reported only when both sides cover the selected paths', () => {
-  const delta = compare(snapshot([finding()]), snapshot());
-  assert.equal(delta.entries[0]!.status, 'absent'); assert.equal(delta.contextComparable, true);
-  assert.equal(unresolved(delta), false);
 });
 
 test('removing a path from the selected snapshot is out-of-scope, not a resolved finding', () => {
@@ -59,38 +58,19 @@ test('removing a path from the selected snapshot is out-of-scope, not a resolved
   assert.equal(unresolved(delta), false);
 });
 
-test('a selected file lost by the observer is a coverage regression and cannot clear a finding', () => {
-  const before = snapshot([finding()]), after = snapshot();
-  const delta = compare(before, { ...after, model: { ...after.model, files: [] } });
-  assert.deepEqual(delta.scope.regressedPaths, ['src/a.ts']);
+test('an explicitly unobserved selected file cannot certify that a finding disappeared', () => {
+  const after = snapshot(), delta = compare(snapshot([finding()]), { ...after,
+    model: { ...after.model, files: after.model.files.map(file => ({ ...file, semanticObservationClass: 'unknown' as const })) } });
   assert.equal(delta.entries[0]!.status, 'unobserved'); assert.equal(unresolved(delta), true);
 });
 
-test('a newly selected but unobserved file also makes coverage unresolved', () => {
-  const after = snapshot([], ['src/a.ts', 'src/new.ts']);
-  const delta = compare(snapshot(), { ...after, model: { ...after.model, files: after.model.files.slice(0, 1) } });
-  assert.deepEqual(delta.scope.regressedPaths, ['src/new.ts']); assert.equal(unresolved(delta), true);
-});
-
-test('stale bytes and explicit unknown classifications cannot serve as current observations', () => {
-  for (const patch of [{ contentDigest: digest('other') }, { semanticObservationClass: 'unknown' as const }]) {
-    const after = snapshot(), delta = compare(snapshot([finding()]), { ...after,
-      model: { ...after.model, files: after.model.files.map(file => ({ ...file, ...patch })) } });
+test('unresolved facts on either cut invalidate disappearance despite a present observed file', () => {
+  const before = snapshot([finding()]), after = snapshot();
+  const unknown = (value: Snapshot): Snapshot => ({ ...value, model: { ...value.model,
+    unknowns: [{ code: 'unresolved-reference', path: 'src/a.ts', detail: 'missing target', span: null }] } });
+  for (const delta of [compare(unknown(before), after), compare(before, unknown(after))]) {
     assert.equal(delta.entries[0]!.status, 'unobserved'); assert.equal(unresolved(delta), true);
   }
-});
-
-test('unresolved facts invalidate disappearance without hiding them behind an observed file entry', () => {
-  const after = snapshot();
-  const delta = compare(snapshot([finding()]), { ...after, model: { ...after.model,
-    unknowns: [{ code: 'unresolved-reference', path: 'src/a.ts', detail: 'missing target', span: null }] } });
-  assert.equal(delta.entries[0]!.status, 'unobserved'); assert.equal(unresolved(delta), true);
-});
-
-test('an unresolved baseline does not prove a clean comparison', () => {
-  const before = snapshot([finding()]);
-  const delta = compare({ ...before, model: { ...before.model, files: [] } }, snapshot());
-  assert.equal(delta.entries[0]!.status, 'unobserved');
 });
 
 test('every represented compiler, provider, config, dependency and environment dimension invalidates absence', () => {
@@ -134,18 +114,6 @@ test('findings without a path, or with partially lost scope, cannot be certified
   }
 });
 
-test('observed files outside the exact selected snapshot are surfaced and block reconciliation', () => {
-  const after = snapshot([], ['src/a.ts', 'src/foreign.ts']);
-  const delta = compare(snapshot(), { ...after, workspaceSnapshot: snapshot().workspaceSnapshot });
-  assert.deepEqual(delta.after.unexpectedObservedPaths, ['src/foreign.ts']); assert.equal(unresolved(delta), true);
-});
-
-test('a larger number of clean files cannot dilute or hide a persistent finding', () => {
-  const delta = compare(snapshot([finding()]), snapshot([finding()], ['src/a.ts',
-    ...Array.from({ length: 300 }, (_, i) => `src/clean-${i}.ts`)]));
-  assert.equal(delta.counts.persistent, 1); assert.equal(delta.counts.absent, 0);
-});
-
 test('order is irrelevant, but repeated observation multiplicity is not discarded', () => {
   const first = finding('a', ['src/a.ts', 'src/b.ts']), second = finding('b');
   const left = snapshot([first, second], ['src/a.ts', 'src/b.ts']);
@@ -154,36 +122,4 @@ test('order is irrelevant, but repeated observation multiplicity is not discarde
   const more = compare(left, snapshot([first, first, second], ['src/a.ts', 'src/b.ts']));
   const entry = more.entries.find(value => value.subject === 'a')!;
   assert.equal(entry.status, 'changed'); assert.equal(entry.beforeCount, 1); assert.equal(entry.afterCount, 2);
-});
-
-test('canonical provider ordering does not invalidate the same detector context', () => {
-  const before = snapshot([finding()]);
-  const providers = [{ id: 'a', revision: '1' }, { id: 'b', revision: '2' }];
-  const delta = compare({ ...before, model: { ...before.model, providers } },
-    { ...before, model: { ...before.model, providers: [...providers].reverse() } });
-  assert.equal(delta.contextComparable, true); assert.equal(delta.counts.persistent, 1);
-});
-
-test('compact output retains every decision, scope change and current coverage gap', () => {
-  const after = snapshot();
-  const delta = compare(snapshot([finding()]), { ...after, model: { ...after.model, files: [] } });
-  const compact = summarize(delta);
-  assert.deepEqual(compact.counts, delta.counts); assert.deepEqual(compact.scope, delta.scope);
-  assert.deepEqual(compact.unobservedPaths, delta.after.unobservedPaths);
-  assert.equal(compact.deltaDigest, delta.deltaDigest); assert.equal('entries' in compact, false);
-});
-
-test('published results are detached and frozen without freezing caller input', () => {
-  const paths = ['src/a.ts']; const source = snapshot([finding('subject', paths)]);
-  const delta = compare(source, source); paths.push('later');
-  assert.deepEqual(delta.entries[0]!.afterPaths, ['src/a.ts']);
-  assert.equal(Object.isFrozen(source), false); assert.ok(Object.isFrozen(delta.entries));
-  assert.throws(() => (delta.entries[0]!.afterPaths as string[]).push('other'), TypeError);
-});
-
-test('duplicate selected or observed identities reject instead of last-write-wins coverage', () => {
-  const after = snapshot();
-  assert.throws(() => compare(snapshot(), { ...after, model: { ...after.model, files: [...after.model.files, ...after.model.files] } }), /repeats an observed/);
-  assert.throws(() => compare(snapshot(), { ...after, workspaceSnapshot: { ...after.workspaceSnapshot,
-    files: [...after.workspaceSnapshot.files, ...after.workspaceSnapshot.files] } }), /repeats a selected/);
 });

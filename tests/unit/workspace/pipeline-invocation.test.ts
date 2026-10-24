@@ -31,12 +31,14 @@ for (const value of [null, '', false, 0, {}, [], new String('verify'), Symbol('s
   });
 }
 
-test('requests capture owned fields once and never enumerate capabilities or unrelated options', () => {
-  const counts = new Map<string, number>();
+test('requests retain captured decisions without enumerating capabilities or unrelated options', () => {
+  const observed = new Set<string>();
   const values = { from: 'compose', through: 'verify', source: 'ci', verificationLane: 'runtime' };
+  const replacements: Record<string, string> = { from: 'resolve', through: 'emit', source: 'repair', verificationLane: 'fast' };
   const input = new Proxy(Object.fromEntries([]), { ownKeys() { assert.fail('request enumerated'); } });
   for (const [key, value] of Object.entries(values)) Object.defineProperty(input, key, {
-    get() { counts.set(key, (counts.get(key) ?? 0) + 1); return value; }
+    configurable: true,
+    get() { if (observed.has(key)) return replacements[key]; observed.add(key); return value; }
   });
   for (const key of ['onEvent', 'workspaceWriteLease', 'isolatedVerificationCapability', 'stagedVerificationProof', 'unrelated']) {
     Object.defineProperty(input, key, { get() { assert.fail('request read capability '+key); } });
@@ -44,7 +46,9 @@ test('requests capture owned fields once and never enumerate capabilities or unr
   const result = bindPipelineCompileRequest(input);
   assert.equal(result.source, 'ci'); assert.equal(result.verificationLane, 'runtime');
   assert.deepEqual(result.stages, ['semantic', 'compose', 'verify']);
-  assert.deepEqual([...counts.values()], [1, 1, 1, 1]);
+  for (const [key, value] of Object.entries(replacements)) Object.defineProperty(input, key, { value });
+  assert.deepEqual(result, { from: 'compose', through: 'verify', stages: ['semantic', 'compose', 'verify'], source: 'ci', verificationLane: 'runtime' });
+  assert.equal(Reflect.set(result.stages, 0, 'resolve'), false);
   assert.equal('workspaceWriteLease' in result, false);
 });
 
@@ -68,15 +72,6 @@ test('only selected API verification requests default an absent lane and reject 
   for (const lane of ['fast', 'runtime', 'all'] as const) {
     assert.equal(bindPipelineCompileRequest({ verificationLane: lane }).verificationLane, lane);
   }
-});
-
-test('the bound request is detached from all subsequent caller mutation', () => {
-  const input = { from: 'compose' as const, through: 'verify' as const, source: 'api' as const, verificationLane: 'fast' as const };
-  const result = bindPipelineCompileRequest(input);
-  Object.assign(input, { from: 'resolve', through: 'emit', source: 'ci', verificationLane: 'all' });
-  assert.deepEqual(result, { from: 'compose', through: 'verify', stages: ['semantic', 'compose', 'verify'], source: 'api', verificationLane: 'fast' });
-  assert.ok(Object.isFrozen(result));
-  assert.equal(Reflect.set(result.stages, 0, 'resolve'), false);
 });
 
 test('range errors never execute user coercion hooks', () => {

@@ -183,6 +183,15 @@ test.skipIf(process.platform !== 'linux')('Unicode Git admin and tracked backsla
 test('real registered worktree reaches registry and physical absence under one durable receipt', async () => {
   const value = fixture();
   try {
+    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
+      token: new WorktreePhysicalCloseoutConsumptionToken(),
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      branch: value.branch,
+      headSha: value.headSha,
+      treeSha: value.treeSha,
+      recoveryAuthorityDigest: value.recoveryAuthorityDigest
+    })).toThrow('was not issued by this process');
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -1350,24 +1359,6 @@ test('an unregistered physical orphan cannot be adopted or removed', async () =>
       }, worktreePhysicalCloseoutOperations)
     ).rejects.toThrow('unknown historical orphans cannot be adopted');
     expect(existsSync(value.target)).toBe(true);
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
-}, 30_000);
-
-test('raw JSON or a caller-constructed token cannot mint trusted closeout consumption', async () => {
-  const value = fixture();
-  try {
-    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
-      token: new WorktreePhysicalCloseoutConsumptionToken(),
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      branch: value.branch,
-      headSha: value.headSha,
-      treeSha: value.treeSha,
-      recoveryAuthorityDigest: value.recoveryAuthorityDigest
-    })).toThrow('was not issued by this process');
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }

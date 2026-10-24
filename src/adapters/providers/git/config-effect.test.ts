@@ -120,33 +120,6 @@ function openTestProvider(root: string, processes = 2, outputBytes = 512 * 1024,
   return { operation, processSession, provider: resolution.capability };
 }
 
-test('GitConfigEffect performs exact replace-all readback and leaves the borrowed parent live', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-effect-'));
-  const targetPath = path.join(root, 'config');
-  await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n', 'utf8');
-  const { processSession, provider } = openTestProvider(root);
-  try {
-    const target = await issueGitConfigTargetCapability({ path: targetPath });
-    const receipt = await replaceAllGitConfigValue({
-      provider,
-      target,
-      key: 'core.hooksPath',
-      value: 'D:/canonical-hooks'
-    });
-    assertGitConfigEffectReceipt(receipt);
-    expect(receipt.writeOrdinal).toBe(1);
-    expect(receipt.readbackOrdinal).toBe(2);
-    expect(await fs.readFile(targetPath, 'utf8')).toContain('hooksPath = D:/canonical-hooks');
-    const providerReceipt = closeGitPhysicalProvider(provider);
-    assertGitPhysicalProviderReceipt(providerReceipt, provider);
-    expect(providerReceipt.processCount).toBe(2);
-    expect(() => processSession.cooperativeDeadlineAtUnixMs()).not.toThrow();
-  } finally {
-    processSession.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('GitConfigEffect rejects target ABA, structural origin copies and invalid key/value before child', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-negative-'));
   const targetPath = path.join(root, 'config');
@@ -330,9 +303,14 @@ test('GitConfigEffect uses a provider-local process delta inside one borrowed pa
       value: 'D:/canonical-hooks'
     });
     assertGitConfigEffectReceipt(receipt);
+    expect(receipt.writeOrdinal).toBe(2);
+    expect(receipt.readbackOrdinal).toBe(3);
+    expect(await fs.readFile(targetPath, 'utf8')).toContain('hooksPath = D:/canonical-hooks');
     const providerReceipt = closeGitPhysicalProvider(secondProvider);
+    assertGitPhysicalProviderReceipt(providerReceipt, secondProvider);
     expect(providerReceipt.processCount).toBe(2);
     expect(first.processSession.processCount).toBe(3);
+    expect(() => first.processSession.cooperativeDeadlineAtUnixMs()).not.toThrow();
   } finally {
     if (target !== null) closeGitConfigTargetCapability(target);
     if (secondProvider !== null) closeGitPhysicalProvider(secondProvider);
@@ -423,31 +401,6 @@ test('GitConfigEffect holds the actual target lock while real Git validates the 
   }
 });
 
-test('GitConfigEffect final native publication rejects changed byte preimage and preserves it', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-final-preimage-'));
-  const targetPath = path.join(root, 'config');
-  await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n');
-  const replacement = '[core]\n\trepositoryformatversion = 1\n\tforeign = retained\n';
-  const { processSession, provider } = openTestProvider(root);
-  const target = await issueGitConfigTargetCapability({ path: targetPath });
-  try {
-    const actor = createGitConfigEffectTestActorForTests({
-      async beforePublication() { await fs.writeFile(targetPath, replacement); }
-    });
-    await expect(replaceAllGitConfigValue({
-      provider, target, key: 'core.hooksPath', value: 'unpublished', testOnlyActor: actor
-    })).rejects.toThrow(/bytes changed|preimage/u);
-    expect(await fs.readFile(targetPath, 'utf8')).toBe(replacement);
-    expect(processSession.processCount).toBe(2);
-    expect(await fs.readdir(root)).toEqual(['config']);
-  } finally {
-    closeGitConfigTargetCapability(target);
-    closeGitPhysicalProvider(provider);
-    processSession.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('GitConfigEffect preserves primary preimage failure and independent cleanup residue', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-composite-'));
   const targetPath = path.join(root, 'config');
@@ -469,6 +422,7 @@ test('GitConfigEffect preserves primary preimage failure and independent cleanup
     const failures = (failure as ResourceCompositeSettlementError).failures;
     expect(failures.map(({ label }) => label)).toEqual(['git-config-effect', 'git-config-target-lock']);
     expect(String(failures[0]!.error)).toMatch(/bytes changed|preimage/u);
+    expect(processSession.processCount).toBe(2);
     expect(await fs.readFile(targetPath, 'utf8')).toBe(replacement);
     expect(await fs.readFile(`${targetPath}.lock`, 'utf8')).toBe('foreign lock replacement\n');
     expect((await fs.readdir(root)).sort()).toEqual(['config', 'config.lock']);

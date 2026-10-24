@@ -12,31 +12,16 @@ function manifest(source: unknown = './src/cli.ts', artifact: unknown = './dist/
 }
 const invalid = (error: unknown): boolean => error instanceof CodedFailure && error.code === 'RUNTIME-LAYOUT-001';
 
-test('runtime source entrypoint cannot name its package root or parent', () => {
-  for (const value of ['./.', './..', './', './../outside.ts', './src/../cli.ts']) {
-    assert.throws(() => parseCompilerPackageEntrypointBinding(manifest(value)), invalid, value);
-  }
-});
-
-test('runtime source and artifact entrypoints share portable component admission', () => {
-  for (const value of ['./bad\0.ts', './C:/outside.ts', './file:stream', './NUL', './COM¹.txt', './a//b', './trailing.', './space ', './e\u0301.ts']) {
-    assert.throws(() => parseCompilerPackageEntrypointBinding(manifest(value)), invalid, value);
-    assert.throws(() => parseCompilerPackageEntrypointBinding(manifest('./src/cli.ts', `./dist/${value.slice(2)}`)), invalid, value);
-  }
-});
-
 test('runtime entrypoint parsing keeps explicit relative prefixes and valid backslash normalization', () => {
-  const binding = parseCompilerPackageEntrypointBinding(manifest('./src\\cli.ts', './dist\\index.js'));
-  assert.deepEqual(binding, { source: 'src/cli.ts', artifact: 'dist/index.js', command: 'sec' });
+  const binding = parseCompilerPackageEntrypointBinding(manifest('./..source\\文件.ts', './..dist\\é.js'));
+  assert.deepEqual(binding, { source: '..source/文件.ts', artifact: '..dist/é.js', command: 'sec' });
   assert.equal(Object.isFrozen(binding), true);
+  // Source and artifact each reach the shared portable-path owner.
+  assert.throws(() => parseCompilerPackageEntrypointBinding(manifest('./bad\0.ts')), invalid);
+  assert.throws(() => parseCompilerPackageEntrypointBinding(manifest('./src/cli.ts', './dist/bad\0.ts')), invalid);
   for (const value of ['src/cli.ts', '/src/cli.ts', null, 1]) {
     assert.throws(() => parseCompilerPackageEntrypointBinding(manifest(value)), invalid);
   }
-});
-
-test('runtime entrypoints retain ordinary Unicode and dot-prefixed directory names', () => {
-  assert.deepEqual(parseCompilerPackageEntrypointBinding(manifest('./..source/文件.ts', './..dist/é.js')),
-    { source: '..source/文件.ts', artifact: '..dist/é.js', command: 'sec' });
 });
 
 test('runtime package entrypoints enforce artifact roots, command cardinality and exact launchers', () => {

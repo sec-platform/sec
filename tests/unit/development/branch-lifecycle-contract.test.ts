@@ -113,35 +113,6 @@ test('GitHub remote observation binds canonical URL and ignores every ambient Gi
   )).toThrow('bounded owner/name identity');
 });
 
-test('canonical Git branch grammar admits a Unicode closeout branch', () => {
-  expect(() => createBranchCloseoutPreparation({
-    preparedAt: '2026-08-04T00:01:00.000Z',
-    repository: {
-      root: '/workspace/sec',
-      commonDir: '/workspace/sec/.git',
-      fullName: 'sec-platform/sec',
-      remote: 'origin',
-      defaultBranch: 'main'
-    },
-    branch: 'codex/修复',
-    refState: 'present',
-    expectedHeadSha: HEAD_SHA,
-    expectedRemoteSha: HEAD_SHA,
-    expectedLocalSha: HEAD_SHA,
-    expectedPrHeadSha: null,
-    pullRequestNumber: 42,
-    pullRequestStateAtPreparation: 'open',
-    recovery: {
-      kind: 'bundle',
-      path: '/recovery/sec-unicode.bundle',
-      sha256: `sha256:${'b'.repeat(64)}`,
-      verified: true,
-      verifyOutput: 'verified'
-    },
-    worktreePathsAtPreparation: []
-  })).not.toThrow();
-});
-
 function inventory(overrides: Partial<BranchLifecycleInventory> = {}): BranchLifecycleInventory {
   const base: BranchLifecycleInventory = {
     schema: 'sec-branch-lifecycle-inventory-v1',
@@ -223,7 +194,7 @@ function preparation(
 test('merged local residue is authorized independently of unrelated active work but not its own active owner', () => {
   const mergedPullRequest = {
     number: 42,
-    headBranch: 'feat/example',
+    headBranch: 'codex/修复',
     headSha: HEAD_SHA,
     baseBranch: 'main',
     state: 'merged' as const,
@@ -233,7 +204,7 @@ test('merged local residue is authorized independently of unrelated active work 
   };
   const snapshot = inventory({
     localBranches: [
-      { branch: 'feat/example', sha: HEAD_SHA },
+      { branch: 'codex/修复', sha: HEAD_SHA },
       { branch: 'main', sha: MAIN_SHA },
       { branch: 'feat/candidate', sha: RACE_SHA }
     ],
@@ -261,7 +232,7 @@ test('merged local residue is authorized independently of unrelated active work 
   const prepared = createBranchCloseoutPreparation({
     preparedAt: '2026-08-04T00:01:00.000Z',
     repository: snapshot.repository,
-    branch: 'feat/example',
+    branch: 'codex/修复',
     refState: 'absent',
     expectedHeadSha: HEAD_SHA,
     expectedRemoteSha: HEAD_SHA,
@@ -300,7 +271,7 @@ test('merged local residue is authorized independently of unrelated active work 
     before: snapshot,
     current: {
       ...snapshot,
-      activeWorkPackage: { ...snapshot.activeWorkPackage, branch: 'feat/example' }
+      activeWorkPackage: { ...snapshot.activeWorkPackage, branch: 'codex/修复' }
     }
   });
   expect(selected.blockers).toContain(

@@ -395,6 +395,14 @@ test('duplicate owner and removed consumer frontiers fail closed', () => {
   const projection = reconcile(before, after);
 
   expect(projection.status).toBe('unresolved');
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'modified',
+    before: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' }),
+    after: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' })
+  }));
+  expect(projection.changes).not.toContainEqual(expect.objectContaining({
+    kind: 'removed', before: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' })
+  }));
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'module-responsibility-duplicate-owner'
   );
@@ -491,9 +499,14 @@ test('effectful changes require terminal and readback relations', () => {
     includeReadback: true
   })]);
   const after = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run', { includeEffect: true })]);
+    'src/example/service.ts': 'export function execute(): string { return \'changed\'; }\n'
+  }, [serviceDescriptor('src/example/service.ts', 'execute', { includeEffect: true })]);
   const projection = reconcile(before, after);
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'renamed', subjects: ['example.service'],
+    before: expect.objectContaining({ name: 'run' }),
+    after: expect.objectContaining({ name: 'execute' })
+  }));
 
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'effect-terminal-unresolved'
@@ -533,7 +546,8 @@ test('unknowns on changed paths remain unresolved and candidate tools stay non-a
     'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
   }, [serviceDescriptor('src/example/service.ts', 'run')]);
   const after = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n'
+    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n',
+    'src/example/opaque.bin': 'unclassified bytes'
   }, [serviceDescriptor('src/example/service.ts', 'run')], [Object.freeze({
     code: 'synthetic-unknown',
     path: 'src/example/service.ts',
@@ -543,6 +557,12 @@ test('unknowns on changed paths remain unresolved and candidate tools stay non-a
   const projection = reconcile(before, after);
 
   expect(projection.status).toBe('unresolved');
+  expect(projection.findingDelta.scope.regressedPaths).toEqual([
+    'src/example/opaque.bin', 'src/example/service.ts'
+  ]);
+  expect(projection.findingDelta.after.unobservedPaths).toEqual([
+    'src/example/opaque.bin', 'src/example/service.ts'
+  ]);
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'changed-path-source-program-unknown'
   );
@@ -950,8 +970,13 @@ test('cross-revision matching retains overload groups before classifying real ch
     'src/example/service.ts': `${overloads}\n`,
     'src/example/marker.ts': 'export const marker = false;\n'
   }, [descriptor]);
+  const reorderedOverloads = [
+    'export function run(value: number): number;',
+    'export function run(value: string): string;',
+    'export function run(value: string | number): string | number { return value; }'
+  ].join('\n');
   const after = compileFixture({
-    'src/example/service.ts': `${overloads}\n`,
+    'src/example/service.ts': `${reorderedOverloads}\n`,
     'src/example/marker.ts': 'export const marker = true;\n'
   }, [descriptor]);
   const projection = reconcile(before, after);

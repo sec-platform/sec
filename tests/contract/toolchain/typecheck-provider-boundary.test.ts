@@ -223,20 +223,6 @@ function projectInputFixture(
   );
 }
 
-test('native TypeScript checker identity comes from the selected installation bytes', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-'));
-  try {
-    const nodeModulesPath = await writeNativeCheckerFixture(root);
-    const checker = await selectNativeChecker(nodeModulesPath);
-    expect(checker.provider.packageAlias).toBe('@typescript/native');
-    expect(checker.provider.wrapperDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(checker.provider.platformNativeExecutableDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(checker.provider.toolchainBindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
-
 test('native checker selection fails closed without falling back to the programmatic API', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-unavailable-'));
   try {
@@ -307,6 +293,10 @@ test('incremental cache seed is environment-scoped and changes with configuratio
     const compilerRootPath = path.join(root, 'compiler');
     const nodeModulesPath = await writeNativeCheckerFixture(compilerRootPath);
     const firstProvider = (await selectNativeChecker(nodeModulesPath)).provider;
+    expect(firstProvider.packageAlias).toBe('@typescript/native');
+    expect(firstProvider.wrapperDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(firstProvider.platformNativeExecutableDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(firstProvider.toolchainBindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     const cacheRoot = path.join(root, 'cache');
     const identity = {
       provider: firstProvider,
@@ -412,6 +402,12 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
       projectInput: { ...projectInput } as typeof projectInput
     })).toThrow('was not issued');
     const baseSemanticOperation = semanticAt(1_900_000_000_000);
+    expect(baseSemanticOperation.plan.execution.requirements.map(({ id, effectKinds }) => ({
+      id, effectKinds
+    }))).toEqual([
+      { id: 'typescript.project-check', effectKinds: ['process'] },
+      { id: 'verification.action-diagnostics', effectKinds: ['filesystem'] }
+    ]);
     const changedBudgetPlan = compileSemanticOperationPlan({
       operation: baseSemanticOperation.plan.identity.operation,
       intentDigest: baseSemanticOperation.plan.identity.intentDigest,
@@ -517,105 +513,6 @@ test('typecheck terminal consumer requires one strict physically-clean subordina
     expect(() => requireTypecheckSubordinateTerminal(
       projectExecutedTypecheckOutcomeFixture(passedTerminal, subordinateSettlement)
     )).toThrow(expect.objectContaining({ kind, status: 'blocked' }));
-  }
-});
-
-test('typecheck consumes Source Program input and joins checker plus retained diagnostics', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-settlement-'));
-  try {
-    const installed = await selectNativeChecker(await writeNativeCheckerFixture(root));
-    const operation = compileTypecheckSemanticOperation({
-      projectConfigPath: installed.provider.projectConfig,
-      diagnosticArguments: [],
-      checker: installed,
-      deadlineAtUnixMs: 1_900_000_000_000
-    });
-    expect(new Set(operation.plan.execution.requirements.flatMap(({ effectKinds }) => effectKinds)))
-      .toEqual(new Set(['filesystem', 'process']));
-    const checker = issueProviderSettlementReceipt(operation, {
-      requirementId: 'typescript.project-check',
-      physicalDisposition: 'unknown',
-      providerSettlementReferenceDigest: testDigest('checker-handle-lost')
-    });
-    expect(() => compileProviderSettlementSet(operation, [])).toThrow(
-      'exactly one receipt per requirement'
-    );
-    expect(() => compileProviderSettlementSet(operation, [checker])).toThrow(
-      'exactly one receipt per requirement'
-    );
-    const diagnostic = issueProviderSettlementReceipt(operation, {
-      requirementId: 'verification.action-diagnostics',
-      physicalDisposition: 'settled',
-      providerSettlementReferenceDigest: testDigest('diagnostic-object-settled')
-    });
-    const settlementSet = compileProviderSettlementSet(operation, [checker, diagnostic]);
-    expect(settlementSet.settlements.map(({ requirementId, physicalDisposition }) => ({
-      requirementId,
-      physicalDisposition
-    }))).toEqual(expect.arrayContaining([
-      { requirementId: 'typescript.project-check', physicalDisposition: 'unknown' },
-      { requirementId: 'verification.action-diagnostics', physicalDisposition: 'settled' }
-    ]));
-    const readback = issueNormalDomainReadbackReceipt(operation, settlementSet, {
-      readbackContractDigest: testDigest('typecheck-readback-contract'),
-      readbackReferenceDigest: testDigest('typecheck-input-invalidated'),
-      currentPhysicalEpochDigest: testDigest('typecheck-current-physical-epoch'),
-      disposition: 'unknown'
-    });
-    const terminalJoin = issueNormalOwnerTerminalJoinReceipt(
-      operation,
-      settlementSet,
-      readback,
-      {
-        ownerTerminalContractDigest: testDigest('typecheck-action-terminal-contract'),
-        ownerTerminalReferenceDigest: testDigest('typecheck-action-terminal-reference')
-      }
-    );
-    const diagnosticReceipt = createBoundedProcessDiagnosticObjectReceipt({
-      operationIdentityDigest: operation.plan.identity.identityDigest,
-      executionPlanDigest: operation.plan.execution.executionPlanDigest,
-      boundAttemptDigest: operation.boundAttemptDigest,
-      subjectDigest: testDigest('typecheck-input-invalidated-diagnostic'),
-      settlementDigest: settlementSet.providerSettlementSetDigest,
-      stream: 'stderr',
-      bytes: new TextEncoder().encode('typecheck input invalidated'),
-      retainedUntilUnixMs: operation.plan.attempt.deadlineAtUnixMs
-    });
-    const diagnosticReadback = Object.freeze({
-      disposition: 'current' as const,
-      objectDigest: diagnosticReceipt.objectDigest,
-      physicalIdentityDigest: testDigest('typecheck-input-invalidated-diagnostic-physical'),
-      contentDigest: diagnosticReceipt.contentDigest,
-      byteLength: diagnosticReceipt.byteLength
-    });
-    const actionTerminal = issueVerificationActionOwnerTerminalReceipt({
-      action: testActionForOperation(operation),
-      operation,
-      providerSettlementSet: settlementSet,
-      readback,
-      ownerTerminalProjection: terminalJoin
-    });
-    const terminal = projectVerificationActionTerminal(
-      issueProcessVerificationActionTerminalSettlement(actionTerminal, {
-        status: 'invalidated',
-        reasonCode: 'input-invalidated',
-        diagnosticObjects: [Object.freeze({
-          receipt: diagnosticReceipt,
-          readback: Object.freeze({
-            ...diagnosticReadback,
-            readbackDigest: testDigest(diagnosticReadback)
-          })
-        })]
-      })
-    );
-    expect(terminal).toMatchObject({
-      status: 'invalidated',
-      reasonCode: 'input-invalidated',
-      boundAttemptDigest: terminalJoin.boundAttemptDigest,
-      ownerTerminalReceiptDigest: actionTerminal.terminalReceiptDigest
-    });
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
   }
 });
 

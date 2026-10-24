@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { sealPipelineExecutionContext } from '../../../src/adapters/compilation/pipeline/execution-context.ts';
-import { capturePipelineStageExecutionOptions } from '../../../src/application/pipeline-stage-lifecycle.ts';
 import { requirePipelineSource } from '../../../src/compiler/pipeline/source.ts';
 import { capturePipelineRequestedStages } from '../../../src/compiler/pipeline/stages.ts';
 
@@ -49,24 +48,4 @@ test('stage capture ignores a custom iterator and refuses accessor slots', () =>
   assert.deepEqual(capturePipelineRequestedStages(values as never), ['resolve']);
   Object.defineProperty(values, 0, { get() { assert.fail('slot getter'); } });
   assert.throws(() => capturePipelineRequestedStages(values as never), { code: 'PIPELINE-USAGE-001' });
-});
-
-test('the kernel option binder preserves class private state and captures the method before replacement', async () => {
-  const expected = { passStatus: {} };
-  class Options {
-    #lock = expected;
-    preserveOwnedPassStates = false;
-    extractLock(result: number) { assert.equal(result, 7); return this.#lock as never; }
-  }
-  const input = new Options();
-  const effective = capturePipelineStageExecutionOptions(input);
-  input.extractLock = () => assert.fail('replaced extractor');
-  input.preserveOwnedPassStates = true;
-  assert.equal(await effective.extractLock!(7), expected);
-  assert.equal(effective.preserveOwnedPassStates, false);
-});
-
-test('invalid execution option shapes fail before any extractor invocation', () => {
-  assert.throws(() => capturePipelineStageExecutionOptions({ extractLock: 7 as never }), TypeError);
-  assert.throws(() => capturePipelineStageExecutionOptions({ preserveOwnedPassStates: 'false' as never }), TypeError);
 });

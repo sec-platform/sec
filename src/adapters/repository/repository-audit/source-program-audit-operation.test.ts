@@ -983,6 +983,7 @@ describe('Source Program audit domain operation', () => {
       assert.deepEqual(observed.counts, { introduced: 0, persistent: 0, changed: 0, absent: 1,
         'out-of-scope': 0, unobserved: 0 });
       assert.equal(observed.contextComparable, true); assert.equal(observed.deltaDigest, findingDelta.deltaDigest);
+      assert.deepEqual(observed.scope, findingDelta.scope);
       assert.equal('entries' in observed, full); assert.equal(result.exitCode, 0);
     }
   });
@@ -1010,7 +1011,16 @@ describe('Source Program audit domain operation', () => {
           unresolvedReasons: [{ code: 'source-program-observation-coverage-regressed' }] },
         options: { ...facts.options, full, enforce } });
       assert.ok(request.blockingReasons.includes('reconciliation-unresolved'));
-      assert.equal(compileSourceProgramAuditOperation(request).exitCode, enforce ? 1 : 0);
+      const result = compileSourceProgramAuditOperation(request);
+      assert.equal(result.exitCode, enforce ? 1 : 0);
+      const observed = (result.projection.reconciliation as { findingDelta: Record<string, unknown> }).findingDelta;
+      assert.deepEqual(observed.counts, delta.counts);
+      assert.deepEqual(observed.scope, delta.scope);
+      assert.equal(observed.deltaDigest, delta.deltaDigest);
+      assert.deepEqual(full
+        ? (observed.after as { unobservedPaths: readonly string[] }).unobservedPaths
+        : observed.unobservedPaths, delta.after.unobservedPaths);
+      assert.equal('entries' in observed, full);
     }
     const foreign = { ...delta, after: { ...delta.after, modelDigest: digest('foreign') } };
     assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,

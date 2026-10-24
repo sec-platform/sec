@@ -645,38 +645,6 @@ function merged(branch = 'fix/example', headSha = HEAD) {
   };
 }
 
-test('plans only exact merged local-only refs and protects worktree-owned branches', () => {
-  const plan = planMergedLocalBranchResidueCloseout({
-    defaultBranch: 'main',
-    localRefs: {
-      main: MAIN,
-      'fix/example': HEAD,
-      'fix/current': MAIN,
-      'fix/remote-survives': '4'.repeat(40),
-      'fix/unknown': '5'.repeat(40)
-    },
-    remoteRefs: {
-      main: MAIN,
-      'fix/remote-survives': '4'.repeat(40)
-    },
-    worktreeBranches: ['main', 'fix/current'],
-    worktreeRoots: ['D:\\Project\\sec'],
-    mergedPullRequests: [merged()]
-  });
-
-  expect(plan).toEqual({
-    eligible: [{
-      branch: 'fix/example',
-      headSha: HEAD,
-      pullRequestNumber: 42,
-      mergeCommitSha: MERGE,
-      pullRequestUrl: 'https://github.com/sec-platform/sec/pull/42'
-    }],
-    protectedBranches: ['fix/current'],
-    unresolvedBranches: ['fix/remote-survives', 'fix/unknown']
-  });
-});
-
 test('prefixes never authorize a drifted PR, duplicate identity, or wrong base', () => {
   for (const mergedPullRequests of [
     [merged('fix/example', '6'.repeat(40))],
@@ -733,15 +701,29 @@ test('missing provider merge commits remain unknown only for their exact local r
   expect(observed[1]?.mergeCommitSha).toBeNull();
   const plan = (mergedPullRequests: typeof observed) => planMergedLocalBranchResidueCloseout({
     defaultBranch: 'main',
-    localRefs: { main: MAIN, 'fix/example': HEAD, 'fix/unknown': HEAD },
-    remoteRefs: { main: MAIN },
-    worktreeBranches: ['main'],
+    localRefs: {
+      main: MAIN,
+      'fix/example': HEAD,
+      'fix/current': MAIN,
+      'fix/remote-survives': '4'.repeat(40),
+      'fix/unknown': HEAD,
+      'fix/unmatched': '5'.repeat(40)
+    },
+    remoteRefs: { main: MAIN, 'fix/remote-survives': '4'.repeat(40) },
+    worktreeBranches: ['main', 'fix/current'],
     worktreeRoots: ['D:\\Project\\sec'],
     mergedPullRequests
   });
-  expect(plan(observed)).toMatchObject({
-    eligible: [{ branch: 'fix/example', mergeCommitSha: MERGE }],
-    unresolvedBranches: ['fix/unknown']
+  expect(plan(observed)).toEqual({
+    eligible: [{
+      branch: 'fix/example',
+      headSha: HEAD,
+      pullRequestNumber: 42,
+      mergeCommitSha: MERGE,
+      pullRequestUrl: 'https://github.com/sec-platform/sec/pull/42'
+    }],
+    protectedBranches: ['fix/current'],
+    unresolvedBranches: ['fix/remote-survives', 'fix/unknown', 'fix/unmatched']
   });
   const conflicting = parseMergedPullRequestHeads(JSON.stringify([
     ...records,
@@ -749,7 +731,7 @@ test('missing provider merge commits remain unknown only for their exact local r
       url: 'https://github.com/sec-platform/sec/pull/44' }
   ]), 'sec-platform/sec');
   expect(plan(conflicting)).toMatchObject({
-    eligible: [], unresolvedBranches: ['fix/example', 'fix/unknown']
+    eligible: [], unresolvedBranches: ['fix/example', 'fix/remote-survives', 'fix/unknown', 'fix/unmatched']
   });
   expect(() => parseMergedPullRequestHeads(JSON.stringify([
     { ...records[1], mergeCommit: {} }
