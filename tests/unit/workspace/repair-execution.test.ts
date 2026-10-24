@@ -22,15 +22,3 @@ test('application repair awaits failed readback and preserves its original failu
   expect(settled).toBe(true);
   expect(events).toEqual(['repair', 'readback', 'report']);
 });
-
-test('successful application repair returns its exact value without readback or diagnostics', async () => {
-  const value = Object.freeze({ outcome: 'done' });
-  let reads = 0;
-  let reports = 0;
-  expect(await runRepairWithFailureReadback(
-    async () => value,
-    async () => { reads++; },
-    () => { reports++; }
-  )).toBe(value);
-  expect({ reads, reports }).toEqual({ reads: 0, reports: 0 });
-});

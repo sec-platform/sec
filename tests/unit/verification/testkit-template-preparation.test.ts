@@ -7,8 +7,13 @@ test('concurrent requests for one kind share only the in-flight preparation', as
   const held = new Promise<void>(resolve => { finish = resolve; });
   const prepare = createTemplatePreparation(async (kind: string) => { calls++; await held; return kind; });
   const a = prepare('composed'), b = prepare('composed');
-  await Promise.resolve(); assert.equal(calls, 1);
-  finish(); assert.deepEqual(await Promise.all([a, b]), ['composed', 'composed']);
+  try {
+    await Promise.resolve(); assert.equal(calls, 1);
+  } finally {
+    finish();
+    await Promise.allSettled([a, b]);
+  }
+  assert.deepEqual(await Promise.all([a, b]), ['composed', 'composed']);
   assert.equal(await prepare('composed'), 'composed'); assert.equal(calls, 2);
 });
 
@@ -17,7 +22,8 @@ test('independent template kinds do not block one another', async () => {
   const held = new Promise<void>(resolve => { finish = resolve; });
   const prepare = createTemplatePreparation(async (kind: string) => { if (kind === 'slow') await held; return kind; });
   const slow = prepare('slow');
-  try { assert.equal(await prepare('other'), 'other'); } finally { finish(); }
+  try { assert.equal(await prepare('other'), 'other'); }
+  finally { finish(); await slow; }
   assert.equal(await slow, 'slow');
 });
 

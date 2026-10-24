@@ -208,8 +208,13 @@ test('independent cleanups all run and settle before enclosing cleanup or failur
     assert.equal(returned, false);
     assert.equal(events.includes('parent'), false);
   }
-  finally { release(); }
-  await result; assert.equal(events.at(-1), 'parent'); assert.ok(events.includes('third'));
+  finally {
+    // Release and join every selected cleanup even when the observation
+    // above fails, rather than leaving a rejected assertion promise behind.
+    release();
+    await result;
+  }
+  assert.equal(events.at(-1), 'parent'); assert.ok(events.includes('third'));
 });
 
 test('one cleanup rejection stays exact and invalid attempt sets start nothing', async () => {

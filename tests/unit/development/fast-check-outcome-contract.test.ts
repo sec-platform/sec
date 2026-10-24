@@ -104,8 +104,12 @@ test('mixed failures wait for the still-running peer before leaving the operatio
       await started;
       await new Promise<void>(resolve => setImmediate(resolve));
       assert.equal(settled, false, `peer exit code: ${peerExitCode}`);
-    } finally { release(); }
-    await checked;
+    } finally {
+      // A failed intermediate assertion must not leave already-started work
+      // or the selected failure observation detached from this test.
+      release();
+      await checked;
+    }
     assert.equal(events.includes('tests'), false, `peer exit code: ${peerExitCode}`);
   }
 });
