@@ -2,6 +2,7 @@ import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -46,7 +47,7 @@ function git(cwd: string, args: readonly string[]): string {
   return (result.stdout ?? '').trim();
 }
 
-function repositoryFixture(): Readonly<{
+function buildRepositoryTemplate(): Readonly<{
   root: string;
   remote: string;
   repository: string;
@@ -89,12 +90,45 @@ function repositoryFixture(): Readonly<{
   }
 }
 
+// Only the original committed Git graph is reused. Copy both native repos,
+// rebind the remote to this case and retain independent indexes and refs.
+let nativeRepositoryTemplate: ReturnType<typeof buildRepositoryTemplate> | undefined;
+
+function repositoryFixture(): ReturnType<typeof buildRepositoryTemplate> {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-lifecycle-v6-'));
+  try {
+    const template = nativeRepositoryTemplate ??= buildRepositoryTemplate();
+    const remote = path.join(root, 'remote.git');
+    const repository = path.join(root, 'repository');
+    cpSync(template.remote, remote, { recursive: true });
+    cpSync(template.repository, repository, { recursive: true });
+    git(repository, ['remote', 'set-url', 'origin', remote]);
+    return Object.freeze({
+      root, remote, repository, branch: template.branch,
+      headSha: template.headSha, mainSha: template.mainSha
+    });
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Branch fixture copy and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
 let observedRepository: ReturnType<typeof repositoryFixture> | undefined;
 function observationFixture(): ReturnType<typeof repositoryFixture> {
   return observedRepository ??= repositoryFixture();
 }
 afterAll(() => {
-  if (observedRepository !== undefined) rmSync(observedRepository.root, { recursive: true, force: true });
+  const failures: unknown[] = [];
+  for (const fixture of [observedRepository, nativeRepositoryTemplate]) {
+    if (fixture === undefined) continue;
+    try { rmSync(fixture.root, { recursive: true, force: true }); }
+    catch (error) { failures.push(error); }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Branch fixture cleanup failed');
 });
 
 function activeWorkObservation(
