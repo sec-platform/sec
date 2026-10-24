@@ -31,20 +31,14 @@ test('the reserved branch check does not broaden to similar permitted names', ()
 });
 
 test('option-safe bounded grammar still rejects revision syntax and malformed branch names', () => {
-  for (const name of ['', '@', '@{-1}', '-main', '/main', 'main/', 'main.', 'a..b', 'a//b', 'a/.hidden', 'a.lock', 'a/b.lock', 'a b', 'a:b', 'a~1', 'a^1', 'a?b', 'a*b', 'a[b', 'a\\b', 'a\nb', 'a\0b', 'x'.repeat(256)]) {
+  for (const name of ['', '@', '@{-1}', 'main@{1}', '-main', '/main', 'main/', 'main.', 'a..b', 'a//b', 'a/.hidden', 'a.lock', 'a/b.lock', 'dot.lock/one', 'a b', 'a:b', 'a~1', 'a^1', 'a?b', 'a*b', 'a[b', 'a\\b', 'a\nb', 'a\0b', 'x'.repeat(256)]) {
     assert.throws(() => assertGitBranchName(name), /bounded option-safe Git branch name/);
   }
 });
 
-test('generated names accepted by the SEC boundary remain accepted by native Git', () => {
-  let checked = 0;
-  for (const stem of ['main', 'feature', 'fix', 'release', 'HEAD', 'head', 'space name', 'dot.lock', '-leading']) {
-    for (const suffix of ['', '/one', '/nested/two', '-v2', '.v2', '_v2', '//bad', '/.bad', '/bad.lock', '..bad', '@{1}', '~1']) {
-      const name = stem + suffix;
-      try { assertGitBranchName(name); } catch { continue; }
-      assert.equal(gitAcceptsBranch(name), true, name);
-      checked += 1;
-    }
+test('reserved whole names and component endings do not reject valid compound branches', () => {
+  for (const name of ['HEAD/nested/two', 'HEAD.v2', 'HEAD_v2', 'dot.lock-v2', 'dot.lock.v2', 'dot.lock_v2']) {
+    assert.doesNotThrow(() => assertGitBranchName(name));
+    assert.equal(gitAcceptsBranch(name), true, name);
   }
-  assert.ok(checked > 20);
 });

@@ -16,7 +16,6 @@ import {
   parseGitWorktreeAdminLocator,
   parseGitWorktreeAdminPath,
   parseWorktreePorcelainZ,
-  parseWorktreeStatusPorcelainZ,
   type WorktreePhysicalEntry
 } from '../../../src/adapters/runtime-state/worktree-closeout-contract.ts';
 import { sha256 } from '../../../src/contracts/canonical.ts';
@@ -211,16 +210,6 @@ test('strict porcelain-z parser rejects truncation unknown duplicate and conflic
       Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0\0worktree /repo\0HEAD ${HEAD}\0branch refs/heads/other\0\0`)
     )
   ).toThrow('duplicate worktree path');
-});
-
-test('strict status porcelain-z parser preserves ignored and rename identities without presentation parsing', () => {
-  expect(parseWorktreeStatusPorcelainZ(Buffer.from('!! .shared-deps/\0R  renamed.ts\0original.ts\0?? note.txt\0', 'utf8'))).toEqual([
-    { index: '!', worktree: '!', path: '.shared-deps', originalPath: null },
-    { index: 'R', worktree: ' ', path: 'renamed.ts', originalPath: 'original.ts' },
-    { index: '?', worktree: '?', path: 'note.txt', originalPath: null }
-  ]);
-  expect(() => parseWorktreeStatusPorcelainZ(Buffer.from('!! cache'))).toThrow('must end with NUL');
-  expect(() => parseWorktreeStatusPorcelainZ(Buffer.from([0xff, 0x00]))).toThrow('invalid UTF-8');
 });
 
 test('authorization binds exact repository target inventory and durable recovery paths', () => {

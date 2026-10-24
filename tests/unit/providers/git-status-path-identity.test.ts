@@ -5,16 +5,6 @@ import path from 'node:path';
 import { parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ } from '../../../src/adapters/runtime-state/physical/contract/git-worktree-observation.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../../testkit/git-protocol.ts';
 
-// These vectors are machine records with independently declared path/status
-// identities. The expected records do not call the production path decoder.
-test('ordinary tracked, untracked and renamed records retain exact selected identities', () => {
-  assert.deepEqual(parseWorktreeStatusPorcelainZ(Buffer.from(' M path with spaces\0?? new-file\0R  destination\0original\0')), [
-    { index: ' ', worktree: 'M', path: 'path with spaces', originalPath: null },
-    { index: '?', worktree: '?', path: 'new-file', originalPath: null },
-    { index: 'R', worktree: ' ', path: 'destination', originalPath: 'original' }
-  ]);
-});
-
 test('a backslash filename is refused rather than retargeted to a different directory path', () => {
   assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from('?? a\\b\0')));
   assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from('R  new\0a\\b\0')));
@@ -37,19 +27,15 @@ test('the full-file inventory profile rejects directory summaries instead of inv
   }
 });
 
-test('record identity preserves distinct index and untracked facts for the same path', () => {
-  assert.deepEqual(parseWorktreeStatusPorcelainZ(Buffer.from('D  file\0?? file\0')), [
-    { index: 'D', worktree: ' ', path: 'file', originalPath: null },
-    { index: '?', worktree: '?', path: 'file', originalPath: null }
-  ]);
+test('duplicate records are refused while distinct renamed identities survive', () => {
   assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from(' M file\0 M file\0')));
   assert.equal(parseWorktreeStatusPorcelainZ(Buffer.from('R  a\0b\0R  b\0a\0')).length, 2);
 });
 
 test('BOM, malformed UTF-8 and incomplete framing cannot be repaired into a trusted status', () => {
   assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from('\ufeff?? file\0')));
-  assert.throws(() => parseWorktreeStatusPorcelainZ(Uint8Array.of(63, 63, 32, 255, 0)));
-  assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from('?? file')));
+  assert.throws(() => parseWorktreeStatusPorcelainZ(Uint8Array.of(63, 63, 32, 255, 0)), /invalid UTF-8/);
+  assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from('?? file')), /must end with NUL/);
   assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from('R  target\0')));
   assert.throws(() => parseWorktreePorcelainZ(Buffer.from(`\ufeffworktree /x\0HEAD ${'a'.repeat(40)}\0branch refs/heads/main\0\0`)));
 });
@@ -69,30 +55,21 @@ test('portable status paths are rejected rather than silently normalized into a 
   assert.equal(parseWorktreeStatusPorcelainZ(Buffer.from('?? é\0'))[0]!.path, 'é');
 });
 
-test('real Git rename and modified/untracked inventory uses the same status owner', () => inGitProtocolRepository(async (root, git) => {
+test('real Git inventory preserves renames and staged deletion alongside the same untracked path', () => inGitProtocolRepository(async (root, git) => {
   writeFileSync(path.join(root, 'rename-old'), 'stable');
   writeFileSync(path.join(root, 'space file'), 'before');
-  gitProtocolSuccess(git(['add', '--', 'rename-old', 'space file']));
+  writeFileSync(path.join(root, 'kept'), 'still in the worktree');
+  gitProtocolSuccess(git(['add', '--', 'rename-old', 'space file', 'kept']));
   gitProtocolSuccess(git(['commit', '-qm', 'fixture']));
   gitProtocolSuccess(git(['mv', '--', 'rename-old', 'rename-new']));
+  gitProtocolSuccess(git(['rm', '--cached', '--', 'kept']));
   writeFileSync(path.join(root, 'space file'), 'after');
   writeFileSync(path.join(root, 'extra file'), 'untracked');
   const result = parseWorktreeStatusPorcelainZ(Buffer.from(gitProtocolSuccess(git([
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
   ]))), { allowDirectoryEntries: false });
   assert.deepEqual(result.map(row => [row.index + row.worktree, row.path, row.originalPath]).sort(), [
-    [' M', 'space file', null], ['??', 'extra file', null], ['R ', 'rename-new', 'rename-old']
+    [' M', 'space file', null], ['??', 'extra file', null], ['R ', 'rename-new', 'rename-old'],
+    ['D ', 'kept', null], ['??', 'kept', null]
   ].sort());
-}));
-
-test('real Git may report staged deletion and the same untracked pathname together', () => inGitProtocolRepository(async (root, git) => {
-  writeFileSync(path.join(root, 'kept'), 'still in the worktree');
-  gitProtocolSuccess(git(['add', '--', 'kept']));
-  gitProtocolSuccess(git(['commit', '-qm', 'fixture']));
-  gitProtocolSuccess(git(['rm', '--cached', '--', 'kept']));
-  const bytes = Buffer.from(gitProtocolSuccess(git(['status', '--porcelain=v1', '-z', '--untracked-files=all'])));
-  assert.deepEqual(parseWorktreeStatusPorcelainZ(bytes, { allowDirectoryEntries: false }), [
-    { index: 'D', worktree: ' ', path: 'kept', originalPath: null },
-    { index: '?', worktree: '?', path: 'kept', originalPath: null }
-  ]);
 }));

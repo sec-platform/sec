@@ -26,21 +26,15 @@ function provenanceFor(artifactPath: string): ProvenanceFile {
   };
 }
 
-test('provenance fallback allows a missing untracked generated artifact to be rebuilt', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
-    await writeJson(provenancePath, provenanceFor('src/generated/routes.ts'));
-
-    await checkProvenanceFallback(workspaceRoot);
-  }, 'prov-u-');
-});
-
-test('provenance fallback rejects a missing tracked project artifact', async () => {
+test('provenance fallback allows missing untracked artifacts but rejects missing tracked artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
     const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
     const artifactPath = 'src/ui/page.ts';
     const absolutePath = path.join(root, artifactPath);
+
+    await writeJson(provenancePath, provenanceFor('src/generated/routes.ts'));
+    await checkProvenanceFallback(workspaceRoot);
 
     await ensureDir(path.dirname(absolutePath));
     await writeText(absolutePath, 'export const value = 1;');

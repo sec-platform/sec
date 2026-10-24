@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { ensureDir, writeJson, writeText } from "../../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { checkReferenceDrift } from '../../../src/adapters/workspace/project-integrity.ts';
@@ -13,126 +14,45 @@ function computeHash(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-describe('checkReferenceDrift', () => {
-  test('returns successfully if provenance.json does not exist', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      // Should not throw
-      await checkReferenceDrift(workspaceRoot);
+test('strict reference drift accepts absent or matching provenance and rejects modified or missing files', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await checkReferenceDrift(workspaceRoot);
+
+    const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+    const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
+    const relativeFilePath = 'src/ui/page.ts';
+    const absolutePath = path.join(root, relativeFilePath);
+    const fileContent = 'export default function Page() {}';
+    await ensureDir(path.dirname(absolutePath));
+    await writeText(absolutePath, fileContent);
+    await writeJson(provenancePath, {
+      formatVersion: '1',
+      artifacts: [{
+        path: relativeFilePath,
+        originType: 'generated',
+        originId: relativeFilePath,
+        generatedByPass: 'compose',
+        verifiedBy: [],
+        overrideStatus: 'none',
+        hash: computeHash(fileContent)
+      }]
+    } satisfies ProvenanceFile);
+    await checkReferenceDrift(workspaceRoot);
+
+    await writeText(absolutePath, 'modified content');
+    const modified = await checkReferenceDrift(workspaceRoot).then(() => undefined, error => error);
+    expect(modified).toBeInstanceOf(CodedFailure);
+    expect(modified).toMatchObject({
+      code: 'ERROR-DRIFT-001',
+      message: expect.stringContaining('Read-only project file modified')
+    });
+
+    await fs.rm(path.join(root, 'src'), { recursive: true });
+    const missing = await checkReferenceDrift(workspaceRoot).then(() => undefined, error => error);
+    expect(missing).toBeInstanceOf(CodedFailure);
+    expect(missing).toMatchObject({
+      code: 'ERROR-DRIFT-001',
+      message: expect.stringContaining('Read-only project file is missing')
     });
   });
-
-  test('passes if read-only files match their hashes', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-      const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
-
-      // Create a dummy generated workspace file
-      const relativeFilePath = 'src/ui/page.ts';
-      const fileContent = 'export default function Page() {}';
-      const fileHash = computeHash(fileContent);
-
-      await ensureDir(path.dirname(path.join(root, relativeFilePath)));
-      await writeText(path.join(root, relativeFilePath), fileContent);
-
-      // Create provenance
-      const provenance: ProvenanceFile = {
-        formatVersion: '1',
-        artifacts: [
-          {
-            path: relativeFilePath,
-            originType: 'generated',
-            originId: relativeFilePath,
-            generatedByPass: 'compose',
-            verifiedBy: [],
-            overrideStatus: 'none',
-            hash: fileHash
-          }
-        ]
-      };
-      await writeJson(provenancePath, provenance);
-
-      // Should check and pass without throwing
-      await checkReferenceDrift(workspaceRoot);
-    });
-  });
-
-  test('throws ERROR-DRIFT-001 if a read-only file is modified', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-      const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
-
-      const relativeFilePath = 'src/ui/page.ts';
-      const originalContent = 'export default function Page() {}';
-      const originalHash = computeHash(originalContent);
-
-      await ensureDir(path.dirname(path.join(root, relativeFilePath)));
-      await writeText(path.join(root, relativeFilePath), 'modified content');
-
-      // Create provenance
-      const provenance: ProvenanceFile = {
-        formatVersion: '1',
-        artifacts: [
-          {
-            path: relativeFilePath,
-            originType: 'generated',
-            originId: relativeFilePath,
-            generatedByPass: 'compose',
-            verifiedBy: [],
-            overrideStatus: 'none',
-            hash: originalHash
-          }
-        ]
-      };
-      await writeJson(provenancePath, provenance);
-
-      let error: any;
-      try {
-        await checkReferenceDrift(workspaceRoot);
-      } catch (e: any) {
-        error = e;
-      }
-
-      expect(error).toBeInstanceOf(CodedFailure);
-      expect(error.code).toBe('ERROR-DRIFT-001');
-      expect(error.message).toContain('Read-only project file modified');
-    });
-  });
-
-  test('throws ERROR-DRIFT-001 if a read-only file is missing', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
-
-      const relativeFilePath = 'src/ui/page.ts';
-      const originalHash = computeHash('some content');
-
-      // Create provenance but do not create the workspace file.
-      const provenance: ProvenanceFile = {
-        formatVersion: '1',
-        artifacts: [
-          {
-            path: relativeFilePath,
-            originType: 'generated',
-            originId: relativeFilePath,
-            generatedByPass: 'compose',
-            verifiedBy: [],
-            overrideStatus: 'none',
-            hash: originalHash
-          }
-        ]
-      };
-      await writeJson(provenancePath, provenance);
-
-      let error: any;
-      try {
-        await checkReferenceDrift(workspaceRoot);
-      } catch (e: any) {
-        error = e;
-      }
-
-      expect(error).toBeInstanceOf(CodedFailure);
-      expect(error.code).toBe('ERROR-DRIFT-001');
-      expect(error.message).toContain('Read-only project file is missing');
-    });
-  });
-
 });

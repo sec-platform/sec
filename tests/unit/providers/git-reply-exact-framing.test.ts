@@ -23,9 +23,10 @@ test('object-id reply uses one exact LF record and the selected object format', 
     assert.equal(parseGitObjectIdReply(Buffer.from(`${id}\n`), format), id);
     assert.equal(parseGitObjectIdReply(Buffer.from(`${id}\n`)), id);
     assert.equal(parseGitObjectIdReply(Buffer.from(`${id}\n`), format === 'sha1' ? 'sha256' : 'sha1'), null);
-    for (const text of [id, ` ${id}\n`, `${id} \n`, `${id}\r\n`, `\ufeff${id}\n`, `${id}\n\n`, `${id}\n${id}\n`, `${id}\0\n`]) {
-      assert.equal(parseGitObjectIdReply(Buffer.from(text), format), null, JSON.stringify(text));
-    }
+  }
+  const id = 'a'.repeat(40);
+  for (const text of [id, ` ${id}\n`, `${id} \n`, `${id}\r\n`, `\ufeff${id}\n`, `${id}\n\n`, `${id}\n${id}\n`, `${id}\0\n`]) {
+    assert.equal(parseGitObjectIdReply(Buffer.from(text), 'sha1'), null, JSON.stringify(text));
   }
 });
 

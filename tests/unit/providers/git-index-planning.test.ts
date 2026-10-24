@@ -137,8 +137,8 @@ test('caller array iterators cannot expand the admitted generation or object del
   assert.equal(applyGitIndexObjectDelta(generation, { additions, removals: [] }).entries.length, 2);
 });
 
-test('separator-first conflict admission defeats lexical interleaving before reading blobs', () => {
-  for (const paths of [['a', 'a-', 'a/b'], ['a/b', 'a-', 'a'], ['x/y', 'x/y-', 'x/y/z']]) {
+test('file conflicts at adjacent and deeper paths reject before blobs despite lexical interleaving', () => {
+  for (const paths of [['a', 'a-', 'a/b'], ['a/b', 'a-', 'a'], ['x/y', 'x/y-', 'x/y/z'], ['a/b/c', 'a']]) {
     let reads = 0;
     const additions = paths.map(path => ({ path, get bytes() { reads++; return Uint8Array.of(1); } }));
     assert.throws(() => captureGitScratchIndexDelta({ additions, removals: [] }, 'sha1', 4096), /file\/directory conflict/);

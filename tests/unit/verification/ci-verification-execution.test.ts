@@ -1957,45 +1957,21 @@ test('trusted bootstrap dependency materialization retries only one exact Bun ex
   expect(repeatedExtractionAttempts).toBe(2);
 });
 
-test('canonical terminal artifact derives four physical Result states and rejects contradictory execution proof', () => {
-  const resolution = hostedResolution();
-  const ticket = hostedTicket(resolution);
+test('canonical terminals and hosted composition preserve physical states and reject contradictory proofs', () => {
+  const closure = hostedDagClosure([[]]);
+  const envelope = hostedEnvelopeFixture(closure);
   let passedArtifact: ReturnType<typeof CodexDevelopmentAssembleHostedActionTerminal> | null = null;
   for (const status of ['passed', 'failed', 'unsupported', 'invalidated'] as const) {
-    const rawResult = hostedRawResult(resolution, status);
-    const artifact = CodexDevelopmentAssembleHostedActionTerminal({
-      resolution,
-      ticket,
-      rawResult,
-      expectedRawResultDigest: rawResult.rawResultDigest,
-      producer: hostedProducer
-    });
+    const provider = hostedProviderInputs(envelope, new Map([[0, { status }]]));
+    const artifact = provider.observations[0]!.artifact!;
     expect(artifact.result.status).toBe(status);
     if (status === 'passed') passedArtifact = artifact;
     expect(artifact.producer).toEqual(hostedProducer);
     expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(artifact, {
-      actionPlan: resolution.actionPlan,
+      actionPlan: closure.actions[0]!,
       executionEnvironmentRevision:
         CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
     })).not.toThrow();
-  }
-  expect(passedArtifact).not.toBeNull();
-  const contradictory = structuredClone(passedArtifact!);
-  (contradictory.result.execution as { outputDigest: VerificationActionKeyDigest }).outputDigest = digest('f');
-  const { artifactDigest: ignoredArtifactDigest, ...withoutArtifactDigest } = contradictory;
-  void ignoredArtifactDigest;
-  (contradictory as { artifactDigest: VerificationActionKeyDigest }).artifactDigest =
-    CodexDevelopmentVerificationDigest(withoutArtifactDigest) as VerificationActionKeyDigest;
-  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(contradictory, {
-    actionPlan: resolution.actionPlan
-  })).toThrow(/execution proof does not replay/u);
-});
-
-test('hosted coordinator and composer preserve four physical terminals while coordinator owns not-run', () => {
-  const closure = hostedDagClosure([[]]);
-  const envelope = hostedEnvelopeFixture(closure);
-  for (const status of ['passed', 'failed', 'unsupported', 'invalidated'] as const) {
-    const provider = hostedProviderInputs(envelope, new Map([[0, { status }]]));
     const coordination = CodexDevelopmentCoordinateHostedActions({ envelope, ...provider });
     expect(coordination).toMatchObject({
       disposition: 'complete',
@@ -2024,6 +2000,16 @@ test('hosted coordinator and composer preserve four physical terminals while coo
       `v2 terminal ${provider.terminalAnchorObservations[0]!.payload!.anchorDigest}`
     );
   }
+  expect(passedArtifact).not.toBeNull();
+  const contradictory = structuredClone(passedArtifact!);
+  (contradictory.result.execution as { outputDigest: VerificationActionKeyDigest }).outputDigest = digest('f');
+  const { artifactDigest: ignoredArtifactDigest, ...withoutArtifactDigest } = contradictory;
+  void ignoredArtifactDigest;
+  (contradictory as { artifactDigest: VerificationActionKeyDigest }).artifactDigest =
+    CodexDevelopmentVerificationDigest(withoutArtifactDigest) as VerificationActionKeyDigest;
+  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(contradictory, {
+    actionPlan: closure.actions[0]!
+  })).toThrow(/execution proof does not replay/u);
 });
 
 test('hosted DAG fail-fast is dependency-derived and preserves independent branches', () => {

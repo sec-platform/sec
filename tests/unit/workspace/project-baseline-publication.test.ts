@@ -32,16 +32,7 @@ test('a concurrent different baseline is not overwritten by a stale publication'
   } finally { await rm(f.root, { recursive: true, force: true }); }
 }, 30_000);
 
-test('equal baseline output still validates its final artifact observations', async () => {
-  const f = await fixture();
-  try {
-    const baseline = await writeProjectBaseline(f.root, f.paths);
-    await assert.rejects(writeProjectBaseline(f.root, f.paths, async () => { await writeFile(f.target, 'changed'); }), /drift/);
-    assert.deepEqual(readProjectBaseline(f.root), baseline);
-  } finally { await rm(f.root, { recursive: true, force: true }); }
-}, 30_000);
-
-test('successful readback preserves format and current ownership semantics', async () => {
+test('baseline readback preserves ownership while equal output still validates final artifact observations', async () => {
   const f = await fixture();
   try {
     const baseline = await writeProjectBaseline(f.root, f.paths);
@@ -49,17 +40,17 @@ test('successful readback preserves format and current ownership semantics', asy
     assert.deepEqual(baseline.artifacts.map(value => value.path), ['src/a.txt']);
     assert.deepEqual(readProjectBaseline(f.root), baseline);
     assertProjectBaseline(f.root, baseline, { expectedArtifactPaths: ['src/a.txt'] });
-    await writeFile(f.target, 'changed');
+
+    await assert.rejects(writeProjectBaseline(f.root, f.paths, async () => { await writeFile(f.target, 'changed'); }), /drift/);
+    assert.deepEqual(readProjectBaseline(f.root), baseline);
     assert.throws(() => assertProjectBaseline(f.root, baseline), /drift/);
     assertProjectBaseline(f.root, baseline, { allowedChangedPaths: ['src/a.txt'] });
   } finally { await rm(f.root, { recursive: true, force: true }); }
 }, 30_000);
 
-test('in-memory baseline type assertions cannot omit contract validation', async () => {
-  const f = await fixture();
-  try {
-    assert.throws(() => assertProjectBaseline(f.root, { formatVersion: 'wrong', artifacts: [] } as never), /malformed/);
-    assert.throws(() => currentReadOnlyProjectPaths({ artifactPaths: ['Src/a.txt', 'src/a.txt'] }), /invalid/);
-    assert.throws(() => currentReadOnlyProjectPaths({ artifactPaths: new Array(1) }), /invalid/);
-  } finally { await rm(f.root, { recursive: true, force: true }); }
+test('in-memory baseline type assertions cannot omit contract validation', () => {
+  const root = path.resolve('unobserved-baseline-validation');
+  assert.throws(() => assertProjectBaseline(root, { formatVersion: 'wrong', artifacts: [] } as never), /malformed/);
+  assert.throws(() => currentReadOnlyProjectPaths({ artifactPaths: ['Src/a.txt', 'src/a.txt'] }), /invalid/);
+  assert.throws(() => currentReadOnlyProjectPaths({ artifactPaths: new Array(1) }), /invalid/);
 });

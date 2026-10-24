@@ -312,7 +312,7 @@ test('full plan binds every expensive gate to the complete cheap-preflight closu
   for (const plan of expensive) expect(plan.action.requiredCheapPreflightActionKeys).toEqual([...cheap].sort());
 });
 
-test('dev-runner target projection accepts only a producer-owned member plan and rejects a forged key', () => {
+test('dev-runner target projection accepts a producer-owned member and rejects a valid foreign plan', () => {
   const closure = buildCiVerificationActionPlanClosure({
     candidate,
     gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false })
@@ -326,12 +326,16 @@ test('dev-runner target projection accepts only a producer-owned member plan and
     gateId: 'typecheck',
     target: { kind: 'bun-package-script', identity: 'typecheck:verified', args: [] }
   });
-  const forged = structuredClone(typecheck) as typeof typecheck;
-  (forged.action as { actionKey: string }).actionKey = digest('9');
+  const foreignClosure = buildCiVerificationActionPlanClosure({
+    candidate: { ...candidate, headTreeSha: '5'.repeat(40) },
+    gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false })
+      .map(ciVerificationGateStep)
+  });
+  const foreign = foreignClosure.actions.find((plan) => plan.action.operation.identity === 'typecheck')!;
   expect(() => resolveCiVerificationDevRunnerTarget({
-    plan: forged,
+    plan: foreign,
     authorizedClosure: closure
-  })).toThrow();
+  })).toThrow('dev-runner rejected a forged or non-member Action plan');
 });
 
 test('internal Action proposal plan and provider envelope form a one-way, exact parent provenance chain', () => {

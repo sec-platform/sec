@@ -64,8 +64,9 @@ test('all seven merge-conflict pairs remain valid, including those with no U cha
 });
 
 test('non-conflict modified, renamed, ignored and staged-deletion plus untracked records are unchanged', () => {
-  const raw = 'MM modified\0R  destination\0source\0!! ignored/\0D  kept\0?? kept\0';
+  const raw = ' M path with spaces\0MM modified\0R  destination\0source\0!! ignored/\0D  kept\0?? kept\0';
   assert.deepEqual(parseWorktreeStatusPorcelainZ(Buffer.from(raw)), [
+    { index: ' ', worktree: 'M', path: 'path with spaces', originalPath: null },
     { index: 'M', worktree: 'M', path: 'modified', originalPath: null },
     { index: 'R', worktree: ' ', path: 'destination', originalPath: 'source' },
     { index: '!', worktree: '!', path: 'ignored', originalPath: null },

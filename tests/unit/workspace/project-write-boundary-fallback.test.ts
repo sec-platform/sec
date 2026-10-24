@@ -5,16 +5,18 @@ import { expect, test } from 'bun:test';
 
 import { ensureDir, writeJson, writeText } from "../../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
+import { writeProjectBaseline } from '../../../src/adapters/workspace/project-baseline.ts';
 import { checkProjectWriteBoundary } from '../../../src/adapters/workspace/project-write-boundary.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
+import { buildUpgradePlanArtifact } from '../../helpers/upgrade-fixtures.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 function digest(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-test('project write boundary falls back to provenance when no local baseline exists', async () => {
+test('project write boundary uses provenance then current baseline without adopting caller-written authority', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
     const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
@@ -42,6 +44,19 @@ test('project write boundary falls back to provenance when no local baseline exi
     await writeText(absolutePath, 'export const revision = 9;');
     await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
       code: 'ERROR-DRIFT-001'
+    });
+
+    const currentContent = 'export const revision = 2;';
+    await writeText(absolutePath, currentContent);
+    await writeProjectBaseline(workspaceRoot, { artifactPaths: [artifactPath] });
+    await checkProjectWriteBoundary(workspaceRoot);
+
+    const upgradePlanPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.upgradePlan);
+    await writeJson(upgradePlanPath, buildUpgradePlanArtifact({ impacts: [artifactPath] }));
+    await writeText(absolutePath, `${currentContent}\nexport const changed = true;`);
+    await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
+      code: 'ERROR-DRIFT-001',
+      details: { path: artifactPath }
     });
   }, 'engineering-compiler-project-write-boundary-fallback-');
 });
