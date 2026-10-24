@@ -35,9 +35,7 @@ import {
 import { acquireBranchRecoveryStore } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import type { ClosedSupersessionEvidence } from '../../../src/adapters/self-hosting/control/branch-lifecycle/closed-supersession-review.ts';
 
-const MAIN = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
-const MERGE = '3'.repeat(40);
 
 function git(cwd: string, args: readonly string[], input?: string) {
   const result = spawnSync('git', [...args], {

@@ -11,7 +11,6 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resumeHostedVerificationSession } from '../../../src/bootstrap/development/closeout/verification-session-hosted.ts';
-import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
 import type { VerificationSessionHostedRequest } from "../../../src/execution/verification/hosted.ts";
 import type { IntegrationAuthorizationOperationPublication, MergeGateResult } from '../../../src/execution/verification/integration.ts';
 import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubComparisonObservation, GitHubWorkflowRunObservation, SessionDigest, VerificationSession } from '../../../src/execution/verification/session.ts';
