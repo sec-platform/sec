@@ -85,14 +85,6 @@ describe('testkit workspace cleanup', () => {
     assert.deepEqual(harness.delays, [50, 100, 200, 400, 800]);
     assert.equal(harness.deferredCleanupDirs.has(harness.directory), true);
   });
-  test('does not retry an unrelated cleanup failure', async () => {
-    const failure = errnoFailure('ENOENT');
-    const harness = cleanupHarness({ failures: [failure] });
-    await assert.rejects(removeWorkspaceDirectoryWithRetry(harness.request), error => error === failure);
-    assert.equal(harness.removeOptions.length, 1);
-    assert.deepEqual(harness.delays, []);
-    assert.equal(harness.deferredCleanupDirs.has(harness.directory), true);
-  });
   test('retains forensic authority without cleanup after an opted-in callback failure', async () => {
     const directory = 'C:\\workspace\\retained';
     const deferredCleanupDirs = new Set([directory]);
@@ -164,9 +156,9 @@ test('cleanup method selection and platform stay fixed through retry callbacks',
   assert.equal(seam.calls, 2); assert.equal(directories.size, 0);
 });
 
-test('error classification does not throw a secondary accessor or proxy error', async () => {
+test('unrelated errors and hostile error inspection retain exact failure without retry', async () => {
   const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
-  for (const reason of [proxy, { get code() { throw new Error('getter'); } }, undefined]) {
+  for (const reason of [errnoFailure('ENOENT'), proxy, { get code() { throw new Error('getter'); } }, undefined]) {
     const f = cleanupHarness({ failures: [reason] });
     // assert.rejects transports the caught value through another Promise;
     // a revoked Proxy cannot safely be returned through thenable assimilation.
