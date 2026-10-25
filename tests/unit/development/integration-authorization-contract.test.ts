@@ -88,7 +88,7 @@ function live(current: ReturnType<typeof authorization>): IntegrationAuthorizati
   };
 }
 
-test('IntegrationAuthorization round-trips, accepts the exact expiry boundary, and rejects later use', () => {
+test('IntegrationAuthorization round-trips and rejects expired, drifted or consumed live use', () => {
   const current = authorization();
   expect(parseIntegrationAuthorization(JSON.stringify(current))).toEqual(current);
   expect(() => assertIntegrationAuthorizationUsable(current, live(current))).not.toThrow();
@@ -96,10 +96,7 @@ test('IntegrationAuthorization round-trips, accepts the exact expiry boundary, a
     ...live(current),
     now: '2026-08-09T01:00:00.001Z'
   })).toThrow('expired');
-});
 
-test('every live IntegrationAuthorization binding drifts fail closed', () => {
-  const current = authorization();
   const cases: readonly [string, Partial<IntegrationAuthorizationLiveState>][] = [
     ['consumption operation', { consumptionOperationId: 'merge-pr-12' }],
     ['repository', { repository: 'sec-platform/other' }],
@@ -127,17 +124,14 @@ test('every live IntegrationAuthorization binding drifts fail closed', () => {
       ...override
     }), label).toThrow('drift');
   }
-});
 
-test('consumed authorization rejects membership even when it is not the first recorded ID', () => {
-  const current = authorization();
   expect(() => assertIntegrationAuthorizationUsable(current, {
     ...live(current),
     consumedAuthorizationIds: new Set(['other', current.authorizationId])
   })).toThrow('already consumed');
 });
 
-test('authorizationId changes for every stable decision field', () => {
+test('authorization identity binds stable decisions but excludes receipt-only provenance', () => {
   const current = authorization();
   const cases: readonly [string, IntegrationAuthorizationInput][] = [
     ['operation', input({ consumptionOperationId: 'merge-pr-12' })],
@@ -166,11 +160,8 @@ test('authorizationId changes for every stable decision field', () => {
     expect(createIntegrationAuthorization(candidate).authorizationId, label)
       .not.toBe(current.authorizationId);
   }
-});
 
-test('receipt-only provenance changes receipt digest but not authorizationId', () => {
-  const current = authorization();
-  const cases: readonly [string, Partial<IntegrationAuthorizationInput>][] = [
+  const provenanceCases: readonly [string, Partial<IntegrationAuthorizationInput>][] = [
     ['scope receipt', { scopeAuthorizationReceiptDigest: D_A }],
     ['review receipt', { reviewReceiptDigest: D_B }],
     ['MainHealth receipt', { mainHealthReceiptDigest: D_A }],
@@ -183,7 +174,7 @@ test('receipt-only provenance changes receipt digest but not authorizationId', (
       expiresAt: '2026-08-09T01:10:00.000Z'
     }]
   ];
-  for (const [label, override] of cases) {
+  for (const [label, override] of provenanceCases) {
     const candidate = authorization(override);
     expect(candidate.authorizationId, label).toBe(current.authorizationId);
     expect(candidate.receiptDigest, label).not.toBe(current.receiptDigest);

@@ -272,7 +272,7 @@ test('legacy published closeout receipt remains a strict read-only round trip', 
   }]);
 });
 
-test('effect-start and terminal comments bind the exact operation and marker', () => {
+test('effect-start and terminal comments bind exact operation identity independently of host-local writer and time', () => {
   expect(() => parseBranchCloseoutReceipt(JSON.stringify({
     schema: 'sec-branch-closeout-receipt-v1',
     receiptDigest: `sha256:${'a'.repeat(64)}`
@@ -294,16 +294,10 @@ test('effect-start and terminal comments bind the exact operation and marker', (
     publicationDigest: start.publication.publicationDigest,
     commentId: start.commentId
   });
-});
-
-test('terminal publication is stable across host-local writer and generated time', () => {
-  const first = operationReceipt('2026-08-09T00:01:00.000Z', 'writer-a');
   const second = operationReceipt('2026-08-09T00:02:00.000Z', 'writer-b');
-  const start = effectStart(first);
-  const firstPublication = createBranchCloseoutOperationPublication(first, provenance(), start);
   const secondPublication = createBranchCloseoutOperationPublication(second, provenance(), start);
-  expect(secondPublication.publicationDigest).toBe(firstPublication.publicationDigest);
-  expect(secondPublication.receipt).toEqual(firstPublication.receipt);
+  expect(secondPublication.publicationDigest).toBe(terminal.publicationDigest);
+  expect(secondPublication.receipt).toEqual(terminal.receipt);
 });
 
 test('hosted publisher requires the exact non-null Actions bot and App tuple', () => {

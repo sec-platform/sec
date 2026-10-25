@@ -70,9 +70,10 @@ function result(): IntegrationAuthorizationGateResult {
   };
 }
 
-test('terminal status publication receipt is content-addressed and round-trips', () => {
+test('terminal status receipt round-trips exact identity and rejects foreign URL or rehashed malformed history', () => {
+  const gateResult = result();
   const publication = createIntegrationAuthorizationStatusPublication({
-    result: result(),
+    result: gateResult,
     targetUrl: 'https://github.com/sec-platform/sec/pull/496',
     statusId: 123,
     principal: { creatorLogin: 'sec-integrator[bot]', creatorId: 900001 }
@@ -93,15 +94,17 @@ test('terminal status publication receipt is content-addressed and round-trips',
   expect(parseIntegrationAuthorizationStatusPublication(
     encodeVerificationActionData(publication)
   )).toEqual(publication);
-});
-
-test('terminal status publication rejects non-GitHub target URLs', () => {
   expect(() => createIntegrationAuthorizationStatusPublication({
-    result: result(),
+    result: gateResult,
     targetUrl: 'https://example.com/sec-platform/sec/pull/496',
     statusId: 123,
     principal: { creatorLogin: 'sec-integrator[bot]', creatorId: 900001 }
   })).toThrow('targetUrl must be one GitHub repository HTTPS URL');
+  const { publicationDigest: _oldDigest, ...history } = publication;
+  const malformed = { ...history, repository: '' };
+  expect(() => parseIntegrationAuthorizationStatusPublication(encodeVerificationActionData({
+    ...malformed, publicationDigest: sha256(malformed)
+  }))).toThrow('repository');
 });
 
 test('gate-result parser fails closed on unknown transport schema', () => {
@@ -170,15 +173,4 @@ test('terminal publisher rejects omitted or relabelled transition JSON before pr
       .rejects.toThrow('actual trusted-runtime transition producer');
     expect(provider.calls).toEqual([]);
   }
-});
-
-test('historical publication decoder rejects malformed repository identity after rehashing', () => {
-  const { publicationDigest: _oldDigest, ...history } = createIntegrationAuthorizationStatusPublication({
-    result: result(), targetUrl: 'https://github.com/sec-platform/sec/pull/496', statusId: 123,
-    principal: { creatorLogin: 'sec-integrator[bot]', creatorId: 900001 }
-  });
-  const malformed = { ...history, repository: '' };
-  expect(() => parseIntegrationAuthorizationStatusPublication(encodeVerificationActionData({
-    ...malformed, publicationDigest: sha256(malformed)
-  }))).toThrow('repository');
 });
