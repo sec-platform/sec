@@ -30,7 +30,7 @@ import {
   openContentAddressedWorkspaceCacheSession,
   type ContentAddressedWorkspaceCacheSession
 } from '../../runtime-state/workspace-state/content-addressed-workspace-cache.ts';
-import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot, type RepositoryModuleDescriptor } from '../architecture/contract.ts';
 import {
   createSourceProgramCompilationOperation,
   SourceProgramCompilationInterruptedError
@@ -202,8 +202,15 @@ afterEach(() => {
   ] });
 });
 
+const defaultSources = {
+  'src/example/operation.ts': 'export const value = 1;\n',
+  'src/example/second.ts': 'export const SECOND = true;\n',
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}\n'
+};
+
 function fixture(
-  additionalFiles: readonly Readonly<{ path: string; source: string; contentDigest: `sha256:${string}` }>[] = []
+  sources: Readonly<Record<string, string>> = defaultSources,
+  causalRelations: RepositoryModuleDescriptor['causalRelations'] = []
 ) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-generation-'));
   temporaryRoots.push(root);
@@ -212,19 +219,9 @@ function fixture(
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
   const descriptorPath = 'src/example/module.json';
-  const source = 'export const value = 1;\n';
-  const secondSource = 'export const SECOND = true;\n';
-  const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
-  const files = Object.freeze([
-    Object.freeze({ path: 'src/example/operation.ts', source, contentDigest: rawSha256(source) }),
-    Object.freeze({ path: 'src/example/second.ts', source: secondSource, contentDigest: rawSha256(secondSource) }),
-    Object.freeze({
-      path: 'tsconfig.json',
-      source: projectConfigSource,
-      contentDigest: rawSha256(projectConfigSource)
-    }),
-    ...additionalFiles
-  ]);
+  const files = Object.freeze(Object.entries({
+    ...sources, 'tsconfig.json': defaultSources['tsconfig.json']
+  }).map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) })));
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map((file) => file.path), descriptorPath],
     descriptorSources: [{
@@ -233,6 +230,7 @@ function fixture(
         importGraph: 'runtime',
         externalEntrypoints: [],
         capabilityProviders: [],
+        causalRelations,
         preDependencyBootstrap: false
       })
     }]
@@ -295,13 +293,6 @@ function cacheSession(repositoryRoot: string): ContentAddressedWorkspaceCacheSes
 }
 
 function causalFixture() {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-causal-generation-'));
-  temporaryRoots.push(root);
-  const repositoryRoot = path.join(root, 'repository');
-  const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/module.json';
   const parserSource = [
     'export interface Value { readonly status: string; }',
     'export function parseValue(source: string): Value { return JSON.parse(source) as Value; }'
@@ -310,75 +301,25 @@ function causalFixture() {
     "import { parseValue, type Value } from './parser.ts';",
     'export function readValue(source: string): Value { parseValue(source); return source as unknown as Value; }'
   ].join('\n');
-  const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
-  const files = Object.freeze([
-    Object.freeze({ path: 'src/example/parser.ts', source: parserSource, contentDigest: rawSha256(parserSource) }),
-    Object.freeze({ path: 'src/example/reader.ts', source: readerSource, contentDigest: rawSha256(readerSource) }),
-    Object.freeze({
-      path: 'tsconfig.json',
-      source: projectConfigSource,
-      contentDigest: rawSha256(projectConfigSource)
-    })
-  ]);
-  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [...files.map((file) => file.path), descriptorPath],
-    descriptorSources: [{
-      descriptorPath,
-      source: JSON.stringify({
-        importGraph: 'runtime',
-        externalEntrypoints: [],
-        capabilityProviders: [],
-        preDependencyBootstrap: false,
-        causalRelations: [{
-          subject: 'example.value',
-          relation: 'declares',
-          symbol: { path: 'src/example/parser.ts', name: 'Value' },
-          operation: null
-        }, {
-          subject: 'example.value',
-          relation: 'parses',
-          symbol: { path: 'src/example/parser.ts', name: 'parseValue' },
-          operation: null
-        }, {
-          subject: 'example.value',
-          relation: 'reads-back',
-          symbol: { path: 'src/example/reader.ts', name: 'readValue' },
-          operation: null
-        }]
-      })
-    }]
-  });
-  const sourceRevision = sha256(files.map(({ path: repositoryPath, contentDigest }) => ({
-    repositoryPath,
-    contentDigest
-  })));
-  const snapshotInput = Object.freeze({
-    subject: Object.freeze({
-      kind: 'virtual-mutation' as const,
-      provenance: Object.freeze({
-        kind: 'source-program-virtual-mutation' as const,
-        baseSnapshotDigest: sha256({ repositoryRoot }) as `sha256:${string}`,
-        mutationDigest: sourceRevision as `sha256:${string}`
-      })
-    }),
-    sourceRevision,
-    files,
-    moduleMembership
-  });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot(snapshotInput);
-  const cacheProvider = createRepositoryCompilationCacheProvider({
-    session: cacheSession(repositoryRoot)
-  });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
-  return {
-    cacheProvider,
-    cacheRoot,
-    files,
-    input: Object.freeze({ cacheProvider, workspaceSnapshot, projectInput, repositoryRoot }),
-    moduleMembership,
-    repositoryRoot,
-    snapshotInput
-  };
+  return fixture({
+    'src/example/parser.ts': parserSource,
+    'src/example/reader.ts': readerSource
+  }, [{
+    subject: 'example.value',
+    relation: 'declares',
+    symbol: { path: 'src/example/parser.ts', name: 'Value' },
+    operation: null
+  }, {
+    subject: 'example.value',
+    relation: 'parses',
+    symbol: { path: 'src/example/parser.ts', name: 'parseValue' },
+    operation: null
+  }, {
+    subject: 'example.value',
+    relation: 'reads-back',
+    symbol: { path: 'src/example/reader.ts', name: 'readValue' },
+    operation: null
+  }]);
 }
 
 function compilationInput(
@@ -412,7 +353,7 @@ function compilationInput(
   });
 }
 
-function generationRoot(cacheRoot: string): string {
+function generationRoots(cacheRoot: string): string[] {
   const roots: string[] = [];
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -422,21 +363,13 @@ function generationRoot(cacheRoot: string): string {
     }
   };
   visit(cacheRoot);
-  expect(roots).toHaveLength(1);
-  return roots[0]!;
+  return roots;
 }
 
-function generationCount(cacheRoot: string): number {
-  let count = 0;
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const candidate = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(candidate);
-      else if (entry.isFile() && entry.name === 'manifest.json') count += 1;
-    }
-  };
-  visit(cacheRoot);
-  return count;
+function generationRoot(cacheRoot: string): string {
+  const roots = generationRoots(cacheRoot);
+  expect(roots).toHaveLength(1);
+  return roots[0]!;
 }
 
 function storeGeneration(
@@ -459,9 +392,7 @@ function storeGeneration(
 
 test.serial('immutable generations rebind semantic projections, aliased exports and snapshot identity', () => {
   const source = "export { value, value as renamedValue, value as 'quoted-value' } from './operation.ts';\n";
-  const value = fixture([Object.freeze({
-    path: 'src/example/reexport.ts', source, contentDigest: rawSha256(source)
-  })]);
+  const value = fixture({ ...defaultSources, 'src/example/reexport.ts': source });
   const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
   const warm = compileVirtualRepositorySourceProgramCompilation(value.input);
   const files = readdirSync(generationRoot(value.cacheRoot)).sort();
@@ -494,7 +425,7 @@ test.serial('immutable generations rebind semantic projections, aliased exports 
   expect(second.typeScriptCompilation.mode).toBe('exact');
   expect(second.sourceRevision).toBe(cold.sourceRevision);
   expect(cold.projectGeneration.generationDigest).not.toBe(second.projectGeneration.generationDigest);
-  expect(generationCount(value.cacheRoot)).toBe(2);
+  expect(generationRoots(value.cacheRoot).length).toBe(2);
 });
 
 test.serial('a completed TypeScript generation remains reusable when a later repository projection is interrupted', () => {
@@ -668,7 +599,7 @@ test.serial('a published project generation is strictly revalidated by a fresh p
   expect(changedReader.result.shards).toEqual(changedPublisher.result.shards);
   expect(changedReader.result.generation.generationDigest)
     .not.toBe(reader.result.generation.generationDigest);
-  expect(generationCount(value.cacheRoot)).toBe(2);
+  expect(generationRoots(value.cacheRoot).length).toBe(2);
 }, 30_000);
 
 test.serial('one validated predecessor enables bounded incremental reuse and remains clean-compile equivalent', () => {
