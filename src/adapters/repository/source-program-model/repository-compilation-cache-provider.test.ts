@@ -1,4 +1,4 @@
-import { settleResources } from '../../../execution/resource-settlement.ts';
+import { settleResources, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -60,6 +60,7 @@ import {
 } from './workspace-source-snapshot.ts';
 
 const temporaryRoots: string[] = [];
+const unsettledGenerationRoots = new Set<string>();
 const cacheSessions: ContentAddressedWorkspaceCacheSession[] = [];
 const originalCacheHome = process.env.SEC_CACHE_HOME;
 const childMarker = 'SEC_GENERATION_RESULT=';
@@ -131,6 +132,10 @@ async function runGenerationChild(
     settleResources({ primary: { label: 'cache worker construction', error }, cleanup });
     throw error;
   }
+  const fixtureRoot = path.dirname(payloadPath);
+  let nativeTerminalProven = false;
+  let primary: ResourceSettlementFailure | undefined;
+  unsettledGenerationRoots.add(fixtureRoot);
   try {
     const result = await session.run(issueRetainedCommandBoundary({
       executable,
@@ -149,6 +154,8 @@ async function runGenerationChild(
       maxStderrBytes: 1024 * 1024,
       maxStdoutBytes: 7 * 1024 * 1024
     });
+    nativeTerminalProven = true;
+    unsettledGenerationRoots.delete(fixtureRoot);
     if (result.result.code !== 0) throw new Error(`Generation child failed: ${result.result.stderr}`);
     const stdout = new TextDecoder().decode(result.result.stdout);
     const line = stdout.split(/\r?\n/u).find((value) => value.startsWith(childMarker));
@@ -157,25 +164,42 @@ async function runGenerationChild(
       pid: number;
       result: ReturnType<RepositoryCompilationCacheHint['loadExact']>;
     }>;
+  } catch (error) {
+    primary = { label: 'generation worker', error };
+    throw error;
   } finally {
-    session.close();
-    worker.dispose();
-    workingDirectory.dispose();
-    executable.dispose();
+    settleResources({ primary, cleanup: nativeTerminalProven ? [
+      { label: 'generation process session', settle: () => { session.close(); } },
+      { label: 'generation worker source', settle: () => worker.dispose() },
+      { label: 'generation worker cwd', settle: () => workingDirectory.dispose() },
+      { label: 'generation worker executable', settle: () => executable.dispose() }
+    ] : [{ label: 'generation worker retention', settle: () => {
+      throw new Error(`Generation child termination is unproven; retained inputs and fixture root are preserved: ${fixtureRoot}`);
+    } }] });
   }
 }
 
 afterEach(() => {
-  while (cacheSessions.length > 0) cacheSessions.pop()!.close();
-  if (originalCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
-  else process.env.SEC_CACHE_HOME = originalCacheHome;
-  while (temporaryRoots.length > 0) {
-    const root = temporaryRoots.pop()!;
-    if (!path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep)) {
-      throw new Error('Refusing to remove a non-temporary fact-store fixture');
-    }
-    rmSync(root, { recursive: true, force: true });
-  }
+  settleResources({ cleanup: [
+    ...cacheSessions.splice(0).reverse().map(session => ({
+      label: 'cache session', settle: () => { session.close(); }
+    })),
+    { label: 'previous cache home', settle: () => {
+      if (originalCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+      else process.env.SEC_CACHE_HOME = originalCacheHome;
+    } },
+    ...temporaryRoots.splice(0).reverse().map(root => ({
+      label: 'fact-store fixture root', settle: () => {
+        if (unsettledGenerationRoots.has(root)) {
+          throw new Error(`Generation child termination is unproven; fixture root is preserved: ${root}`);
+        }
+        if (!path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep)) {
+          throw new Error('Refusing to remove a non-temporary fact-store fixture');
+        }
+        rmSync(root, { recursive: true, force: true });
+      }
+    }))
+  ] });
 });
 
 function fixture(
