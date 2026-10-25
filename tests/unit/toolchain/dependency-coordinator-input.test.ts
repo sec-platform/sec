@@ -95,10 +95,13 @@ for (const input of [{ rematerialize: 'false' }, { installMode: 'maybe' }]) {
 
 test('all request decisions and method identities are captured before the clock can change source options', async () => {
   const events: string[]=[];
-  const raw = { lockTimeoutMs:1000, installMode:'allow' as 'allow'|'prebound-only', rematerialize:false,
+  const raw = { lockTimeoutMs:1000, pollIntervalMs:10, installMode:'allow' as 'allow'|'prebound-only', rematerialize:false,
     async beforeCommit(){events.push('original');},
-    monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.beforeCommit=async()=>assert.fail('replacement');return 0;} };
+    monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.pollIntervalMs=999;raw.beforeCommit=async()=>assert.fail('replacement');return 0;} };
   const bound=bind(raw); assert.equal(bound.installMode,'allow'); assert.equal(bound.rematerialize,false);
+  assert.equal(bound.pollIntervalMs,10); assert.ok(Object.isFrozen(bound));
+  assert.equal(Reflect.set(bound,'lockTimeoutMs',10_000),false);
+  assert.equal(context(bound).deadlineAtMonotonicMs,1000);
   await fence(bound,'capture'); assert.deepEqual(events,['original']);
 });
 

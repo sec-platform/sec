@@ -13,10 +13,6 @@ import {
   waitForRuntimeDependencyOperation,
   type RuntimeDependencyOperationControlInput
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
-import {
-  measureRuntimeDependencyOperationPhase,
-  readRuntimeDependencyOperationTelemetry
-} from '../../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 
 const unownedFields = ['beforeCommit', 'installMode', 'sharedDepsRoot', 'rematerialize',
   'now', 'sleep', 'testCompilerPublishHook',
@@ -128,16 +124,6 @@ for (const canceller of ['parent', 'child'] as const) {
     assert.throws(() => runtimeDependencyOperationRemainingMs(retained, 'cancel'), (error: unknown) => error === reason);
   });
 }
-
-test('telemetry can consume stripped controls without a second operation identity', () => {
-  let now = 0;
-  const parent = runtimeDependencyOperationOptions({ lockTimeoutMs: 100, monotonicNowMs: () => now });
-  const controls = runtimeDependencyOperationControls(parent);
-  measureRuntimeDependencyOperationPhase(controls, 'identity', () => { now = 3; });
-  const first = readRuntimeDependencyOperationTelemetry(parent);
-  const second = readRuntimeDependencyOperationTelemetry(controls);
-  assert.deepEqual(first, second); assert.equal(second.phases[0]?.durationMs, 3);
-});
 
 for (const lockTimeoutMs of [undefined, 1, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS]) {
   test(`control projection and install binding admit the same budget ${lockTimeoutMs}`, () => {

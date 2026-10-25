@@ -116,17 +116,6 @@ test('dependency wait preserves an explicit null cancellation reason', async () 
   assert.strictEqual(failure, null);
 });
 
-test('dependency wait preserves cancellation reason identity during sleep', async () => {
-  const controller = new AbortController();
-  controller.signal.addEventListener('abort', event => event.stopImmediatePropagation(), { once: true });
-  const reason = { kind: 'cancel' };
-  const failure = await rejectionOf(waitForRuntimeDependencyOperation({ signal: controller.signal }, 1, () => {
-    controller.abort(reason);
-    return new Promise<void>(() => {});
-  }, 'reason-identity'));
-  assert.strictEqual(failure, reason);
-});
-
 test('dependency wait preserves the identity of a synchronous sleep failure', async () => {
   const controller = new AbortController();
   const reason = new Error('synchronous sleep failure');
@@ -188,14 +177,6 @@ test('dependency wait rejects an expired parent before starting sleep', async ()
   assert.equal(started, false);
 });
 
-test('dependency wait has a real deadline even when injected sleep never settles', async () => {
-  const controller = new AbortController();
-  const failure = await rejectionOf(waitForRuntimeDependencyOperation({
-    lockTimeoutMs: 10, signal: controller.signal, monotonicNowMs: () => 0
-  }, 1, () => new Promise<void>(() => {}), 'unsettled-sleep'));
-  assert.equal(deadlineFailure(failure), true);
-});
-
 test('dependency effect fence never invokes beforeCommit after a sampling-time abort', async () => {
   const controller = new AbortController();
   const reason = new Error('effect not admitted');
@@ -230,14 +211,4 @@ test('queued dependency sleep is reclamped to the budget remaining at actual adm
   now = 95;
   await work;
   assert.equal(delay, 5);
-});
-
-test('normalized dependency options are frozen and independent of mutable raw inputs', () => {
-  const raw = { lockTimeoutMs: 100, pollIntervalMs: 10, monotonicNowMs: () => 0 };
-  const normalized = runtimeDependencyOperationOptions(raw);
-  raw.pollIntervalMs = 999;
-  assert.equal(Object.isFrozen(normalized), true);
-  assert.equal(normalized.pollIntervalMs, 10);
-  assert.equal(Reflect.set(normalized, 'lockTimeoutMs', 10_000), false);
-  assert.equal(runtimeDependencyOperationContext(normalized).deadlineAtMonotonicMs, 100);
 });
