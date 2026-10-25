@@ -21,7 +21,7 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import { snapshotWorkspaceCreateRequest, type WorkspaceCreateSession } from '../../../src/execution/workspace-create.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 import { createWorkspace } from '../../testkit/workspace.ts';
 
 test('init creates the minimal workspace on an empty root', async () => {
@@ -213,8 +213,7 @@ test('copied or forged guardless journal bytes do not create birth or recovery a
   } finally { await lease.release(); }
 });
 
-test('publication interrupted in a settled predecessor process resumes in a new process', async () => {
-  const root = await createWorkspace('workspace-create-process-recovery-');
+test('publication interrupted in a settled predecessor process resumes in a new process', async () => withRetainedBunTestWorkspace('workspace-create-process-recovery-', async (root, runCommand) => {
   const app = new URL('../../../src/application/workspace-initialize.ts', import.meta.url).href;
   const recipe = new URL('../../../src/application/workspace-create.ts', import.meta.url).href;
   const lease = new URL('../../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
@@ -251,8 +250,8 @@ test('publication interrupted in a settled predecessor process resumes in a new 
     }
   `;
   const run = async (interrupt: boolean) => {
-    const { code, stdout, stderr } = await runRetainedBunTestCommand(
-      ['--no-env-file', '-e', script(interrupt)], { timeoutMs: 180_000, envMode: 'inherit' }
+    const { code, stdout, stderr } = await runCommand(
+      ['--no-env-file', '-e', script(interrupt)], { cwd: process.cwd(), timeoutMs: 180_000, envMode: 'inherit' }
     );
     expect(code, stderr).toBe(0); expect(stdout.trim()).toBe(interrupt ? 'interrupted-settled' : 'recovered');
   };
@@ -263,7 +262,7 @@ test('publication interrupted in a settled predecessor process resumes in a new 
   for (const [relative, bytes] of Object.entries(fixtureFiles)) expect(await fs.readFile(path.join(root, relative), 'utf8')).toBe(bytes);
   expect((await fs.readdir(path.join(root, '.sec'))).filter(name => name.startsWith('.workspace-create-'))).toEqual([]);
   expect(JSON.parse(await fs.readFile(path.join(root, '.sec/workspace-create.json'), 'utf8')).phase).toBe('completed');
-});
+}));
 
 test('unpublished stage birth without a journal stays unknown and is preserved', async () => {
   const root = await createWorkspace('workspace-create-unjournaled-stage-');
@@ -420,8 +419,7 @@ test('failed completion readback durability preserves the completed generation a
   expect(await generationDataSnapshot(root)).toEqual(before);
 });
 
-test('current generation sessions close every real nested transaction and preserve primary plus cleanup failures', async () => {
-  const root = await createWorkspace('workspace-create-resource-settlement-');
+test('current generation sessions close every real nested transaction and preserve primary plus cleanup failures', async () => withRetainedBunTestWorkspace('workspace-create-resource-settlement-', async (root, runCommand) => {
   const physicalModule = new URL('../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
   const leaseModule = new URL('../../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
   const generationModule = new URL('../../../src/adapters/workspace/create-generation.ts', import.meta.url).href;
@@ -562,12 +560,12 @@ test('current generation sessions close every real nested transaction and preser
     }
     console.log('current generation transactions settled');
   `;
-  const { code, stdout, stderr } = await runRetainedBunTestCommand(
-    ['--no-env-file', '-e', script], { timeoutMs: 180_000, envMode: 'inherit' }
+  const { code, stdout, stderr } = await runCommand(
+    ['--no-env-file', '-e', script], { cwd: process.cwd(), timeoutMs: 180_000, envMode: 'inherit' }
   );
   expect(code, stderr).toBe(0);
   expect(stdout.trim()).toBe('current generation transactions settled');
-});
+}));
 
 test('project-base recipe retains each original only-if-absent author surface', async () => {
   const root = await createWorkspace('workspace-create-recipe-preservation-');
@@ -619,8 +617,7 @@ for (const changed of ['file', 'directory', 'stage'] as const) {
   });
 }
 
-test.skipIf(process.platform === 'win32')('native publication process death preserves the unproven predecessor lease', async () => {
-  const root = await createWorkspace('workspace-create-process-recovery-');
+test.skipIf(process.platform === 'win32')('native publication process death preserves the unproven predecessor lease', async () => withRetainedBunTestWorkspace('workspace-create-process-recovery-', async (root, runCommand) => {
   const app = new URL('../../../src/application/workspace-initialize.ts', import.meta.url).href;
   const recipe = new URL('../../../src/application/workspace-create.ts', import.meta.url).href;
   const lease = new URL('../../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
@@ -656,8 +653,8 @@ test.skipIf(process.platform === 'win32')('native publication process death pres
       console.log('interrupted-settled');
     }
   `;
-  const { terminal } = await runRetainedBunTestCommand(
-    ['--no-env-file', '-e', script(true)], { timeoutMs: 180_000, envMode: 'inherit' }
+  const { terminal } = await runCommand(
+    ['--no-env-file', '-e', script(true)], { cwd: process.cwd(), timeoutMs: 180_000, envMode: 'inherit' }
   );
   expect(terminal.signal).toBe('SIGKILL');
   expect(terminal.exitCode).toBeNull();
@@ -671,4 +668,4 @@ test.skipIf(process.platform === 'win32')('native publication process death pres
   expect(await fs.readFile(recordPath)).toEqual(record);
   expect(await fs.readFile(planPath)).toEqual(plan);
   expect((await fs.stat(planPath)).ino).toBe(before.ino);
-});
+}));

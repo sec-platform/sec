@@ -9,7 +9,7 @@ import { lowerSemanticTasks, renderStateTransitionMapSource } from '../../../src
 import type { PipelineSemanticContext } from '../../../src/compiler/pipeline/semantic-context.ts';
 import { assertUniqueSemanticOutputPaths } from '../../../src/compiler/semantic-output-paths.ts';
 import type { StateTransitionMapGeneratorPlanTask } from '../../../src/semantics/generation/types.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 function task(id = 'one'): StateTransitionMapGeneratorPlanTask {
   const values = ['open', 'closed'];
@@ -144,7 +144,8 @@ for (const primary of [undefined] as const) {
 }
 
 for (const fault of ['fence-and-dispose', 'readback-and-dispose', 'different-and-dispose'] as const) {
-  test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(`semantic retained target settlement keeps original failures after ${fault}`, async () => fixture(async root => {
+  test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(`semantic retained target settlement keeps original failures after ${fault}`, async () => runRetainedBunTestWorkspace('sec-lowering-admission-', async root => {
+    mkdirSync(path.join(root, 'src'));
     const value = task(), target = path.join(root, value.target);
     const source = fault === 'different-and-dispose' ? 'foreign bytes' : renderStateTransitionMapSource(value);
     writeFileSync(target, source);
@@ -188,14 +189,16 @@ for (const fault of ['fence-and-dispose', 'readback-and-dispose', 'different-and
       fs.writeFileSync(${JSON.stringify(target)}, 'after settlement');
       assert.equal(fs.readFileSync(${JSON.stringify(target)}, 'utf8'), 'after settlement');
     `);
-    const result = await runRetainedBunTestCommand([script], {
+    return { args: [script], options: {
       cwd: process.cwd(), env: process.env, timeoutMs: DEFAULT_TEST_TIMEOUT_MS
-    });
-    assert.equal(result.code, 0, result.stderr);
+    }, observe: result => {
+      assert.equal(result.code, 0, result.stderr);
+    } };
   }));
 }
 
-test('unsupported retained platforms keep the original writer without acquiring a no-op capability', async () => fixture(async root => {
+test('unsupported retained platforms keep the original writer without acquiring a no-op capability', async () => runRetainedBunTestWorkspace('sec-lowering-admission-', async root => {
+  mkdirSync(path.join(root, 'src'));
   const value = task(), target = path.join(root, value.target), source = renderStateTransitionMapSource(value);
   writeFileSync(target, source);
   utimesSync(target, new Date('2000-01-01T00:00:00Z'), new Date('2000-01-01T00:00:00Z'));
@@ -220,10 +223,11 @@ test('unsupported retained platforms keep the original writer without acquiring 
     assert.equal(fs.readFileSync(${JSON.stringify(target)}, 'utf8'), ${JSON.stringify(source)});
     assert.notEqual(fs.statSync(${JSON.stringify(target)}, { bigint: true }).mtimeNs, ${before}n);
   `);
-  const result = await runRetainedBunTestCommand([script], {
+  return { args: [script], options: {
     cwd: process.cwd(), env: process.env, timeoutMs: DEFAULT_TEST_TIMEOUT_MS
-  });
-  assert.equal(result.code, 0, result.stderr);
+  }, observe: result => {
+    assert.equal(result.code, 0, result.stderr);
+  } };
 }));
 
 test('returned task data is independently owned and remains mutable for its next lifecycle', async () => fixture(async root => {

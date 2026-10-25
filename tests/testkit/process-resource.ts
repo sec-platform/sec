@@ -17,7 +17,7 @@ import {
   type RunRetainedCommandOptions
 } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import type { VerificationActionProcessExecutionContext } from '../../src/adapters/verification/platform/action/runner.ts';
-import { settleResources, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError, settleResources, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 
 type BunTestCommandOptions = Omit<RunRetainedCommandOptions, 'maxStdoutBytes' | 'maxStderrBytes' | 'timeoutMs'> & {
   cwd?: string;
@@ -87,10 +87,68 @@ async function runOwnedBunTestCommand(
   }
 }
 
-/** Own one prepared child workspace through the command's physical outcome.
- * Preparation must not launch unmanaged work; it returns one command request.
- * Unknown transport outcomes keep the directory without afterAll deletion.
+type RetainedBunTestWorkspaceRun = (
+  args: readonly string[],
+  options?: BunTestCommandOptions
+) => Promise<RetainedCommandResult>;
+
+/** Own a workspace until every managed command has joined and released inputs.
+ * The callback must not launch unmanaged work. Once it ends, no new command may
+ * borrow the workspace; unknown physical outcomes retain it without afterAll.
  */
+export async function withRetainedBunTestWorkspace<T>(
+  prefix: string,
+  callback: (root: string, run: RetainedBunTestWorkspaceRun) => Promise<T>
+): Promise<T> {
+  const root = await mkdtemp(workspaceTemporaryPrefix(tmpdir(), prefix));
+  const calls: Array<{
+    effects: CommandEffects;
+    outcome: Promise<{ failed: false } | { failed: true; error: unknown }>;
+  }> = [];
+  let accepting = true;
+  const run: RetainedBunTestWorkspaceRun = (args, options) => {
+    if (!accepting) throw new Error('Retained Bun test workspace no longer accepts commands.');
+    const effects: CommandEffects = { settled: true, inputsReleased: true };
+    const command = runOwnedBunTestCommand(args, { cwd: root, ...options }, effects);
+    // Attach rejection observation immediately, including for parallel calls
+    // whose caller exits before awaiting the other commands.
+    calls.push({ effects, outcome: command.then(
+      () => ({ failed: false as const }),
+      error => ({ failed: true as const, error })
+    ) });
+    return command;
+  };
+  return settleWorkspaceCallback(async () => {
+    const failures: ResourceSettlementFailure[] = [];
+    let result: T | undefined;
+    try {
+      result = await callback(root, run);
+    } catch (error) {
+      failures.push({ label: 'Workspace callback rejection', error });
+    } finally {
+      accepting = false;
+    }
+    const outcomes = await Promise.all(calls.map(call => call.outcome));
+    for (const [index, outcome] of outcomes.entries()) {
+      if (outcome.failed) {
+        failures.push({ label: `Workspace command ${index + 1} rejection`, error: outcome.error });
+      }
+    }
+    // These are rejection observations, not a count of physical failures: an
+    // awaited command may also reject the callback. Equal values do not prove
+    // common provenance, so neither observation is discarded.
+    if (failures.length === 1) throw failures[0]!.error;
+    if (failures.length > 1) throw new ResourceCompositeSettlementError(failures);
+    return result as T;
+  }, async () => {
+    if (calls.some(({ effects }) => !effects.settled || !effects.inputsReleased)) {
+      throw new Error(`Retained Bun test workspace ${root}: command tree or retained input settlement was not confirmed.`);
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+}
+
+/** Preparation must not launch unmanaged work; observation precedes cleanup. */
 export async function runRetainedBunTestWorkspace(
   prefix: string,
   prepare: (root: string) => Promise<{
@@ -99,18 +157,11 @@ export async function runRetainedBunTestWorkspace(
     observe?: (result: RetainedCommandResult) => void | Promise<void>;
   }>
 ): Promise<RetainedCommandResult> {
-  const root = await mkdtemp(workspaceTemporaryPrefix(tmpdir(), prefix));
-  const effects: CommandEffects = { settled: true, inputsReleased: true };
-  return settleWorkspaceCallback(async () => {
+  return withRetainedBunTestWorkspace(prefix, async (root, run) => {
     const { args, options, observe } = await prepare(root);
-    const result = await runOwnedBunTestCommand(args, { cwd: root, ...options }, effects);
+    const result = await run(args, options);
     await observe?.(result);
     return result;
-  }, async () => {
-    if (!effects.settled || !effects.inputsReleased) {
-      throw new Error(`Retained Bun test workspace ${root}: command tree or retained input settlement was not confirmed.`);
-    }
-    await rm(root, { recursive: true, force: true });
   });
 }
 

@@ -2,8 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { createWorkspace } from '../../testkit/workspace.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 const initializer = new URL('../../../src/bootstrap/engineering/workspace-orchestrator.ts', import.meta.url).href;
 const physicalModule = new URL('../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
@@ -41,16 +40,14 @@ const observations = `
   }
 `;
 
-async function runChild(script: string): Promise<void> {
-  const { code, stdout, stderr } = await runRetainedBunTestCommand(
-    ['--no-env-file', '-e', script], { timeoutMs: 180_000, envMode: 'inherit' }
-  );
-  expect({ code, stderr, stdout: stdout.trim() }).toEqual({ code: 0, stderr: '', stdout: 'settled' });
-}
-
 for (const template of ['minimal', 'reference-customer'] as const) {
-  test(`public ${template} init recovers its original generation and retains completed author work`, async () => {
-    const container = await createWorkspace('workspace-real-template-recovery-');
+  test(`public ${template} init recovers its original generation and retains completed author work`, async () => withRetainedBunTestWorkspace('workspace-real-template-recovery-', async (container, run) => {
+    async function runChild(script: string): Promise<void> {
+      const { code, stdout, stderr } = await run(
+        ['--no-env-file', '-e', script], { cwd: process.cwd(), timeoutMs: 180_000, envMode: 'inherit' }
+      );
+      expect({ code, stderr, stdout: stdout.trim() }).toEqual({ code: 0, stderr: '', stdout: 'settled' });
+    }
     const root = path.join(container, 'workspace');
     const evidencePath = path.join(container, 'observed-payload.json');
     const common = `
@@ -147,5 +144,5 @@ for (const template of ['minimal', 'reference-customer'] as const) {
       assert.deepEqual(await fs.readFile(journalPath), journalBytes);
       console.log('settled');
     `);
-  });
+  }));
 }

@@ -12,8 +12,7 @@ import { compilerRuntimeResources } from '../../../src/adapters/toolchain/runtim
 import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 import { ensureProjectBase, RUNTIME_DATABASE_TEMPLATE_PATH } from '../../../src/adapters/workspace/project-base.ts';
 import type { LockFile } from '../../../src/compiler/contract.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 type RuntimePackageJson = {
   dependencies: Record<string, string>;
@@ -22,7 +21,7 @@ type RuntimePackageJson = {
 };
 
 test('project base emits the canonical TypeScript runtime package', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
+  await withRetainedBunTestWorkspace('engineering-compiler-runtime-library-', async (workspaceRoot, run) => {
     await ensureProjectBase(workspaceRoot);
     const runtimeSpec = await loadRuntimeDependencySpec();
     const paths = getWorkspacePaths(workspaceRoot);
@@ -71,7 +70,7 @@ test('project base emits the canonical TypeScript runtime package', async () => 
       "export async function runSuite() { await Promise.resolve(); console.log('native-acceptance-called'); }\n");
     const generatedPaths = await generateRuntimeLibraryScaffold(workspaceRoot, { resolvedBlocks: [] } as unknown as LockFile);
     expect(generatedPaths).toContain('tests/fast.test.ts');
-    const runFast = () => runRetainedBunTestCommand(['run', 'test:fast'], { cwd: workspaceRoot });
+    const runFast = () => run(['run', 'test:fast'], { cwd: workspaceRoot });
     const passed = await runFast();
     expect(passed.code, passed.stdout + passed.stderr).toBe(0);
     expect(passed.stdout.split('native-acceptance-called')).toHaveLength(2);
@@ -85,5 +84,5 @@ test('project base emits the canonical TypeScript runtime package', async () => 
     const missing = await runFast();
     expect(missing.code).not.toBe(0);
     expect(missing.stdout + missing.stderr).toContain('runSuite');
-  }, 'engineering-compiler-runtime-library-');
+  });
 });
