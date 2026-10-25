@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { runRepairWithFailureReadback } from '../../../src/application/repair-execution.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 test('application repair awaits failed readback and preserves its original failure', async () => {
   const primary = Object.freeze({ kind: 'repair-failed' });
@@ -14,11 +15,11 @@ test('application repair awaits failed readback and preserves its original failu
   );
   let settled = false;
   const observed = result.catch(error => { settled = true; expect(error).toBe(primary); });
-  await Promise.resolve();
-  expect(events).toEqual(['repair', 'readback']);
-  expect(settled).toBe(false);
-  rejectReadback(secondary);
-  await observed;
+  await settleWorkspaceCallback(async () => {
+    await Promise.resolve();
+    expect(events).toEqual(['repair', 'readback']);
+    expect(settled).toBe(false);
+  }, async () => { rejectReadback(secondary); await observed; });
   expect(settled).toBe(true);
   expect(events).toEqual(['repair', 'readback', 'report']);
 });
