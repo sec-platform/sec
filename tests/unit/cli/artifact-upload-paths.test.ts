@@ -31,7 +31,7 @@ function fixture(): CiArtifactManifest {
 }
 
 describe('artifact upload paths application and presentation boundary', () => {
-  test('all paths include the manifest, deduplicate and group canonical identities without changing the source', () => {
+  test('all and filtered upload paths preserve canonical membership, grouping and detached diagnostics', () => {
     const source = fixture();
     const before = structuredClone(source);
     const result = buildArtifactUploadPathContract(source);
@@ -52,32 +52,26 @@ describe('artifact upload paths application and presentation boundary', () => {
     ]);
     expect(formatArtifactUploadPaths(result)).toBe(result.paths.join('\n'));
     expect(source).toEqual(before);
-  });
 
-  test('contract filtering follows declared membership and relabels only the selected output', () => {
-    const result = buildArtifactUploadPathContract(fixture(), 'contract');
-    expect(result.paths).toEqual(['.sec/artifacts/generated/customer-contract.json']);
-    expect(result.byKind).toEqual({ contract: 1 });
-    expect(result.uploadGroups).toEqual([{ kind: 'contract', count: 1, paths: result.paths }]);
-    expect(result.missingCount).toBe(1);
-    expect(result.missing[0]?.path).toBe(CI_ARTIFACT_FILES.graphLock);
-    expect(buildArtifactUploadPathContract(fixture(), 'test').paths).toEqual([
-      '.sec/artifacts/test-results/unit.xml'
-    ]);
-    expect(buildArtifactUploadPathContract(fixture(), 'governance').paths).toContain(
+    const contract = buildArtifactUploadPathContract(source, 'contract');
+    expect(contract.paths).toEqual(['.sec/artifacts/generated/customer-contract.json']);
+    expect(contract.byKind).toEqual({ contract: 1 });
+    expect(contract.uploadGroups).toEqual([{ kind: 'contract', count: 1, paths: contract.paths }]);
+    expect(contract.missingCount).toBe(1);
+    expect(contract.missing[0]?.path).toBe(CI_ARTIFACT_FILES.graphLock);
+    expect(buildArtifactUploadPathContract(source, 'governance').paths).toContain(
       CI_ARTIFACT_FILES.artifactManifest
     );
-  });
-
-  test('empty selected paths remain empty, and missing diagnostics are detached from their input', () => {
-    expect(formatArtifactUploadPaths(buildArtifactUploadPathContract(emptyCiArtifactManifest(), 'test'))).toBe('');
-    expect(buildArtifactUploadPathContract(emptyCiArtifactManifest()).paths).toEqual([CI_ARTIFACT_FILES.artifactManifest]);
-    const source = fixture();
-    const result = buildArtifactUploadPathContract(source, 'test');
+    const tests = buildArtifactUploadPathContract(source, 'test');
+    expect(tests.paths).toEqual(['.sec/artifacts/test-results/unit.xml']);
     source.missing[0]!.path = CI_ARTIFACT_FILES.runtimeReport;
     source.summary.missingReasonCounts['fixed-governance-missing'] = 9;
-    expect(result.missing[0]?.path).toBe(CI_ARTIFACT_FILES.graphLock);
-    expect(result.missingReasonCounts['fixed-governance-missing']).toBe(1);
+    expect(tests.missing[0]?.path).toBe(CI_ARTIFACT_FILES.graphLock);
+    expect(tests.missingReasonCounts['fixed-governance-missing']).toBe(1);
+
+    const empty = emptyCiArtifactManifest();
+    expect(formatArtifactUploadPaths(buildArtifactUploadPathContract(empty, 'test'))).toBe('');
+    expect(buildArtifactUploadPathContract(empty).paths).toEqual([CI_ARTIFACT_FILES.artifactManifest]);
   });
 
   test('invalid identities fail instead of being normalized into upload authority', () => {

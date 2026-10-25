@@ -46,9 +46,8 @@ const baseView: ReviewSummaryInspectView = {
 };
 
 test('CLI exposes review summary as text and JSON contracts', async () => {
-  // Preserve the two independent fixed-oracle cases alongside the populated
-  // CLI text/JSON contract on the same fast lane.
-  expect(formatReviewSummary(baseView).split('\n')).toContain('Coverage missing; blocks=missing');
+  // One finite view carries both independent fallback oracles; the
+  // populated real CLI text/JSON contract below remains separate.
   const targetOnlyUpgrade = {
     status: 'blocked',
     blockId: 'ticket.basic',
@@ -57,7 +56,9 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     impactCount: 2,
     requiresVerification: true
   };
-  expect(formatReviewSummary({ ...baseView, upgrade: targetOnlyUpgrade }).split('\n')).toContain(
+  const fallbackLines = formatReviewSummary({ ...baseView, upgrade: targetOnlyUpgrade }).split('\n');
+  expect(fallbackLines).toContain('Coverage missing; blocks=missing');
+  expect(fallbackLines).toContain(
     'Upgrade blocked; ticket.basic target 0.3.0; migrations=1; impacts=2; requiresVerification=true'
   );
 
