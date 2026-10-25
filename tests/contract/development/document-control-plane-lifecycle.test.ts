@@ -799,17 +799,20 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
     reviewedOn: '2026-08-12'
   });
   const requiredSpec = parseCurrentStateSpec(currentStateSource());
-  const projection = createFreezeProjection({
+  const projectionInput = () => ({
     spec: requiredSpec,
     currentPointerSource,
     currentRollingPlanSource: rollingPlanSource(),
     currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-    workSelectionProjection: selection,
     manifestPath: FREEZE_TARGET_PATH,
     manifestBytes,
     baseSha,
-    baseTreeSha: exactMainTree,
     reviewedOn: '2026-08-12'
+  });
+  const projection = createFreezeProjection({
+    ...projectionInput(),
+    workSelectionProjection: selection,
+    baseTreeSha: exactMainTree
   });
   expect(projection.rollingPlanSource).toBe(selectedRollingPlanSource);
   expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
@@ -817,55 +820,28 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
     candidatePackageIds: ['candidate-two-v1', 'candidate-three-v1']
   });
   expect(() => createFreezeProjection({
-    spec: requiredSpec,
-    currentPointerSource,
-    currentRollingPlanSource: rollingPlanSource(),
-    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+    ...projectionInput(),
     requestedRollingPlanSource: `${selectedRollingPlanSource}\nmanual drift\n`,
     workSelectionProjection: selection,
-    manifestPath: FREEZE_TARGET_PATH,
-    manifestBytes,
-    baseSha,
-    baseTreeSha: exactMainTree,
-    reviewedOn: '2026-08-12'
+    baseTreeSha: exactMainTree
   })).toThrow('must equal the trusted WorkDecision renderer exactly');
   expect(() => createFreezeProjection({
-    spec: requiredSpec,
-    currentPointerSource,
-    currentRollingPlanSource: rollingPlanSource(),
-    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+    ...projectionInput(),
     workSelectionProjection: { receipt: workSelectionReceiptFixture({
       exactMain: baseSha,
       exactMainTree,
       targetTracking: 'issue-999'
     }) },
-    manifestPath: FREEZE_TARGET_PATH,
-    manifestBytes,
-    baseSha,
-    baseTreeSha: exactMainTree,
-    reviewedOn: '2026-08-12'
+    baseTreeSha: exactMainTree
   })).toThrow('must equal the target manifest package and tracking identity');
   expect(() => createFreezeProjection({
-    spec: requiredSpec,
-    currentPointerSource,
-    currentRollingPlanSource: rollingPlanSource(),
-    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-    manifestPath: FREEZE_TARGET_PATH,
-    manifestBytes,
-    baseSha,
-    baseTreeSha: exactMainTree,
-    reviewedOn: '2026-08-12'
+    ...projectionInput(),
+    baseTreeSha: exactMainTree
   })).toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
   expect(() => createFreezeProjection({
+    ...projectionInput(),
     spec: parseCurrentStateSpec(currentStateSource()),
-    currentPointerSource,
-    currentRollingPlanSource: rollingPlanSource(),
-    currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-    workSelectionProjection: selection,
-    manifestPath: FREEZE_TARGET_PATH,
-    manifestBytes,
-    baseSha,
-    reviewedOn: '2026-08-12'
+    workSelectionProjection: selection
   })).toThrow('WorkDecision projection must bind the exact freeze base and tree');
 });
 
@@ -958,7 +934,7 @@ tests:
     manifestDigest: currentPointer.manifestDigest,
     defaultManifestBytes: currentManifestBytes
   });
-  const projection = createFreezeProjection({
+  const projectionInput = () => ({
     spec: parseCurrentStateSpec(currentStateSource()),
     currentPointerSource,
     currentRollingPlanSource: rollingPlanSource(),
@@ -970,6 +946,7 @@ tests:
     baseTreeSha: exactMainTree,
     reviewedOn: '2026-08-12'
   });
+  const projection = createFreezeProjection(projectionInput());
   expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
     activePackageId: repairId,
     candidatePackageIds: [
@@ -1005,16 +982,8 @@ tests:
 ## Gate、单写者与重算`
   );
   const maximalProjection = createFreezeProjection({
-    spec: parseCurrentStateSpec(currentStateSource()),
-    currentPointerSource,
+    ...projectionInput(),
     currentRollingPlanSource: maximalPriorTopology,
-    currentManifestBytes,
-    mainHealthRepairProjection: { decision, publishedActivePackage },
-    manifestPath: repairPath,
-    manifestBytes,
-    baseSha,
-    baseTreeSha: exactMainTree,
-    reviewedOn: '2026-08-12'
   });
   expect(parseRollingPlan(maximalProjection.rollingPlanSource).candidatePackageIds)
     .toEqual([
@@ -1038,34 +1007,19 @@ tests:
     .toBe(CURRENT_ACTIVE_ID);
   const wrongManifestBytes = Buffer.from(freezeTargetManifestSource(baseSha), 'utf8');
   expect(() => createFreezeProjection({
-    spec: parseCurrentStateSpec(currentStateSource()),
-    currentPointerSource,
-    currentRollingPlanSource: rollingPlanSource(),
-    currentManifestBytes,
-    mainHealthRepairProjection: { decision, publishedActivePackage },
+    ...projectionInput(),
     manifestPath: FREEZE_TARGET_PATH,
-    manifestBytes: wrongManifestBytes,
-    baseSha,
-    baseTreeSha: exactMainTree,
-    reviewedOn: '2026-08-12'
+    manifestBytes: wrongManifestBytes
   })).toThrow('differs from the exact manifest or repository identity');
   expect(() => createFreezeProjection({
-    spec: parseCurrentStateSpec(currentStateSource()),
-    currentPointerSource,
-    currentRollingPlanSource: rollingPlanSource(),
-    currentManifestBytes,
+    ...projectionInput(),
     mainHealthRepairProjection: {
       decision,
       publishedActivePackage: {
         ...publishedActivePackage,
         defaultManifestBytes: Buffer.from(`${currentActiveManifestSource()}\n`, 'utf8')
       }
-    },
-    manifestPath: repairPath,
-    manifestBytes,
-    baseSha,
-    baseTreeSha: exactMainTree,
-    reviewedOn: '2026-08-12'
+    }
   })).toThrow('does not prove the current active package is byte-identical on exact default');
 });
 

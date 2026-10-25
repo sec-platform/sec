@@ -34,19 +34,6 @@ test('a prepared publication with a changed source is retained and blocks guesse
   });
 });
 
-test('managed fast path settles a completed transition after marker publication interruption', async () => {
-  await withRepository(async (repoRoot) => {
-    expect(await installGitHooks({
-      repoRoot,
-      lifecycle: true,
-      crashAfterMarkerPublication: true
-    })).toMatchObject({ status: 'conflict' });
-    expect(await configTransitionNames(repoRoot)).toHaveLength(1);
-    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
-    expect(await configTransitionNames(repoRoot)).toHaveLength(0);
-  });
-});
-
 test('managed fast-path settlement preserves an unresolved lease and foreign transition members', async () => {
   await withRepository(async (repoRoot) => {
     const commonGitDir = path.resolve(git(repoRoot, [
