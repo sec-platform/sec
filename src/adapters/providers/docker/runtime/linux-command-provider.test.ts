@@ -21,7 +21,7 @@ import {
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { issueRetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
-import { createDockerEndpointIdentity } from '../contract/daemon.ts';
+import { createDockerEndpointIdentity, DockerDaemonAvailabilityFailure } from '../contract/daemon.ts';
 import {
   claimDockerCommandProviderCapability,
   disposeUnclaimedDockerCommandProviderCapability,
@@ -202,73 +202,148 @@ linuxTest('sealed curl observes a local Engine without inherited curlrc or proxi
   let status = 200;
   let body = JSON.stringify({ ID: 'fixture-daemon', OSType: 'linux', Architecture: 'x86_64' });
   const requests: Array<Readonly<{ method: string | undefined; url: string | undefined; authorization: string | undefined }>> = [];
-  const server = createServer((request, response) => {
-    requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization });
-    response.writeHead(status, { 'Content-Type': 'application/json' });
-    response.end(body);
-  });
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(socket, resolve);
-    });
-  } catch (error) {
-    await rm(root, { recursive: true, force: true });
-    throw error;
-  }
-  const old = { CURL_HOME: process.env.CURL_HOME, http_proxy: process.env.http_proxy };
-  await writeFile(path.join(root, '.curlrc'), 'proxy = "http://127.0.0.1:1"\nurl = "http://127.0.0.1:1/attacker"\n');
-  process.env.CURL_HOME = root;
-  process.env.http_proxy = 'http://127.0.0.1:1';
+  let server: ReturnType<typeof createServer> | undefined;
+  let activeSession: Awaited<ReturnType<typeof openContainerEngineSession>> | undefined;
+  let unclaimed: Awaited<ReturnType<typeof providerFixture>>['capability'] | undefined;
+  let nativeTerminalProven = true;
+  const endpoints: LinuxDockerEndpoint[] = [];
   const fixtures: Awaited<ReturnType<typeof providerFixture>>[] = [];
-  try {
-    const fixture = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() }) });
+  let old: { CURL_HOME: string | undefined; http_proxy: string | undefined } | undefined;
+  let envMutationStarted = false;
+  await settleWorkspaceCallback(async () => {
+    server = createServer((request, response) => {
+      requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization });
+      response.writeHead(status, { 'Content-Type': 'application/json' });
+      response.end(body);
+    });
+    await new Promise<void>((resolve, reject) => {
+      server!.once('error', reject);
+      server!.listen(socket, resolve);
+    });
+    old = { CURL_HOME: process.env.CURL_HOME, http_proxy: process.env.http_proxy };
+    await writeFile(path.join(root, '.curlrc'), 'proxy = "http://127.0.0.1:1"\nurl = "http://127.0.0.1:1/attacker"\n');
+    envMutationStarted = true;
+    process.env.CURL_HOME = root;
+    process.env.http_proxy = 'http://127.0.0.1:1';
+    const fixtureEndpoint = openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() });
+    endpoints.push(fixtureEndpoint);
+    const fixture = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: fixtureEndpoint });
     fixtures.push(fixture);
-    const session = await openContainerEngineSession({
+    unclaimed = fixture.capability;
+    const opening = openContainerEngineSession({
       provider: fixture.capability, operation: operation(fixture.capability.providerIdentityDigest),
       cwd: fixture.root, availability: 'observe'
     });
-    try {
+    unclaimed = undefined;
+    nativeTerminalProven = false;
+    const session = await opening;
+    activeSession = session;
+    nativeTerminalProven = true;
+    await settleWorkspaceCallback(async () => {
       expect(session.endpoint.daemonId).toBe('fixture-daemon');
       expect(session.supportedOperations).toEqual([]);
       const scoped = operation(session.providerIdentityDigest, session.deadlineAtUnixMs);
       const scope = session.openOperationScope({ operation: scoped, requirementId });
       try {
+        nativeTerminalProven = false;
         await expect(session.execute({ kind: 'container-list', arguments: ['--help'] }))
           .rejects.toMatchObject({ code: 'SEC-DOCKER-COMMAND-OPERATION-UNAVAILABLE', reason: 'linux-cli-plugin-closure-unavailable' });
         await expect(session.execute({ kind: 'buildx-build', arguments: ['--help'] }))
           .rejects.toMatchObject({ code: 'SEC-DOCKER-COMMAND-OPERATION-UNAVAILABLE', reason: 'linux-buildx-closure-unavailable' });
-      } finally { expect(scope.settle().physicalDisposition).toBe('not-started'); }
+      } finally {
+        expect(scope.settle().physicalDisposition).toBe('not-started');
+        nativeTerminalProven = true;
+      }
 
       body = JSON.stringify({ ID: 'replacement-daemon', OSType: 'linux', Architecture: 'x86_64' });
-      await expect(session.observeEndpoint()).rejects.toThrow('differs from the retained session endpoint');
-    } finally {
+      nativeTerminalProven = false;
+      await expect(session.observeEndpoint().then(value => {
+        nativeTerminalProven = true;
+        return value;
+      }, error => {
+        if (error instanceof Error && error.cause === undefined
+            && error.message === 'Container Engine session: independent endpoint readback differs from the retained session endpoint') {
+          nativeTerminalProven = true;
+        }
+        throw error;
+      })).rejects.toThrow('differs from the retained session endpoint');
+    }, async () => {
+      if (!nativeTerminalProven) throw new Error(`Docker probe termination is unproven; session and fixture roots are preserved: ${root}`);
       session.close();
-    }
+      activeSession = undefined;
+    });
     body = 'not-json';
-    const invalid = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() }) });
+    const invalidEndpoint = openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() });
+    endpoints.push(invalidEndpoint);
+    const invalid = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: invalidEndpoint });
     fixtures.push(invalid);
-    await expect(openContainerEngineSession({
+    unclaimed = invalid.capability;
+    const invalidOpening = openContainerEngineSession({
       provider: invalid.capability, operation: operation(invalid.capability.providerIdentityDigest),
       cwd: invalid.root, availability: 'observe'
+    });
+    unclaimed = undefined;
+    nativeTerminalProven = false;
+    await expect(invalidOpening.then(value => {
+      activeSession = value;
+      nativeTerminalProven = true;
+      return value;
+    }, error => {
+      if (error instanceof Error && error.cause === undefined
+          && error.message === 'Container Engine session: daemon info is not JSON') {
+        nativeTerminalProven = true;
+      }
+      throw error;
     })).rejects.toThrow('daemon info is not JSON');
     status = 503;
-    const unavailable = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() }) });
+    const unavailableEndpoint = openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() });
+    endpoints.push(unavailableEndpoint);
+    const unavailable = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: unavailableEndpoint });
     fixtures.push(unavailable);
-    await expect(openContainerEngineSession({
+    unclaimed = unavailable.capability;
+    const unavailableOpening = openContainerEngineSession({
       provider: unavailable.capability, operation: operation(unavailable.capability.providerIdentityDigest),
       cwd: unavailable.root, availability: 'observe'
+    });
+    unclaimed = undefined;
+    nativeTerminalProven = false;
+    await expect(unavailableOpening.then(value => {
+      activeSession = value;
+      nativeTerminalProven = true;
+      return value;
+    }, error => {
+      if (error instanceof DockerDaemonAvailabilityFailure && error.cause === undefined
+          && error.reason === 'endpoint-unavailable' && error.phase === 'endpoint-observe') {
+        nativeTerminalProven = true;
+      }
+      throw error;
     })).rejects.toMatchObject({ reason: 'endpoint-unavailable', phase: 'endpoint-observe' });
     expect(requests).toEqual(Array(4).fill({ method: 'GET', url: '/info', authorization: undefined }));
     for (const fixture of fixtures) await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    for (const [key, value] of Object.entries(old)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
-    }
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    for (const fixture of fixtures) await rm(fixture.root, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      ...(envMutationStarted ? Object.entries(old!) : []).map(([key, value]) => ({ label: `restore ${key}`, settle: () => {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      } })),
+      { label: 'retire settled Docker probe fixtures', settle: async () => {
+        if (!nativeTerminalProven) throw new Error(`Docker probe termination is unproven; endpoint and fixture roots are preserved: ${root}`);
+        await settleResourcesAsync({ cleanup: [
+          { label: 'active engine session', settle: () => { activeSession?.close(); } },
+          { label: 'unclaimed command provider', settle: () => {
+            if (unclaimed !== undefined) disposeUnclaimedDockerCommandProviderCapability(unclaimed);
+          } },
+          ...endpoints.map(endpoint => ({ label: 'retained Engine endpoint', settle: () => endpoint.close() }))
+        ] });
+        if (server?.listening) {
+          await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+        }
+        await settleResourcesAsync({ cleanup: [
+          ...fixtures.map(fixture => ({ label: 'probe fixture root', settle: () => rm(fixture.root, { recursive: true, force: true }) })),
+          { label: 'Engine server fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        ] });
+      } }
+    ] });
+  });
 });
 
 
