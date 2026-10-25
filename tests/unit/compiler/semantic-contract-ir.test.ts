@@ -162,6 +162,14 @@ test('distinct NUL-bearing state transitions survive compilation and a second tr
 });
 
 test('semantic contract becomes authoritative entities, facts, transitions, and scenario steps', () => {
+  const disagreement = contract().contract;
+  disagreement.responsibilities[0]!.implements = [];
+  disagreement.responsibilities.push({ id: 'Other', owns: [], implements: ['closeItem'], dependsOn: [] });
+  expectCodedFailure(() => normalizeSemanticContract(disagreement), 'CONTRACT-SEMANTIC-017');
+  disagreement.responsibilities[1]!.implements = [];
+  disagreement.operations[0]!.responsibility = 'Missing';
+  expectCodedFailure(() => normalizeSemanticContract(disagreement), 'CONTRACT-SEMANTIC-003');
+
   const semanticContract = contract();
   semanticContract.contract.operations[0]!.inputs = ['number', 'string', 'number'];
   expect(normalizeSemanticContract(semanticContract.contract).operations[0]!.inputs)

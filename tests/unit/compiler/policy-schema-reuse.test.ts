@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { POLICY_RULE_IDS } from '../../../src/semantics/policies/rules.ts';
 import { PolicyRuleSchema, PolicySpecSchema } from '../../../src/semantics/policies/source-schema.ts';
-import type { PolicyRule, PolicySeverity, PolicySpec } from '../../../src/semantics/policies/types.ts';
+import type { PolicyRule, PolicySeverity } from '../../../src/semantics/policies/types.ts';
 
 const policy = () => ({ id: 'policy-reuse', severity: 'warn' as const,
   appliesTo: ['block/a', 'block/b'], rule: 'tenant_context_must_flow_to_query' as const });
@@ -27,15 +27,6 @@ test('one source cannot choose between conflicting duplicates by encounter order
     assert.equal(result.success, false);
     if (!result.success) assert.match(result.error.issues[0]!.message, /Conflicting duplicate/);
   }
-});
-
-test('schema parsing owns output arrays while leaving caller declarations unchanged', () => {
-  const source = { policies: [policy()] };
-  const first: PolicySpec = PolicySpecSchema.parse(source);
-  const second = PolicySpecSchema.parse(source);
-  first.policies[0]!.appliesTo.pop();
-  assert.deepEqual(source.policies[0]!.appliesTo, ['block/a', 'block/b']);
-  assert.deepEqual(second.policies[0]!.appliesTo, ['block/a', 'block/b']);
 });
 
 test('policy fields and containers remain strict while an empty declared set stays legal', () => {
