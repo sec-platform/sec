@@ -351,7 +351,7 @@ test('opaque retained cleanup removes only the prepared physical child beneath i
   const root = getTestWorkspaceTempRoot(env);
   const siblingRoot = getTestWorkspaceTempRoot(siblingEnv);
   let prepared: ReturnType<typeof prepareTestWorkspaceRun> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     await fs.mkdir(parentRoot, { recursive: true });
     await fs.mkdir(siblingRoot, { recursive: true });
     await fs.writeFile(path.join(parentRoot, 'sentinel.txt'), 'parent', 'utf8');
@@ -366,9 +366,9 @@ test('opaque retained cleanup removes only the prepared physical child beneath i
     expect(await fs.readFile(path.join(siblingRoot, 'residue.txt'), 'utf8')).toBe('sibling');
     expect(() => settlePreparedTestWorkspaceRun(prepared!))
       .toThrow('cleanup capability is invalid or already consumed');
-  } finally {
+  }, async () => {
     await fs.rm(parentRoot, { recursive: true, force: true });
-  }
+  });
 });
 
 test('opaque retained cleanup rejects a replaced child and preserves the replacement', async () => {
@@ -381,7 +381,7 @@ test('opaque retained cleanup rejects a replaced child and preserves the replace
   const parentRoot = getTestWorkspaceTempRoot(parentEnv);
   const root = getTestWorkspaceTempRoot(env);
   const displaced = path.join(parentRoot, 'displaced-original');
-  try {
+  await settleWorkspaceCallback(async () => {
     const prepared = prepareTestWorkspaceRun(env, null);
     await fs.rename(root, displaced);
     await fs.mkdir(root);
@@ -390,7 +390,7 @@ test('opaque retained cleanup rejects a replaced child and preserves the replace
     expect(() => settlePreparedTestWorkspaceRun(prepared)).toThrow(/identity|changed|different/iu);
     expect(await fs.readFile(path.join(root, 'replacement-owner.txt'), 'utf8')).toBe('foreign');
     expect((await fs.lstat(displaced)).isDirectory()).toBe(true);
-  } finally {
+  }, async () => {
     await fs.rm(parentRoot, { recursive: true, force: true });
-  }
+  });
 });

@@ -544,7 +544,7 @@ test.concurrent('staged organizer preserves bytes visible through an external ha
     const aliasPath = `${repoRoot}-fixture-hardlink.ts`;
     const staged = `${source('unsorted')}export const stagedChange = answer;\n`;
     const working = `${staged}// unstaged work must survive\n`;
-    try {
+    await settleWorkspaceCallback(async () => {
       await writeFile(fixturePath, staged, 'utf8');
       await link(fixturePath, aliasPath);
       git(repoRoot, ['add', 'fixture.ts']);
@@ -558,9 +558,9 @@ test.concurrent('staged organizer preserves bytes visible through an external ha
       expect(await readFile(fixturePath)).toEqual(Buffer.from(working));
       expect(await readFile(aliasPath)).toEqual(Buffer.from(working));
       expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
-    } finally {
+    }, async () => {
       await rm(aliasPath, { force: true });
-    }
+    });
   });
 });
 

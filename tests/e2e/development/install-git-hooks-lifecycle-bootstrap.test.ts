@@ -66,7 +66,7 @@ test('hook installer refuses a non-default primary as linked bootstrap', async (
     git(repoRoot, ['remote', 'add', 'origin', path.join(repoRoot, 'origin.git')]);
     git(repoRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
     const linkedParent = await mkdtemp(path.join(tmpdir(), 'sec-hooks-non-default-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       const linkedRoot = path.join(linkedParent, 'linked');
       git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-non-default', linkedRoot]);
 
@@ -74,8 +74,8 @@ test('hook installer refuses a non-default primary as linked bootstrap', async (
         .toMatchObject({ status: 'conflict' });
       expect(() => git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toThrow();
       expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
-    } finally {
+    }, async () => {
       await rm(linkedParent, { recursive: true, force: true });
-    }
+    });
   });
 });

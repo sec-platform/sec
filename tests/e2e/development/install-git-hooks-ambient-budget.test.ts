@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -110,7 +111,7 @@ test('same-path provider identity mutation is rejected before the config effect'
 
 test('hook installer lifecycle skips CI and Gitless environments while explicit install fails', async () => {
   const gitlessRoot = await mkdtemp(path.join(tmpdir(), 'sec-hooks-gitless-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     await writeFile(path.join(gitlessRoot, '.git'), 'gitdir: missing\n', 'utf8');
     expect(await installGitHooksMain({
       argv: ['--lifecycle'],
@@ -132,7 +133,7 @@ test('hook installer lifecycle skips CI and Gitless environments while explicit 
       cwd: gitlessRoot,
       env: { ...process.env, CI: 'false' }
     })).toBe(1);
-  } finally {
+  }, async () => {
     await rm(gitlessRoot, { recursive: true, force: true });
-  }
+  });
 });

@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
@@ -59,7 +60,7 @@ function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'ful
 describe('import organizer selection', () => {
   test('exact config content controls plans across same-stat rewrites, errors and workspace switches', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-import-config-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       const otherRoot = path.join(root, 'other');
       await mkdir(otherRoot);
       const firstConfig = '{"files":["alpha.ts"],"compilerOptions":{"noLib":true}}\n';
@@ -100,9 +101,9 @@ describe('import organizer selection', () => {
       await writeFile(path.join(otherRoot, 'tsconfig.json'), secondConfig);
       expect(await compileImportOperationPlan({ scope: 'all' }, otherRoot, {})).toEqual(changed);
       expect(await plan()).toEqual(cold);
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   });
 
   test('language service roots contain only selected targets and project declarations', () => {
@@ -127,7 +128,7 @@ describe('import organizer selection', () => {
 
   test('inherited config inputs stay current while root config bytes remain unchanged', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-import-extends-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       const rootConfig = '{"extends":"./base.json"}\n';
       const baseConfig = '{"files":["alpha.ts"],"compilerOptions":{"target":"ES2021","noLib":true}}\n';
       const configPath = path.join(root, 'tsconfig.json');
@@ -158,9 +159,9 @@ describe('import organizer selection', () => {
       const optionsChanged = await plan();
       expect(optionsChanged.targets).toEqual(changed.targets);
       expect(optionsChanged.projectConfigDigest).not.toBe(changed.projectConfigDigest);
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   });
 
 test('candidate and full scopes compile different immutable exact plans', async () => {

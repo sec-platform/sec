@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -316,7 +317,7 @@ async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
 
 test('development.commit consumes one exact staged admission before publishing its Git Effect', async () => {
   const { root } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const preimage = git(root, ['rev-parse', 'HEAD']);
     const prepared = await issueDevelopmentCommitAdmission({
       repositoryRoot: root,
@@ -345,9 +346,9 @@ test('development.commit consumes one exact staged admission before publishing i
     expect(git(root, ['status', '--porcelain'])).toBe('');
     await expect(runDevelopmentCommit(request, prepared.admission))
       .rejects.toThrow('already been consumed');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 20_000);
 
 // Mocks are confined to a child; the actual command, issuer, Git provider and journal
@@ -545,7 +546,7 @@ for (const mode of ['short-write', 'zero-write', 'write-error', 'journal-drift',
 
 test('development.commit retires only the exact owner-issued applied journal after delivery', async () => {
   const { root } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
     const result = await runDevelopmentCommit(prepared.request, prepared.admission);
     const source = await readFile(result.journalPath, 'utf8');
@@ -564,14 +565,14 @@ test('development.commit retires only the exact owner-issued applied journal aft
       .rejects.toThrow('unrecognized owner residue');
     expect(await readFile(foreign, 'utf8')).toBe('{}');
     await expect(acknowledgeDevelopmentCommitResult(result)).rejects.toThrow('owner-issued result');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 20_000);
 
 test('development.commit classifies every exact-ref journal before retiring any', async () => {
   const { root } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     await rm(fixtureReflogPath(root));
     const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
     const result = await runDevelopmentCommit(prepared.request, prepared.admission);
@@ -588,14 +589,14 @@ test('development.commit classifies every exact-ref journal before retiring any'
     expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
       .toEqual({ ref: result.ref, observed: 1, retired: 1 });
     await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('development.commit retires verified applied attempts after a local ref rewrite', async () => {
   const { root } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     await rm(fixtureReflogPath(root));
     const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
     const result = await runDevelopmentCommit(prepared.request, prepared.admission);
@@ -614,14 +615,14 @@ test('development.commit retires verified applied attempts after a local ref rew
       .toEqual({ ref: result.ref, observed: 1, retired: 1 });
     await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(git(root, ['rev-parse', result.ref])).toBe(result.preimage);
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('development.commit settles completed historical and current journals for one ref', async () => {
   const { root } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     await rm(fixtureReflogPath(root));
     const firstAdmission = await issueDevelopmentCommitAdmission({
       repositoryRoot: root, message: 'first staged candidate\n'
@@ -640,14 +641,14 @@ test('development.commit settles completed historical and current journals for o
       .toEqual({ ref: second.ref, observed: 2, retired: 2 });
     await expect(lstat(first.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(lstat(second.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test('development.commit reports failed staged normalization without publishing the candidate', async () => {
   const { root, request } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const kernelPath = 'src/adapters/self-hosting/development/import-normalization/kernel.ts';
     await writeFile(path.join(root, kernelPath),
       "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\n");
@@ -664,9 +665,9 @@ test('development.commit reports failed staged normalization without publishing 
         tree: git(root, ['write-tree'])
       }).toEqual(before);
     }
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 20_000);
 
 function fixtureReflogPath(root: string): string {
@@ -764,7 +765,7 @@ for (const mode of [
 for (const mode of ['recover', 'prepare-retirement'] as const) {
   test(`development.commit preserves its first-entry transition consumer: ${mode}`, async () => {
     const { root } = await fixture();
-    try {
+    await settleWorkspaceCallback(async () => {
       const reflogPath = fixtureReflogPath(root);
       await rm(reflogPath);
       const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'first logged candidate\n' });
@@ -795,16 +796,16 @@ for (const mode of ['recover', 'prepare-retirement'] as const) {
         expect(await readFile(first.journalPath, 'utf8')).toBe(source);
         expect(git(root, ['rev-parse', first.ref])).toBe(first.target);
       }
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }, 60_000);
 }
 
 for (const consumer of ['settle', 'retire-superseded', 'prepare-retirement'] as const) {
   test(`development.commit rejects a false oldest preimage before journal effects: ${consumer}`, async () => {
     const { root } = await fixture();
-    try {
+    await settleWorkspaceCallback(async () => {
       const reflogPath = fixtureReflogPath(root);
       await rm(reflogPath);
       const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'first logged candidate\n' });
@@ -830,15 +831,15 @@ for (const consumer of ['settle', 'retire-superseded', 'prepare-retirement'] as 
       expect(await readFile(first.journalPath, 'utf8')).toBe(source);
       expect(git(root, ['rev-parse', first.ref]))
         .toBe(consumer === 'retire-superseded' ? first.preimage : first.target);
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }, 30_000);
 }
 
 test('development.commit keeps a failed reflog observation unknown instead of authorizing another effect', async () => {
   const { root } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const preimage = git(root, ['rev-parse', 'HEAD']);
     git(root, ['commit', '--quiet', '-m', 'detached target object']);
     const target = git(root, ['rev-parse', 'HEAD']);
@@ -879,14 +880,14 @@ test('development.commit keeps a failed reflog observation unknown instead of au
     } finally {
       await hostSession.close?.();
     }
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('development.commit rejects a real unfinished merge without publishing or consuming its state', async () => {
   const { root, request } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const base = git(root, ['rev-parse', 'HEAD']);
     git(root, ['commit', '--quiet', '-m', 'current branch delta']);
     const currentBranch = git(root, ['symbolic-ref', '--short', 'HEAD']);
@@ -909,14 +910,14 @@ test('development.commit rejects a real unfinished merge without publishing or c
     expect(await observe()).toEqual(before);
     await expect(lstat(path.join(gitDirectory, 'sec-development-commit')))
       .rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 20_000);
 
 test('development.commit fences sequencer state introduced after admission', async () => {
   const { root, request } = await fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const prepared = await issueDevelopmentCommitAdmission({ request });
     const gitDirectory = git(root, ['rev-parse', '--absolute-git-dir']);
     await mkdir(path.join(gitDirectory, 'sequencer'));
@@ -934,7 +935,7 @@ test('development.commit fences sequencer state introduced after admission', asy
     }).toEqual(before);
     await expect(lstat(path.join(gitDirectory, 'sec-development-commit')))
       .rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 20_000);

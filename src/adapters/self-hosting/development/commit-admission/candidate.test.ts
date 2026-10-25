@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,7 +27,7 @@ function git(root: string, args: readonly string[]): string {
 
 test('development commit candidate binds the retained index and rejects drift', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-candidate-test-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.name', 'SEC Tests']);
     git(root, ['config', 'user.email', 'tests@example.com']);
@@ -54,14 +55,14 @@ test('development commit candidate binds the retained index and rejects drift', 
           .rejects.toThrow('changed before Effect admission');
       }
     );
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('development commit candidate rejects an empty staged tree before commit object creation', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-empty-candidate-test-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.name', 'SEC Tests']);
     git(root, ['config', 'user.email', 'tests@example.com']);
@@ -82,7 +83,7 @@ test('development commit candidate rejects an empty staged tree before commit ob
       }
     );
     expect(git(root, ['rev-list', '--count', 'HEAD'])).toBe('1');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });

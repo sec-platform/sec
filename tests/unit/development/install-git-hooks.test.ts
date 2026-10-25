@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,7 +25,7 @@ test('tracked hooks bind deterministic staged normalization and candidate freeze
     expect(hook).toContain('export SEC_GIT_HOOK_ACTIVE=1');
   }
   const observationRoot = await mkdtemp(path.join(tmpdir(), 'sec-hook-command-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const argumentsPath = path.join(observationRoot, 'arguments');
     const executed = spawnSync('sh', [
       '-c',
@@ -43,9 +44,9 @@ test('tracked hooks bind deterministic staged normalization and candidate freeze
       'imports:apply',
       '--staged'
     ]);
-  } finally {
+  }, async () => {
     await rm(observationRoot, { force: true, recursive: true });
-  }
+  });
   expect(preCommit).not.toContain('SEC_CHANGED_BASE');
   expect(preCommit).not.toContain('\r');
   expect(prePush).toContain('bun run imports:freeze');
@@ -58,7 +59,7 @@ test('tracked hooks bind deterministic staged normalization and candidate freeze
 test('transition hooks supply canonical package identity and preserve Git arguments and stdin', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../../..');
   const root = await mkdtemp(path.join(tmpdir(), 'sec hook package '));
-  try {
+  await settleWorkspaceCallback(async () => {
     const authority = pathToFileURL(path.join(repoRoot, 'src/adapters/toolchain/runtime/bun-version.ts')).href;
     await writeFile(path.join(root, 'package.json'), JSON.stringify({
       type: 'module',
@@ -97,9 +98,9 @@ console.log(JSON.stringify({ args: process.argv.slice(2), active: process.env.SE
         stdin: 'old new\n'
       });
     }
-  } finally {
+  }, async () => {
     await rm(root, { force: true, recursive: true });
-  }
+  });
 });
 
 test('hook observation borrows one Git session without closing its owner capability', async () => {

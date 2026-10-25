@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import fs, { mkdtemp, rm } from 'node:fs/promises';
@@ -74,7 +75,7 @@ test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
 
 test('Git replacement objects cannot substitute committed blob bytes', async () => {
   const root = await createRepository('sec-dev-git-replace-');
-  try {
+  await settleWorkspaceCallback(async () => {
     const commit = await withAuthorityGitReadSession({
       cwd: root,
       operation: gitReadOperation(),
@@ -102,9 +103,9 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
       const blobs = await readBlobBatch(session, [committed.objectId]);
       expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
     });
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('trusted Git reads isolate ambient config and alternate index injection', async () => {
@@ -163,7 +164,7 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
 
 test('exact committed blobs and attribute policy are isolated from .git/info/attributes overrides', async () => {
   const root = await createRepository('sec-dev-attribute-isolation-');
-  try {
+  await settleWorkspaceCallback(async () => {
     await fs.mkdir(path.join(root, '.git', 'info'), { recursive: true });
     await fs.writeFile(path.join(root, '.git', 'info', 'attributes'), '*.ts -text\n');
     await withAuthorityGitReadSession({
@@ -192,14 +193,14 @@ test('exact committed blobs and attribute policy are isolated from .git/info/att
 
     const settlement = await runSettlement(root);
     expect(settlement.status).toBe('settled');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('legal custom Git attribute values remain fail-closed policy input instead of parser crashes', async () => {
   const root = await createRepository('sec-dev-attribute-custom-');
-  try {
+  await settleWorkspaceCallback(async () => {
     await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text=auto\n');
     git(root, ['add', '.gitattributes']);
     git(root, ['commit', '--quiet', '-m', 'custom-attribute']);
@@ -208,14 +209,14 @@ test('legal custom Git attribute values remain fail-closed policy input instead 
     expect(report.classificationCounts.unknown).toBe(1);
     expect(report.flaggedEntries.find((entry) => entry.path === 'committed.ts')?.anomalies)
       .toContain('attributes-unsupported');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('text census treats NUL in declared text as a terminal fail-closed finding', async () => {
   const root = await createRepository('sec-dev-text-nul-');
-  try {
+  await settleWorkspaceCallback(async () => {
     await fs.writeFile(path.join(root, 'committed.ts'), new Uint8Array([
       0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x00, 0x0a
     ]));
@@ -230,14 +231,14 @@ test('text census treats NUL in declared text as a terminal fail-closed finding'
       classification: 'unknown',
       anomalies: ['nul-byte']
     });
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('text census ignores staged-only index paths and scans the captured committed blob epoch', async () => {
   const root = await createRepository('sec-dev-census-epoch-');
-  try {
+  await settleWorkspaceCallback(async () => {
     const committedAttributesOid = git(root, ['rev-parse', 'HEAD:.gitattributes']);
     await fs.writeFile(path.join(root, 'staged-only.ts'), 'export const stagedOnly = true;\n');
     git(root, ['add', 'staged-only.ts']);
@@ -247,14 +248,14 @@ test('text census ignores staged-only index paths and scans the captured committ
     expect(report.gitattributesBlobSha).toBe(committedAttributesOid);
     expect(report.classificationCounts['canonical-lf']).toBe(1);
     expect(report.flaggedEntries.some((entry) => entry.path === 'staged-only.ts')).toBe(false);
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('worktree settlement distinguishes settled, dirty, and untracked without fail-open reads', async () => {
   const root = await createRepository('sec-dev-settlement-');
-  try {
+  await settleWorkspaceCallback(async () => {
     git(root, ['config', 'core.autocrlf', 'input']);
     git(root, ['config', 'core.eol', 'lf']);
     const settled = await runSettlement(root);
@@ -275,9 +276,9 @@ test('worktree settlement distinguishes settled, dirty, and untracked without fa
     const untracked = await runSettlement(root);
     expect(untracked.status).toBe('untracked');
     expect(untracked.untrackedCount).toBe(1);
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('repository mutation fence preserves dirty candidates and detects tracked, index, and untracked changes', async () => {
@@ -437,7 +438,7 @@ test.skipIf(process.platform !== 'win32')('repository mutation fence shares one 
 
 test.skipIf(process.platform === 'win32')('tracked governed symlink cannot be followed and reported as settled', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-settlement-link-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -451,15 +452,15 @@ test.skipIf(process.platform === 'win32')('tracked governed symlink cannot be fo
     const receipt = await runSettlement(root);
     expect(receipt.status).toBe('unsafe');
     expect(receipt.summary).toContain('Settlement exact Git/physical observation failed closed');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 
 test('affected Git preparation survives settled transport and rejects drifted rebinds', async () => {
   const root = await createRepository('sec-affected-selection-rebind-');
-  try {
+  await settleWorkspaceCallback(async () => {
     await fs.writeFile(path.join(root, 'selected.ts'), 'export const selected = 1;\n');
     const selection = await withAuthorityGitReadSession({ cwd: root, operation: gitReadOperation(),
       budget: GIT_READ_OPERATION_BUDGET }, session => issueAffectedGitSelectionSource({ session, baseRef: null }));
@@ -479,7 +480,7 @@ test('affected Git preparation survives settled transport and rejects drifted re
       expect(await rebindAffectedGitSelectionSource({ source: selection!, session, baseRef: null })).toBeNull();
     });
     expect(selection!.files).toEqual(['selected.ts']);
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });

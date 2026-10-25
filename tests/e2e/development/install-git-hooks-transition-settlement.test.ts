@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { chmod, lstat, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -104,14 +105,14 @@ test('managed fast-path settlement preserves an unresolved lease and foreign tra
     );
     const foreignBytes = 'preserve foreign transition member\n';
     await writeFile(unexpectedTransitionFile, foreignBytes, 'utf8');
-    try {
+    await settleWorkspaceCallback(async () => {
       expect(await installGitHooks({ repoRoot, lifecycle: true }))
         .toMatchObject({ status: 'conflict' });
       expect(await readFile(unexpectedTransitionFile, 'utf8')).toBe(foreignBytes);
       expect(await configTransitionNames(repoRoot)).toEqual(transitionNames);
-    } finally {
+    }, async () => {
       await rm(unexpectedTransitionFile);
-    }
+    });
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
     expect(await configTransitionNames(repoRoot)).toHaveLength(0);
     await expect(lstat(leasePath)).rejects.toMatchObject({ code: 'ENOENT' });
