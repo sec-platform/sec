@@ -337,8 +337,8 @@ test('idle lifecycle is clean only when the remote contains main', () => {
   expect(report.findings).toEqual([]);
 });
 
-test('bounded selection lifecycle admits one exact prospective transport', () => {
-  const projection = projectBranchLifecycleForWorkSelection({
+test('bounded selection lifecycle binds prospective transport and distinguishes extra residue from missing worktree authority', () => {
+  const input = {
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
@@ -351,32 +351,25 @@ test('bounded selection lifecycle admits one exact prospective transport', () =>
       headSha: MAIN_SHA,
       worktreeRef: WORKTREE_REF
     }
-  });
+  };
+  const projection = projectBranchLifecycleForWorkSelection(input);
   expect(projection).toMatchObject({
     activeState: 'none',
     activeLegality: 'not-applicable',
     closeoutState: 'none',
     blockerRefs: []
   });
-});
 
-test('bounded selection lifecycle retains extra transport residue as closeout authority', () => {
-  const projection = projectBranchLifecycleForWorkSelection({
-    exactMain: MAIN_SHA,
-    defaultBranch: 'main',
-    localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
-    remoteRefs: [{ branch: 'feat/stale', sha: HEAD_SHA }],
-    worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'codex/next', headSha: MAIN_SHA }],
-    openPullRequests: [],
-    preservedOpenPullRequests: [],
-    prospectiveTransport: {
-      branch: 'codex/next',
-      headSha: MAIN_SHA,
-      worktreeRef: WORKTREE_REF
-    }
+  const residue = projectBranchLifecycleForWorkSelection({
+    ...input,
+    remoteRefs: [{ branch: 'feat/stale', sha: HEAD_SHA }]
   });
-  expect(projection.closeoutState).toBe('required');
-  expect(projection.blockerRefs).toHaveLength(1);
+  expect(residue.closeoutState).toBe('required');
+  expect(residue.blockerRefs).toHaveLength(1);
+  expect(() => projectBranchLifecycleForWorkSelection({
+    ...input,
+    worktrees: []
+  })).toThrow('exact local branch/worktree preimage');
 });
 
 test('bounded selection lifecycle preserves exact other PR transports and blocks their drift', () => {
@@ -511,23 +504,6 @@ test('bounded selection lifecycle binds transport identity without treating a br
   });
 });
 
-test('bounded selection lifecycle rejects a self-asserted prospective transport', () => {
-  expect(() => projectBranchLifecycleForWorkSelection({
-    exactMain: MAIN_SHA,
-    defaultBranch: 'main',
-    localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
-    remoteRefs: [],
-    worktrees: [],
-    openPullRequests: [],
-    preservedOpenPullRequests: [],
-    prospectiveTransport: {
-      branch: 'codex/next',
-      headSha: MAIN_SHA,
-      worktreeRef: WORKTREE_REF
-    }
-  })).toThrow('exact local branch/worktree preimage');
-});
-
 test('idle lifecycle rejects every non-main remote head', () => {
   const report = auditBranchLifecycle(inventory({
     remoteBranches: [
@@ -660,181 +636,7 @@ test('path containment is segment-safe', () => {
   expect(isPathWithin('/workspace/sec-recovery/recovery.bundle', '/workspace/sec')).toBe(false);
 });
 
-test('authorization blocks an exact remote SHA race', () => {
-  const before = inventory({
-    localBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    remoteBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    pullRequests: [{
-      number: 42,
-      headBranch: 'feat/example',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      state: 'open',
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }],
-    activeWorkPackage: {
-      state: 'active',
-      branch: 'feat/example',
-      manifest: 'config/repository/work-packages/example-v1.md',
-      reason: null
-    }
-  });
-  const current = inventory({
-    localBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    remoteBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: RACE_SHA }
-    ],
-    pullRequests: [{
-      number: 42,
-      headBranch: 'feat/example',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      state: 'merged',
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }]
-  });
-  const authorization = authorizeBranchCloseout({
-    preparation: preparation(before),
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'merged',
-      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
-    },
-    before,
-    current
-  });
-  expect(authorization.remoteAction).toBe('blocked');
-  expect(authorization.blockers).toContain('remote branch SHA changed after preparation');
-});
-
-test('local branch appearing after preparation blocks all deletion', () => {
-  const before = inventory({
-    remoteBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    pullRequests: [{
-      number: 42,
-      headBranch: 'feat/example',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      state: 'open',
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }],
-    activeWorkPackage: {
-      state: 'active',
-      branch: 'feat/example',
-      manifest: 'config/repository/work-packages/example-v1.md',
-      reason: null
-    }
-  });
-  const current = inventory({
-    localBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    remoteBranches: before.remoteBranches,
-    pullRequests: [{
-      number: 42,
-      headBranch: 'feat/example',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      state: 'merged',
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }]
-  });
-  const authorization = authorizeBranchCloseout({
-    preparation: preparation(before, null),
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'merged',
-      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
-    },
-    before,
-    current
-  });
-  expect(authorization.remoteAction).toBe('blocked');
-  expect(authorization.localAction).toBe('blocked');
-  expect(authorization.blockers).toContain('local branch appeared after preparation');
-});
-
-test('divergent local branch is protected because remote recovery does not cover it', () => {
-  const before = inventory({
-    localBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: RACE_SHA }
-    ],
-    remoteBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    pullRequests: [{
-      number: 42,
-      headBranch: 'feat/example',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      state: 'open',
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }],
-    activeWorkPackage: {
-      state: 'active',
-      branch: 'feat/example',
-      manifest: 'config/repository/work-packages/example-v1.md',
-      reason: null
-    }
-  });
-  const prepared = preparation(before, RACE_SHA);
-  const current = inventory({
-    localBranches: before.localBranches,
-    remoteBranches: before.remoteBranches,
-    pullRequests: [{
-      number: 42,
-      headBranch: 'feat/example',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      state: 'merged',
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }]
-  });
-  const authorization = authorizeBranchCloseout({
-    preparation: prepared,
-    request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
-      disposition: 'merged',
-      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
-    },
-    before,
-    current
-  });
-  expect(authorization.blockers).toEqual([]);
-  expect(authorization.remoteAction).toBe('delete-cas');
-  expect(authorization.localAction).toBe('protect-local');
-  expect(authorization.protections[0]).toContain('diverges from recovered remote head');
-});
-
-test('merged closeout cannot delete either ref while a registered worktree remains', () => {
+test('closeout keeps remote CAS, local appearance, divergent recovery and registered worktree boundaries independent', () => {
   const before = inventory({
     localBranches: [
       { branch: 'main', sha: MAIN_SHA },
@@ -869,30 +671,6 @@ test('merged closeout cannot delete either ref while a registered worktree remai
     remoteBranches: [
       { branch: 'main', sha: MAIN_SHA },
       { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    worktrees: [
-      {
-        path: '/workspace/sec',
-        headSha: MAIN_SHA,
-        branch: 'main',
-        dirtyCount: 0,
-        untrackedCount: 0,
-        locked: false,
-        prunable: false,
-        observation: 'resolved',
-        reason: null
-      },
-      {
-        path: '/workspace/sec-worktrees/example',
-        headSha: HEAD_SHA,
-        branch: 'feat/example',
-        dirtyCount: 1,
-        untrackedCount: 0,
-        locked: false,
-        prunable: false,
-        observation: 'resolved',
-        reason: null
-      }
     ],
     pullRequests: [{
       number: 42,
@@ -911,7 +689,60 @@ test('merged closeout cannot delete either ref while a registered worktree remai
     disposition: 'merged' as const,
     durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
   };
-  const authorization = authorizeBranchCloseout({ preparation: prepared, request, before, current });
+
+  const raced = authorizeBranchCloseout({
+    preparation: prepared,
+    request,
+    before,
+    current: { ...current, remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: RACE_SHA }
+    ] }
+  });
+  expect(raced.remoteAction).toBe('blocked');
+  expect(raced.blockers).toContain('remote branch SHA changed after preparation');
+
+  const missingLocal = { ...before, localBranches: [{ branch: 'main', sha: MAIN_SHA }] };
+  const appeared = authorizeBranchCloseout({
+    preparation: preparation(missingLocal, null),
+    request,
+    before: missingLocal,
+    current
+  });
+  expect(appeared.remoteAction).toBe('blocked');
+  expect(appeared.localAction).toBe('blocked');
+  expect(appeared.blockers).toContain('local branch appeared after preparation');
+
+  const divergentBefore = { ...before, localBranches: [
+    { branch: 'main', sha: MAIN_SHA },
+    { branch: 'feat/example', sha: RACE_SHA }
+  ] };
+  const divergent = authorizeBranchCloseout({
+    preparation: preparation(divergentBefore, RACE_SHA),
+    request,
+    before: divergentBefore,
+    current: { ...current, localBranches: divergentBefore.localBranches }
+  });
+  expect(divergent.blockers).toEqual([]);
+  expect(divergent.remoteAction).toBe('delete-cas');
+  expect(divergent.localAction).toBe('protect-local');
+  expect(divergent.protections[0]).toContain('diverges from recovered remote head');
+
+  const withWorktree = { ...current, worktrees: [
+    ...current.worktrees,
+    {
+      path: '/workspace/sec-worktrees/example',
+      headSha: HEAD_SHA,
+      branch: 'feat/example',
+      dirtyCount: 1,
+      untrackedCount: 0,
+      locked: false,
+      prunable: false,
+      observation: 'resolved' as const,
+      reason: null
+    }
+  ] };
+  const authorization = authorizeBranchCloseout({ preparation: prepared, request, before, current: withWorktree });
   expect(authorization.remoteAction).toBe('blocked');
   expect(authorization.localAction).toBe('protect-local');
   expect(authorization.blockers).toContain('registered worktree must reach completed physical closeout before branch/ref CAS');
@@ -923,7 +754,7 @@ test('merged closeout cannot delete either ref while a registered worktree remai
     authorization,
     attempts: [],
     before,
-    after: current
+    after: withWorktree
   });
   expect(receipt.status).toBe('blocked');
   expect(parseBranchCloseoutReceipt(JSON.stringify(receipt)).receiptDigest).toBe(receipt.receiptDigest);
