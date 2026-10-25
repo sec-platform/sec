@@ -53,6 +53,8 @@ import {
   issueSemanticOperationAttemptContext
 } from '../../../src/execution/operation/semantic.ts';
 import { runRetainedBunTestProcess } from '../../testkit/process-resource.ts';
+import { retainedCommandFailureTreeClosed } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
@@ -276,6 +278,37 @@ const actionJournalRoots = new Set<string>();
 const machineCutoverReceiptPaths = new Set<string>();
 const touchedActionKeys = new Set<VerificationActionKeyDigest>();
 
+// Each admitted invocation keeps its own entry, so a later successful sibling
+// cannot erase an earlier unknown tree. Journal/runtime cleanup shares this gate.
+const unsettledFixtureScopes = new Set<object>();
+function assertFixtureScopesSettled(): void {
+  if (unsettledFixtureScopes.size !== 0) {
+    throw new Error('Action fixture settlement is unproven; repository and runtime roots retained.');
+  }
+}
+async function fixtureNativeProcess(...input: Parameters<typeof runRetainedBunTestProcess>) {
+  const invocation = {};
+  unsettledFixtureScopes.add(invocation);
+  try {
+    const result = await runRetainedBunTestProcess(...input);
+    unsettledFixtureScopes.delete(invocation);
+    return result;
+  } catch (error) {
+    if (retainedCommandFailureTreeClosed(error) === true) unsettledFixtureScopes.delete(invocation);
+    throw error;
+  }
+}
+
+async function fixtureLocalDag(...input: Parameters<typeof executeLocalVerificationActionDag>) {
+  const invocation = {};
+  unsettledFixtureScopes.add(invocation);
+  const result = await executeLocalVerificationActionDag(...input);
+  // The DAG's own runner/authority finally has also completed. Native tokens
+  // stay independent because the DAG can return a blocked result after failure.
+  unsettledFixtureScopes.delete(invocation);
+  return result;
+}
+
 afterEach(async () => {
   // Journal/runtime roots remain owned until every admitted runner has closed.
   await settleResourcesAsync({ cleanup: [...fixtureRunners].map(runner => ({
@@ -285,6 +318,7 @@ afterEach(async () => {
       fixtureRunners.delete(runner);
     }
   })) });
+  assertFixtureScopesSettled();
   for (const journalRoot of actionJournalRoots) {
     for (const actionKey of touchedActionKeys) {
       const actionPath = path.join(
@@ -1145,8 +1179,10 @@ test.skipIf(process.platform !== 'win32')(
   'local quick DAG keeps journal authority separate from the detached candidate executor and reuses terminals',
   async () => {
   const authorityRoot = root();
-  const candidateRoot = root();
-  try {
+  let candidateCleanupRoot: string | undefined;
+  await settleWorkspaceCallback(async () => {
+    const candidateRoot = root();
+    candidateCleanupRoot = candidateRoot;
     const fixture = localDagFixture();
     let physicalExecutions = 0;
     const inspectRepository = (repositoryRoot: string) => ({
@@ -1155,7 +1191,7 @@ test.skipIf(process.platform !== 'win32')(
       trackedClean: true,
       gitCommonDirectory: authorityRoot
     });
-    const first = await executeLocalVerificationActionDag({
+    const first = await fixtureLocalDag({
       authorityRoot,
       candidateRoot,
       actionPlanClosure: fixture.closure,
@@ -1164,7 +1200,7 @@ test.skipIf(process.platform !== 'win32')(
       testProcessIssuer: TEST_PROCESS_ISSUER,
       testProcessProvider: async (_operation, process) => {
         physicalExecutions += 1;
-        const result = await runRetainedBunTestProcess(process, candidateRoot, {
+        const result = await fixtureNativeProcess(process, candidateRoot, {
           script: "console.log('recoverable stdout'); console.error('recoverable stderr')"
         });
         expect(process.session.observeNativeResourceCapacity()).toEqual({
@@ -1173,7 +1209,7 @@ test.skipIf(process.platform !== 'win32')(
         return result;
       },
     });
-    const reused = await executeLocalVerificationActionDag({
+    const reused = await fixtureLocalDag({
       authorityRoot,
       candidateRoot,
       actionPlanClosure: fixture.closure,
@@ -1182,7 +1218,7 @@ test.skipIf(process.platform !== 'win32')(
       testProcessIssuer: TEST_PROCESS_ISSUER,
       testProcessProvider: (_operation, process) => {
         physicalExecutions += 1;
-        return runRetainedBunTestProcess(process, candidateRoot);
+        return fixtureNativeProcess(process, candidateRoot);
       },
     });
     expect(first.status).toBe('passed');
@@ -1237,10 +1273,15 @@ test.skipIf(process.platform !== 'win32')(
     } finally {
       await readAuthority.release();
     }
-  } finally {
-    rmSync(authorityRoot, { recursive: true, force: true });
-    rmSync(candidateRoot, { recursive: true, force: true });
-  }
+  }, async () => {
+    assertFixtureScopesSettled();
+    settleResources({ cleanup: [
+      { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
+      { label: 'Action candidate root', settle: () => {
+        if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
+      } }
+    ] });
+  });
   }
 );
 
@@ -1249,12 +1290,14 @@ test.skipIf(process.platform !== 'win32')(
   async () => {
     for (const mode of ['deadline', 'cancel'] as const) {
       const authorityRoot = root();
-      const candidateRoot = root();
-      try {
+      let candidateCleanupRoot: string | undefined;
+      await settleWorkspaceCallback(async () => {
+        const candidateRoot = root();
+        candidateCleanupRoot = candidateRoot;
         const modeHeadSha = mode === 'deadline' ? HEAD_SHA : '5'.repeat(40);
         const fixture = localDagFixture(undefined, { headSha: modeHeadSha });
         const controller = new AbortController();
-        const result = await executeLocalVerificationActionDag({
+        const result = await fixtureLocalDag({
           authorityRoot,
           candidateRoot,
           actionPlanClosure: fixture.closure,
@@ -1273,7 +1316,7 @@ test.skipIf(process.platform !== 'win32')(
               ? setTimeout(() => controller.abort(), 50)
               : undefined;
             try {
-              return await runRetainedBunTestProcess(
+              return await fixtureNativeProcess(
                 process,
                 candidateRoot,
                 { script: 'setInterval(() => {}, 1_000)' }
@@ -1289,10 +1332,15 @@ test.skipIf(process.platform !== 'win32')(
           'executor ended without an owner-issued terminal; action durably cancelled'
         );
         expect(result.actionResults[0]?.reason).toMatch(/timed-out|termination-unproven|deadline|aborted/u);
-      } finally {
-        rmSync(authorityRoot, { recursive: true, force: true });
-        rmSync(candidateRoot, { recursive: true, force: true });
-      }
+      }, async () => {
+        assertFixtureScopesSettled();
+        settleResources({ cleanup: [
+          { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
+          { label: 'Action candidate root', settle: () => {
+            if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
+          } }
+        ] });
+      });
     }
   },
   30_000
@@ -1302,15 +1350,17 @@ test.skipIf(process.platform !== 'win32')(
   'local quick DAG records a failed process terminal',
   async () => {
     const authorityRoot = root();
-    const candidateRoot = root();
-    try {
+    let candidateCleanupRoot: string | undefined;
+    await settleWorkspaceCallback(async () => {
+      const candidateRoot = root();
+      candidateCleanupRoot = candidateRoot;
       const modeHeadSha = `6${HEAD_SHA.slice(1)}`;
       const modeHeadTreeSha = `7${HEAD_TREE_SHA.slice(1)}`;
       const fixture = localDagFixture(undefined, {
         headSha: modeHeadSha,
         headTreeSha: modeHeadTreeSha
       });
-      const result = await executeLocalVerificationActionDag({
+      const result = await fixtureLocalDag({
         authorityRoot,
         candidateRoot,
         actionPlanClosure: fixture.closure,
@@ -1322,16 +1372,21 @@ test.skipIf(process.platform !== 'win32')(
           gitCommonDirectory: authorityRoot
         }),
         testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: (_operation, process) => runRetainedBunTestProcess(
+        testProcessProvider: (_operation, process) => fixtureNativeProcess(
           process, candidateRoot, { script: 'process.exit(7)' }
         )
       });
       expect(result.status).toBe('failed');
       expect(result.actionResults[0]?.terminal?.status).toBe('failed');
-    } finally {
-      rmSync(authorityRoot, { recursive: true, force: true });
-      rmSync(candidateRoot, { recursive: true, force: true });
-    }
+    }, async () => {
+      assertFixtureScopesSettled();
+      settleResources({ cleanup: [
+        { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
+        { label: 'Action candidate root', settle: () => {
+          if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
+        } }
+      ] });
+    });
   }
 );
 
@@ -1339,8 +1394,10 @@ test.skipIf(process.platform !== 'win32')(
   'local quick DAG refuses candidate readback drift',
   async () => {
     const authorityRoot = root();
-    const candidateRoot = root();
-    try {
+    let candidateCleanupRoot: string | undefined;
+    await settleWorkspaceCallback(async () => {
+      const candidateRoot = root();
+      candidateCleanupRoot = candidateRoot;
       const modeHeadSha = `8${HEAD_SHA.slice(1)}`;
       const modeHeadTreeSha = `9${HEAD_TREE_SHA.slice(1)}`;
       const fixture = localDagFixture(undefined, {
@@ -1365,14 +1422,14 @@ test.skipIf(process.platform !== 'win32')(
           gitCommonDirectory: authorityRoot
         };
       };
-      const result = await executeLocalVerificationActionDag({
+      const result = await fixtureLocalDag({
         authorityRoot,
         candidateRoot,
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
         inspectRepository,
         testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: (_operation, process) => runRetainedBunTestProcess(process, candidateRoot)
+        testProcessProvider: (_operation, process) => fixtureNativeProcess(process, candidateRoot)
       });
       expect(result.status).toBe('blocked');
       expect(result.actionResults[0]?.terminal).toBeNull();
@@ -1381,10 +1438,15 @@ test.skipIf(process.platform !== 'win32')(
         authorityRoot,
         fixture.closure.actions[0]!.action.actionKey
       ).latestState).toBe('invalidated');
-    } finally {
-      rmSync(authorityRoot, { recursive: true, force: true });
-      rmSync(candidateRoot, { recursive: true, force: true });
-    }
+    }, async () => {
+      assertFixtureScopesSettled();
+      settleResources({ cleanup: [
+        { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
+        { label: 'Action candidate root', settle: () => {
+          if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
+        } }
+      ] });
+    });
   }
 );
 
@@ -1395,7 +1457,7 @@ test.skipIf(process.platform !== 'win32')(
   const authorityRoot = path.join(workspaceRoot, 'authority');
   const candidateRoot = path.join(workspaceRoot, 'candidate');
   const decoyRoot = path.join(workspaceRoot, 'decoy');
-  try {
+  await settleWorkspaceCallback(async () => {
     git(workspaceRoot, ['init', authorityRoot]);
     git(authorityRoot, ['config', 'user.name', 'SEC Runner']);
     git(authorityRoot, ['config', 'user.email', 'sec-runner@example.invalid']);
@@ -1473,14 +1535,14 @@ test.skipIf(process.platform !== 'win32')(
       priorEnvironment.set(name, process.env[name]);
       process.env[name] = value;
     }
-    try {
+    await settleWorkspaceCallback(async () => {
       const fixture = localDagFixture(undefined, {
         baseSha: headSha,
         baseTreeSha: headTreeSha,
         headSha,
         headTreeSha
       });
-      const result = await executeLocalVerificationActionDag({
+      const result = await fixtureLocalDag({
         authorityRoot,
         candidateRoot,
         actionPlanClosure: fixture.closure,
@@ -1488,10 +1550,11 @@ test.skipIf(process.platform !== 'win32')(
         inspectRepository,
         testProcessIssuer: TEST_PROCESS_ISSUER,
         testProcessProvider: (_operation, process) =>
-          runRetainedBunTestProcess(process, candidateRoot)
+          fixtureNativeProcess(process, candidateRoot)
       });
       expect(result.status).toBe('passed');
       writeFileSync(path.join(candidateRoot, 'tracked.txt'), 'dirty\n', 'utf8');
+      // The observed dirty candidate is rejected before the DAG creates its runner.
       await expect(executeLocalVerificationActionDag({
         authorityRoot,
         candidateRoot,
@@ -1500,7 +1563,7 @@ test.skipIf(process.platform !== 'win32')(
         inspectRepository,
         testProcessIssuer: TEST_PROCESS_ISSUER,
         testProcessProvider: (_operation, process) =>
-          runRetainedBunTestProcess(process, candidateRoot)
+          fixtureNativeProcess(process, candidateRoot)
       })).rejects.toThrow('exact clean candidate head and tree');
       for (const [indexPath, before] of [
         [authorityIndex, authorityBefore],
@@ -1516,28 +1579,34 @@ test.skipIf(process.platform !== 'win32')(
             mtimeMs: before.mtimeMs
           });
       }
-    } finally {
-      for (const [name, value] of priorEnvironment) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-    }
-  } finally {
+    }, async () => {
+      settleResources({ cleanup: [...priorEnvironment].map(([name, value]) => ({
+        label: `restore ${name}`, settle: () => {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
+      })) });
+    });
+  }, async () => {
+    assertFixtureScopesSettled();
     rmSync(workspaceRoot, { recursive: true, force: true });
-  }
+  });
   },
   180_000
 );
 
 test('local quick DAG rejects hosted/environment drift and distinct environments produce disjoint ActionKeys', async () => {
   const authorityRoot = root();
-  const candidateRoot = root();
-  try {
+  let candidateCleanupRoot: string | undefined;
+  await settleWorkspaceCallback(async () => {
+    const candidateRoot = root();
+    candidateCleanupRoot = candidateRoot;
     const local = localDagFixture();
     const secondLocal = localDagFixture();
     const hosted = localDagFixture(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT);
     expect(local.closure.actions[0]!.action.actionKey).toBe(secondLocal.closure.actions[0]!.action.actionKey);
     expect(local.closure.actions[0]!.action.actionKey).not.toBe(hosted.closure.actions[0]!.action.actionKey);
+    // A hosted environment is rejected before any runner or provider is admitted.
     await expect(executeLocalVerificationActionDag({
       authorityRoot,
       candidateRoot,
@@ -1551,12 +1620,17 @@ test('local quick DAG rejects hosted/environment drift and distinct environments
       }),
       testProcessIssuer: TEST_PROCESS_ISSUER,
       testProcessProvider: (_operation, process) =>
-        runRetainedBunTestProcess(process, candidateRoot)
+        fixtureNativeProcess(process, candidateRoot)
     })).rejects.toThrow('canonical local execution environment');
-  } finally {
-    rmSync(authorityRoot, { recursive: true, force: true });
-    rmSync(candidateRoot, { recursive: true, force: true });
-  }
+  }, async () => {
+    assertFixtureScopesSettled();
+    settleResources({ cleanup: [
+      { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
+      { label: 'Action candidate root', settle: () => {
+        if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
+      } }
+    ] });
+  });
 });
 
 // The warm runner reads closed state before inspecting claim resources. Keep
