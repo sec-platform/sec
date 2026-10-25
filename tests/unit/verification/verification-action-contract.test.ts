@@ -222,16 +222,16 @@ test('Action terminal preserves owner issuance, strict parsing, and process diag
   );
   expect(terminal.diagnosticObjects).toEqual([]);
   expect(terminal.resultDigest).not.toBe(completed.ownerTerminalReceipt.terminalReceiptDigest);
-  const failedSettlement = settlement('failed', 1_900_000_000_001);
+  const nextAttempt = settlement('passed', 1_900_000_000_001);
   expect(completed.ownerTerminalReceipt.decision.actionKey)
-    .toBe(failedSettlement.ownerTerminalReceipt.decision.actionKey);
+    .toBe(nextAttempt.ownerTerminalReceipt.decision.actionKey);
   expect(completed.ownerTerminalReceipt.decision.operationIdentityDigest)
-    .toBe(failedSettlement.ownerTerminalReceipt.decision.operationIdentityDigest);
+    .toBe(nextAttempt.ownerTerminalReceipt.decision.operationIdentityDigest);
   expect(completed.ownerTerminalReceipt.attempt.boundAttemptDigest)
-    .not.toBe(failedSettlement.ownerTerminalReceipt.attempt.boundAttemptDigest);
+    .not.toBe(nextAttempt.ownerTerminalReceipt.attempt.boundAttemptDigest);
   expect(completed.ownerTerminalReceipt.terminalReceiptDigest)
-    .not.toBe(failedSettlement.ownerTerminalReceipt.terminalReceiptDigest);
-  const failed = projectVerificationActionTerminal(failedSettlement);
+    .not.toBe(nextAttempt.ownerTerminalReceipt.terminalReceiptDigest);
+  const failed = projectVerificationActionTerminal(settlement('failed'));
   expect(failed.status).toBe('failed');
   expect(() => projectVerificationActionTerminal({
     status: 'passed',
