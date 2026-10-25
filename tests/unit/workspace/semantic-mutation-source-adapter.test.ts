@@ -25,10 +25,10 @@ import { AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH, AUTHORING_SEMANTIC_CONTRACT_IND
 import { modelRelativePath } from '../../../src/workspace/contract/types.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
-function loadedContract(contractPath = `${modelRelativePath}/item.yaml`): LoadedSemanticContract {
+function loadedContract(): LoadedSemanticContract {
   return {
     blockId: 'item/basic',
-    contractPath,
+    contractPath: `${modelRelativePath}/item.yaml`,
     contract: normalizeSemanticContract({
       formatVersion: '1',
       id: 'item-core',
@@ -226,7 +226,7 @@ async function writePlanningWorkspace(root: string, bytes: Uint8Array): Promise<
 }
 
 function candidate(
-  contract = loadedContract(),
+  contract: LoadedSemanticContract,
   sourceKind: 'workspace-authoring' | 'workspace-registry' | 'compiler-registry' = 'workspace-authoring'
 ): SemanticMutationLoadedSourceCandidate {
   return buildSemanticContractSourceCandidate(sourceKind, contract);

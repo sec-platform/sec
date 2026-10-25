@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { chmodSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
@@ -10,7 +10,8 @@ import { assertUniqueSemanticOutputPaths } from '../../../src/compiler/semantic-
 import type { StateTransitionMapGeneratorPlanTask } from '../../../src/semantics/generation/types.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
 
-function task(id = 'one', values = ['open', 'closed']): StateTransitionMapGeneratorPlanTask {
+function task(id = 'one'): StateTransitionMapGeneratorPlanTask {
+  const values = ['open', 'closed'];
   return {
     id, blockId: 'ticket/basic', generatorId: id, generatorEntityId: `generator:${id}`,
     artifactEntityId: `artifact:${id}`, inputRevision: 'input', semanticRevision: 'semantic',
@@ -26,7 +27,7 @@ function task(id = 'one', values = ['open', 'closed']): StateTransitionMapGenera
 
 // Minimal linkage fixture for this lowerer's public contract. It is not claimed
 // to be a complete validated production Engineering IR or an authority grant.
-function context(tasks = [task()]): PipelineSemanticContext {
+function context(tasks: StateTransitionMapGeneratorPlanTask[]): PipelineSemanticContext {
   return {
     transactionId: 'tx:original', inputRevision: 'input', semanticRevision: 'semantic',
     snapshot: { ir: { inputRevision: 'input', semanticRevision: 'semantic', facts: [],

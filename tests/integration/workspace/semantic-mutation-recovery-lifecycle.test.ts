@@ -99,7 +99,7 @@ function endpoint(
   };
 }
 
-function authorization(stateId = 'item-status'): SemanticMutationAuthorizationContext {
+function authorization(stateId: string): SemanticMutationAuthorizationContext {
   const draft: Omit<SemanticMutationAuthorizationContext, 'authorizationRevision'> = {
     taskId: 'task:sm3-lifecycle',
     envelopeRevision: 'envelope:v2',

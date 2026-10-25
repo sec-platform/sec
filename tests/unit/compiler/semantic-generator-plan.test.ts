@@ -95,7 +95,7 @@ function input(): BuildEngineeringIRInput {
   };
 }
 
-function declarations(source = input()): SemanticGeneratorDeclaration[] {
+function declarations(source: BuildEngineeringIRInput): SemanticGeneratorDeclaration[] {
   const declaration = source.manifests[0]!.manifest.generators![0]!;
   return [{
     blockId: 'item/basic',

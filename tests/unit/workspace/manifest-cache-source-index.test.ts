@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { ManifestCache, type ManifestCacheKey, type ManifestObservedSourceKey } from '../../../src/adapters/workspace/sources/manifest-cache.ts';
 import type { ManifestEntry } from '../../../src/compiler/contract.ts';
 
-function fixture(id = 'block/a', workspaceRoot = '/workspace') {
+function fixture(id = 'block/a') {
+  const workspaceRoot = '/workspace';
   const key: ManifestCacheKey = { workspaceRoot, registrySourceId: 'source', registryKind: 'private', registryLocation: 'workspace',
     registryPath: 'registry', blockId: id, sourceDigest: 'sha256:bytes' };
   const registryRoot = `${workspaceRoot}/registry`;
