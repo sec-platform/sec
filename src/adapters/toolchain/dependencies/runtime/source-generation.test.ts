@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../../../../tests/testkit/workspace-cleanup.ts';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import {
@@ -77,15 +78,13 @@ async function withSourceGenerationFixture(
   const ownerRoot = path.join(temporaryRoot, 'owner');
   const sourcePath = path.join(ownerRoot, 'node_modules');
   const foreignPath = path.join(temporaryRoot, 'foreign');
-  try {
-    await Promise.all([
-      fs.mkdir(sourcePath, { recursive: true }),
-      fs.mkdir(foreignPath)
+  await settleWorkspaceCallback(async () => {
+    await settleWorkspaceCleanups([
+      () => fs.mkdir(sourcePath, { recursive: true }).then(() => undefined),
+      () => fs.mkdir(foreignPath)
     ]);
     await run(Object.freeze({ ownerRoot, sourcePath, foreignPath }));
-  } finally {
-    await fs.rm(temporaryRoot, { recursive: true, force: true });
-  }
+  }, () => fs.rm(temporaryRoot, { recursive: true, force: true }));
 }
 
 function operationOptions(input: Readonly<{
@@ -163,9 +162,9 @@ function temporaryPathFragment(ownerRoot: string): string {
 
 test('source generation enforces caller deadline abort byte and entry bounds', async () => {
   await withSourceGenerationFixture(async ({ ownerRoot, sourcePath }) => {
-    await Promise.all([
-      fs.writeFile(path.join(sourcePath, 'a.json'), '{"a":1}\n'),
-      fs.writeFile(path.join(sourcePath, 'b.json'), '{"b":2}\n')
+    await settleWorkspaceCleanups([
+      () => fs.writeFile(path.join(sourcePath, 'a.json'), '{"a":1}\n'),
+      () => fs.writeFile(path.join(sourcePath, 'b.json'), '{"b":2}\n')
     ]);
     const binding = { packageManager: 'bun' };
     await expect(runtimeDependencySourceGeneration(

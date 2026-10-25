@@ -1,9 +1,7 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import { copyInstalledNativeCheckerFixture, currentNativePackageName, selectNativeChecker, withCheckerExecutionBoundary, withNativeCheckerWorkspace, writeNativeCheckerFixture } from './typecheck-provider-fixture.ts';
+import { copyInstalledNativeCheckerFixture, currentNativePackageName, selectNativeChecker, withNativeCheckerExecutionWorkspace, withNativeCheckerWorkspace, writeNativeCheckerFixture } from './typecheck-provider-fixture.ts';
 
 import { compileRepositoryModuleMembershipSnapshot } from '../../../src/adapters/repository/architecture/contract.ts';
 import {
@@ -538,17 +536,14 @@ test('native checker capability rejects structural substitutions at the effect b
 });
 
 test.skipIf(process.platform !== 'win32')('native checker admission rejects structural clones and checker transplants before process effects', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-session-origin-'));
-  let boundarySettled = true;
-  await settleWorkspaceCallback(async () => {
+  await withNativeCheckerExecutionWorkspace('sec-native-typecheck-session-origin-', async (root, withBoundary) => {
     const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
     const projectRoot = path.join(root, 'project');
     await fs.mkdir(projectRoot);
     await fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({ files: [] }));
     const checker = await selectNativeChecker(nodeModulesPath);
     const reselectedChecker = await selectNativeChecker(nodeModulesPath);
-    boundarySettled = false;
-    await withCheckerExecutionBoundary(
+    await withBoundary(
       projectRoot,
       nodeModulesPath,
       checker,
@@ -566,27 +561,18 @@ test.skipIf(process.platform !== 'win32')('native checker admission rejects stru
         })).rejects.toThrow('owner-issued process admission');
       }
     );
-    boundarySettled = true;
-  }, async () => {
-    if (!boundarySettled) {
-      throw new Error(`Checker boundary settlement is unproven; fixture root is preserved: ${root}`);
-    }
-    await fs.rm(root, { recursive: true, force: true });
   });
 });
 
 test.skipIf(process.platform !== 'win32')('native checker cannot cross into a different retained dependency generation', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-root-binding-'));
-  let boundarySettled = true;
-  await settleWorkspaceCallback(async () => {
+  await withNativeCheckerExecutionWorkspace('sec-native-typecheck-root-binding-', async (root, withBoundary) => {
     const checkerRoot = path.join(root, 'checker');
     const dependencyRoot = path.join(root, 'dependency');
     const checker = await selectNativeChecker(await writeNativeCheckerFixture(checkerRoot));
     const otherNodeModules = await writeNativeCheckerFixture(dependencyRoot);
     const projectRoot = path.join(root, 'project');
     await fs.mkdir(projectRoot);
-    boundarySettled = false;
-    await withCheckerExecutionBoundary(projectRoot, otherNodeModules, checker, 0, async (boundary) => {
+    await withBoundary(projectRoot, otherNodeModules, checker, 0, async (boundary) => {
       expect(await executeTypeScriptNativeChecker(checker, {
         ...boundary,
         deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
@@ -595,27 +581,18 @@ test.skipIf(process.platform !== 'win32')('native checker cannot cross into a di
         reason: 'process-boundary-unavailable'
       });
     });
-    boundarySettled = true;
-  }, async () => {
-    if (!boundarySettled) {
-      throw new Error(`Checker boundary settlement is unproven; fixture root is preserved: ${root}`);
-    }
-    await fs.rm(root, { recursive: true, force: true });
   });
 });
 
 test.skipIf(process.platform !== 'win32')('issued checker rejects package or executable byte drift before incremental state effects', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-drift-'));
-  let boundarySettled = true;
-  await settleWorkspaceCallback(async () => {
+  await withNativeCheckerExecutionWorkspace('sec-native-typecheck-drift-', async (root, withBoundary) => {
     const packageFixture = path.join(root, 'package-drift');
     const packageModules = await writeNativeCheckerFixture(packageFixture);
     const packageBoundChecker = await selectNativeChecker(packageModules);
     await fs.appendFile(path.join(packageModules, '@typescript', 'native', 'package.json'), ' ');
     const packageProject = path.join(packageFixture, 'project');
     await fs.mkdir(packageProject);
-    boundarySettled = false;
-    await withCheckerExecutionBoundary(packageProject, packageModules, packageBoundChecker, 0, async (boundary) => {
+    await withBoundary(packageProject, packageModules, packageBoundChecker, 0, async (boundary) => {
       expect(await executeTypeScriptNativeChecker(packageBoundChecker, {
         ...boundary,
         deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
@@ -626,7 +603,6 @@ test.skipIf(process.platform !== 'win32')('issued checker rejects package or exe
       ))).rejects.toMatchObject({ code: 'ENOENT' });
 
     });
-    boundarySettled = true;
 
     const executableFixture = path.join(root, 'executable-drift');
     const executableModules = await writeNativeCheckerFixture(executableFixture);
@@ -639,8 +615,7 @@ test.skipIf(process.platform !== 'win32')('issued checker rejects package or exe
     ), 'changed-native-executable');
     const executableProject = path.join(executableFixture, 'project');
     await fs.mkdir(executableProject);
-    boundarySettled = false;
-    await withCheckerExecutionBoundary(executableProject, executableModules, executableBoundChecker, 0, async (boundary) => {
+    await withBoundary(executableProject, executableModules, executableBoundChecker, 0, async (boundary) => {
       expect(await executeTypeScriptNativeChecker(executableBoundChecker, {
         ...boundary,
         deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
@@ -650,12 +625,6 @@ test.skipIf(process.platform !== 'win32')('issued checker rejects package or exe
         boundary.buildInfoFileName
       ))).rejects.toMatchObject({ code: 'ENOENT' });
     });
-    boundarySettled = true;
-  }, async () => {
-    if (!boundarySettled) {
-      throw new Error(`Checker boundary settlement is unproven; fixture root is preserved: ${root}`);
-    }
-    await fs.rm(root, { recursive: true, force: true });
   });
 });
 

@@ -30,6 +30,31 @@ export async function withNativeCheckerWorkspace<T>(
   );
 }
 
+/** Keep the outer root until every entered native boundary returns through
+ * its existing physical-settlement owner. Rejection preserves its evidence.
+ * The callback must await every borrowed boundary before returning. */
+export async function withNativeCheckerExecutionWorkspace<T>(
+  prefix: string,
+  callback: (root: string, withBoundary: typeof withCheckerExecutionBoundary) => Promise<T>
+): Promise<T> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  let unsettledBoundaries = 0;
+  const withBoundary = async <Result>(
+    ...args: Parameters<typeof withCheckerExecutionBoundary<Result>>
+  ): Promise<Result> => {
+    unsettledBoundaries++;
+    const result = await withCheckerExecutionBoundary(...args);
+    unsettledBoundaries--;
+    return result;
+  };
+  return settleWorkspaceCallback(() => callback(root, withBoundary), async () => {
+    if (unsettledBoundaries !== 0) {
+      throw new Error(`Checker boundary settlement is unproven; fixture root is preserved: ${root}`);
+    }
+    await fs.rm(root, { recursive: true, force: true });
+  });
+}
+
 export async function withCheckerExecutionBoundary<T>(
   workingRoot: string,
   dependencyRoot: string,
