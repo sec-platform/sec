@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -23,8 +24,13 @@ import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
 // providers. It does not issue a Session, invoke remote closeout, or test the live Work resolver. Local CAS uses synthetic Git.
 test('closeout CLI fixture prepares and rehydrates exact recovery through current owners', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-closeout-fixture-setup-'));
-  const runtime = createRawTestExecutableFixture();
+  const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
+    { label: 'closeout fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }
+  ];
+  let scopeFailure: ResourceSettlementFailure | undefined;
   try {
+    const runtime = createRawTestExecutableFixture();
+    cleanup.push({ label: 'raw executable fixture', settle: () => runtime.dispose() });
     const shimRoot = compileCloseoutCliProviderShims(root, runtime.command);
     const prepared = prepareCloseoutCliScenario({ shimRoot,
       harnessRoot: path.join(root, 'repositories'), recoveryHarnessRoot: path.join(root, 'recovery'),
@@ -46,9 +52,10 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
     });
     const previousPath = process.env.PATH;
     const previousState = process.env.SEC_CLOSEOUT_TEST_STATE;
-    process.env.PATH = `${shimRoot}${path.delimiter}${previousPath ?? ''}`;
-    process.env.SEC_CLOSEOUT_TEST_STATE = prepared.statePath;
+    let environmentFailure: ResourceSettlementFailure | undefined;
     try {
+      process.env.PATH = `${shimRoot}${path.delimiter}${previousPath ?? ''}`;
+      process.env.SEC_CLOSEOUT_TEST_STATE = prepared.statePath;
       const executable = path.join(shimRoot, process.platform === 'win32' ? 'git.exe' : 'git');
       const common = spawnSync(executable, ['rev-parse', '--path-format=absolute', '--git-common-dir'],
         { cwd: prepared.root, encoding: 'utf8', timeout: 5_000 });
@@ -112,15 +119,26 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
       writeCloseoutCliHarnessState(prepared.statePath, state);
       expect(collectBranchLifecycleInventory(targetScope).unknowns.join(' ')).toContain('duplicated');
 
+    } catch (error) {
+      environmentFailure = { label: 'fixture assertions', error };
+      throw error;
     } finally {
-      if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
-      if (previousState === undefined) delete process.env.SEC_CLOSEOUT_TEST_STATE;
-      else process.env.SEC_CLOSEOUT_TEST_STATE = previousState;
+      settleResources({ primary: environmentFailure, cleanup: [
+        { label: 'previous PATH', settle: () => {
+          if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+        } },
+        { label: 'previous closeout state', settle: () => {
+          if (previousState === undefined) delete process.env.SEC_CLOSEOUT_TEST_STATE;
+          else process.env.SEC_CLOSEOUT_TEST_STATE = previousState;
+        } }
+      ] });
     }
 
+  } catch (error) {
+    scopeFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    try { rmSync(root, { recursive: true, force: true }); }
-    finally { runtime.dispose(); }
+    settleResources({ primary: scopeFailure, cleanup });
   }
 }, 30_000);
 

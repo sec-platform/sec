@@ -23,7 +23,7 @@ import { gzipSync } from 'node:zlib';
 import { createHostedSutCandidatePreparation, hostedSutCandidateArgv, hostedSutCandidateGuardArgv, hostedSutCandidatePreparationFromPlan } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { assertPreparedHostedActionArchiveCurrent, CodexDevelopmentPrepareHostedActionInputs, consumePreparedHostedActionArchive, createHostedActionArchiveRecipeIssuer, HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT, HOSTED_ACTION_ARCHIVE_INVENTORY_BODY_SCRIPT } from '../../../src/adapters/verification/platform/ci/verification-materialization.ts';
 import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../../src/assurance/verification/contract/revision.ts";
-import { ResourceCompositeSettlementError } from '../../../src/execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError, settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../src/execution/verification/action.ts';
 import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessObservation, HostedSutSandboxReceipt, VerificationSessionHostedRequest } from "../../../src/execution/verification/hosted.ts";
 import type { VerificationEvidence } from '../../../src/execution/verification/session.ts';
@@ -734,6 +734,7 @@ function hostedProviderInputs(
 
 test('CI runner executes an ordinary gate through Action and publishes only V4', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-action-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     let evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     const calls: string[] = [];
@@ -760,13 +761,17 @@ test('CI runner executes an ordinary gate through Action and publishes only V4',
     expect(() => CodexDevelopmentAssertVerificationEvidenceV4(captured, {
       actionPlan: captured!.actionPlan
     }, new Date('2026-08-09T00:01:00.000Z'))).not.toThrow();
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('formal hosted mode fails closed before physical execution without complete Session/Action closure', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-formal-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     let spawns = 0;
     let writes = 0;
@@ -782,13 +787,17 @@ test('formal hosted mode fails closed before physical execution without complete
     expect(code).toBe(1);
     expect(spawns).toBe(0);
     expect(writes).toBe(0);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('Action journal reuse is not Evidence without an independent durable result resolver', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-reuse-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     let first: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     expect(await CodexDevelopmentCiVerificationMainForTests({
@@ -810,16 +819,20 @@ test('Action journal reuse is not Evidence without an independent durable result
     })).toBe(1);
     expect(physical).toBe(0);
     expect(writes).toBe(0);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('trusted bootstrap cleanliness excludes only its exact nested candidate checkout', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-bootstrap-nested-candidate-'));
-  const baseRoot = path.join(root, 'base');
-  const candidateRoot = path.join(baseRoot, 'candidate-sut');
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const baseRoot = path.join(root, 'base');
+    const candidateRoot = path.join(baseRoot, 'candidate-sut');
     mkdirSync(baseRoot, { recursive: true });
     gitFixture(baseRoot, ['init', '--quiet']);
     gitFixture(baseRoot, ['config', 'user.email', 'sec-test@example.invalid']);
@@ -875,8 +888,11 @@ test('trusted bootstrap cleanliness excludes only its exact nested candidate che
     expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot: candidateSubdirectory
     })).toThrow(/two exact Git checkout roots/);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
@@ -894,8 +910,13 @@ test('hosted SUT builds the isolated command plan and terminalizes retained arch
     coveredScopeIds: ['scope:hosted-direct-bun-test']
   }]);
   const cleanRoot = mkdtempSync(path.join(tmpdir(), 'sec-hosted-clean-'));
-  const dirtyRoot = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dirty-'));
+  const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
+    { label: 'clean archive root', settle: () => rmSync(cleanRoot, { recursive: true, force: true }) }
+  ];
+  let scopeFailure: ResourceSettlementFailure | undefined;
   try {
+    const dirtyRoot = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dirty-'));
+    cleanup.push({ label: 'dirty archive root', settle: () => rmSync(dirtyRoot, { recursive: true, force: true }) });
     const cleanArchive = path.join(cleanRoot, 'prepared-candidate.tar');
     const dirtyArchive = path.join(dirtyRoot, 'prepared-candidate.tar');
     writeFileSync(cleanArchive, 'authenticated-clean-archive');
@@ -931,8 +952,9 @@ test('hosted SUT builds the isolated command plan and terminalizes retained arch
         expect(retainedArchive).toBeDefined();
         const movedArchive = `${cleanArchive}.retained`;
         renameSync(cleanArchive, movedArchive);
-        writeFileSync(cleanArchive, 'malicious dependency archive at the authenticated pathname');
+        let archiveFailure: ResourceSettlementFailure | undefined;
         try {
+          writeFileSync(cleanArchive, 'malicious dependency archive at the authenticated pathname');
           const buffer = Buffer.alloc(256);
           const bytes = readSync(
             retainedArchive!.fileDescriptor,
@@ -943,9 +965,14 @@ test('hosted SUT builds the isolated command plan and terminalizes retained arch
           );
           retainedArchiveBytes.push(buffer.subarray(0, bytes).toString('utf8'));
           expect(retainedArchive!.archiveDigest).toBe(cleanInventory.archiveDigest);
+        } catch (error) {
+          archiveFailure = { label: 'fixture assertions', error };
+          throw error;
         } finally {
-          rmSync(cleanArchive);
-          renameSync(movedArchive, cleanArchive);
+          settleResources({ primary: archiveFailure, cleanup: [{ label: 'restore original archive', settle: () => {
+            rmSync(cleanArchive, { force: true });
+            renameSync(movedArchive, cleanArchive);
+          } }] });
         }
         return sandboxObservation(0, 'candidate output is captured, never echoed');
       }
@@ -1000,9 +1027,11 @@ test('hosted SUT builds the isolated command plan and terminalizes retained arch
     expect(dirtyTerminal.result.status).toBe('invalidated');
     expect(dirtyTerminal.cleanup).toMatchObject({ status: 'failed' });
     expect(dirtyTerminal.cleanup.diagnostic).toContain('authenticated archive');
+  } catch (error) {
+    scopeFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(cleanRoot, { recursive: true, force: true });
-    rmSync(dirtyRoot, { recursive: true, force: true });
+    settleResources({ primary: scopeFailure, cleanup });
   }
 });
 
@@ -1135,15 +1164,16 @@ test('parent event binds the canonical one-key Session request wrapper', () => {
 test('capability success and directory cleanup cannot promote a pre-namespace supervisor failure to executed', async () => {
   const resolution = hostedResolution();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-pre-namespace-'));
-  const archive = path.join(root, 'prepared-candidate.tar');
-  writeFileSync(archive, 'pre-namespace-fixture');
-  const archiveInventory = {
-    archiveDigest: bytesDigest('pre-namespace-fixture'), inventoryDigest: digest('0'),
-    entryCount: 4, totalFileBytes: 100,
-    dependencyClosureDigest: DEPENDENCY_CLOSURE, gitBundleDigest: GIT_CLOSURE
-  };
-  const ticket = hostedTicket(resolution, archiveInventory);
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const archive = path.join(root, 'prepared-candidate.tar');
+    writeFileSync(archive, 'pre-namespace-fixture');
+    const archiveInventory = {
+      archiveDigest: bytesDigest('pre-namespace-fixture'), inventoryDigest: digest('0'),
+      entryCount: 4, totalFileBytes: 100,
+      dependencyClosureDigest: DEPENDENCY_CLOSURE, gitBundleDigest: GIT_CLOSURE
+    };
+    const ticket = hostedTicket(resolution, archiveInventory);
     const rawResult = await executeSutFixture({
       resolution, ticket, candidateArchive: archive, archiveInventory,
       platform: 'linux', unitNonce: 'pre-namespace', now: clock(),
@@ -1168,8 +1198,11 @@ test('capability success and directory cleanup cannot promote a pre-namespace su
     expect(terminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
     expect(rawResult.sandboxReceipt.execution.lifecycle.candidateStarted).toBeNull();
     expect(rawResult.sandboxReceipt.cleanup.exitCode).toBe(0);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
@@ -1246,17 +1279,18 @@ test.each([
 test('capability unsupported or ambiguous terminalizes without invoking the candidate executor', async () => {
   const resolution = hostedResolution();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-capability-'));
-  const archive = path.join(root, 'prepared-candidate.tar');
-  writeFileSync(archive, 'capability-fixture');
-  const archiveInventory: HostedSutInventory = {
-    archiveDigest: bytesDigest('capability-fixture'),
-    inventoryDigest: digest('0'),
-    entryCount: 4,
-    totalFileBytes: 100,
-    dependencyClosureDigest: DEPENDENCY_CLOSURE,
-    gitBundleDigest: GIT_CLOSURE
-  };
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const archive = path.join(root, 'prepared-candidate.tar');
+    writeFileSync(archive, 'capability-fixture');
+    const archiveInventory: HostedSutInventory = {
+      archiveDigest: bytesDigest('capability-fixture'),
+      inventoryDigest: digest('0'),
+      entryCount: 4,
+      totalFileBytes: 100,
+      dependencyClosureDigest: DEPENDENCY_CLOSURE,
+      gitBundleDigest: GIT_CLOSURE
+    };
     let executions = 0;
     let capabilityPlan = '';
     const ticket = hostedTicket(resolution, archiveInventory);
@@ -1315,17 +1349,21 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
     expect(ambiguousTerminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
     expect(ambiguous.sandboxReceipt.capability.lifecycle.candidateUnitSettled).toBeNull();
     expect(executions).toBe(0);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('raw receipt preserves reported truncation and excludes hostile command-channel output', async () => {
   const resolution = hostedResolution();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-output-'));
-  const archive = path.join(root, 'prepared-candidate.tar');
-  writeFileSync(archive, 'output-fixture');
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const archive = path.join(root, 'prepared-candidate.tar');
+    writeFileSync(archive, 'output-fixture');
     const archiveInventory = {
       archiveDigest: bytesDigest('output-fixture'), inventoryDigest: digest('0'),
       entryCount: 4, totalFileBytes: 100,
@@ -1364,8 +1402,11 @@ test('raw receipt preserves reported truncation and excludes hostile command-cha
     expect(encoded).not.toContain('\u001b');
     expect(encoded).not.toContain('\\u001b');
     expect(raw.sandboxReceipt.rootIsolation.candidateEnvironmentNames).not.toContain('GITHUB_OUTPUT');
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
@@ -1519,48 +1560,49 @@ test('archive decoded read and discard share one budget across finite streams an
 
 test('retained archive inventory bounds extended headers before payload and preserves compressed PAX links', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-inventory-bounds-'));
-  const archive = path.join(root, 'candidate.tar');
-  // Every platform executes the production parsing body against this exact file.
-  // Only Linux also exercises the retained-FD/RLIMIT production entry below.
-  const inspectFixture = () => {
-    const command = process.platform === 'win32' ? 'python' : 'python3';
-    const python = Bun.which(command);
-    if (python === null) throw new Error(`Archive inventory fixture requires ${command} on PATH.`);
-    const result = spawnSync(python, ['-I', '-B', '-c',
-      `import sys\nsource = open(sys.argv[9], "rb")\n${HOSTED_ACTION_ARCHIVE_INVENTORY_BODY_SCRIPT}`,
-      '32', String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes),
-      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes), String(128 * 1024 * 1024),
-      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes),
-      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes),
-      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds),
-      bytesDigest(readFileSync(archive)), archive
-    ], { encoding: 'utf8', windowsHide: true, timeout: 3_000, maxBuffer: 64 * 1024 });
-    if (result.error !== undefined) throw result.error;
-    if (result.status !== 0) throw new Error(`Archive inventory Python fixture failed: ${result.stderr}`);
-    return CodexDevelopmentValidateHostedActionArchiveInventory(JSON.parse(result.stdout));
-  };
-  // Independent POSIX ustar fixture: the rejected large sizes have no payload.
-  const header = (name: string, type: string, size: number, target = ''): Buffer => {
-    const bytes = Buffer.alloc(512);
-    bytes.write(name, 0, 100, 'utf8');
-    bytes.write('0000644\0', 100, 'ascii');
-    bytes.write('0000000\0', 108, 'ascii');
-    bytes.write('0000000\0', 116, 'ascii');
-    bytes.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 'ascii');
-    bytes.write('00000000000\0', 136, 'ascii');
-    bytes.fill(0x20, 148, 156);
-    bytes.write(type, 156, 'ascii');
-    bytes.write(target, 157, 100, 'utf8');
-    bytes.write('ustar\0', 257, 'ascii');
-    bytes.write('00', 263, 'ascii');
-    const checksum = bytes.reduce((sum, value) => sum + value, 0);
-    bytes.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
-    return bytes;
-  };
-  const payload = (bytes: Buffer): Buffer => Buffer.concat([
-    bytes, Buffer.alloc((512 - bytes.length % 512) % 512)
-  ]);
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const archive = path.join(root, 'candidate.tar');
+    // Every platform executes the production parsing body against this exact file.
+    // Only Linux also exercises the retained-FD/RLIMIT production entry below.
+    const inspectFixture = () => {
+      const command = process.platform === 'win32' ? 'python' : 'python3';
+      const python = Bun.which(command);
+      if (python === null) throw new Error(`Archive inventory fixture requires ${command} on PATH.`);
+      const result = spawnSync(python, ['-I', '-B', '-c',
+        `import sys\nsource = open(sys.argv[9], "rb")\n${HOSTED_ACTION_ARCHIVE_INVENTORY_BODY_SCRIPT}`,
+        '32', String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes),
+        String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes), String(128 * 1024 * 1024),
+        String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes),
+        String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes),
+        String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds),
+        bytesDigest(readFileSync(archive)), archive
+      ], { encoding: 'utf8', windowsHide: true, timeout: 3_000, maxBuffer: 64 * 1024 });
+      if (result.error !== undefined) throw result.error;
+      if (result.status !== 0) throw new Error(`Archive inventory Python fixture failed: ${result.stderr}`);
+      return CodexDevelopmentValidateHostedActionArchiveInventory(JSON.parse(result.stdout));
+    };
+    // Independent POSIX ustar fixture: the rejected large sizes have no payload.
+    const header = (name: string, type: string, size: number, target = ''): Buffer => {
+      const bytes = Buffer.alloc(512);
+      bytes.write(name, 0, 100, 'utf8');
+      bytes.write('0000644\0', 100, 'ascii');
+      bytes.write('0000000\0', 108, 'ascii');
+      bytes.write('0000000\0', 116, 'ascii');
+      bytes.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 'ascii');
+      bytes.write('00000000000\0', 136, 'ascii');
+      bytes.fill(0x20, 148, 156);
+      bytes.write(type, 156, 'ascii');
+      bytes.write(target, 157, 100, 'utf8');
+      bytes.write('ustar\0', 257, 'ascii');
+      bytes.write('00', 263, 'ascii');
+      const checksum = bytes.reduce((sum, value) => sum + value, 0);
+      bytes.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+      return bytes;
+    };
+    const payload = (bytes: Buffer): Buffer => Buffer.concat([
+      bytes, Buffer.alloc((512 - bytes.length % 512) % 512)
+    ]);
     for (const [type, size, diagnostic] of [
       ['0', CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes + 1, /member byte bound/u],
       ['x', 128 * 1024 * 1024 + 1, /metadata byte bound/u],
@@ -1609,8 +1651,11 @@ test('retained archive inventory bounds extended headers before payload and pres
         .toBe(ordinary?.physicalContentDigest);
       expect(inventory.entries.find((entry) => entry.path === 'symlink')?.linkTarget).toBe('forward');
     }
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
@@ -1726,15 +1771,16 @@ test('trusted dependency archive projection binds one stable physical generation
 
 test.skipIf(process.platform !== 'linux')('linux retained bootstrap archive relocates dependency links without mutating source', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dependency-archive-'));
-  const candidateRoot = path.join(root, 'candidate');
-  const dependencyRoot = path.join(root, 'node_modules');
-  const outputDirectory = path.join(root, 'output');
-  const extractedRoot = path.join(root, 'extracted');
-  const retainedSource = path.join(root, 'node_modules-source-moved');
-  const target = path.join(dependencyRoot, 'pkg', 'target.txt');
-  const link = path.join(dependencyRoot, 'pkg', 'link.txt');
-  const collision = path.join(dependencyRoot, 'pkg', '.sec-relocatable-link-collision.tmp');
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const candidateRoot = path.join(root, 'candidate');
+    const dependencyRoot = path.join(root, 'node_modules');
+    const outputDirectory = path.join(root, 'output');
+    const extractedRoot = path.join(root, 'extracted');
+    const retainedSource = path.join(root, 'node_modules-source-moved');
+    const target = path.join(dependencyRoot, 'pkg', 'target.txt');
+    const link = path.join(dependencyRoot, 'pkg', 'link.txt');
+    const collision = path.join(dependencyRoot, 'pkg', '.sec-relocatable-link-collision.tmp');
     mkdirSync(candidateRoot, { recursive: true });
     mkdirSync(path.dirname(target), { recursive: true });
     mkdirSync(outputDirectory, { recursive: true });
@@ -1770,38 +1816,42 @@ test.skipIf(process.platform !== 'linux')('linux retained bootstrap archive relo
     expect(readFileSync(path.join(
       extractedRoot, 'node_modules', 'pkg', '.sec-relocatable-link-collision.tmp'
     ), 'utf8')).toBe('foreign-name-preserved\n');
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('pre-start archive inspection authenticates raw bytes and exact dependency and Git closure without extraction', () => {
   const resolution = hostedResolution();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-prestart-'));
-  const archive = path.join(root, 'prepared-candidate.tar');
-  writeFileSync(archive, 'authenticated raw archive');
-  const dependencyClosureDigest = DEPENDENCY_CLOSURE;
-  const gitBundleDigest = GIT_CLOSURE;
-  const required = new Set([
-    ...resolution.actionPlan.action.inputClosure.map((entry) => entry.path),
-    resolution.artifactInput.manifestPath
-  ]);
-  const inventory = [
-    ...[...required].map((entryPath) => ({
-      path: entryPath, type: 'file', linkTarget: null, size: 1, mode: 0o644,
-      physicalContentDigest: digest('9'), contentDigest: null
-    })),
-    {
-      path: '.sec-trusted-input/candidate.bundle', type: 'file', linkTarget: null,
-      size: 1, mode: 0o600, physicalContentDigest: digest('9'), contentDigest: gitBundleDigest
-    },
-    {
-      path: '.sec-trusted-input/dependency-closure.json', type: 'file', linkTarget: null,
-      size: 1, mode: 0o600, physicalContentDigest: digest('8'),
-      contentDigest: dependencyClosureDigest
-    }
-  ];
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const archive = path.join(root, 'prepared-candidate.tar');
+    writeFileSync(archive, 'authenticated raw archive');
+    const dependencyClosureDigest = DEPENDENCY_CLOSURE;
+    const gitBundleDigest = GIT_CLOSURE;
+    const required = new Set([
+      ...resolution.actionPlan.action.inputClosure.map((entry) => entry.path),
+      resolution.artifactInput.manifestPath
+    ]);
+    const inventory = [
+      ...[...required].map((entryPath) => ({
+        path: entryPath, type: 'file', linkTarget: null, size: 1, mode: 0o644,
+        physicalContentDigest: digest('9'), contentDigest: null
+      })),
+      {
+        path: '.sec-trusted-input/candidate.bundle', type: 'file', linkTarget: null,
+        size: 1, mode: 0o600, physicalContentDigest: digest('9'), contentDigest: gitBundleDigest
+      },
+      {
+        path: '.sec-trusted-input/dependency-closure.json', type: 'file', linkTarget: null,
+        size: 1, mode: 0o600, physicalContentDigest: digest('8'),
+        contentDigest: dependencyClosureDigest
+      }
+    ];
     const inspected = CodexDevelopmentInspectHostedActionArchive({
       resolution,
       preparedCandidateArchive: archive,
@@ -1831,18 +1881,22 @@ test('pre-start archive inspection authenticates raw bytes and exact dependency 
         return inventory;
       }
     })).toThrow(/changed after authentication/u);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('dependency authority is exact-base only and materializer environment cannot inherit registry exfiltration', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dependency-'));
-  const base = path.join(root, 'base');
-  const candidate = path.join(root, 'candidate');
-  mkdirSync(base, { recursive: true });
-  mkdirSync(candidate, { recursive: true });
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    const base = path.join(root, 'base');
+    const candidate = path.join(root, 'candidate');
+    mkdirSync(base, { recursive: true });
+    mkdirSync(candidate, { recursive: true });
     for (const file of ['.bun-version', 'bun.lock', 'bunfig.toml', 'package.json']) {
       writeFileSync(path.join(base, file), `${file}:trusted\n`);
       writeFileSync(path.join(candidate, file), `${file}:trusted\n`);
@@ -1865,8 +1919,11 @@ test('dependency authority is exact-base only and materializer environment canno
     expect(() => CodexDevelopmentAssertHostedActionDependencyInputsV1({
       baseRoot: base, candidateRoot: candidate, baseSha: BASE
     })).toThrow(/drifted/u);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
@@ -2173,6 +2230,7 @@ test('credential sanitizer never treats provider environment identity as a writa
 
 test('CI V3 reader binds exact raw plan bytes and preserves observed base checks before execution', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-v3-reader-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const options = baseOptions(root);
     const legacy = new TextDecoder().decode(options.readExactGitBlob().bytes);
@@ -2203,8 +2261,11 @@ test('CI V3 reader binds exact raw plan bytes and preserves observed base checks
     expect(starts).toBeGreaterThan(0);
     expect(evidence).not.toBeNull();
     expect(JSON.stringify(evidence)).toContain(bytesDigest(v3));
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
@@ -2374,6 +2435,7 @@ async function preparePrivateActionArchive(fixture: ReturnType<typeof privateAct
 
 test.skipIf(process.platform !== 'linux')('actual private materializer output survives scope retirement and rejects copies, foreign operations and replay', async () => {
   const fixture = privateActionArchiveFixture();
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const prepared = await preparePrivateActionArchive(fixture);
     expect(existsSync(prepared.value.preparedCandidateArchive)).toBe(true);
@@ -2390,12 +2452,18 @@ test.skipIf(process.platform !== 'linux')('actual private materializer output su
     // The original output owner may still read current bytes; it never reissues
     // the one consumed inventory or opens another decoder process.
     assertPreparedHostedActionArchiveCurrent(prepared.value, prepared.operation);
-  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
+  } finally {
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(fixture.root, { recursive: true, force: true }) }] });
+  }
 });
 
 for (const mutation of ['replace', 'bytes', 'mode'] as const) {
   test.skipIf(process.platform !== 'linux')(`actual prepared archive rejects ${mutation} drift without rebasing its original proof`, async () => {
     const fixture = privateActionArchiveFixture();
+    let rootFailure: ResourceSettlementFailure | undefined;
     try {
       const prepared = await preparePrivateActionArchive(fixture);
       const archive = prepared.value.preparedCandidateArchive;
@@ -2406,7 +2474,12 @@ for (const mutation of ['replace', 'bytes', 'mode'] as const) {
       expect(() => assertPreparedHostedActionArchiveCurrent(prepared.value, prepared.operation)).toThrow();
       writeFileSync(archive, bytes);
       expect(() => consumePreparedHostedActionArchive(prepared.value, prepared.operation)).toThrow();
-    } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+    } catch (error) {
+      rootFailure = { label: 'fixture assertions', error };
+      throw error;
+    } finally {
+      settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(fixture.root, { recursive: true, force: true }) }] });
+    }
   });
 }
 
