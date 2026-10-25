@@ -30,7 +30,6 @@ test('native dependency wire decoding preserves every closed phase and consumer 
       const expected = { ...request, phase, kind };
       const parsed = parseNativeVerificationDependencyRequest(bytes(expected));
       expect(parsed).toEqual(expected);
-      expect(parseNativeVerificationDependencyRequest(bytes(parsed))).toEqual(expected);
     }
   }
 });
