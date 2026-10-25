@@ -65,6 +65,13 @@ async function createRepository(prefix: string): Promise<string> {
   }
 }
 
+async function withRepository<T>(prefix: string, operation: (root: string) => Promise<T>): Promise<T> {
+  const root = await createRepository(prefix);
+  return settleWorkspaceCallback(() => operation(root), async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+}
+
 test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
   expect(assertGitObjectId('a'.repeat(40), 'sha1')).toBe('a'.repeat(40));
   expect(assertGitObjectId('b'.repeat(64), 'sha256')).toBe('b'.repeat(64));
@@ -74,8 +81,7 @@ test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
 });
 
 test('Git replacement objects cannot substitute committed blob bytes', async () => {
-  const root = await createRepository('sec-dev-git-replace-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-git-replace-', async (root) => {
     const commit = await withAuthorityGitReadSession({
       cwd: root,
       operation: gitReadOperation(),
@@ -103,14 +109,11 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
       const blobs = await readBlobBatch(session, [committed.objectId]);
       expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
     });
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test('trusted Git reads isolate ambient config and alternate index injection', async () => {
-  const root = await createRepository('sec-dev-git-config-isolation-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-git-config-isolation-', async (root) => {
     const alternateIndex = path.join(root, '.git', 'outside.index');
     const hostileEnvironment = { ...process.env, GIT_INDEX_FILE: alternateIndex };
     const emptyIndex = spawnSync('git', ['read-tree', '--empty'], {
@@ -157,14 +160,11 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
     });
     expect(await fs.readFile(alternateIndex)).toEqual(alternateIndexBytes);
     expect(await fs.readFile(path.join(root, '.git', 'index'))).toEqual(canonicalIndexBytes);
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test('exact committed blobs and attribute policy are isolated from .git/info/attributes overrides', async () => {
-  const root = await createRepository('sec-dev-attribute-isolation-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-attribute-isolation-', async (root) => {
     await fs.mkdir(path.join(root, '.git', 'info'), { recursive: true });
     await fs.writeFile(path.join(root, '.git', 'info', 'attributes'), '*.ts -text\n');
     await withAuthorityGitReadSession({
@@ -193,14 +193,11 @@ test('exact committed blobs and attribute policy are isolated from .git/info/att
 
     const settlement = await runSettlement(root);
     expect(settlement.status).toBe('settled');
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test('legal custom Git attribute values remain fail-closed policy input instead of parser crashes', async () => {
-  const root = await createRepository('sec-dev-attribute-custom-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-attribute-custom-', async (root) => {
     await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text=auto\n');
     git(root, ['add', '.gitattributes']);
     git(root, ['commit', '--quiet', '-m', 'custom-attribute']);
@@ -209,14 +206,11 @@ test('legal custom Git attribute values remain fail-closed policy input instead 
     expect(report.classificationCounts.unknown).toBe(1);
     expect(report.flaggedEntries.find((entry) => entry.path === 'committed.ts')?.anomalies)
       .toContain('attributes-unsupported');
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test('text census treats NUL in declared text as a terminal fail-closed finding', async () => {
-  const root = await createRepository('sec-dev-text-nul-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-text-nul-', async (root) => {
     await fs.writeFile(path.join(root, 'committed.ts'), new Uint8Array([
       0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x00, 0x0a
     ]));
@@ -231,14 +225,11 @@ test('text census treats NUL in declared text as a terminal fail-closed finding'
       classification: 'unknown',
       anomalies: ['nul-byte']
     });
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test('text census ignores staged-only index paths and scans the captured committed blob epoch', async () => {
-  const root = await createRepository('sec-dev-census-epoch-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-census-epoch-', async (root) => {
     const committedAttributesOid = git(root, ['rev-parse', 'HEAD:.gitattributes']);
     await fs.writeFile(path.join(root, 'staged-only.ts'), 'export const stagedOnly = true;\n');
     git(root, ['add', 'staged-only.ts']);
@@ -248,14 +239,11 @@ test('text census ignores staged-only index paths and scans the captured committ
     expect(report.gitattributesBlobSha).toBe(committedAttributesOid);
     expect(report.classificationCounts['canonical-lf']).toBe(1);
     expect(report.flaggedEntries.some((entry) => entry.path === 'staged-only.ts')).toBe(false);
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test('worktree settlement distinguishes settled, dirty, and untracked without fail-open reads', async () => {
-  const root = await createRepository('sec-dev-settlement-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-settlement-', async (root) => {
     git(root, ['config', 'core.autocrlf', 'input']);
     git(root, ['config', 'core.eol', 'lf']);
     const settled = await runSettlement(root);
@@ -276,14 +264,11 @@ test('worktree settlement distinguishes settled, dirty, and untracked without fa
     const untracked = await runSettlement(root);
     expect(untracked.status).toBe('untracked');
     expect(untracked.untrackedCount).toBe(1);
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test('repository mutation fence preserves dirty candidates and detects tracked, index, and untracked changes', async () => {
-  const root = await createRepository('sec-dev-mutation-fence-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-mutation-fence-', async (root) => {
     const changed = await withRepositoryFinalStateObservation(
       root,
       compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
@@ -313,18 +298,15 @@ test('repository mutation fence preserves dirty candidates and detects tracked, 
     expect(current.receipt.providerIdentityDigest).toStartWith('sha256:');
     expect(current.receipt.repositoryRootIdentityDigest).toStartWith('sha256:');
     expect(current.receipt.commonDirectoryIdentityDigest).toStartWith('sha256:');
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
 test.skipIf(process.platform === 'win32')(
   'repository mutation fence rejects an unavailable physical observer before the workload',
   async () => {
-    const root = await createRepository('sec-dev-observer-unavailable-');
-    const diagnostics: string[] = [];
-    let called = false;
-    await settleWorkspaceCallback(async () => {
+    await withRepository('sec-dev-observer-unavailable-', async (root) => {
+      const diagnostics: string[] = [];
+      let called = false;
       const result = await runRepositoryZeroWriteOperation('test:unsupported', async () => {
         called = true;
         return 0;
@@ -342,17 +324,14 @@ test.skipIf(process.platform === 'win32')(
       expect(diagnostics[0]).toContain(`(${reason})`);
       expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8'))
         .toBe('export const committed = true;\n');
-    }, async () => {
-      await rm(root, { recursive: true, force: true });
     });
   }
 );
 
 test.skipIf(process.platform !== 'win32')('repository mutation operation fence turns a child write into one diagnostic failure', async () => {
-  const root = await createRepository('sec-dev-mutation-operation-');
-  const diagnostics: string[] = [];
-  let operationCallCount = 0;
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-mutation-operation-', async (root) => {
+    const diagnostics: string[] = [];
+    let operationCallCount = 0;
     const result = await runRepositoryZeroWriteOperation(
       'test:fixture',
       async () => {
@@ -384,8 +363,6 @@ test.skipIf(process.platform !== 'win32')('repository mutation operation fence t
     expect(['added', 'modified']).toContain(diagnostic.firstEvent.action);
     expect(diagnostic.observationDigest).toStartWith('sha256:');
     expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8')).toBe('export const escaped = true;\n');
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
@@ -403,8 +380,7 @@ test('repository observer diagnostics preserve non-event failure boundaries with
 });
 
 test.skipIf(process.platform !== 'win32')('repository mutation fence shares one process ledger with a nested Git admission', async () => {
-  const root = await createRepository('sec-dev-mutation-shared-ledger-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-dev-mutation-shared-ledger-', async (root) => {
     const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
     let nestedSessionReady = false;
     const result = await runRepositoryZeroWriteOperation(
@@ -431,8 +407,6 @@ test.skipIf(process.platform !== 'win32')('repository mutation fence shares one 
     );
     expect(result).toBe(0);
     expect(nestedSessionReady).toBe(true);
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
 
@@ -459,8 +433,7 @@ test.skipIf(process.platform === 'win32')('tracked governed symlink cannot be fo
 
 
 test('affected Git preparation survives settled transport and rejects drifted rebinds', async () => {
-  const root = await createRepository('sec-affected-selection-rebind-');
-  await settleWorkspaceCallback(async () => {
+  await withRepository('sec-affected-selection-rebind-', async (root) => {
     await fs.writeFile(path.join(root, 'selected.ts'), 'export const selected = 1;\n');
     const selection = await withAuthorityGitReadSession({ cwd: root, operation: gitReadOperation(),
       budget: GIT_READ_OPERATION_BUDGET }, session => issueAffectedGitSelectionSource({ session, baseRef: null }));
@@ -480,7 +453,5 @@ test('affected Git preparation survives settled transport and rejects drifted re
       expect(await rebindAffectedGitSelectionSource({ source: selection!, session, baseRef: null })).toBeNull();
     });
     expect(selection!.files).toEqual(['selected.ts']);
-  }, async () => {
-    await rm(root, { recursive: true, force: true });
   });
 });
