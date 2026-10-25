@@ -223,7 +223,7 @@ process.exit(1);
 test('target-scoped closeout inventory binds authenticated exact PR and fresh target refs', () => {
   const fixture = observationFixture();
   const restorePath = installGitHubObservationShim(fixture);
-  try {
+  settleWorkspaceCallbackSync(() => {
     const observation = noActiveWorkObservation(fixture);
     const preparedInventory = collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
@@ -265,26 +265,25 @@ test('target-scoped closeout inventory binds authenticated exact PR and fresh ta
       ...input,
       exactPullRequest: { ...exactPullRequest, headBranch: 'other/branch' }
     })).toThrow('authenticated exact PR observation differs from the closeout target');
-  } finally {
-    restorePath();
-  }
+  }, () => { restorePath(); });
 }, 180_000);
 
 test('remote-absent preparation recovers the exact local branch without mutating either ref', () => {
   const fixture = repositoryFixture();
-  git(fixture.repository, ['push', 'origin', '--delete', fixture.branch]);
-  const restorePath = installGitHubObservationShim(fixture, [{
-    number: 42,
-    headRefName: fixture.branch,
-    headRefOid: fixture.headSha,
-    baseRefName: 'main',
-    baseRefOid: fixture.mainSha,
-    state: 'MERGED',
-    isDraft: false,
-    isCrossRepository: false,
-    url: 'https://github.com/sec-platform/sec/pull/42'
-  }]);
-  try {
+  let restorePath: (() => void) | undefined;
+  settleWorkspaceCallbackSync(() => {
+    git(fixture.repository, ['push', 'origin', '--delete', fixture.branch]);
+    restorePath = installGitHubObservationShim(fixture, [{
+      number: 42,
+      headRefName: fixture.branch,
+      headRefOid: fixture.headSha,
+      baseRefName: 'main',
+      baseRefOid: fixture.mainSha,
+      state: 'MERGED',
+      isDraft: false,
+      isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42'
+    }]);
     const prepared = prepareBranchCloseout({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
@@ -310,10 +309,10 @@ test('remote-absent preparation recovers the exact local branch without mutating
     expect(git(fixture.repository, [
       'ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`
     ])).toBe('');
-  } finally {
-    restorePath();
+  }, () => {
+    restorePath?.();
     rmSync(fixture.root, { recursive: true, force: true });
-  }
+  });
 }, 180_000);
 
 test('canonical GitHub credential prefix masks checkout HTTP authorization before gh lookup', () => {
@@ -343,48 +342,49 @@ test('canonical GitHub credential prefix masks checkout HTTP authorization befor
 
 test('typed inventory boundary ignores ambient repository and index steering without refreshing target index', () => {
   const fixture = repositoryFixture();
-  const restorePath = installGitHubObservationShim(fixture);
-  const decoy = path.join(fixture.root, 'decoy');
-  const isolatedHome = path.join(fixture.root, 'home');
-  mkdirSync(isolatedHome, { recursive: true });
-  git(fixture.root, ['init', decoy]);
-  git(decoy, ['config', 'user.name', 'SEC Decoy']);
-  git(decoy, ['config', 'user.email', 'sec-decoy@example.invalid']);
-  writeFileSync(path.join(decoy, 'decoy.txt'), 'decoy\n', 'utf8');
-  git(decoy, ['add', 'decoy.txt']);
-  git(decoy, ['commit', '-m', 'decoy']);
-  const decoyGitDirectory = git(decoy, [
-    'rev-parse', '--path-format=absolute', '--absolute-git-dir'
-  ]);
-  const decoyIndex = git(decoy, [
-    'rev-parse', '--path-format=absolute', '--git-path', 'index'
-  ]);
-  const targetIndex = git(fixture.repository, [
-    'rev-parse', '--path-format=absolute', '--git-path', 'index'
-  ]);
-  const targetIndexBytes = readFileSync(targetIndex);
-  const targetIndexStat = statSync(targetIndex);
-  const trackedPath = path.join(fixture.repository, 'candidate.txt');
-  const future = new Date(Date.now() + 5_000);
-  utimesSync(trackedPath, future, future);
-
-  const hostileEnvironment: Readonly<Record<string, string>> = {
-    GIT_DIR: decoyGitDirectory,
-    GIT_WORK_TREE: decoy,
-    GIT_COMMON_DIR: decoyGitDirectory,
-    GIT_INDEX_FILE: decoyIndex,
-    GIT_OBJECT_DIRECTORY: path.join(decoyGitDirectory, 'objects'),
-    GIT_CONFIG_COUNT: '1',
-    GIT_CONFIG_KEY_0: 'core.worktree',
-    GIT_CONFIG_VALUE_0: decoy,
-    HOME: isolatedHome
-  };
+  let restorePath: (() => void) | undefined;
   const priorEnvironment = new Map<string, string | undefined>();
-  for (const [name, value] of Object.entries(hostileEnvironment)) {
-    priorEnvironment.set(name, process.env[name]);
-    process.env[name] = value;
-  }
-  try {
+  settleWorkspaceCallbackSync(() => {
+    restorePath = installGitHubObservationShim(fixture);
+    const decoy = path.join(fixture.root, 'decoy');
+    const isolatedHome = path.join(fixture.root, 'home');
+    mkdirSync(isolatedHome, { recursive: true });
+    git(fixture.root, ['init', decoy]);
+    git(decoy, ['config', 'user.name', 'SEC Decoy']);
+    git(decoy, ['config', 'user.email', 'sec-decoy@example.invalid']);
+    writeFileSync(path.join(decoy, 'decoy.txt'), 'decoy\n', 'utf8');
+    git(decoy, ['add', 'decoy.txt']);
+    git(decoy, ['commit', '-m', 'decoy']);
+    const decoyGitDirectory = git(decoy, [
+      'rev-parse', '--path-format=absolute', '--absolute-git-dir'
+    ]);
+    const decoyIndex = git(decoy, [
+      'rev-parse', '--path-format=absolute', '--git-path', 'index'
+    ]);
+    const targetIndex = git(fixture.repository, [
+      'rev-parse', '--path-format=absolute', '--git-path', 'index'
+    ]);
+    const targetIndexBytes = readFileSync(targetIndex);
+    const targetIndexStat = statSync(targetIndex);
+    const trackedPath = path.join(fixture.repository, 'candidate.txt');
+    const future = new Date(Date.now() + 5_000);
+    utimesSync(trackedPath, future, future);
+
+    const hostileEnvironment: Readonly<Record<string, string>> = {
+      GIT_DIR: decoyGitDirectory,
+      GIT_WORK_TREE: decoy,
+      GIT_COMMON_DIR: decoyGitDirectory,
+      GIT_INDEX_FILE: decoyIndex,
+      GIT_OBJECT_DIRECTORY: path.join(decoyGitDirectory, 'objects'),
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.worktree',
+      GIT_CONFIG_VALUE_0: decoy,
+      HOME: isolatedHome
+    };
+    for (const [name, value] of Object.entries(hostileEnvironment)) {
+      priorEnvironment.set(name, process.env[name]);
+      process.env[name] = value;
+    }
     const inventory = collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
@@ -404,21 +404,21 @@ test('typed inventory boundary ignores ambient repository and index steering wit
         size: targetIndexStat.size,
         mtimeMs: targetIndexStat.mtimeMs
       });
-  } finally {
-    restorePath();
+  }, () => {
+    restorePath?.();
     for (const [name, value] of priorEnvironment) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
     rmSync(fixture.root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('closeout requires its documentation owner and revalidates the exact recovery head before effects', () => {
   const fixture = observationFixture();
   const restorePath = installGitHubObservationShim(fixture);
   const recoveryRoot = path.join(fixture.root, 'recovery');
-  try {
+  settleWorkspaceCallbackSync(() => {
     const inventory = collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
@@ -497,9 +497,7 @@ test('closeout requires its documentation owner and revalidates the exact recove
       recoveryBundleBytes: readFileSync(authorized.preparation.recovery.path)
     })).toThrow('active-work-owner-observation-unavailable');
     expect(existsSync(rehydrationRoot)).toBe(false);
-  } finally {
-    restorePath();
-  }
+  }, () => { restorePath(); });
 }, 180_000);
 
 
@@ -518,7 +516,7 @@ test('receipt inventory consumes paired permission JSON and preserves unreadable
   let restorePath = installGitHubObservationShim(fixture, pullRequests, responses);
   const observe = () => collectBranchLifecycleInventory({ repositoryRoot: fixture.repository,
     repositoryFullName: 'sec-platform/sec', defaultBranch: 'main', activeWorkPackageObservation: noActiveWorkObservation(fixture) });
-  try {
+  settleWorkspaceCallbackSync(() => {
     const paired = observe().pullRequests.find(pr => pr.number === 42)!;
     expect(paired.invalidCloseoutReceiptComments).toHaveLength(1);
     restorePath();
@@ -526,7 +524,5 @@ test('receipt inventory consumes paired permission JSON and preserves unreadable
     restorePath = installGitHubObservationShim(fixture, pullRequests, responses);
     expect(observe().pullRequests.find(pr => pr.number === 42)!.closeoutReceipt)
       .toMatchObject({ status: 'unknown', reason: expect.stringContaining('invalid JSON') });
-  } finally {
-    restorePath();
-  }
+  }, () => { restorePath(); });
 });
