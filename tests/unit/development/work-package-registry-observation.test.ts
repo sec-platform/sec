@@ -145,18 +145,27 @@ test('a native branch change after tree observation cannot mix a previous tree i
     command(['-c', 'user.name=Registry Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'second']);
     const second = command(['rev-parse', 'HEAD']);
     command(['update-ref', 'refs/heads/main', first]);
-    let changed = false;
+    let changed = false, observationReads = 0, consumedRecords = 0;
     const source = await projectWorkPackageRegistry(request, async (args, input) => {
+      observationReads++;
       const result = git(args, input);
       if (!changed && args[0] === 'rev-parse') {
         command(['update-ref', 'refs/heads/main', second]); changed = true;
       }
       return result;
+    }, count => {
+      assert.ok(Number.isSafeInteger(count) && count >= 0);
+      consumedRecords += count;
     });
+    // Each response in this one-manifest observation contains one record.
+    assert.equal(consumedRecords, observationReads);
     const projection = parseVerificationRegistryProjection(source);
     assert.equal(changed, true);
     assert.equal(projection.defaultTreeSha, firstTree);
-    assert.equal(projection.entries[0]!.manifestDigest, rawDigest('first\r\n'));
+    assert.deepEqual(projection.entries, [
+      { manifestPath: defaultPath, manifestDigest: rawDigest('first\r\n'), source: 'default',
+        prNumber: null, baseSha: null, headSha: null, headTreeSha: null }
+    ]);
     assert.equal(command(['rev-parse', 'HEAD']), second);
   }, async () => {
     rmSync(root, { recursive: true, force: true });
@@ -281,20 +290,3 @@ for (const [malformed, expectedError] of [
       args[1] === '--batch' ? reply(malformed) : read(args, input)), expectedError);
   });
 }
-
-test('one manifest preserves raw bytes and accounts for every observed record in the caller budget', async () => {
-  const events: string[][] = [];
-  let consumedRecords = 0;
-  const source = await projectWorkPackageRegistry(request, reader(events), count => {
-    assert.ok(Number.isSafeInteger(count) && count >= 0);
-    consumedRecords += count;
-  });
-  assert.deepEqual(parseVerificationRegistryProjection(source).entries, [
-    { manifestPath: defaultPath, manifestDigest: rawDigest('default\r\n'), source: 'default',
-      prNumber: null, baseSha: null, headSha: null, headTreeSha: null }
-  ]);
-  // Every response from this one-manifest fixture contains one record, whether
-  // content is read directly or after a metadata preflight. Charge the actual
-  // observations without prescribing a process count or debit partition.
-  assert.equal(consumedRecords, events.length);
-});

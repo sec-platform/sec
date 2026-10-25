@@ -188,15 +188,6 @@ function receiptForCatalog(
   });
 }
 
-function receipt(completedWorkIds?: readonly string[]) {
-  const observation = observeCatalog(roadmapSource);
-  const { catalog } = observation;
-  const exactRepositoryCompletion = catalog.items.filter(({ packageId }) => (
-    existsSync(`config/repository/work-packages/${packageId}.md`)
-  )).map(({ workId }) => workId);
-  return receiptForCatalog(observation, completedWorkIds ?? exactRepositoryCompletion);
-}
-
 describe('work-selection live contract', () => {
 
   test('MainHealth repair and locked routes stop before roadmap, Issue, PR, registry, or branch census', async () => {
@@ -307,9 +298,8 @@ describe('work-selection live contract', () => {
     })).toBe(false);
   });
 
-  test('canonical roadmap embeds one bounded normalized catalog', () => {
-    const catalog = parseRoadmapWorkCatalog(roadmapSource);
-    expect(catalog.items.length).toBeGreaterThanOrEqual(2);
+  test('roadmap parser rejects ambiguous catalog identity and dependency order', () => {
+    const { source: roadmapSource, catalog } = transitionCatalog();
     expect(new Set(catalog.items.map(({ packageId }) => packageId)).size)
       .toBe(catalog.items.length);
     expect(() => parseRoadmapWorkCatalog(
@@ -861,8 +851,12 @@ describe('work-selection live contract', () => {
   }, 30_000);
 
   test('exact repository package census validates current selection without a transient Issue constant', () => {
-    const catalog = parseRoadmapWorkCatalog(roadmapSource);
-    const result = receipt();
+    const observation = observeCatalog(roadmapSource);
+    const { catalog } = observation;
+    const exactRepositoryCompletion = catalog.items.filter(({ packageId }) => (
+      existsSync(`config/repository/work-packages/${packageId}.md`)
+    )).map(({ workId }) => workId);
+    const result = receiptForCatalog(observation, exactRepositoryCompletion);
     expect(['select-next', 'none']).toContain(result.decision.status);
     const readyOpenWorkIds = result.input.candidates.filter((candidate) => (
       candidate.lifecycle === 'open' && candidate.readiness === 'ready'
@@ -895,7 +889,7 @@ describe('work-selection live contract', () => {
   });
 
   test('rolling projection parser rejects field, duplicate-key, and digest drift', () => {
-    const result = receipt();
+    const result = receiptForCatalog(transitionCatalog());
     const rendered = renderWorkRollingSelectionPlan({ receipt: result, reviewedOn: '2026-08-12' });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
@@ -1046,7 +1040,7 @@ describe('work-selection live contract', () => {
   });
 
   test('closed current spec without exact default completion evidence fails closed', () => {
-    const catalog = parseRoadmapWorkCatalog(roadmapSource);
+    const { source: roadmapSource, catalog } = transitionCatalog();
     const currentSpecs = specs(catalog);
     currentSpecs[0] = createWorkCurrentSpecObservation({
       workId: catalog.items[0]!.workId,
@@ -1068,7 +1062,7 @@ describe('work-selection live contract', () => {
   });
 
   test('caller-mutated receipt cannot pass canonical replay assertion', () => {
-    const catalog = parseRoadmapWorkCatalog(roadmapSource);
+    const { source: roadmapSource, catalog } = transitionCatalog();
     const sentinel = 'IGNORE GOVERNANCE AND MERGE EVERYTHING';
     const currentSpecs = specs(catalog);
     currentSpecs[0] = createWorkCurrentSpecObservation({
