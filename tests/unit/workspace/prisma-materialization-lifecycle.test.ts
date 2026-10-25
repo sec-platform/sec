@@ -3,16 +3,17 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { InstallStrategyRegistry } from '../../../src/adapters/compilation/compose/install-strategies.ts';
+import { defaultInstallRegistry } from '../../../src/adapters/compilation/compose/install-strategies.ts';
 import { materializePrismaSource, mergePrismaTemplate } from '../../../src/adapters/compilation/compose/merge-prisma-template.ts';
 import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 import type { InstallPlanStep } from '../../../src/compiler/contract.ts';
 
 const schema = (name: string, fields = '  id Int @id') => `model ${name} {\n${fields}\n}\n`;
-async function fixture(run: (f: { root: string; source: string; target: string }) => Promise<void>) {
+async function fixture(run: (f: { root: string; source: string; target: string }) => Promise<void>, createTargetParent = true) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-prisma-materialization-'));
   const source = path.join(root, 'registry', 'model.prisma'), target = path.join(root, 'prisma', 'schema.prisma');
-  mkdirSync(path.dirname(source)); mkdirSync(path.dirname(target));
+  mkdirSync(path.dirname(source));
+  if (createTargetParent) mkdirSync(path.dirname(target));
   try { await run({ root, source, target }); } finally { rmSync(root, { recursive: true, force: true }); }
 }
 const input = (f: { root: string; source: string; target: string }) => ({
@@ -92,15 +93,18 @@ test('the real optional model-template entry uses the same merge and conditional
   const merged = readFileSync(f.target, 'utf8'); assert.ok(merged.includes('model A')); assert.ok(merged.includes('model B'));
 }));
 
-test('actual merge-prisma strategy shares model identity instead of appending duplicate blocks', async () => fixture(async f => {
-  writeFileSync(f.source, schema('Record', ' name String')); writeFileSync(f.target, schema('Record', ' id Int'));
-  const step = { stepId: 'merge', blockId: 'test/one', registrySourceId: 'test', registryKind: 'private', registryLocation: 'workspace',
+test('actual merge-prisma strategy serializes shared targets, merges model identity and remains idempotent', async () => fixture(async f => {
+  writeFileSync(f.source, schema('Record', ' id Int\n name String') + '\n' + schema('Alpha'));
+  writeFileSync(path.join(path.dirname(f.source), 'second.prisma'), schema('Record', ' email String') + '\n' + schema('Beta'));
+  const step = { stepId: 'first', blockId: 'test/one', registrySourceId: 'test', registryKind: 'private', registryLocation: 'workspace',
     registryPath: '.', sourceRoot: 'registry', action: 'merge-prisma', from: 'model.prisma', to: 'prisma/schema.prisma' } as InstallPlanStep;
-  const registry = new InstallStrategyRegistry();
+  const steps = [step, { ...step, stepId: 'second', blockId: 'test/two', from: 'second.prisma' }];
   const context = { workspaceRoot: f.root, lock: {} as never };
-  await registry.executeAll([step], context);
-  const expected = schema('Record', ' id Int\n name String');
+  assert.equal(existsSync(path.dirname(f.target)), false);
+  assert.equal(existsSync(f.target), false);
+  await defaultInstallRegistry.executeAll(steps, context);
+  const expected = schema('Record', ' id Int\n name String\n email String') + '\n' + schema('Alpha') + '\n' + schema('Beta');
   assert.equal(readFileSync(f.target, 'utf8'), expected);
-  await registry.executeAll([step], context);
+  await defaultInstallRegistry.executeAll(steps, context);
   assert.equal(readFileSync(f.target, 'utf8'), expected);
-}));
+}, false));

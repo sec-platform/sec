@@ -91,37 +91,33 @@ describe('installOpaqueModules', () => {
     });
   });
 
-  test('writes dependency projection in canonical module order before parallel physical effects', async () => {
+  test('build-copy dependency order follows module identity rather than source directory order', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const { packageJsonPath, srcRoot } = getWorkspacePaths(workspaceRoot);
       await writeJson(packageJsonPath, { dependencies: { stable: '1.0.0' } });
 
-      const slowModule = path.join(srcRoot, 'opaque', 'slow-source');
-      await fs.mkdir(slowModule, { recursive: true });
-      await writeYaml(path.join(slowModule, 'module.yaml'), { id: 'a-slow' });
-      for (let index = 0; index < 64; index += 1) {
-        await fs.writeFile(
-          path.join(slowModule, `file-${String(index).padStart(2, '0')}.ts`),
-          `export const value${index} = ${index};\n`,
-          'utf8'
-        );
+      // Invert directory order and module order. More source files cannot
+      // establish a completion-order observation, so no timing ballast is needed.
+      for (const [directory, id] of [['z-source', 'a-first'], ['a-source', 'z-second']] as const) {
+        const moduleDir = path.join(srcRoot, 'opaque', directory);
+        await fs.mkdir(moduleDir, { recursive: true });
+        await writeYaml(path.join(moduleDir, 'module.yaml'), { id });
+        await fs.writeFile(path.join(moduleDir, 'index.ts'), `export const value = '${id}';\n`, 'utf8');
       }
 
-      const fastModule = path.join(srcRoot, 'opaque', 'fast-source');
-      await fs.mkdir(fastModule, { recursive: true });
-      await writeYaml(path.join(fastModule, 'module.yaml'), { id: 'z-fast' });
-      await fs.writeFile(path.join(fastModule, 'index.ts'), 'export const fast = true;\n', 'utf8');
-
-      await installOpaqueModules(workspaceRoot, {
-        materializationMode: 'build-copy'
-      });
+      await installOpaqueModules(workspaceRoot, { materializationMode: 'build-copy' });
 
       const packageBytes = await fs.readFile(packageJsonPath, 'utf8');
-      const slowDependencyOffset = packageBytes.indexOf('"opaque-a-slow"');
-      const fastDependencyOffset = packageBytes.indexOf('"opaque-z-fast"');
-      expect(slowDependencyOffset).toBeGreaterThan(-1);
-      expect(fastDependencyOffset).toBeGreaterThan(-1);
-      expect(slowDependencyOffset).toBeLessThan(fastDependencyOffset);
+      const firstOffset = packageBytes.indexOf('"opaque-a-first"');
+      const secondOffset = packageBytes.indexOf('"opaque-z-second"');
+      expect(firstOffset).toBeGreaterThan(-1);
+      expect(secondOffset).toBeGreaterThan(-1);
+      expect(firstOffset).toBeLessThan(secondOffset);
+      expect((await readJson<{ dependencies: Record<string, string> }>(packageJsonPath)).dependencies).toEqual({
+        stable: '1.0.0',
+        'opaque-a-first': 'link:src/installed/opaque-a-first',
+        'opaque-z-second': 'link:src/installed/opaque-z-second'
+      });
     });
   });
 

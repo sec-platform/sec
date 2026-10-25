@@ -55,7 +55,8 @@ test('source facts, actor, plan profile and dependency closure cannot drift unde
     dependencyBlobs: original.dependencyBlobs.map(v => ({ ...v, candidateSource: 'drift' })) })).toThrow('drifted');
 });
 
-function stateFixture(operation: (input: { root: string; state: string; cache: string; records: string }) => void) {
+function stateFixture(operation: (input: { root: string; state: string; cache: string; records: string;
+  prepared: ReturnType<typeof preparation> }) => void) {
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-local-v2-'));
   const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
   mkdirSync(root);
@@ -63,8 +64,9 @@ function stateFixture(operation: (input: { root: string; state: string; cache: s
   process.env.SEC_STATE_HOME = state; process.env.SEC_CACHE_HOME = cache;
   try {
     const layout = resolveSecRuntimeStateForRepository({ repositoryRoot: root, repository: 'sec-platform/sec' });
-    operation({ root, state, cache, records: path.join(layout.repositoryStateRoot, 'trusted-runtime',
-      'local-preparation-v2', preparation().request.requestOperationId.slice(7)) });
+    const prepared = preparation();
+    operation({ root, state, cache, prepared, records: path.join(layout.repositoryStateRoot, 'trusted-runtime',
+      'local-preparation-v2', prepared.request.requestOperationId.slice(7)) });
   } finally {
     if (oldState === undefined) delete process.env.SEC_STATE_HOME; else process.env.SEC_STATE_HOME = oldState;
     if (oldCache === undefined) delete process.env.SEC_CACHE_HOME; else process.env.SEC_CACHE_HOME = oldCache;
@@ -73,18 +75,18 @@ function stateFixture(operation: (input: { root: string; state: string; cache: s
 }
 
 test('copied preparation input alone never revives live qualification or creates a Session', () => {
-  stateFixture(({ root, records }) => {
+  stateFixture(({ root, records, prepared }) => {
     mkdirSync(records, { recursive: true });
-    writeFileSync(path.join(records, 'local-preparation-request.json'), `${encodeVerificationActionData(preparation())}\n`);
+    writeFileSync(path.join(records, 'local-preparation-request.json'), `${encodeVerificationActionData(prepared)}\n`);
     const status = readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot: root,
-      repository: 'sec-platform/sec', request: preparation() });
+      repository: 'sec-platform/sec', request: prepared });
     expect(status).toMatchObject({ preparationInputMatched: true, sessionRevision: null,
       evidenceRecord: 'not-observed', sourceQualification: 'not-revalidated', integrationAuthorization: 'not-evaluated' });
-    const { requestDigest: _digest, requestOperationId: _operation, ...body } = preparation().request;
+    const { requestDigest: _digest, requestOperationId: _operation, ...body } = prepared.request;
     const other = createVerificationSessionLocalPreparationRequestV2({ ...body, actorNodeId: 'OTHER' });
     writeFileSync(path.join(records, 'local-preparation-request.json'), `${encodeVerificationActionData(other)}\n`);
     expect(() => readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot: root,
-      repository: 'sec-platform/sec', request: preparation() })).toThrow('differs from current exact source');
+      repository: 'sec-platform/sec', request: prepared })).toThrow('differs from current exact source');
   });
 });
 
@@ -94,11 +96,11 @@ test('V2 repository mismatch is rejected before execution provider discovery', a
 });
 
 test('V2 attempt-only residue cannot be adopted by recreating a missing preparation input', () => {
-  stateFixture(({ root, records }) => {
+  stateFixture(({ root, records, prepared }) => {
     mkdirSync(records, { recursive: true });
     writeFileSync(path.join(records, 'source-program-attempt-historical.json'), '{}');
     expect(() => readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot: root,
-      repository: 'sec-platform/sec', request: preparation() })).toThrow('no exact stored preparation');
+      repository: 'sec-platform/sec', request: prepared })).toThrow('no exact stored preparation');
   });
 });
 
