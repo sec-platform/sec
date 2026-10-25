@@ -85,8 +85,9 @@ test('persistent evidence is not erased or suppressed when the policy changes', 
 
 test('scope retirement remains separate from changing or losing policy context', () => {
   const removed = snapshot(false, [reviewed], false);
-  assert.equal(compare(snapshot(true), removed).entries[0]!.status, 'out-of-scope');
-  assert.equal(compare(snapshot(true), removed).counts.absent, 0);
+  const delta = compare(snapshot(true), removed);
+  assert.equal(delta.entries[0]!.status, 'out-of-scope');
+  assert.equal(delta.counts.absent, 0);
 });
 
 test('compact and full output preserve both sides of incomplete context and one digest', () => {

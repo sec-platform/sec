@@ -194,7 +194,8 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     kind: 'renamed',
     subjects: ['example.service']
   }));
-  expect(reconcile(before, moved).changes).toContainEqual(expect.objectContaining({
+  const movedProjection = reconcile(before, moved);
+  expect(movedProjection.changes).toContainEqual(expect.objectContaining({
     kind: 'moved',
     subjects: ['example.service']
   }));
@@ -203,10 +204,10 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     subjects: ['example.service']
   }));
 
-  const reference = architectureEvolution(before, moved);
+  const reference = compileSourceProgramArchitectureEvolutionReference({ reconciliation: movedProjection });
   // The owner relation and every consumer moved together. A path change
   // alone is not an unresolved architecture obligation or effect grant.
-  expect(reconcile(before, moved).unresolvedReasons).toEqual([]);
+  expect(movedProjection.unresolvedReasons).toEqual([]);
   expect(reference.status).toBe('ready');
   expect(reference.changes).toContainEqual(expect.objectContaining({
     kind: 'moved',
@@ -316,10 +317,7 @@ test('export visibility retirement admits only an exact closed internal frontier
   expect(reconcile(beforeObligation, afterObligation).unresolvedReasons).toContainEqual(
     expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
   );
-  const afterRemovedObligation = compileFixture({
-    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
-  }, [{ root: 'src/example', source: {} }]);
-  expect(reconcile(beforeObligation, afterRemovedObligation).unresolvedReasons).toContainEqual(
+  expect(reconcile(beforeObligation, afterConsumer).unresolvedReasons).toContainEqual(
     expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
   );
 
