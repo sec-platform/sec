@@ -230,12 +230,6 @@ describe('bounded control-plane CLI projections', () => {
   });
 
   test('repository architecture projection preserves deterministic feedback projections and blocks violations', () => {
-    const empty = architectureProjectionFixture('acyclic');
-    expect(repositoryModuleArchitectureShouldBlock(empty)).toBe(false);
-    expect(projectRepositoryModuleArchitectureAudit(empty)).toEqual({
-      feedbackProjections: [], reciprocalPairs: [], strongComponents: [], violations: []
-    });
-
     const invalid = architectureProjectionFixture('cyclic');
     const projected = projectRepositoryModuleArchitectureAudit(invalid);
     expect(repositoryModuleArchitectureShouldBlock(invalid)).toBe(true);
@@ -273,6 +267,10 @@ describe('bounded control-plane CLI projections', () => {
       contentCoverage: Array.from({ length: 2 }, (_, index) => ({ path: `path-${index}` }))
     } as unknown as RepositoryAuditReport;
     const projected = projectRepositoryAuditCli(report);
+    expect(repositoryModuleArchitectureShouldBlock(report.architecture)).toBe(false);
+    expect(projectRepositoryModuleArchitectureAudit(report.architecture)).toEqual({
+      feedbackProjections: [], reciprocalPairs: [], strongComponents: [], violations: []
+    });
     expect(projected.findingCodes).toEqual(['one-root-class']);
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');

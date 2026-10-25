@@ -46,14 +46,12 @@ test('only the selected view runs and each query reads exactly once', async () =
   }
 });
 
-test('JSON modes do not execute text formatters and preserve projected payloads', async () => {
-  for (const compact of [false, true]) {
-    const root = program();
-    registerInspectionQuery(root.command('sample'), { read: () => ({ value: 3 }),
-      view: (value) => inspectionValue(value, () => { throw new Error('text must stay lazy'); }) });
-    const lines = await capture(() => root.parseAsync(['sample', '--json', ...(compact ? ['--compact'] : [])], { from: 'user' }));
-    assert.deepEqual(lines, [[JSON.stringify({ value: 3 }, null, compact ? 0 : 2)]]);
-  }
+test('JSON output does not execute text formatters and preserves the projected payload', async () => {
+  const root = program();
+  registerInspectionQuery(root.command('sample'), { read: () => ({ value: 3 }),
+    view: (value) => inspectionValue(value, () => { throw new Error('text must stay lazy'); }) });
+  const lines = await capture(() => root.parseAsync(['sample', '--json', '--compact'], { from: 'user' }));
+  assert.deepEqual(lines, [[JSON.stringify({ value: 3 })]]);
 });
 
 for (const args of [['sample', 'unknown'], ['sample', '__proto__'], ['sample', 'constructor'], ['sample', '--compact']]) {
@@ -95,7 +93,7 @@ test('data selection receives the same captured context as presentation after an
       assert.equal(Object.isFrozen(context.output), true);
       await Promise.resolve();
       process.chdir(other); root.name('changed'); command.setOptionValue('json', false);
-      return 42;
+      return { value: 42 };
     },
     view: (value, context) => {
       assert.deepEqual(context, observed); assert.equal(context.workspaceRoot, initial);
@@ -103,6 +101,6 @@ test('data selection receives the same captured context as presentation after an
       return inspectionValue(value, () => assert.fail('JSON chosen before read'));
     } });
   try {
-    assert.deepEqual(await capture(() => root.parseAsync(['sample', '--json'], { from: 'user' })), [['42']]);
+    assert.deepEqual(await capture(() => root.parseAsync(['sample', '--json'], { from: 'user' })), [[JSON.stringify({ value: 42 }, null, 2)]]);
   } finally { process.chdir(initial); await rm(other, { recursive: true, force: true }); }
 });
