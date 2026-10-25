@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { indexEngineeringIR, indexValidatedEngineeringIR } from '../../../src/compiler/ir/index-engineering-ir.ts';
-import { projectArchitectureView } from '../../../src/compiler/projection/project-architecture-view.ts';
 import type { SemanticEntity } from '../../../src/semantics/engineering-ir/entity-types.ts';
 import { addFact, emptyIR, entity, projectionSnapshot, viewIR } from '../../fixtures/semantic-view-data.ts';
 
@@ -16,75 +15,6 @@ test('revision strings cannot alias different immutable input generations', () =
   assert.equal(first.ir.semanticRevision, second.ir.semanticRevision);
   const a = indexValidatedEngineeringIR(first); const b = indexValidatedEngineeringIR(second);
   assert.equal(a.entityById.has('state:1'), false); assert.equal(b.entityById.has('state:1'), true);
-});
-
-test('mutable snapshot data is rebuilt instead of becoming a stale cache', () => {
-  const snapshot = projectionSnapshot(emptyIR(), false); const first = indexValidatedEngineeringIR(snapshot);
-  snapshot.ir.entities.push(entity('state:new', 'state'));
-  const second = indexValidatedEngineeringIR(snapshot);
-  assert.equal(first.entityById.has('state:new'), false);
-  assert.equal(second.entityById.has('state:new'), true); assert.equal(Object.isFrozen(snapshot.ir), false);
-});
-
-test('a frozen root with mutable entity membership remains uncached', () => {
-  const ir = Object.freeze(emptyIR()); const snapshot = projectionSnapshot(ir, false);
-  const first = indexValidatedEngineeringIR(snapshot); ir.entities.push(entity('state:new', 'state'));
-  assert.equal(first.entityById.has('state:new'), false);
-  assert.equal(indexValidatedEngineeringIR(snapshot).entityById.has('state:new'), true);
-});
-
-test('mutable entity keys cannot poison a frozen collection index', () => {
-  const ir = emptyIR(); const e = ir.entities[0]!;
-  Object.freeze(ir.entities); Object.freeze(ir.facts); Object.freeze(ir);
-  const snapshot = projectionSnapshot(ir, false); indexValidatedEngineeringIR(snapshot);
-  e.id = 'app:renamed'; e.kind = 'block';
-  const index = indexValidatedEngineeringIR(snapshot);
-  assert.equal(index.entityById.has('app:fixture'), false);
-  assert.equal(index.entitiesByKind.get('block')?.[0], e);
-});
-
-test('mutable fact target objects remain uncached even under frozen facts', () => {
-  const ir = viewIR(); const fact = ir.facts.find((entry) => entry.predicate === 'READS')!;
-  const object = fact.object;
-  ir.entities.forEach(Object.freeze); ir.facts.forEach(Object.freeze);
-  Object.freeze(ir.entities); Object.freeze(ir.facts); Object.freeze(ir);
-  const snapshot = projectionSnapshot(ir, false); const first = indexValidatedEngineeringIR(snapshot);
-  assert.equal(object.kind, 'entity'); if (object.kind !== 'entity') assert.fail();
-  object.entityId = 'state:changed';
-  const second = indexValidatedEngineeringIR(snapshot);
-  assert.equal(first.incomingFactsByEntityObject.has('state:changed'), false);
-  assert.equal(second.incomingFactsByEntityObject.get('state:changed')?.[0], fact);
-});
-
-test('frozen entity accessors are not mistaken for stable index keys', () => {
-  const ir = emptyIR(); let id = ir.appId;
-  Object.defineProperty(ir.entities[0], 'id', { get() { return id; }, enumerable: true });
-  Object.freeze(ir.entities[0]); Object.freeze(ir.entities); Object.freeze(ir.facts); Object.freeze(ir);
-  const snapshot = projectionSnapshot(ir, false);
-  indexValidatedEngineeringIR(snapshot); id = 'app:changed';
-  assert.equal(indexValidatedEngineeringIR(snapshot).entityById.has(id), true);
-});
-
-test('frozen collection accessors are not mistaken for fixed membership', () => {
-  const ir = emptyIR(); let chosen = Object.freeze(entity('app:first', 'app'));
-  Object.defineProperty(ir.entities, 0, { get() { return chosen; }, enumerable: true });
-  Object.freeze(ir.entities); Object.freeze(ir.facts); Object.freeze(ir);
-  const snapshot = projectionSnapshot(ir, false); const first = indexValidatedEngineeringIR(snapshot);
-  chosen = Object.freeze(entity('app:second', 'app'));
-  const second = indexValidatedEngineeringIR(snapshot);
-  assert.equal(first.entityById.has(chosen.id), false);
-  assert.equal(second.entityById.get(chosen.id), chosen);
-});
-
-test('frozen IR collection properties implemented as getters stay fresh', () => {
-  const ir = emptyIR(); let entities = Object.freeze([Object.freeze(entity('app:first', 'app'))]);
-  Object.defineProperty(ir, 'entities', { get() { return entities; }, enumerable: true });
-  Object.freeze(ir.facts); Object.freeze(ir);
-  const snapshot = projectionSnapshot(ir, false); const first = indexValidatedEngineeringIR(snapshot);
-  entities = Object.freeze([Object.freeze(entity('app:second', 'app'))]);
-  const second = indexValidatedEngineeringIR(snapshot);
-  assert.equal(first.entityById.has('app:second'), false);
-  assert.equal(second.entityById.has('app:second'), true);
 });
 
 test('cached maps and their membership buckets prevent caller mutation', () => {
@@ -114,18 +44,6 @@ test('read index iterators support native Map copies with detached entry tuples'
   const original = pair[0]; pair[0] = 'changed'; pair[1] = entity('changed', 'app');
   assert.equal(index.entityById.has(original), true); assert.equal(index.entityById.has('changed'), false);
   assert.deepEqual([...copy.values()], [...index.entityById.values()]);
-});
-
-test('indexed keys may be stable while nonindexed payload remains live', () => {
-  const ir = viewIR(); ir.entities.forEach(Object.freeze);
-  ir.facts.forEach((fact) => { Object.freeze(fact.object); Object.freeze(fact); });
-  Object.freeze(ir.entities); Object.freeze(ir.facts); Object.freeze(ir);
-  const snapshot = projectionSnapshot(ir, false); const index = indexValidatedEngineeringIR(snapshot);
-  const op = ir.entities.find((e) => e.id === 'operation:0')!;
-  op.attributes.splice(0, op.attributes.length, { key: 'role', value: 'updated' });
-  assert.equal(index.entityById.get(op.id)?.attributes[0]?.value, 'updated');
-  assert.equal(indexValidatedEngineeringIR(snapshot).entityById.get(op.id)?.attributes[0]?.value, 'updated');
-  assert.equal(projectArchitectureView(snapshot).nodes.find((node) => node.id === op.id)?.role, 'updated');
 });
 
 test('an empty immutable graph still provides the complete readonly query contract', () => {

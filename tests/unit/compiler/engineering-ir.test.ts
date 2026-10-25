@@ -76,7 +76,15 @@ function expectCodedFailure(run: () => unknown, code: string): void {
 }
 
 test('buildEngineeringIR creates stable semantic entities, facts, and revision domains', () => {
-  const ir = buildEngineeringIR(fixture());
+  const input = fixture();
+  const reversed: BuildEngineeringIRInput = {
+    ...input,
+    resolvedBlocks: [...input.resolvedBlocks].reverse(),
+    manifests: [...input.manifests].reverse(),
+    acceptanceIds: [...input.acceptanceIds].reverse(),
+    policyDeclarations: [...input.policyDeclarations].reverse()
+  };
+  const ir = buildEngineeringIR(input);
 
   expect(ir.appId).toBe('app:ticket-app');
   expect(ir.inputRevision.startsWith('sha256:')).toBe(true);
@@ -98,19 +106,19 @@ test('buildEngineeringIR creates stable semantic entities, facts, and revision d
   expect(dependencyAssertion?.provenance[0]?.kind).toBe('contract');
   expect(dependencyAssertion?.validFromRevision).toBe(ir.semanticRevision);
   expect(ir.entities.some((entity) => entity.kind === 'artifact')).toBe(false);
-});
+  expect(buildEngineeringIR(reversed)).toEqual(ir);
 
-test('buildEngineeringIR is deterministic across input ordering', () => {
-  const input = fixture();
-  const reversed: BuildEngineeringIRInput = {
-    ...input,
-    resolvedBlocks: [...input.resolvedBlocks].reverse(),
-    manifests: [...input.manifests].reverse(),
-    acceptanceIds: [...input.acceptanceIds].reverse(),
-    policyDeclarations: [...input.policyDeclarations].reverse()
-  };
+  const index = indexEngineeringIR(ir);
 
-  expect(buildEngineeringIR(reversed)).toEqual(buildEngineeringIR(input));
+  expect(index.entityById.get('block:ticket/basic')?.kind).toBe('block');
+  expect(index.entitiesByKind.get('capability')?.map((entity) => entity.id)).toContain('capability:ticket/read');
+  expect(index.factsByPredicate.get('PROVIDES')?.length).toBeGreaterThan(0);
+  expect(index.outgoingFactsBySubject.get('block:ticket/basic')?.length).toBeGreaterThan(0);
+  expect(index.incomingFactsByEntityObject.get('capability:auth/session')?.length).toBeGreaterThan(0);
+
+  const firstFact = ir.facts[0];
+  expect(firstFact).toBeDefined();
+  expect(index.factById.get(firstFact!.id)).toEqual(firstFact);
 });
 
 test('buildEngineeringIR preserves distinct assertions for the same semantic triple', () => {
@@ -173,21 +181,6 @@ test('buildEngineeringIR rejects a missing app id without falling back to app na
     }),
     'IR-IDENTITY-007'
   );
-});
-
-test('indexEngineeringIR exposes entity and relation values', () => {
-  const ir = buildEngineeringIR(fixture());
-  const index = indexEngineeringIR(ir);
-
-  expect(index.entityById.get('block:ticket/basic')?.kind).toBe('block');
-  expect(index.entitiesByKind.get('capability')?.map((entity) => entity.id)).toContain('capability:ticket/read');
-  expect(index.factsByPredicate.get('PROVIDES')?.length).toBeGreaterThan(0);
-  expect(index.outgoingFactsBySubject.get('block:ticket/basic')?.length).toBeGreaterThan(0);
-  expect(index.incomingFactsByEntityObject.get('capability:auth/session')?.length).toBeGreaterThan(0);
-
-  const firstFact = ir.facts[0];
-  expect(firstFact).toBeDefined();
-  expect(index.factById.get(firstFact!.id)).toEqual(firstFact);
 });
 
 test('observed flow sorting preserves duplicate observations, provenance and captured input order', () => {

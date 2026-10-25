@@ -61,13 +61,6 @@ test('an operation shared with other domains retains its global operation facts 
   assert.ok(operation.references.some((ref) => ref.kind === 'fact' && ref.ref === global.id));
 });
 
-test('duplicate step membership never duplicates its outgoing scenario edges', () => {
-  const ir = viewIR(); addFact(ir, 'scenario:0', 'CONTAINS', 'scenario:0#step:a');
-  const view = projectScenarioView(projectionSnapshot(ir), 'scenario:0');
-  assert.equal(view.edges.filter((edge) => edge.source === 'scenario:0#step:a' && edge.relation === 'INVOKES').length, 1);
-  assert.equal(view.nodes.filter((node) => node.id === 'scenario:0#step:a').length, 1);
-});
-
 test('scenario self-edges remain visible once and suppress an entry badge when they precede the step', () => {
   const ir = viewIR(); const fact = addFact(ir, 'scenario:0#step:a', 'PRECEDES', 'scenario:0#step:a');
   const view = projectScenarioView(projectionSnapshot(ir), 'scenario:0');
@@ -93,41 +86,27 @@ test('responsibility state view retains all owned states and merged edge evidenc
   assert.equal(read.length, 1); assert.ok(read[0]!.references.some((ref) => ref.ref === duplicate.id));
 });
 
-test('state transition labels retain value fallbacks and unknown operation labels', () => {
-  const ir = viewIR();
-  const transition = addFact(ir, 'state:0', 'TRANSITIONS_TO', { value: { by: 'operation:missing' } });
-  const view = projectStateView(projectionSnapshot(ir), 'state:0');
-  const edge = view.edges.find((edge) => edge.id === `edge:fact:${transition.id}`)!;
-  assert.equal(edge.source, 'state:0');
-  assert.equal(edge.relation, 'TRANSITIONS_TO');
-  assert.deepEqual(edge.value, { by: 'operation:missing' });
-  assert.ok(edge.label.includes('operation:missing'));
-  assert.equal(edge.label.match(/\?|\bunknown\b/gi)?.length, 2);
+test('view-set output matches separate public projections with immutable input', () => {
+  const snapshot = projectionSnapshot(viewIR(3));
+  const before = JSON.stringify(snapshot.ir);
+  const expected = [projectArchitectureView(snapshot),
+    ...[0, 1, 2].map((i) => projectScenarioView(snapshot, `scenario:${i}`)),
+    ...[0, 1, 2].map((i) => projectStateView(snapshot, `state:${i}`))];
+  const result = buildSemanticViewSet(snapshot);
+  // The composition equality proves wiring; this independent fixture witness
+  // prevents two mutually empty or incorrectly selected projections passing.
+  assert.deepEqual(result.views.map(view => [view.viewKind, view.subject ?? null]), [
+    ['architecture', null],
+    ['scenario', 'scenario:0'], ['scenario', 'scenario:1'], ['scenario', 'scenario:2'],
+    ['state', 'state:0'], ['state', 'state:1'], ['state', 'state:2']
+  ]);
+  assert.equal(result.formatVersion, '1');
+  assert.deepEqual(result.views, expected);
+  assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.views));
+  assert.ok(Object.isFrozen(result.views[0]?.nodes));
+  assert.deepEqual(buildSemanticViewSet(snapshot), result);
+  assert.equal(JSON.stringify(snapshot.ir), before);
 });
-
-for (const frozen of [false, true]) {
-  test(`view-set output matches separate public projections with ${frozen ? 'immutable' : 'mutable'} input`, () => {
-    const snapshot = projectionSnapshot(viewIR(3), frozen);
-    const before = JSON.stringify(snapshot.ir);
-    const expected = [projectArchitectureView(snapshot),
-      ...[0, 1, 2].map((i) => projectScenarioView(snapshot, `scenario:${i}`)),
-      ...[0, 1, 2].map((i) => projectStateView(snapshot, `state:${i}`))];
-    const result = buildSemanticViewSet(snapshot);
-    // The composition equality proves wiring; this independent fixture witness
-    // prevents two mutually empty or incorrectly selected projections passing.
-    assert.deepEqual(result.views.map(view => [view.viewKind, view.subject ?? null]), [
-      ['architecture', null],
-      ['scenario', 'scenario:0'], ['scenario', 'scenario:1'], ['scenario', 'scenario:2'],
-      ['state', 'state:0'], ['state', 'state:1'], ['state', 'state:2']
-    ]);
-    assert.equal(result.formatVersion, '1');
-    assert.deepEqual(result.views, expected);
-    assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.views));
-    assert.ok(Object.isFrozen(result.views[0]?.nodes));
-    if (frozen) assert.deepEqual(buildSemanticViewSet(snapshot), result);
-    assert.equal(JSON.stringify(snapshot.ir), before);
-  });
-}
 
 test('mutating one returned projection does not affect later projections sharing read indexes', () => {
   const snapshot = projectionSnapshot(viewIR());

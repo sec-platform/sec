@@ -302,25 +302,3 @@ test('equal JSON wire cannot hide non-enumerable evidence identities from raw IR
     expectCodedFailure(() => validateEngineeringIR(raw, input), 'IR-VALIDATION-008');
   }
 });
-
-test('raw IR validation rejects invalid confidence despite a matching semantic revision', () => {
-  const input = projectionInput();
-  const base = buildEngineeringIR(input);
-  expect(base.facts[0]?.assertions.length).toBeGreaterThan(0);
-  for (const confidence of [Number.NaN, Infinity, -Infinity, -0.01, 1.01]) {
-    // Only this raw assertion is corrupted; the builder never sees its value.
-    const facts = base.facts.map((fact, factIndex) => factIndex === 0 ? {
-      ...fact,
-      assertions: fact.assertions.map((assertion, assertionIndex) => assertionIndex === 0
-        ? { ...assertion, confidence }
-        : assertion)
-    } : fact);
-    const revision = semanticRevisionFor(base, facts);
-    const raw: EngineeringIR = {
-      ...base,
-      semanticRevision: revision,
-      facts: facts.map((fact) => withRevision(fact, revision))
-    };
-    expectCodedFailure(() => validateEngineeringIR(raw, input), 'IR-AUTHORITY-001');
-  }
-});

@@ -4,7 +4,7 @@ import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/c
 import { indexValidatedEngineeringIR } from '../../../src/compiler/ir/index-engineering-ir.ts';
 import { factAssertionId } from '../../../src/compiler/ir/ir-fact-store.ts';
 import { factIdentity } from '../../../src/compiler/ir/ir-identity.ts';
-import { digest } from '../../../src/compiler/ir/ir-revision.ts';
+import { digest, semanticRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
@@ -49,10 +49,13 @@ test('validated snapshots are produced only after the full boundary and are deep
   const index = indexValidatedEngineeringIR(snapshot);
 
   expect(index.entityById.has('app:validated-app')).toBe(true);
-  expect(Object.isFrozen(snapshot)).toBe(true);
-  expect(Object.isFrozen(snapshot.ir)).toBe(true);
-  expect(Object.isFrozen(snapshot.ir.entities)).toBe(true);
-  expect(Object.isFrozen(snapshot.ir.entities[0])).toBe(true);
+  const pending: unknown[] = [snapshot];
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (value === null || typeof value !== 'object') continue;
+    expect(Object.isFrozen(value)).toBe(true);
+    pending.push(...Object.values(value));
+  }
 
   if (false) {
     const raw = buildEngineeringIR(source);
@@ -182,16 +185,23 @@ test('raw IR rejects nested Proxy, custom iterators and executable toJSON withou
 
 test('raw validator rejects invalid confidence, empty provenance and unsupported closed validity', () => {
   const source = input();
+  const base = buildEngineeringIR(source);
   for (const confidence of [NaN, Infinity, -Infinity, -0.01, 1.01]) {
-    const forged = clone(buildEngineeringIR(source));
+    const forged = clone(base);
     forged.facts[0]!.assertions[0]!.confidence = confidence;
+    forged.semanticRevision = `sha256:${digest(semanticRevisionPayload(
+      forged.graphId, forged.appId, forged.entities, forged.facts, forged.scenarios
+    ))}`;
+    for (const fact of forged.facts) {
+      for (const assertion of fact.assertions) assertion.validFromRevision = forged.semanticRevision;
+    }
     expectCodedFailure(() => validateEngineeringIR(forged, source), 'IR-VALIDATION-008');
   }
-  const missingProvenance = clone(buildEngineeringIR(source));
+  const missingProvenance = clone(base);
   missingProvenance.facts[0]!.assertions[0]!.provenance = [];
   expectCodedFailure(() => validateEngineeringIR(missingProvenance, source), 'IR-VALIDATION-008');
 
-  const closed = clone(buildEngineeringIR(source));
+  const closed = clone(base);
   closed.facts[0]!.assertions[0]!.validToRevision = closed.semanticRevision;
   expectCodedFailure(() => validateEngineeringIR(closed, source), 'IR-VALIDATION-009');
 });

@@ -162,7 +162,9 @@ test('distinct NUL-bearing state transitions survive compilation and a second tr
 });
 
 test('semantic contract becomes authoritative entities, facts, transitions, and scenario steps', () => {
-  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
+  const semanticContract = contract();
+  const input = { ...baseInput(), semanticContracts: [semanticContract] };
+  const ir = buildEngineeringIR(input);
 
   expect(ir.entities.find((entity) => entity.id === 'responsibility:item:ItemStateMachine')?.kind).toBe('responsibility');
   expect(ir.entities.find((entity) => entity.id === 'responsibility:item:ItemStateMachine')?.attributes)
@@ -215,6 +217,10 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
       awaits: false
     }]
   });
+  expect(buildEngineeringIR({
+    ...input,
+    semanticContracts: [semanticContract, semanticContract]
+  })).toEqual(ir);
 });
 
 test('semantic operation input sequence survives normalization and Engineering IR attributes', () => {
@@ -254,18 +260,6 @@ test('distinct semantic contracts cannot implicitly merge through a shared names
     () => buildEngineeringIR({ ...baseInput(), semanticContracts: [first, second] }),
     'SEMANTIC-LINK-001'
   );
-});
-
-test('duplicate semantic contract input remains idempotent', () => {
-  const semanticContract = contract();
-
-  expect(buildEngineeringIR({
-    ...baseInput(),
-    semanticContracts: [semanticContract, semanticContract]
-  })).toEqual(buildEngineeringIR({
-    ...baseInput(),
-    semanticContracts: [semanticContract]
-  }));
 });
 
 test('semantic contract scenario cannot reference undeclared acceptance', () => {
