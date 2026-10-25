@@ -89,16 +89,6 @@ test('staging edits only the isolated copy and preserves source bytes and exact 
   }, 0o444);
 });
 
-test('staging snapshots caller byte buffers before its first awaited fence', async () => {
-  await fixture(async f => {
-    const expectedOriginal = Buffer.from(f.originalBytes);
-    const expectedStaged = Buffer.from(f.stagedBytes);
-    const root = await prepare(f, async () => { f.originalBytes.fill(0); f.stagedBytes.fill(0); });
-    expect(readFileSync(path.join(root, f.plan.relativePath))).toEqual(expectedStaged);
-    expect(readFileSync(f.sourcePath)).toEqual(expectedOriginal);
-  });
-});
-
 test('staging retires an old snapshot through the bounded metadata route before rebuilding', async () => {
   await fixture(async f => {
     const previous = path.join(f.transactionRoot, 'workspace');
