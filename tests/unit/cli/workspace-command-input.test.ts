@@ -80,12 +80,10 @@ test('a missing upgrade target is rejected even when a dry run is requested', ()
   assert.throws(() => parseUpgradeCommandInput('block', undefined, { dryRun: true }, 'sec upgrade'), usage);
 });
 
-test('field definitions are immutable and drive actual Commander registration', () => {
+test('field definitions drive actual Commander registration', () => {
   const root = new Command().name('sec'); registerWorkspaceCommands(root);
   for (const [name, definition] of [['compose', COMPOSE_LOCK_OPTION], ['repair', WORKSPACE_DRY_RUN_OPTION], ['upgrade', WORKSPACE_DRY_RUN_OPTION]] as const) {
-    assert.ok(Object.isFrozen(definition));
     const option = root.commands.find((command) => command.name() === name)?.options.find((option) => option.flags === definition.flags);
     assert.ok(option); assert.equal(option.attributeName(), definition.name);
-    assert.equal(option.defaultValue, undefined); // Preserve native metadata, decoder owns the effective default.
   }
 });

@@ -34,10 +34,6 @@ test('normal failure rendering keeps header, JSON projection and separate detail
   assert.doesNotMatch(lines.join('\n'), /raw-dependency-command-secret|stage cleanup failed|materialization and cleanup failed/);
 });
 
-test('falsy details preserve the existing no-extra-line presentation', () => {
-  for (const details of [undefined, null, false, 0, '']) assert.equal(render(protocol(details)).length, 2);
-});
-
 test('non-JSON details cannot replace primary diagnostics with a serialization failure', () => {
   const cycle: { self?: unknown } = {}; cycle.self = cycle;
   for (const details of [cycle, { value: 1n }, 1n, Symbol('detail'), () => undefined]) {

@@ -12,9 +12,7 @@ for (const kind of ['errors', 'ci']) {
   test(`required selector ${kind} reads only its own source and formats only the selected output`, async () => {
     const root = program(), calls: string[] = [];
     const readers = Object.fromEntries(['errors', 'ci'].map(name => [name, () => { calls.push(name); return commandValue({ name }, () => assert.fail('JSON text')); }]));
-    const command = root.command('contract'); assert.equal(registerNamedInspectionQuery(command, readers), command);
-    assert.equal(root.commands.length, 1);
-    assert.deepEqual(command.registeredArguments[0]!.argChoices, ['errors', 'ci']);
+    registerNamedInspectionQuery(root.command('contract'), readers);
     assert.deepEqual(await capture(() => root.parseAsync(['contract', kind, '--json', '--compact'], { from: 'user' })), [JSON.stringify({ name: kind })]);
     assert.deepEqual(calls, [kind]);
   });

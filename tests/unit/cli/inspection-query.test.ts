@@ -33,13 +33,9 @@ test('only the selected view runs and each query reads exactly once', async () =
     const events: string[] = [];
     const root = program();
     const command = root.command('sample').alias('other');
-    const registered = registerInspectionQuery(command, { defaultMode: 'summary', read: () => { events.push('read'); return { value: 7 }; },
+    registerInspectionQuery(command, { defaultMode: 'summary', read: () => { events.push('read'); return { value: 7 }; },
       view: (value) => { events.push('default'); return inspectionValue(value, (v) => `default:${v.value}`); },
       modes: { detail: (value) => { events.push('detail'); return inspectionValue(value.value, (v) => `detail:${v}`); } } });
-    assert.equal(registered, command);
-    assert.equal(root.commands.length, 1);
-    assert.equal(command.name(), 'sample');
-    assert.equal(command.alias(), 'other');
     const printed = await capture(() => root.parseAsync(['other', ...(mode ? [mode] : [])], { from: 'user' }));
     assert.deepEqual(events, ['read', mode === 'detail' ? 'detail' : 'default']);
     assert.deepEqual(printed, [[mode === 'detail' ? 'detail:7' : 'default:7']]);

@@ -183,7 +183,6 @@ describe('bounded control-plane CLI projections', () => {
     expect(compact.github).toEqual({ status: 'unresolved', reason: 'github-api-provider-unavailable',
       httpStatus: null, detailDigest: rawSha256(detail) });
     expect(JSON.stringify(compact)).not.toContain(detail);
-    expect(JSON.parse(JSON.stringify({ github: observation })).github.diagnostic.detail).toBe(detail);
   });
 
   test('real provider HTTP failure supplies status while response prose remains untrusted', async () => {

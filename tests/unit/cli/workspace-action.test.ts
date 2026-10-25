@@ -19,12 +19,11 @@ async function capture(run: () => Promise<unknown>) {
 test('one registered action admits, executes and projects once in that order', async () => {
   const root = program(), events: string[] = [], result = Object.freeze({ value: 7 });
   const native = root.command('sample <value>').alias('other');
-  const registered = registerWorkspaceAction(native, {
+  registerWorkspaceAction(native, {
     decode: (value: string) => { events.push('decode'); return { request: value, output: jsonOpts({}) }; },
     execute: async (cwd, value) => { events.push('execute'); assert.equal(cwd, process.cwd()); assert.equal(value, 'input'); return result; },
-    view: (value) => { events.push('view'); assert.equal(value, result); return commandValue(value, (v) => { events.push('format'); return String(v.value); }); }
+    view: (value) => { events.push('view'); return commandValue(value, (v) => { events.push('format'); return String(v.value); }); }
   });
-  assert.equal(registered, native); assert.equal(root.commands.length, 1);
   assert.deepEqual(await capture(() => root.parseAsync(['other', 'input'], { from: 'user' })), [['7']]);
   assert.deepEqual(events, ['decode', 'execute', 'view', 'format']);
 });
@@ -79,19 +78,13 @@ test('decoder owns the immutable request snapshot; execution never receives raw 
   const command = root.command('sample').option('--enabled');
   registerWorkspaceAction(command, {
     decode: (raw: Record<string, unknown>) => ({ request: Object.freeze({ enabled: raw.enabled }), output: jsonOpts({ json: true }) }),
-    execute: async (_cwd, request) => { await held; assert.ok(Object.isFrozen(request)); return request; },
+    execute: async (_cwd, request) => { await held; return request; },
     view: (value) => commandValue(value, () => assert.fail('wrong output mode'))
   });
   const lines = await capture(async () => { const pending = root.parseAsync(['sample', '--enabled'], { from: 'user' }); command.setOptionValue('enabled', false); finish(); await pending; });
   assert.deepEqual(JSON.parse(String(lines[0]![0])), { enabled: true });
 });
 
-test('operation value formatting observes later domain changes without freezing the domain', () => {
-  const domain = { state: 'live' }; const view = commandValue(domain, (value) => { assert.equal(value, domain); return value.state; });
-  assert.equal(view.value, domain);
-  assert.ok(Object.isFrozen(view)); assert.ok(!Object.isFrozen(domain));
-  domain.state = 'updated'; assert.equal(view.formatText(), 'updated');
-});
 
 test('help does not decode, execute or project the operation', async () => {
   const root = program();

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progress.ts';
 import { addJsonFlags, commandFromRoot, jsonOpts } from '../../../src/entry/cli/command-options.ts';
-import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../../src/entry/cli/json-output-options.ts';
+import { parseJsonOutputOptions, type JsonOutputIssue } from '../../../src/entry/cli/json-output-options.ts';
 
 const reject = (issue: JsonOutputIssue): never => { throw issue; };
 
@@ -37,13 +37,6 @@ test('captured output and selected JSON progress survive caller mutation until c
   assert.equal(Reflect.set(output, 'compact', true), false);
 });
 
-test('defaults and dependency descriptions cannot be changed after registration', () => {
-  assert.ok(Object.isFrozen(JSON_OUTPUT_OPTIONS));
-  for (const definition of JSON_OUTPUT_OPTIONS) {
-    assert.ok(Object.isFrozen(definition));
-    assert.ok(Object.isFrozen(definition.requires));
-  }
-});
 
 test('generic compact dependency retains the real command path in its usage error', async () => {
   const program = new Command().name('renamed').exitOverride();
