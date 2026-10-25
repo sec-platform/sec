@@ -60,16 +60,27 @@ test('composite failure fields and AggregateError values describe one captured s
   assert.ok(Object.isFrozen(failure.failures[0])); assert.equal(Object.isFrozen(primary), false);
 });
 
-test('an unreadable selected cleanup does not erase the primary or abandon known peers', async () => {
-  const primary = new Error('run'), access = new Error('get method'), events: string[] = [];
+test('async settlement preserves primary, capture and cleanup failures while attempting every peer', async () => {
+  const primary = new Error('run'), access = new Error('get method');
+  const first = new Error('first cleanup'), third = new Error('third cleanup');
+  const events: string[] = [];
   await assert.rejects(settlePhysicalResourcesAsync({ primary: { label: 'run', error: primary }, cleanup: [
+    { label: 'first', async settle() { events.push('first'); throw first; } },
     { label: 'broken', get settle(): () => void { throw access; } },
-    { label: 'valid', settle() { events.push('closed'); } }
+    { label: 'second', async settle() { events.push('second'); } },
+    { label: 'third', async settle() { events.push('third'); throw third; } }
   ] }), error => {
     assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
-    assert.deepEqual(error.errors, [primary, access]); return true;
+    assert.deepEqual(error.failures, [
+      { label: 'run', error: primary },
+      { label: 'first', error: first },
+      { label: 'broken', error: access },
+      { label: 'third', error: third }
+    ]);
+    assert.deepEqual(error.errors, [primary, first, access, third]);
+    return true;
   });
-  assert.deepEqual(events, ['closed']);
+  assert.deepEqual(events, ['first', 'second', 'third']);
 });
 
 for (const asynchronous of [false, true]) {
