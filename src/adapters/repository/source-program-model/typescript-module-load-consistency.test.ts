@@ -53,6 +53,10 @@ for (const [name, source, hasDependency, unresolved] of cases) {
       assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), hasDependency ? ['src/b.ts'] : []);
       assert.equal(model.unknowns.some(({ code }) => code === 'dynamic-module-unresolved'), unresolved);
       assert.deepEqual(graph.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
+      if (name === 'ordinary same-named function') {
+        assert.deepEqual(model.unknowns, []);
+        assert.ok(model.references.some(({ kind, name }) => kind === 'call' && name === 'require'));
+      }
     } finally {
       releaseTypeScriptSourceProgramWorkspace();
     }

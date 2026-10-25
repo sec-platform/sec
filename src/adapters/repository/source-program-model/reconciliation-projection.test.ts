@@ -400,7 +400,7 @@ test('duplicate owner and removed consumer frontiers fail closed', () => {
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'consumer-frontier-removed-without-retirement'
   );
-  const reference = architectureEvolution(before, after);
+  const reference = compileSourceProgramArchitectureEvolutionReference({ reconciliation: projection });
   expect(reference.status).toBe('blocked');
   expect(reference.direction).toBe('blocked');
   expect(reference.blockers.map(({ code }) => code)).toContain('reconciliation-unresolved');

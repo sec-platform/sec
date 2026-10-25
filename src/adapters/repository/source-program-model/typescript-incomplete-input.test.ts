@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
 import {
-  compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
   releaseTypeScriptSourceProgramWorkspace
 } from './typescript.ts';
@@ -38,13 +37,3 @@ for (const source of [
     }
   });
 }
-
-test('unrelated zero-argument calls remain ordinary semantic calls', () => {
-  try {
-    const model = compileTypeScriptSourceProgramModel(input('export function ready() { return 1; } ready();'));
-    assert.deepEqual(model.unknowns, []);
-    assert.ok(model.references.some(({ kind, name }) => kind === 'call' && name === 'ready'));
-  } finally {
-    releaseTypeScriptSourceProgramWorkspace();
-  }
-});

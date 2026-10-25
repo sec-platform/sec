@@ -31,17 +31,6 @@ function fixtureProgram(source: string, fileName = 'src/a.ts') {
   return { program, sourceFiles: [...files.values()], repositoryPath: (file: ts.SourceFile) => file.fileName };
 }
 
-for (const { name, source, imports, unresolved } of cases) {
-  test(`module observation: ${name}`, () => {
-    const facts = typeScriptModuleImportFacts(fixtureProgram(source));
-    assert.deepEqual(facts.imports.map(({ kind, specifier, typeOnly }) => ({ kind, specifier, typeOnly })), imports);
-    assert.deepEqual(facts.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
-    assert.ok(Object.isFrozen(facts));
-    assert.ok(Object.isFrozen(facts.imports));
-    assert.ok(Object.isFrozen(facts.unresolvedFiles));
-  });
-}
-
 const emitCases = [
   "import type { Value } from './b.ts';", "import { type Value } from './b.ts';",
   "import { type A, type B } from './b.ts';", "import {} from './b.ts';",
@@ -52,6 +41,25 @@ const emitCases = [
   "import type * as types from './b.ts';", "type V = import('./b.ts').Value;",
   "void import('./b.ts');"
 ];
+
+function assertObservation(
+  facts: ReturnType<typeof typeScriptModuleImportFacts>,
+  imports: (typeof cases)[number]['imports'],
+  unresolved: boolean
+): void {
+  assert.deepEqual(facts.imports.map(({ kind, specifier, typeOnly }) => ({ kind, specifier, typeOnly })), imports);
+  assert.deepEqual(facts.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
+  assert.ok(Object.isFrozen(facts));
+  assert.ok(Object.isFrozen(facts.imports));
+  assert.ok(Object.isFrozen(facts.unresolvedFiles));
+}
+
+for (const { name, source, imports, unresolved } of cases.filter(({ source }) => !emitCases.includes(source))) {
+  test(`module observation: ${name}`, () => {
+    const facts = typeScriptModuleImportFacts(fixtureProgram(source));
+    assertObservation(facts, imports, unresolved);
+  });
+}
 
 // The oracle consumes the compiler's JavaScript output, independently of the
 // production extractor's source-level modifier rules. It checks side effects,
@@ -89,6 +97,8 @@ test('runtime edges agree with verbatim compiler emit for each syntax and type/r
   ];
   for (const source of [...emitCases, ...unions.map(parts => parts.join('\n'))]) {
     const facts = typeScriptModuleImportFacts(fixtureProgram(source));
+    const exactCase = cases.find((candidate) => candidate.source === source);
+    if (exactCase !== undefined) assertObservation(facts, exactCase.imports, exactCase.unresolved);
     const observed = [...new Set(facts.imports.filter((item) => !item.typeOnly)
       .map((item) => item.specifier))].sort();
     const emitted = emittedModuleDependencies(source);

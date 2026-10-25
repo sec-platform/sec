@@ -15,7 +15,6 @@ import {
   observeRepositorySourceProgramDescriptorOperationExports,
   summarizeSourceProgramTopology
 } from './repository.ts';
-import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { compileTypeScriptSourceProgramModel, querySourceProgramModel } from './typescript.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
@@ -85,11 +84,7 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
   }
   expect(byOperation.get('old')?.status).toBe('absent');
   expect(byOperation.get('old')?.scopePaths).not.toContain('src/example/nested/old.ts');
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: files.map(({ path }) => path),
-    readSource: (path) => sources.get(path) ?? null
-  });
-  const architecture = compileRepositoryModuleArchitectureProjection(graph, membership, {
+  const architecture = compileRepositoryModuleArchitectureProjection(workspaceSnapshot.moduleGraph, membership, {
     ...model,
     descriptorOperationExports: observations!
   });
