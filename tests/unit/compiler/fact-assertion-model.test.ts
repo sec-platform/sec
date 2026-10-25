@@ -91,19 +91,13 @@ test('same triple and normalized assertion identity dedupe idempotently', () => 
   expect(facts.get(firstId)?.assertions).toHaveLength(1);
 });
 
-test('same assertion identity rejects conflicting confidence instead of strongest-wins merge', () => {
+test('conflicting confidence cannot replace a claim or erase independent inferred authority', () => {
   const facts = new Map<string, SemanticFact>();
-  addFact(facts, factInput({ confidence: 0.4 }));
-
+  const factId = addFact(facts, factInput({ confidence: 0.4 }));
   expectCodedFailure(
     () => addFact(facts, factInput({ confidence: 0.9 })),
     'IR-AUTHORITY-003'
   );
-});
-
-test('inferred confidence 1 does not overwrite an authoritative assertion', () => {
-  const facts = new Map<string, SemanticFact>();
-  const factId = addFact(facts, factInput({ confidence: 0.4 }));
   const inferredFactId = addFact(facts, factInput({
     authority: 'inferred',
     confidence: 1,

@@ -108,7 +108,7 @@ function declarations(source: BuildEngineeringIRInput): SemanticGeneratorDeclara
   }];
 }
 
-test('validated IR owns Generator/Artifact facts and the deterministic lowering plan', () => {
+test('validated IR owns deterministic Generator/Artifact lowering and rejects declaration drift', () => {
   const source = input();
   const snapshot = buildValidatedEngineeringIR(source);
   const plan = buildSemanticGeneratorPlan(snapshot, declarations(source));
@@ -146,11 +146,7 @@ test('validated IR owns Generator/Artifact facts and the deterministic lowering 
     // @ts-expect-error Generator plans require the branded validated snapshot boundary.
     buildSemanticGeneratorPlan(raw, declarations(source));
   }
-});
 
-test('Generator Plan rejects declarations that drift from their validated IR snapshot', () => {
-  const source = input();
-  const snapshot = buildValidatedEngineeringIR(source);
   const drifted = declarations(source);
   drifted[0]!.declaration.typeBinding.name = 'DriftedStatus';
   expect(() => buildSemanticGeneratorPlan(snapshot, drifted)).toThrow(

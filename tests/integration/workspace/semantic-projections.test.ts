@@ -55,36 +55,6 @@ test('architecture projection preserves Responsibility, Port, Effect, and Permis
   }
 });
 
-test('scenario projection only accepts validated Facts and validator rejects a tampered Scenario cache', () => {
-  const original = ticketSnapshot.ir.scenarios.find((scenario) => scenario.id === 'scenario:ticket:create-ticket')!;
-  const canonicalView = projectScenarioView(ticketSnapshot, original.id);
-  const scenarioIR = {
-    ...ticketSnapshot.ir,
-    scenarios: ticketSnapshot.ir.scenarios.map((scenario) => scenario.id === original.id
-      ? {
-          ...scenario,
-          steps: [
-            ...scenario.steps,
-            {
-              id: 'transition',
-              operationEntityId: 'operation:ticket:transitionTicketStatus',
-              afterStepIds: ['create'],
-              awaits: true
-            }
-          ]
-        }
-      : scenario)
-  };
-
-  expect(() => validateEngineeringIR(scenarioIR, ticketInput)).toThrow();
-  expect(canonicalView.nodes.find((node) => node.id === 'scenario:ticket:create-ticket#step:create')?.references).toContainEqual({
-    kind: 'entity',
-    ref: 'scenario:ticket:create-ticket#step:create'
-  });
-  expect(canonicalView.edges.filter((edge) => ['PRECEDES', 'AWAITS', 'RETRIES', 'HANDLES'].includes(edge.relation))
-    .every((edge) => edge.references.some((reference) => reference.kind === 'fact'))).toBe(true);
-});
-
 test('state projection exposes owner, backing field, mutator, and transition loops', () => {
   const view = projectStateView(ticketSnapshot, 'state:ticket:ticket-status');
 
@@ -176,4 +146,31 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
       ),
     ),
   ).toBe(true);
+
+  const original = ticketSnapshot.ir.scenarios.find((scenario) => scenario.id === 'scenario:ticket:create-ticket')!;
+  const scenarioIR = {
+    ...ticketSnapshot.ir,
+    scenarios: ticketSnapshot.ir.scenarios.map((scenario) => scenario.id === original.id
+      ? {
+          ...scenario,
+          steps: [
+            ...scenario.steps,
+            {
+              id: 'transition',
+              operationEntityId: 'operation:ticket:transitionTicketStatus',
+              afterStepIds: ['create'],
+              awaits: true
+            }
+          ]
+        }
+      : scenario)
+  };
+
+  expect(() => validateEngineeringIR(scenarioIR, ticketInput)).toThrow();
+  expect(canonicalView.nodes.find((node) => node.id === 'scenario:ticket:create-ticket#step:create')?.references).toContainEqual({
+    kind: 'entity',
+    ref: 'scenario:ticket:create-ticket#step:create'
+  });
+  expect(canonicalView.edges.filter((edge) => ['PRECEDES', 'AWAITS', 'RETRIES', 'HANDLES'].includes(edge.relation))
+    .every((edge) => edge.references.some((reference) => reference.kind === 'fact'))).toBe(true);
 });

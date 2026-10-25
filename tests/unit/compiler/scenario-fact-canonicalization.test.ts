@@ -118,11 +118,13 @@ function expectCodedFailure(run: () => unknown, code: string): void {
   throw new Error(`Expected CodedFailure ${code}`);
 }
 
-test("Scenario execution semantics have canonical Entity and Fact identity with provenance", () => {
-  const ir = buildEngineeringIR({
+test("Scenario canonical identity and provenance survive validated reconstruction without admitting a tampered cache", () => {
+  const input = {
     ...baseInput(),
     semanticContracts: [contract()],
-  });
+  };
+  const snapshot = buildValidatedEngineeringIR(input);
+  const ir = snapshot.ir;
   const scenarioId = "scenario:flow:run-flow";
   const startId = `${scenarioId}#step:start`;
   const finishId = `${scenarioId}#step:finish`;
@@ -174,16 +176,7 @@ test("Scenario execution semantics have canonical Entity and Fact identity with 
     .map((fact) => fact.id)
     .sort();
   expect(canonicalScenario.factIds).toEqual(expectedFactIds);
-});
 
-test("Scenario cache is exactly reconstructable and tampered raw IR cannot enter Projector", () => {
-  const input = {
-    ...baseInput(),
-    semanticContracts: [contract()],
-  };
-  const snapshot = buildValidatedEngineeringIR(input);
-  const ir = snapshot.ir;
-  const scenarioId = "scenario:flow:run-flow";
   const derived = deriveScenarioDefinitions(ir.entities, ir.facts);
   expect(derived).toEqual(ir.scenarios);
 
