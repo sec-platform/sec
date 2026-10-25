@@ -20,8 +20,13 @@ test('the install entrypoint captures argv, cwd and capabilities before clock an
   let count = 0;
   let commitCount = 0;
   const options = {
-    monotonicNowMs: () => { args[0] = 'clock-replaced'; return 0; },
-    beforeCommit: async () => {
+    monotonicNowMs: () => {
+      args[0] = 'clock-replaced';
+      options.beforeCommit = async () => assert.fail('clock-replaced fence ran');
+      return 0;
+    },
+    async beforeCommit() {
+      assert.equal(this, options);
       commitCount++; args[1] = 'fence-replaced'; process.chdir(tmpdir());
       options.testMaterialization = issueRuntimeDependencyTestMaterialization(async () => assert.fail('replacement ran'));
       options.beforeCommit = async () => assert.fail('replacement fence ran');

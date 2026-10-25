@@ -21,9 +21,3 @@ test('prebound mode is rejected before even sampling the environment clock', () 
 test('an unissued fixture capability is refused before callbacks', () => {
   assert.throws(() => bindCompilerInstallInvocation({ testMaterialization: {} as never, monotonicNowMs: () => assert.fail('clock') }), /owner-issued/);
 });
-
-test('the selected commit method keeps its real receiver', async () => {
-  class Provider { #calls = 0; beforeCommit = async function (this: Provider) { this.#calls++; }; get calls() { return this.#calls; } }
-  const raw = new Provider(); const bound = bindCompilerInstallInvocation(raw);
-  raw.beforeCommit = async () => assert.fail('replacement'); await bound.beforeCommit?.(); assert.equal(raw.calls, 1);
-});
