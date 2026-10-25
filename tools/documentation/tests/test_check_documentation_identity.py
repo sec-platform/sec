@@ -56,14 +56,6 @@ class DocumentationIdentity(TestCase):
         self.write('docs/产品/产品要求与工作约束.md', '<a id="req001"></a>\n\n### REQ001｜**rich**\n\nBody.')
         self.assertEqual(s.requirement_projection(self.root)['items'][0]['fragment'], 'req001')
 
-    def test_boundary_is_a_real_source_member_and_never_written_by_refresh(self):
-        before = (self.root / s.BASELINE_PATH).read_bytes()
-        a = s.refresh_source_manifest(self.root)
-        self.assertIn(s.BASELINE_PATH, [x['path'] for x in self.capture()['members']])
-        self.assertEqual((self.root / s.BASELINE_PATH).read_bytes(), before)
-        self.assertFalse(a['boundary_written'])
-        self.assertNotIn('source_set_sha256', s.load(self.root / s.BASELINE_PATH))
-
     def test_cache_absence_change_and_corruption_do_not_change_source_identity(self):
         before = self.capture()
         for text in ('{}', 'different renderer and fonts', '{ malformed'):
@@ -168,8 +160,13 @@ class DocumentationIdentity(TestCase):
         with self.assertRaises(ValueError): s.validate_source_manifest(value, self.root)
 
     def test_refresh_is_idempotent_and_source_preserving(self):
+        boundary_before = (self.root / s.BASELINE_PATH).read_bytes()
         source_before = self.capture()
-        s.refresh_source_manifest(self.root)
+        self.assertIn(s.BASELINE_PATH, [x['path'] for x in source_before['members']])
+        result = s.refresh_source_manifest(self.root)
+        self.assertEqual((self.root / s.BASELINE_PATH).read_bytes(), boundary_before)
+        self.assertFalse(result['boundary_written'])
+        self.assertNotIn('source_set_sha256', s.load(self.root / s.BASELINE_PATH))
         before = {n: (self.root / n).read_bytes() for n in s.PROJECTION_PATHS}
         s.refresh_source_manifest(self.root)
         self.assertEqual(source_before, self.capture())

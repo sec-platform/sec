@@ -36,8 +36,9 @@ class SourceBoundary(unittest.TestCase):
         (self.root / 'src/product.ts').write_bytes(b'\xff')
         before = self.names()
         (self.root / 'docs/new.md').write_text('# New\n', encoding='utf-8')
-        self.assertEqual(self.names() - before, {'docs/new.md'})
-        self.assertNotIn('src/product.ts', self.names())
+        after = self.names()
+        self.assertEqual(after - before, {'docs/new.md'})
+        self.assertNotIn('src/product.ts', after)
 
     def test_missing_and_overlapping_roots_reject(self):
         for roots in (['absent'], ['docs', 'docs/规则.md'], ['docs', 'docs'], [{}], []):
