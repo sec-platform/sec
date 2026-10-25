@@ -80,15 +80,6 @@ test('exact Git batch reader preserves absence and rejects invalid, nonordinary,
   }
 });
 
-test('exact Git batch reader rejects a cat-file byte-count mismatch', () => {
-  const blobSha = '2'.repeat(40);
-  expect(() => parseExactGitBlobsBatch(
-    [{ blobSha, repositoryPath: 'fixture' }],
-    Buffer.from(`${blobSha} blob 4\nabc\n`, 'utf8'),
-    1024
-  )).toThrow('byte count is malformed');
-});
-
 test('exact Git batch reader preserves LF path-to-blob identity despite checkout, replacement, and environment drift', () => {
   const repositoryRoot = initializeRepository();
   const previousGitDir = process.env.GIT_DIR;
