@@ -1,10 +1,8 @@
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../../testkit/git-protocol.ts';
 
 import { expect, test } from 'bun:test';
-import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import { observeOperationAuthorityOwners } from '../../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
 import { assertWorkerOperationReadPlanMatches, projectWorkerOperationReadClosure } from '../../../src/adapters/self-hosting/control/agent/operation-read-plan.ts';
 import { projectWorkerTaskCapsuleObservation } from '../../../src/adapters/self-hosting/control/agent/task-capsule-host.ts';
@@ -22,8 +20,6 @@ import {
 } from '../../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
   evaluateSkillApplicability,
-  isSkillQuarantinePath,
-  SKILL_QUARANTINE_EXACT_PATHS,
   type AgentRole,
   type AgentSkillId,
   type SkillApplicabilityDecision,
@@ -47,42 +43,6 @@ function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlan
   });
 }
 
-function gitOutput(args: readonly string[]): string {
-  const result = spawnSync('git', args, {
-    cwd: REPOSITORY_ROOT,
-    env: canonicalGitChildEnvironment(),
-    encoding: 'utf8',
-    windowsHide: true
-  });
-  if (result.status !== 0) throw new Error(result.stderr);
-  return result.stdout.trim();
-}
-
-function gitOutputOrNull(args: readonly string[]): string | null {
-  const result = spawnSync('git', args, {
-    cwd: REPOSITORY_ROOT,
-    env: canonicalGitChildEnvironment(),
-    encoding: 'utf8',
-    windowsHide: true
-  });
-  return result.status === 0 ? result.stdout.trim() : null;
-}
-
-function gitNulPaths(args: readonly string[]): string[] {
-  const result = spawnSync('git', args, {
-    cwd: REPOSITORY_ROOT,
-    env: canonicalGitChildEnvironment(),
-    encoding: 'utf8',
-    windowsHide: true
-  });
-  if (result.status !== 0) throw new Error(result.stderr);
-  return result.stdout.split('\0').filter((entry) => entry.length > 0);
-}
-
-function changedPaths(base: string, head: string): string[] {
-  return [...new Set(gitNulPaths(['diff', '--name-only', '-z', base, head]))].sort();
-}
-
 function planInput(overrides: {
   role?: AgentRole;
   operationKind?: TaskCapsuleOperationKind;
@@ -95,10 +55,11 @@ function planInput(overrides: {
   head?: string;
   changedPaths?: readonly string[];
 } = {}): OperationReadPlanInput {
-  const head = overrides.head ?? gitOutput(['rev-parse', 'HEAD']);
+  // Pure planning content requires exact object-ID syntax, not a live Git observation.
+  const head = overrides.head ?? 'a'.repeat(40);
   const base = overrides.base ?? head;
   const candidates = overrides.candidates ?? ['worker-development'];
-  const observedChangedPaths = overrides.changedPaths ?? changedPaths(base, head);
+  const observedChangedPaths = overrides.changedPaths ?? [];
   return {
     schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
@@ -156,26 +117,9 @@ function planInput(overrides: {
 }
 
 function evaluatePlan(input: OperationReadPlanInput): SkillApplicabilityDecision {
-  const plan = compileOperationReadPlan(input);
-  const envelope = projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan);
-  const trustedSkillRevisions: Record<string, string> = {};
-  const candidateSkillRevisions: Record<string, string> = {};
-  for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSkillQuarantinePath)) {
-    const trusted = gitOutputOrNull(['rev-parse', '--verify', `${envelope.trustedRevision}:${repositoryPath}`]);
-    const candidate = gitOutputOrNull(['rev-parse', '--verify', `${envelope.targetCandidate}:${repositoryPath}`]);
-    if (trusted !== null && /^[0-9a-f]{40,64}$/u.test(trusted)) {
-      trustedSkillRevisions[repositoryPath] = trusted;
-    }
-    if (candidate !== null && /^[0-9a-f]{40,64}$/u.test(candidate)) {
-      candidateSkillRevisions[repositoryPath] = candidate;
-    }
-  }
-  const decision = evaluateSkillApplicability({
-    ...envelope,
-    trustedSkillRevisions,
-    candidateSkillRevisions
-  });
-  return decision;
+  return evaluateSkillApplicability(
+    projectSkillApplicabilityEnvelopeFromOperationReadPlan(compileOperationReadPlan(input))
+  );
 }
 
 test('verified Read Plan selects the single trusted Skill', () => {
@@ -188,6 +132,8 @@ test('zero candidates and zero body budget resolve none-required', () => {
   const decision = evaluatePlan(planInput({ candidates: [] }));
   expect(decision.status).toBe('none-required');
   expect(decision.selectedSkillId).toBeNull();
+  expect(decision.reasonCodes).toContain('none-required');
+  expect(decision.candidateSkillIds).toEqual([]);
 });
 
 test('multiple surviving metadata candidates resolve ambiguous before any body read', () => {
@@ -199,6 +145,7 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
   }));
   expect(decision.status).toBe('ambiguous');
   expect(decision.selectedSkillId).toBeNull();
+  expect(decision.reasonCodes).toContain('ambiguous-multiple-candidates');
 });
 
 test('Skill selection remains orthogonal to Task Capsule write and resource authority', () => {
@@ -218,14 +165,15 @@ test('Skill selection remains orthogonal to Task Capsule write and resource auth
 
 test('candidate quarantine revisions are derived from exact Git objects', async () => {
   await inGitProtocolRepository(async (root, git) => {
-    const repositoryPath = SKILL_QUARANTINE_EXACT_PATHS[0];
+    const repositoryPath = 'AGENTS.md';
     writeFileSync(path.join(root, repositoryPath), 'Trusted fixture guidance\n');
     gitProtocolSuccess(git(['add', '--', repositoryPath]));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted fixture']));
     const base = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
     const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${base}:${repositoryPath}`])).trim();
     writeFileSync(path.join(root, repositoryPath), 'Candidate fixture guidance\n');
-    gitProtocolSuccess(git(['add', '--', repositoryPath]));
+    writeFileSync(path.join(root, 'product.ts'), 'export const candidate = true;\n');
+    gitProtocolSuccess(git(['add', '--', repositoryPath, 'product.ts']));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'candidate fixture']));
     const head = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
     const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${head}:${repositoryPath}`])).trim();
@@ -237,6 +185,8 @@ test('candidate quarantine revisions are derived from exact Git objects', async 
       candidateSkillRevisions: { [repositoryPath]: candidateBlob }
     });
     expect(trustedBlob).not.toBe(candidateBlob);
+    expect(decision.status).toBe('applicable');
+    expect(decision.selectedSkillId).toBe('worker-development');
     expect(decision.quarantinePaths).toEqual([repositoryPath]);
     expect(decision.trustedSkillRevision).toBe(trustedBlob);
     expect(decision.candidateSkillRevision).toBe(candidateBlob);

@@ -36,14 +36,6 @@ test('metadata table covers every registered Skill exactly once with valid vocab
   }
 });
 
-test('zero candidates resolves none-required without synthesizing a catch-all Skill', () => {
-  const decision = evaluateSkillApplicability(envelope({ candidates: [] }));
-  expect(decision.status).toBe('none-required');
-  expect(decision.selectedSkillId).toBeNull();
-  expect(decision.reasonCodes).toContain('none-required');
-  expect(decision.candidateSkillIds).toEqual([]);
-});
-
 test('candidates filtered by metadata leaving none resolves none-required with exclusion evidence', () => {
   const decision = evaluateSkillApplicability(envelope({
     candidates: ['repository-audit']
@@ -65,17 +57,6 @@ test('exactly one surviving candidate resolves applicable and selects it', () =>
     { skillId: 'worker-development', role: true, operationKind: true },
     { skillId: 'repository-audit', role: false, operationKind: false }
   ]);
-});
-
-test('multiple surviving candidates without unique operation evidence resolve ambiguous', () => {
-  const decision = evaluateSkillApplicability(envelope({
-    role: 'a0',
-    operationKind: 'design',
-    candidates: ['architecture-evolution', 'heuristic-governance']
-  }));
-  expect(decision.status).toBe('ambiguous');
-  expect(decision.selectedSkillId).toBeNull();
-  expect(decision.reasonCodes).toContain('ambiguous-multiple-candidates');
 });
 
 test('goal, role, operation and capsule binding changes invalidate the prior decision as stale', () => {
@@ -116,23 +97,6 @@ test('goal, role, operation and capsule binding changes invalidate the prior dec
   }));
   expect(capsuleStale.status).toBe('stale');
   expect(capsuleStale.invalidationConditions).toContain('task-capsule-digest');
-});
-
-test('candidate touching a quarantine path binds trusted guidance and never self-authorizes', () => {
-  const decision = evaluateSkillApplicability(envelope({
-    candidates: ['worker-development'],
-    changedPaths: ['AGENTS.md', 'platform/shared/ci-contract.ts'],
-    trustedSkillRevisions: { 'AGENTS.md': 'trusted-blob-a' },
-    candidateSkillRevisions: { 'AGENTS.md': 'candidate-blob-b' }
-  }));
-  expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('worker-development');
-  expect(decision.quarantinePaths).toEqual(['AGENTS.md']);
-  expect(decision.trustedSkillRevision).toBe('trusted-blob-a');
-  expect(decision.candidateSkillRevision).toBe('candidate-blob-b');
-  expect(decision.reasonCodes).toEqual(
-    expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
-  );
 });
 
 test('operation outside the Skill space resolves not-applicable', () => {

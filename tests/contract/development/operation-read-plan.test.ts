@@ -1,10 +1,8 @@
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
 
 import { expect, test } from 'bun:test';
 
-import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import {
   compileOperationReadPlan,
   OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
@@ -31,19 +29,9 @@ function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlan
   });
 }
 
-function gitHead(): string {
-  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
-    cwd: REPOSITORY_ROOT,
-    env: canonicalGitChildEnvironment(),
-    encoding: 'utf8',
-    windowsHide: true
-  });
-  if (result.status !== 0) throw new Error(result.stderr);
-  return result.stdout.trim();
-}
-
 function input(): OperationReadPlanInput {
-  const head = gitHead();
+  // Verification checks content binding only; live authority is tested separately below.
+  const head = 'a'.repeat(40);
   return {
     schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
