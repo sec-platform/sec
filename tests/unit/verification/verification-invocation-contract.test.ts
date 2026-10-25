@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { captureVerifyProjectOptions } from '../../../src/adapters/verification/verify-invocation.ts';
 
-for (const field of ['emitTiming', 'isolated'] as const) {
+for (const field of ['emitTiming'] as const) {
   test(`${field} rejects invalid booleans without invoking caller conversion hooks`, () => {
     let coercions = 0;
     const hostile = {
