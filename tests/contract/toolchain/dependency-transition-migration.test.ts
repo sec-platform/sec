@@ -182,6 +182,11 @@ async function removeMigrationFixture(root: string): Promise<void> {
   await rm(root, { recursive: true, force: true });
 }
 
+async function withMigrationFixture(prefix: string, run: (root: string) => Promise<void>): Promise<void> {
+  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+  return settleWorkspaceCallback(() => run(root), () => removeMigrationFixture(root));
+}
+
 function compilerStageRelativePath(root: string, name: string): string {
   return path.relative(root, compilerStagePath(root, name)).replaceAll('\\', '/');
 }
@@ -348,8 +353,7 @@ async function prepareBridgeRecovery(input: Readonly<{
 }
 
 test('preserves persisted Bun-drift recovery evidence and blocks a new install', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-bun-drift-'));
-  try {
+  await withMigrationFixture('sec-dependency-bridge-bun-drift-', async root => {
     const { installIdentityFailure } = await prepareBridgeRecovery({
       failure: 'bun-runtime-drift',
       root
@@ -388,14 +392,11 @@ test('preserves persisted Bun-drift recovery evidence and blocks a new install',
     expect(terminal?.failure).toEqual(installIdentityFailure);
     expect(await readRegularFiles(recordsRoot)).toEqual(beforeRecords);
     expect(commandStarts).toBe(0);
-  } finally {
-    await removeMigrationFixture(root);
-  }
+  });
 });
 
 test('settles exact active and retired legacy stage registrations without admitting installation', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-stage-registration-'));
-  try {
+  await withMigrationFixture('sec-dependency-stage-registration-', async root => {
     const active = await registerCompilerStage(root, 'active', 'active');
     const retired = await registerCompilerStage(root, 'retired', 'retired');
     let commandStarts = 0;
@@ -420,15 +421,12 @@ test('settles exact active and retired legacy stage registrations without admitt
         { kind: 'missing', registrationState: 'missing' },
         { kind: 'missing', registrationState: 'missing' }
       ]);
-  } finally {
-    await removeMigrationFixture(root);
-  }
+  });
 }, 10_000);
 
 test('preserves unregistered or physically replaced legacy stages before any settlement effect', async () => {
   for (const mutation of ['unregistered', 'replaced'] as const) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `sec-dependency-stage-${mutation}-`));
-    try {
+    await withMigrationFixture(`sec-dependency-stage-${mutation}-`, async root => {
       const registered = await registerCompilerStage(root, 'registered', 'retired');
       const blockedPath = compilerStagePath(root, 'blocked');
       await mkdir(path.join(blockedPath, 'node_modules'), { recursive: true });
@@ -454,15 +452,12 @@ test('preserves unregistered or physically replaced legacy stages before any set
         registrationState: 'retired'
       });
       expect((await readdir(path.dirname(blockedPath))).includes(path.basename(blockedPath))).toBe(true);
-    } finally {
-      await removeMigrationFixture(root);
-    }
+    });
   }
 }, 30_000);
 
 test('blocks legacy bridge admission when persisted journal evidence changes', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-journal-'));
-  try {
+  await withMigrationFixture('sec-dependency-bridge-journal-', async root => {
     await prepareBridgeRecovery({ failure: 'bun-runtime-drift', root });
     const recordsRoot = path.join(targetJournalRoot(root), 'records');
     for (const name of await readdir(recordsRoot)) {
@@ -475,9 +470,7 @@ test('blocks legacy bridge admission when persisted journal evidence changes', a
     }
     await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
       .rejects.toMatchObject({ code: 'RUNTIME-DEPS-002' });
-  } finally {
-    await removeMigrationFixture(root);
-  }
+  });
 }, 30_000);
 
 test.serial('coordination cutover locator survives an invocation-owned Runtime State environment', async () => {
@@ -915,8 +908,7 @@ test('coordination migration preserves an unknown marker and its old lock', asyn
 });
 
 test('rejects a well-formed legacy chain whose final phase is not terminal', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-nonterminal-'));
-  try {
+  await withMigrationFixture('sec-dependency-transition-nonterminal-', async root => {
     const records = buildLegacyRecords(root, 2);
     const terminalUnsigned = {
       ...Object.fromEntries(Object.entries(records[1]!).filter(([key]) => key !== 'recordDigest')),
@@ -930,9 +922,7 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
     await expectBlockedMigration(root, 'requires every chain to be terminal', 'RUNTIME-DEPS-004');
     expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
       .not.toContain(TARGET_NAMESPACE);
-  } finally {
-    await removeMigrationFixture(root);
-  }
+  });
 });
 
 test('rejects foreign, partial, forked, and digest-invalid legacy sources before creating v2', async () => {
@@ -993,21 +983,17 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
   ];
 
   for (const { message, prepare } of cases) {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-invalid-'));
-    try {
+    await withMigrationFixture('sec-dependency-transition-invalid-', async root => {
       await prepare(root);
       await expectBlockedMigration(root, message, 'RUNTIME-DEPS-002');
       expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
         .not.toContain(TARGET_NAMESPACE);
-    } finally {
-      await removeMigrationFixture(root);
-    }
+    });
   }
 });
 
 test('rejects source physical replacement without changing a completed target', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-replacement-'));
-  try {
+  await withMigrationFixture('sec-dependency-transition-replacement-', async root => {
     const records = await writeLegacyRecords(root);
     const oldBytes = new Map<string, Buffer>();
     for (const record of records) {
@@ -1046,7 +1032,5 @@ test('rejects source physical replacement without changing a completed target', 
     }
     expect(error).toMatchObject({ code: 'RUNTIME-DEPS-004' });
     expectSameFileSet(await readRegularFiles(targetJournalRoot(root)), targetBefore);
-  } finally {
-    await removeMigrationFixture(root);
-  }
+  });
 });
