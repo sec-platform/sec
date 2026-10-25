@@ -1,4 +1,4 @@
-import { settleResources, settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import { settleResources, settleResourcesAsync, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { mkdtemp, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -20,6 +20,7 @@ import {
 import {
   assertDockerCommandProviderCapability,
   claimDockerCommandProviderCapability,
+  disposeClaimedDockerCommandProvider,
   disposeUnclaimedDockerCommandProviderCapability,
   issueDockerCommandProviderCapability,
   requireDockerCommandProviderCapability
@@ -167,6 +168,8 @@ function issueProviderWithAuxiliary(
 test('Docker command provider ignores ambient command and directory redirection', async () => {
   const fixture = await retainedProviderFixture();
   let claimed: ReturnType<typeof claimDockerCommandProviderCapability> | undefined;
+  let cleanupProvider: (() => void) | undefined = () => disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
+  let primary: ResourceSettlementFailure | undefined;
   const original = {
     PATH: process.env.PATH,
     PROGRAMFILES: process.env.PROGRAMFILES,
@@ -183,7 +186,9 @@ test('Docker command provider ignores ambient command and directory redirection'
     process.env.TEMP = path.join(fixture.root, 'ambient-temp');
     process.env.TMP = path.join(fixture.root, 'ambient-tmp');
     expect('loginStart' in fixture.capability).toBe(false);
+    cleanupProvider = undefined; // A failed physical claim settles its record.
     claimed = claimDockerCommandProviderCapability(fixture.capability);
+    cleanupProvider = () => disposeClaimedDockerCommandProvider(claimed!);
     expect(() => claimDockerCommandProviderCapability(fixture.capability))
       .toThrow('is claimed');
     expect('loginStart' in claimed).toBe(false);
@@ -195,19 +200,24 @@ test('Docker command provider ignores ambient command and directory redirection'
     expect(claimed.environment.PROGRAMFILES).toBe(
       process.platform === 'win32' ? fixture.root : undefined
     );
+  } catch (error) {
+    primary = { label: 'ambient provider fixture', error };
   } finally {
-    claimed?.boundary.workingDirectory.dispose();
-    claimed?.boundary.executable.dispose();
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    await rm(fixture.root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'provider capability', settle: () => cleanupProvider?.() },
+      ...Object.entries(original).map(([key, value]) => ({ label: `restore ${key}`, settle: () => {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      } })),
+      { label: 'provider root', settle: () => rm(fixture.root, { recursive: true, force: true }) }
+    ] });
   }
 });
 
 test('Docker command provider retains executable identity through replacement attempts', async () => {
   const fixture = await retainedProviderFixture();
+  let cleanupProvider: (() => void) | undefined = () => disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const replacement = path.join(fixture.root, 'replacement.exe');
     await writeFile(replacement, Buffer.from('replacement'));
@@ -216,19 +226,29 @@ test('Docker command provider retains executable identity through replacement at
       await expect(replacementAttempt).rejects.toBeDefined();
     } else {
       await replacementAttempt;
-      expect(() => claimDockerCommandProviderCapability(fixture.capability))
+      expect(() => {
+        cleanupProvider = undefined; // Failed admission consumes and settles this exact record.
+        const claimed = claimDockerCommandProviderCapability(fixture.capability);
+        cleanupProvider = () => disposeClaimedDockerCommandProvider(claimed);
+      })
         .toThrow(expect.objectContaining({
           code: 'SEC-DOCKER-COMMAND-PROVIDER-UNAVAILABLE',
           cause: expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' })
         }));
       return;
     }
+    cleanupProvider = undefined;
     const claimed = claimDockerCommandProviderCapability(fixture.capability);
+    cleanupProvider = () => disposeClaimedDockerCommandProvider(claimed);
     claimed.boundary.executable.assertCurrent();
-    claimed.boundary.workingDirectory.dispose();
-    claimed.boundary.executable.dispose();
+  } catch (error) {
+    primary = { label: 'replacement provider fixture', error };
+    throw error;
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'provider capability', settle: () => cleanupProvider?.() },
+      { label: 'provider root', settle: () => rm(fixture.root, { recursive: true, force: true }) }
+    ] });
   }
 });
 
@@ -250,6 +270,8 @@ test('Docker command provider identity binds same-byte auxiliary file identity',
     throw error;
   }
   let second: ReturnType<typeof issueProviderWithAuxiliary> | undefined;
+  let cleanupFirst: (() => void) | undefined = () => disposeUnclaimedDockerCommandProviderCapability(first.capability);
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const firstPhysical = first.auxiliary.physical;
     first.auxiliary.dispose();
@@ -257,24 +279,38 @@ test('Docker command provider identity binds same-byte auxiliary file identity',
     await unlink(auxiliaryPath);
     await rename(replacementPath, auxiliaryPath);
     second = issueProviderWithAuxiliary(root, executablePath, auxiliaryPath);
-    expect(() => claimDockerCommandProviderCapability(first.capability))
+    expect(() => {
+      cleanupFirst = undefined;
+      const claimed = claimDockerCommandProviderCapability(first.capability);
+      cleanupFirst = () => disposeClaimedDockerCommandProvider(claimed);
+    })
       .toThrow('changed before admission');
     expect(second.auxiliary.physical).not.toEqual(firstPhysical);
     expect(second.capability.providerIdentityDigest)
       .not.toBe(first.capability.providerIdentityDigest);
+  } catch (error) {
+    primary = { label: 'auxiliary provider fixture', error };
   } finally {
-    if (second !== undefined) disposeUnclaimedDockerCommandProviderCapability(second.capability);
-    await rm(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'second provider', settle: () => { if (second !== undefined) disposeUnclaimedDockerCommandProviderCapability(second.capability); } },
+      { label: 'first provider', settle: () => cleanupFirst?.() },
+      { label: 'auxiliary fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+    ] });
   }
 });
 
 test('unclaimed Docker command provider can be settled without a session', async () => {
   const fixture = await retainedProviderFixture();
+  let primary: ResourceSettlementFailure | undefined;
   try {
     disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
     expect(() => claimDockerCommandProviderCapability(fixture.capability))
       .toThrow('is disposed');
+  } catch (error) {
+    primary = { label: 'unclaimed provider settlement', error };
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'provider root', settle: () => rm(fixture.root, { recursive: true, force: true }) }
+    ] });
   }
 });
