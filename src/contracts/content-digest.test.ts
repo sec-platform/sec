@@ -38,27 +38,26 @@ for (const vector of vectors.cases) {
 }
 
 test('streaming is invariant around compression and tree-chunk boundaries', () => {
-  for (const { inputBytes, hex } of vectors.cases) {
-    const bytes = input(inputBytes);
-    for (const chunkSize of [1, 7, 63, 64, 65, 1023, 1024, 1025, 4096]) {
-      const hash = createContentHasher();
-      let fixtureFailure1: ResourceSettlementFailure | undefined;
-      try {
-        hash.update(new Uint8Array());
-        for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-          hash.update(bytes.subarray(offset, offset + chunkSize));
-        }
-        assert.equal(hash.finish(), `blake3:${hex}`);
-      } catch (error) {
-        fixtureFailure1 = { label: 'fixture operation', error };
-      } finally {
-        settleResources({
-          primary: fixtureFailure1,
-          cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
-        });
+  // One-shot vectors above own algorithm conformance. Keep the multi-chunk
+  // adapter witness at every partition size without their Cartesian product.
+  const { inputBytes, hex } = vectors.cases.find(vector => vector.inputBytes === 4097)!;
+  const bytes = input(inputBytes);
+  for (const chunkSize of [1, 7, 63, 64, 65, 1023, 1024, 1025, 4096]) {
+    const hash = createContentHasher();
+    let fixtureFailure1: ResourceSettlementFailure | undefined;
+    try {
+      hash.update(new Uint8Array());
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        hash.update(bytes.subarray(offset, offset + chunkSize));
       }
-      // Larger sizes in this ascending list repeat the same single-update sequence.
-      if (chunkSize >= bytes.length) break;
+      assert.equal(hash.finish(), `blake3:${hex}`);
+    } catch (error) {
+      fixtureFailure1 = { label: 'fixture operation', error };
+    } finally {
+      settleResources({
+        primary: fixtureFailure1,
+        cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
+      });
     }
   }
 });

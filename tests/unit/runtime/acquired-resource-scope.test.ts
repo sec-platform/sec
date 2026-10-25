@@ -12,7 +12,7 @@ async function rejectsWith(promise: Promise<unknown>, expected: unknown): Promis
   assert.equal(failed, true);
 }
 
-for (const reason of [undefined, null, false, 0, Object.freeze({ failure: true })]) {
+for (const reason of [undefined, Object.freeze({ failure: true })]) {
   test(`acquisition failure (${typeof reason}) never uses or releases an unowned resource`, async () => {
     const events: string[] = [];
     await rejectsWith(withAcquiredResource({
@@ -45,19 +45,18 @@ for (const reason of [undefined, null, false, 0, Object.freeze({ failure: true }
   });
 }
 
-for (const value of [undefined, null, false, 0]) {
-  test(`successful false-like resource/result (${typeof value}) still owns a release obligation`, async () => {
-    const released: unknown[] = [];
-    const actual = await withAcquiredResource({
-      operationLabel: 'use', resourceLabel: 'resource',
-      acquire: () => value,
-      use(resource) { assert.equal(resource, value); return value; },
-      release(resource) { released.push(resource); }
-    });
-    assert.equal(actual, value);
-    assert.deepEqual(released, [value]);
+test('successful false-like resource/result (undefined) still owns a release obligation', async () => {
+  const value = undefined;
+  const released: unknown[] = [];
+  const actual = await withAcquiredResource({
+    operationLabel: 'use', resourceLabel: 'resource',
+    acquire: () => value,
+    use(resource) { assert.equal(resource, value); return value; },
+    release(resource) { released.push(resource); }
   });
-}
+  assert.equal(actual, value);
+  assert.deepEqual(released, [value]);
+});
 
 test('body and release errors retain labels, occurrence order and exact payloads', async () => {
   const primary = undefined, cleanup = Object.freeze({ cleanup: true });

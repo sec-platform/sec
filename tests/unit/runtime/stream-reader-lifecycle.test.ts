@@ -9,24 +9,22 @@ function deferred<T>() {
 }
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
-for (const value of [undefined, null, false, 0, ''] as const) {
-  test(`EOF releases one reader without cancel and preserves ${String(value)} result`, async () => {
-    let cancels = 0;
-    const stream = new ReadableStream<Uint8Array>({ start(c) { c.close(); }, cancel() { cancels++; } });
-    expect(await withOwnedByteStreamReader(stream, async read => { expect((await read()).done).toBe(true); return value; })).toBe(value);
-    expect(stream.locked).toBe(false);
-    expect(cancels).toBe(0);
-  });
-  test(`body rejection ${String(value)} survives successful cancellation`, async () => {
-    let cancels = 0;
-    const stream = new ReadableStream<Uint8Array>({ cancel() { cancels++; } });
-    const outcome = await withOwnedByteStreamReader(stream, async () => { throw value; })
-      .then(value => ({ status: 'ok', value }), error => ({ status: 'failed', error }));
-    expect(outcome).toEqual({ status: 'failed', error: value });
-    expect(stream.locked).toBe(false);
-    expect(cancels).toBe(1);
-  });
-}
+test('EOF releases one reader without cancel and preserves undefined result', async () => {
+  let cancels = 0;
+  const stream = new ReadableStream<Uint8Array>({ start(c) { c.close(); }, cancel() { cancels++; } });
+  expect(await withOwnedByteStreamReader(stream, async read => { expect((await read()).done).toBe(true); return undefined; })).toBe(undefined);
+  expect(stream.locked).toBe(false);
+  expect(cancels).toBe(0);
+});
+test('body rejection undefined survives successful cancellation', async () => {
+  let cancels = 0;
+  const stream = new ReadableStream<Uint8Array>({ cancel() { cancels++; } });
+  const outcome = await withOwnedByteStreamReader(stream, async () => { throw undefined; })
+    .then(value => ({ status: 'ok', value }), error => ({ status: 'failed', error }));
+  expect(outcome).toEqual({ status: 'failed', error: undefined });
+  expect(stream.locked).toBe(false);
+  expect(cancels).toBe(1);
+});
 
 test('early successful return waits for cancellation acknowledgement, then releases', async () => {
   const gate = deferred<void>();

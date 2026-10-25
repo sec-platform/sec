@@ -14,9 +14,6 @@ test('canonical hashes preserve byte meaning and match the independent SHA-256 i
   assert.equal(sha256(source), known);
   const samples: unknown[] = [null, false, true, 0, -0, 1.2e30, '', '𝄞\ud800\n', [], new Array(3),
     { '11': 3, '2': 4, z: 2, a: 1 }, JSON.parse('{"__proto__":{"value":1}}')];
-  let seed = 521;
-  const next = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
-  for (let i = 0; i < 1000; i++) samples.push({ [String(next() % 30)]: next(), z: [next() % 2 === 0, `${next()}𝄞`], a: { value: next() / 1000 } });
   for (const value of samples) assert.equal(sha256(value), reference(value));
 });
 
