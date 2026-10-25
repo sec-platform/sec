@@ -78,16 +78,18 @@ describe('Git candidate bundle effect', () => {
   });
 
   test('rejects an occupied fixed output without replacing its bytes', async () => {
-    const repository = repositoryFixture();
+    // Fixed-output admission inspects physical root identity, not Git state.
+    // A plain source root makes any premature Git observation fail distinctly.
+    const sourceRoot = temporaryRoot('occupied-source');
     const outputRoot = temporaryRoot('occupied');
     const occupied = path.join(outputRoot, 'candidate.bundle');
     writeFileSync(occupied, 'foreign\n');
 
     await expect(createGitCandidateBundle({
-      sourceRoot: repository.root,
+      sourceRoot,
       temporaryRoot: outputRoot,
-      baseSha: repository.baseSha,
-      headSha: repository.headSha
+      baseSha: '1'.repeat(40),
+      headSha: '2'.repeat(40)
     })).rejects.toThrow('file target must be absent');
     expect(readFileSync(occupied, 'utf8')).toBe('foreign\n');
     expect(() => lstatSync(path.join(outputRoot, 'bundle-source.git')))
