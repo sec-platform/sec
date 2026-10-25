@@ -1,4 +1,4 @@
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,29 +7,25 @@ import path from 'node:path';
 import { readSemanticMutationSource } from '../../../src/adapters/mutation/source-path-boundary.ts';
 import { semanticMutationSourcePathEvidenceRevision } from '../../../src/compiler/semantic-mutation/source-edit-artifact.ts';
 
-function fixture() {
+type SourceReadFixture = { root: string; transaction: string; relativePath: string; target: string };
+
+async function fixture(run: (f: SourceReadFixture) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-source-read-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const transaction = path.join(root, 'transaction');
     const relativePath = 'source/model/item.yaml';
     const target = path.join(root, ...relativePath.split('/'));
     mkdirSync(transaction);
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, 'item: before\n');
-    return { root, transaction, relativePath, target };
-  } catch (error) {
-    settleResources({ primary: { label: 'workspace fixture construction', error },
-      cleanup: [{ label: 'workspace fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-    throw error;
-  }
+    await run({ root, transaction, relativePath, target });
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
 }
 
-const read = (f: ReturnType<typeof fixture>) => readSemanticMutationSource(f.root, f.transaction, f.relativePath);
-const cleanup = (f: ReturnType<typeof fixture>) => rmSync(f.root, { recursive: true, force: true });
+const read = (f: SourceReadFixture) => readSemanticMutationSource(f.root, f.transaction, f.relativePath);
 
 test('retained source reads preserve readonly and empty bytes, evidence encoding, and release writer exclusion', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const bytes = Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from('item: before\r\n', 'utf8')]);
     writeFileSync(f.target, bytes);
     chmodSync(f.target, 0o444);
@@ -46,20 +42,18 @@ test('retained source reads preserve readonly and empty bytes, evidence encoding
     expect(Buffer.from((await read(f)).bytes).toString('utf8')).toBe('item: after\n');
     writeFileSync(f.target, '');
     expect((await read(f)).bytes.byteLength).toBe(0);
-  } finally { cleanup(f); }
+  });
 });
 
 test('retained source reads reject a sparse file above the byte ceiling', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     truncateSync(f.target, 64 * 1024 * 1024 + 1);
     await expect(read(f)).rejects.toThrow('bounded');
-  } finally { cleanup(f); }
+  });
 });
 
 test('retained source reads reject hard-link aliases', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const alias = path.join(f.root, 'alias');
     linkSync(f.target, alias);
     await expect(read(f)).rejects.toMatchObject({
@@ -67,33 +61,30 @@ test('retained source reads reject hard-link aliases', async () => {
       diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' }
     });
     expect(readFileSync(alias, 'utf8')).toBe('item: before\n');
-  } finally { cleanup(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('retained source reads reject case-fold collisions even when the requested spelling exists', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     writeFileSync(path.join(path.dirname(f.target), 'ITEM.yaml'), 'foreign');
     await expect(read(f)).rejects.toThrow('case-fold');
     expect(readFileSync(f.target, 'utf8')).toBe('item: before\n');
-  } finally { cleanup(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('retained source reads do not follow a substituted source symlink', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const outside = path.join(f.root, 'outside');
     writeFileSync(outside, 'must not be consumed');
     rmSync(f.target);
     symlinkSync(outside, f.target);
     await expect(read(f)).rejects.toThrow();
     expect(readFileSync(outside, 'utf8')).toBe('must not be consumed');
-  } finally { cleanup(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('retained source reads do not follow a substituted ancestor or transaction directory', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const real = path.join(f.root, 'real-model');
     mkdirSync(real);
     writeFileSync(path.join(real, 'item.yaml'), 'foreign');
@@ -106,12 +97,11 @@ test.skipIf(process.platform !== 'linux')('retained source reads do not follow a
     rmSync(f.transaction, { recursive: true });
     symlinkSync(real, f.transaction);
     await expect(read(f)).rejects.toThrow();
-  } finally { cleanup(f); }
+  });
 });
 
 test('retained source admission rejects escapes and redacts native absolute-path errors', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     await expect(readSemanticMutationSource(f.root, f.root, f.relativePath)).rejects.toThrow('inside');
     await expect(readSemanticMutationSource(f.root, f.transaction, '../escape.yaml')).rejects.toThrow();
     rmSync(f.target);
@@ -120,5 +110,5 @@ test('retained source admission rejects escapes and redacts native absolute-path
     expect(observed).toBeInstanceOf(Error);
     expect(String(observed)).not.toContain(f.root);
     expect(String(observed)).toContain('retained safely');
-  } finally { cleanup(f); }
+  });
 });

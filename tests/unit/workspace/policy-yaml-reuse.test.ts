@@ -14,18 +14,19 @@ import type { PolicyRule, PolicySourceScope } from '../../../src/semantics/polic
 // Keep actual YAML/Zod, physical source inventory and retained readers in native
 // runs. Do not mark these passed using a JSON or schema substitute. The bundled
 // official policy root is only read; each fixture owns its project policy root.
-function fixture() {
+function fixture(run: (f: { root: string; write(name: string, source: string | Uint8Array): void }) => void) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-policy-yaml-'));
+  let failure: { error: unknown } | undefined;
   try {
     const policies = getWorkspacePaths(root).policiesRoot;
     mkdirSync(policies, { recursive: true });
     const write = (name: string, source: string | Uint8Array) => writeFileSync(path.join(policies, name), source);
-    return { root, write, cleanup() { rmSync(root, { recursive: true, force: true }); } };
-  } catch (error) {
-    settleResources({ primary: { label: 'workspace fixture construction', error },
-      cleanup: [{ label: 'workspace fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-    throw error;
-  }
+    run({ root, write });
+  } catch (error) { failure = { error }; }
+  settleResources({
+    ...(failure === undefined ? {} : { primary: { label: 'policy fixture callback', error: failure.error } }),
+    cleanup: [{ label: 'policy fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }]
+  });
 }
 const row = () => ({ id: 'policy-reuse-fixture', severity: 'warn' as const, appliesTo: ['block/a'], rule: POLICY_RULE_IDS[0] });
 
@@ -79,18 +80,16 @@ for (const source of [
   '? [policies]\n: []\n'
 ]) {
   test(`policy source uses the shared strict YAML rejection: ${JSON.stringify(source)}`, () => {
-    const f = fixture();
-    try {
+    fixture(f => {
       f.write('fixture.yaml', source);
       assert.throws(() => loadPolicyDeclarations(f.root), error =>
         error instanceof Error && error.cause instanceof YamlSyntaxError);
-    } finally { f.cleanup(); }
+    });
   });
 }
 
 test('aliased project declarations coalesce, isolate callers and retain every source report', () => {
-  const f = fixture();
-  try {
+  fixture(f => {
     f.write('a.yaml', `policies:\n  - &p\n    id: policy-reuse-fixture\n    severity: warn\n    appliesTo: [block/a]\n    rule: ${POLICY_RULE_IDS[0]}\n  - *p\n`);
     const first = loadPolicyDeclarations(f.root);
     assert.deepEqual(first.project.policies, [row().id]);
@@ -113,45 +112,41 @@ test('aliased project declarations coalesce, isolate callers and retain every so
     assert.equal(combined.project.definitions.length, 2);
     assert.equal(combined.project.sources.length, 2);
     assert.deepEqual(combined.project.policies, [row().id]);
-  } finally { f.cleanup(); }
+  });
 });
 
 test('different project files cannot choose a conflicting definition by lexical order', () => {
-  const f = fixture();
-  try {
+  fixture(f => {
     for (const [first, second] of [[row(), { ...row(), severity: 'error' }], [{ ...row(), severity: 'error' }, row()]]) {
       f.write('a.yaml', JSON.stringify({ policies: [first] }));
       f.write('z.yml', JSON.stringify({ policies: [second] }));
       assert.throws(() => loadPolicyDeclarations(f.root), /Conflicting policy declarations/);
     }
-  } finally { f.cleanup(); }
+  });
 });
 
 test('a higher precedence source cannot hide invalid lower precedence declarations', () => {
-  const f = fixture();
-  try {
+  fixture(f => {
     f.write('a.yaml', JSON.stringify({ policies: [{ ...row(), severity: 'invalid' }] }));
     f.write('z.yaml', JSON.stringify({ policies: [row()] }));
     assert.throws(() => loadPolicyDeclarations(f.root), error =>
       error instanceof Error && /exact schema/.test(error.message) && error.cause !== undefined);
-  } finally { f.cleanup(); }
+  });
 });
 
 test('per-source parsing budget rejects oversized text without changing inventory capacity', () => {
-  const f = fixture();
-  try {
+  fixture(f => {
     f.write('fixture.yaml', ' '.repeat(POLICY_YAML_MAX_INPUT_BYTES + 1));
     assert.throws(() => loadPolicyDeclarations(f.root), error =>
       error instanceof Error && error.cause instanceof YamlInputLimitError);
-  } finally { f.cleanup(); }
+  });
 });
 
 test('invalid byte encoding remains a retained decoding failure rather than an empty policy set', () => {
-  const f = fixture();
-  try {
+  fixture(f => {
     f.write('fixture.yaml', Uint8Array.of(0xff));
     assert.throws(() => loadPolicyDeclarations(f.root), error =>
       error instanceof Error && /\bUTF-8\b/u.test(error.message)
       && error.message.includes('fixture.yaml') && error.cause instanceof TypeError);
-  } finally { f.cleanup(); }
+  });
 });

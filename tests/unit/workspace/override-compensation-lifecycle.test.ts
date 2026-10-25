@@ -1,4 +1,4 @@
-import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -10,9 +10,10 @@ import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 
 // Native integration: use the actual manifest parser, retained file readers and
 // conditional publishers. These require the supported repository Bun/host profile.
-async function fixture(ids: readonly string[], conflicts: Readonly<Record<string, readonly string[]>> = {}) {
+async function fixture(run: (f: { root: string; target(id: string): string }) => Promise<void>,
+  ids: readonly string[], conflicts: Readonly<Record<string, readonly string[]>> = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-override-compensation-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const overrides = getWorkspacePaths(root).overridesRoot;
     const target = (id: string) => path.join(root, 'src', `${id}.ts`);
     await mkdir(path.join(overrides, 'patches'), { recursive: true });
@@ -27,32 +28,26 @@ async function fixture(ids: readonly string[], conflicts: Readonly<Record<string
       await writeFile(path.join(overrides, 'patches', `${id}.ts`), `new-${id}`);
       await writeFile(target(id), `old-${id}`);
     }
-    return { root, target };
-  } catch (error) {
-    await settleResourcesAsync({ primary: { label: 'workspace fixture construction', error },
-      cleanup: [{ label: 'workspace fixture root', settle: () => rm(root, { recursive: true, force: true }) }] });
-    throw error;
-  }
+    await run({ root, target });
+  }, async () => { await rm(root, { recursive: true, force: true }); });
 }
 
 test('one local conflict edge in either direction refuses the entire Override batch before effects', async () => {
   for (const [owner, target] of [['a', 'b'], ['b', 'a']] as const) {
-    const f = await fixture(['a', 'b'], { [owner]: [target] });
-    let fences = 0;
-    try {
+    await fixture(async f => {
+      let fences = 0;
       await assert.rejects(applyOverrides(f.root, async () => { fences++; }),
         error => error instanceof CodedFailure && error.code === 'OVERRIDE-CONFLICT-001');
       assert.equal(fences, 0);
       assert.equal(await readFile(f.target('a'), 'utf8'), 'old-a');
       assert.equal(await readFile(f.target('b'), 'utf8'), 'old-b');
-    } finally { await rm(f.root, { recursive: true, force: true }); }
+    }, ['a', 'b'], { [owner]: [target] });
   }
 });
 
 test('failed compensation of a substituted target does not prevent restoring an earlier output', async () => {
-  const f = await fixture(['a', 'b', 'c']);
-  const primary = new Error('forward refused'); let injected = false;
-  try {
+  await fixture(async f => {
+    const primary = new Error('forward refused'); let injected = false;
     await assert.rejects(applyOverrides(f.root, async () => {
       if (!injected && await readFile(f.target('a'), 'utf8') === 'new-a'
           && await readFile(f.target('b'), 'utf8') === 'new-b') {
@@ -68,12 +63,12 @@ test('failed compensation of a substituted target does not prevent restoring an 
     assert.equal(await readFile(f.target('a'), 'utf8'), 'old-a');
     assert.equal(await readFile(f.target('b'), 'utf8'), 'user-change');
     assert.equal(await readFile(f.target('c'), 'utf8'), 'old-c');
-  } finally { await rm(f.root, { recursive: true, force: true }); }
+  }, ['a', 'b', 'c']);
 }, 30_000);
 
 test('an equal-byte exclusive adoption never authorizes deleting another writer file', async () => {
-  const f = await fixture(['a', 'b']), primary = new Error('later refusal'); let fences = 0;
-  try {
+  await fixture(async f => {
+    const primary = new Error('later refusal'); let fences = 0;
     await rm(f.target('a'));
     await assert.rejects(applyOverrides(f.root, async () => {
       fences++;
@@ -83,27 +78,27 @@ test('an equal-byte exclusive adoption never authorizes deleting another writer 
     }), error => error === primary);
     assert.equal(await readFile(f.target('a'), 'utf8'), 'new-a');
     assert.equal(await readFile(f.target('b'), 'utf8'), 'old-b');
-  } finally { await rm(f.root, { recursive: true, force: true }); }
+  }, ['a', 'b']);
 }, 30_000);
 
 test('a no-op target changed during its publication fence is refused without overwriting it', async () => {
-  const f = await fixture(['a']); let fences = 0;
-  try {
+  await fixture(async f => {
+    let fences = 0;
     await writeFile(f.target('a'), 'new-a');
     await assert.rejects(applyOverrides(f.root, async () => {
       if (++fences === 2) await writeFile(f.target('a'), 'user-change');
     }), error => error instanceof CodedFailure && error.code === 'OVERRIDE-APPLY-001');
     assert.equal(await readFile(f.target('a'), 'utf8'), 'user-change');
-  } finally { await rm(f.root, { recursive: true, force: true }); }
+  }, ['a']);
 }, 30_000);
 
 test('successful compensation preserves a non-Error forward failure exactly', async () => {
-  const f = await fixture(['a', 'b']); const primary = Object.freeze({ failed: 'forward' });
-  try {
+  await fixture(async f => {
+    const primary = Object.freeze({ failed: 'forward' });
     await assert.rejects(applyOverrides(f.root, async () => {
       if (await readFile(f.target('a'), 'utf8') === 'new-a') throw primary;
     }), error => error === primary);
     assert.equal(await readFile(f.target('a'), 'utf8'), 'old-a');
     assert.equal(await readFile(f.target('b'), 'utf8'), 'old-b');
-  } finally { await rm(f.root, { recursive: true, force: true }); }
+  }, ['a', 'b']);
 }, 30_000);
