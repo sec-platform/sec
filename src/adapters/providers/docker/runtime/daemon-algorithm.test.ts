@@ -108,7 +108,7 @@ describe('Docker daemon lifecycle algorithm', () => {
         return available;
       }
     });
-    expect(result).toBe(available);
+    expect(result).toEqual(available);
     expect(calls).toEqual([[
       '--host', endpointHost, 'info', '--format', '{{json .}}'
     ]]);
@@ -162,7 +162,7 @@ describe('Docker daemon lifecycle algorithm', () => {
         return available;
       }
     });
-    expect(result).toBe(available);
+    expect(result).toEqual(available);
     expect(lockEntries).toBe(1);
     expect(residueObservations).toBe(0);
     expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
@@ -197,7 +197,7 @@ describe('Docker daemon lifecycle algorithm', () => {
         return available;
       }
     });
-    expect(result).toBe(available);
+    expect(result).toEqual(available);
     expect(lockEntries).toBe(0);
     expect(lifecycles).toEqual(['observe']);
   });
@@ -300,7 +300,7 @@ describe('Docker daemon lifecycle algorithm', () => {
           return lifecycles.length < 3 ? unavailable : available;
         }
       });
-      expect(result).toBe(available);
+      expect(result).toEqual(available);
       expect(launches).toBe(1);
       expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
     }

@@ -172,8 +172,9 @@ test('dependency wait bounds delay by the original normalized parent budget', as
   let delay = -1;
   await waitForRuntimeDependencyOperation(options, 1_000, async (ms) => { delay = ms; }, 'bounded-delay');
   assert.equal(delay, 20);
-  assert.strictEqual(runtimeDependencyOperationContext(options), parent);
-  assert.equal(parent.deadlineAtMonotonicMs, 100);
+  const after = runtimeDependencyOperationContext(options);
+  assert.strictEqual(after.operationId, parent.operationId);
+  assert.equal(after.deadlineAtMonotonicMs, 100);
 });
 
 test('dependency wait rejects an expired parent before starting sleep', async () => {

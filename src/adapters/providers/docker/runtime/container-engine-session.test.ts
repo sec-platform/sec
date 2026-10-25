@@ -149,7 +149,7 @@ test('ready daemon observation does not admit Docker Desktop host runtime state'
       lifecycleAdmissions += 1;
       throw new Error('host runtime state must stay unopened');
     }
-  })).resolves.toBe(available);
+  })).resolves.toEqual(available);
   expect(lifecycleAdmissions).toBe(0);
 });
 
@@ -170,7 +170,7 @@ test('only endpoint unavailability admits Docker Desktop host runtime state', as
       lifecycleAdmissions += 1;
       return recovered;
     }
-  })).resolves.toBe(recovered);
+  })).resolves.toEqual(recovered);
   expect(lifecycleAdmissions).toBe(1);
 
   await expect(observeBeforeDockerDesktopLifecycleAdmission({

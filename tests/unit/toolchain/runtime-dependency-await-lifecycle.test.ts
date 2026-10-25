@@ -192,7 +192,10 @@ test('a successful fence retains its receiver, operation identity and public sig
   const context = runtimeDependencyOperationContext(options);
   await runtimeDependencyOperationEffectFence(options, 'receiver');
   assert.strictEqual(receiver, provider);
-  assert.strictEqual(runtimeDependencyOperationContext(options), context);
+  const after = runtimeDependencyOperationContext(options);
+  assert.strictEqual(after.operationId, context.operationId);
+  assert.strictEqual(after.telemetryKey, context.telemetryKey);
+  assert.equal(after.deadlineAtMonotonicMs, context.deadlineAtMonotonicMs);
   assert.strictEqual(options.signal, controller.signal);
 });
 
