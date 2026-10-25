@@ -3,7 +3,7 @@
   "dialect": {
     "languageId": "gift.semantic-convergence",
     "revision": "design-semantic-boundaries",
-    "digest": "sha256:d6caf017eec074a491289100492ebe5c6446b0edbb77eb329128691257ab21bc"
+    "digest": "sha256:12727ca09c292d7f3ee7ee7ed71b1798dc80cc16987555fcd756410193a0d08b"
   },
   "issuer": "design-specification-not-a-runtime-authority",
   "definitionKinds": [

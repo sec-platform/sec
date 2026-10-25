@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:requirement-declarations",
+  "title": "Complete Requirement declaration Bodies and candidate envelopes",
+  "$comment": "Structural contract owned by docs/作者/结构化源码.md. The candidate codec graph binds the shared TypeTerm and Requirement Type/DefinitionRef resources with the exact name parameters. Direct validation of this template does not qualify those candidate bindings. Nominal membership, generic substitution, subject kind, fixed meaning method and implementation qualification remain semantic checks. Rule fields never own defaults.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Subject"
+    },
+    {
+      "$ref": "#/$defs/ValueType"
+    },
+    {
+      "$ref": "#/$defs/EnumValue"
+    },
+    {
+      "$ref": "#/$defs/Rule"
+    }
+  ],
+  "$defs": {
+    "SubjectBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roles"
+      ],
+      "properties": {
+        "roles": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "urn:gift:design-schema:requirement-structure-1#/properties/subjects/propertyNames"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/TypeTerm"
+              }
+            }
+          }
+        },
+        "typeParams": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticParameter"
+          },
+          "minItems": 0
+        }
+      }
+    },
+    "ValueTypeBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enumMembers"
+      ],
+      "properties": {
+        "enumMembers": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:requirement-structure-1#/$defs/DefinitionRef"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "EnumValueBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "RuleFieldType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "subjectKinds"
+          ],
+          "properties": {
+            "kind": {
+              "const": "subject"
+            },
+            "subjectKinds": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/TypeTerm"
+              },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "allowed"
+          ],
+          "properties": {
+            "kind": {
+              "const": "enum"
+            },
+            "allowed": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:requirement-structure-1#/$defs/DefinitionRef"
+              },
+              "minItems": 1
+            },
+            "valueType": {
+              "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/TypeTerm"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "element"
+          ],
+          "properties": {
+            "kind": {
+              "const": "set"
+            },
+            "element": {
+              "$ref": "#/$defs/RuleFieldType"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "positive-integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "valueType"
+          ],
+          "properties": {
+            "kind": {
+              "const": "value"
+            },
+            "valueType": {
+              "$ref": "urn:gift:design-schema:requirement-structure-1#/$defs/Type"
+            }
+          }
+        }
+      ]
+    },
+    "RuleField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "type",
+        "meaning"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/RuleFieldType"
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "Interpretation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "methodRef"
+      ],
+      "properties": {
+        "methodRef": {
+          "$ref": "urn:gift:design-schema:requirement-structure-1#/$defs/DefinitionRef"
+        }
+      }
+    },
+    "Semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "section",
+        "scope"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "section": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "interpretation": {
+          "$ref": "#/$defs/Interpretation"
+        }
+      }
+    },
+    "RuleBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strength",
+        "fields",
+        "semantics",
+        "implementation"
+      ],
+      "properties": {
+        "strength": {
+          "enum": [
+            "require",
+            "prefer"
+          ]
+        },
+        "fields": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "urn:gift:design-schema:requirement-structure-1#/$defs/Term/oneOf/1/properties/fields/propertyNames"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/RuleField"
+          }
+        },
+        "semantics": {
+          "$ref": "#/$defs/Semantics"
+        },
+        "implementation": {
+          "const": "unbound"
+        },
+        "typeParams": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticParameter"
+          },
+          "minItems": 0
+        }
+      }
+    },
+    "Subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "body"
+      ],
+      "properties": {
+        "kind": {
+          "const": "req:subject"
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional display text in the candidate envelope. Preserve an explicit old name; absence is not a declaration identity or a request to rewrite source."
+        },
+        "body": {
+          "$ref": "#/$defs/SubjectBody"
+        }
+      }
+    },
+    "ValueType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "body"
+      ],
+      "properties": {
+        "kind": {
+          "const": "req:value-type"
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional display text in the candidate envelope. Preserve an explicit old name; absence is not a declaration identity or a request to rewrite source."
+        },
+        "body": {
+          "$ref": "#/$defs/ValueTypeBody"
+        }
+      }
+    },
+    "EnumValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "body"
+      ],
+      "properties": {
+        "kind": {
+          "const": "req:enum-value"
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional display text in the candidate envelope. Preserve an explicit old name; absence is not a declaration identity or a request to rewrite source."
+        },
+        "body": {
+          "$ref": "#/$defs/EnumValueBody"
+        }
+      }
+    },
+    "Rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "body"
+      ],
+      "properties": {
+        "kind": {
+          "const": "req:rule"
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional display text in the candidate envelope. Preserve an explicit old name; absence is not a declaration identity or a request to rewrite source."
+        },
+        "body": {
+          "$ref": "#/$defs/RuleBody"
+        }
+      }
+    }
+  }
+}

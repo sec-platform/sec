@@ -1,6 +1,6 @@
 {
-  "schema": "gift.design-codec-parameters/1",
-  "scope": "complete-base-structure-only",
+  "schema": "gift.design-codec-parameters/2",
+  "scope": "complete-candidate-structure-only",
   "resources": [
     {
       "path": "schema/author/universal-author-module-2.schema.json",
@@ -809,6 +809,27 @@
           }
         }
       ]
+    },
+    {
+      "path": "schema/requirements/requirement-declarations.schema.json",
+      "id": "urn:gift:design-schema:requirement-declarations",
+      "sha256": "f1c84d12667faec4e89f5a0b67168ad06d2d43073a3f6cdd17067ed53229cc46",
+      "candidateId": "urn:gift:design-schema:requirement-declarations-converged",
+      "replacements": []
+    },
+    {
+      "path": "schema/author/first-layer/complete-types.schema.json",
+      "id": "urn:gift:design-schema:first-layer-complete-types",
+      "sha256": "31a244e8d18797d5491a17b2e55b2ea4a800bdce88b5a77ea705cd77c36256c8",
+      "candidateId": "urn:gift:design-schema:first-layer-complete-types-converged",
+      "replacements": []
+    },
+    {
+      "path": "schema/author/first-layer/convergence-examples.schema.json",
+      "id": "urn:gift:design-schema:convergence-examples",
+      "sha256": "10bb2ce24e4a37be6334d71f436fda2ef989f03b4da1130b608cd49333a87864",
+      "candidateId": "urn:gift:design-schema:convergence-examples-converged",
+      "replacements": []
     }
   ],
   "externals": [
@@ -816,6 +837,63 @@
       "path": "schema/author/first-layer/names.schema.json",
       "id": "urn:gift:design-schema:first-layer-names",
       "sha256": "3cf91049891715aadeb0e9ab231ca62f89adedbb92a380f0b6bec26f5c6eb901"
+    },
+    {
+      "path": "schema/author/first-layer/semantic-convergence.schema.json",
+      "id": "urn:gift:design-schema:semantic-convergence",
+      "sha256": "26f278df1cc4a0fc652b96bf950bb7046044b7ca69571d8ab657ec7d6b7ce7d3"
+    },
+    {
+      "path": "schema/author/first-layer/surface-convergence.schema.json",
+      "id": "urn:gift:design-schema:surface-convergence",
+      "sha256": "7d2390197c9afb04838e5cd362beabc1864bc15c259ba6167cb2b5b23c54cf4b"
+    }
+  ],
+  "extensions": [
+    {
+      "resource": "urn:gift:design-schema:universal-author-module-2",
+      "pointer": "/$defs/Definition",
+      "keyword": "oneOf",
+      "expectedSha256": "e14f242b01f6e6231f1795d195e859509072e98f78a95df6e497a4f9c5915db2",
+      "append": [
+        {
+          "$ref": "urn:gift:design-schema:requirement-declarations#/$defs/Subject"
+        },
+        {
+          "$ref": "urn:gift:design-schema:requirement-declarations#/$defs/ValueType"
+        },
+        {
+          "$ref": "urn:gift:design-schema:requirement-declarations#/$defs/EnumValue"
+        },
+        {
+          "$ref": "urn:gift:design-schema:requirement-declarations#/$defs/Rule"
+        }
+      ]
+    },
+    {
+      "resource": "urn:gift:design-schema:universal-author-module-2",
+      "pointer": "/$defs/Type",
+      "keyword": "oneOf",
+      "expectedSha256": "43bf435636e046e6eebfbc20a112e726e9417eb02d8c1291fea35b4f20466413",
+      "append": [
+        {
+          "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/Rational"
+        },
+        {
+          "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/WireVariant"
+        }
+      ]
+    },
+    {
+      "resource": "urn:gift:design-schema:universal-author-module-2",
+      "pointer": "/$defs/Expr/oneOf/0",
+      "keyword": "allOf",
+      "expectedSha256": "54027b5503e4492d2568c591a1bd8b82659b059d96757d9b1747b8aa20bb7d0b",
+      "append": [
+        {
+          "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/RationalLiteralConstraint"
+        }
+      ]
     }
   ]
 }

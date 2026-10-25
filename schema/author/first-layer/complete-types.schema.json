@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:first-layer-complete-types",
+  "title": "Complete candidate types for rational values and raw-preserving wire variants",
+  "$comment": "Syntax owner: docs/作者/紧凑结构与同源编辑.md. Exact rational and raw-frame meaning: schema/author/first-layer/SEMANTICS.md#surface. These are candidate Type branches, not a claim that any Target or runtime supports them. The codec graph rebinds nested Type references to the same candidate closure.",
+  "$defs": {
+    "Rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag"
+      ],
+      "properties": {
+        "tag": {
+          "const": "rational"
+        }
+      }
+    },
+    "WireVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "known",
+        "unknown",
+        "encoding",
+        "duplicates"
+      ],
+      "properties": {
+        "tag": {
+          "const": "wire-variant"
+        },
+        "known": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          },
+          "additionalProperties": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"
+          }
+        },
+        "unknown": {
+          "const": "preserve-raw-frame"
+        },
+        "encoding": {
+          "const": "tagged-json-frame"
+        },
+        "duplicates": {
+          "const": "reject-known-preserve-unknown"
+        }
+      }
+    },
+    "RationalValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "string",
+          "pattern": "^(0|-?[1-9][0-9]*)(?![\\s\\S])"
+        },
+        "denominator": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(?![\\s\\S])"
+        }
+      }
+    },
+    "RationalLiteralConstraint": {
+      "if": {
+        "properties": {
+          "type": {
+            "type": "object",
+            "required": [
+              "tag"
+            ],
+            "properties": {
+              "tag": {
+                "const": "rational"
+              }
+            }
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "$ref": "#/$defs/RationalValue"
+          }
+        }
+      }
+    }
+  }
+}

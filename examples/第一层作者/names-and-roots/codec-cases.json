@@ -1,0 +1,3113 @@
+{
+  "scope": "Independent S2/S3 equations and S4 shape expectations. No S0 lexical, linker, type/Profile, runtime or migration proof. Expected values are authored independently of the expander.",
+  "cases": [
+    {
+      "name": "subject-generic-and-display-name",
+      "slot": "definition",
+      "input": {
+        "req:subject": {
+          "roles": {
+            "owner": {
+              "type": {
+                "decl": {
+                  "definitionId": "Subject"
+                },
+                "arguments": [
+                  {
+                    "core": "Text"
+                  }
+                ]
+              }
+            }
+          },
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        },
+        "name": "与键不同的显示名"
+      },
+      "expectedExpanded": {
+        "kind": "req:subject",
+        "body": {
+          "roles": {
+            "owner": {
+              "type": {
+                "decl": {
+                  "definitionId": "Subject"
+                },
+                "arguments": [
+                  {
+                    "core": "Text"
+                  }
+                ]
+              }
+            }
+          },
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        },
+        "name": "与键不同的显示名"
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "subject-empty-roles",
+      "slot": "definition",
+      "input": {
+        "req:subject": {
+          "roles": {}
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:subject",
+        "body": {
+          "roles": {}
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "enum-value-empty-body",
+      "slot": "definition",
+      "input": {
+        "req:enum-value": {},
+        "name": ""
+      },
+      "expectedExpanded": {
+        "kind": "req:enum-value",
+        "body": {},
+        "name": ""
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "value-type-cross-module-members",
+      "slot": "definition",
+      "input": {
+        "req:value-type": {
+          "enumMembers": [
+            {
+              "definitionId": ""
+            },
+            {
+              "import": "库",
+              "export": "枚举/成员"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:value-type",
+        "body": {
+          "enumMembers": [
+            {
+              "definitionId": ""
+            },
+            {
+              "import": "库",
+              "export": "枚举/成员"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "rule-all-field-kinds-and-method",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "f0": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义"
+            },
+            "f1": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  },
+                  {
+                    "import": "库",
+                    "export": "枚举/成员"
+                  }
+                ],
+                "valueType": {
+                  "decl": {
+                    "definitionId": "Enum"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f2": {
+              "required": true,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "set",
+                  "element": {
+                    "kind": "subject",
+                    "subjectKinds": [
+                      {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f3": {
+              "required": true,
+              "type": {
+                "kind": "positive-integer"
+              },
+              "meaning": "独立含义"
+            },
+            "f4": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "list": {
+                    "builtin": "Int"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f5": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "record": [
+                    {
+                      "name": "",
+                      "type": {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    }
+                  ],
+                  "open": false
+                }
+              },
+              "meaning": "独立含义"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "f0": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义"
+            },
+            "f1": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  },
+                  {
+                    "import": "库",
+                    "export": "枚举/成员"
+                  }
+                ],
+                "valueType": {
+                  "decl": {
+                    "definitionId": "Enum"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f2": {
+              "required": true,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "set",
+                  "element": {
+                    "kind": "subject",
+                    "subjectKinds": [
+                      {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f3": {
+              "required": true,
+              "type": {
+                "kind": "positive-integer"
+              },
+              "meaning": "独立含义"
+            },
+            "f4": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "list": {
+                    "builtin": "Int"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f5": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "record": [
+                    {
+                      "name": "",
+                      "type": {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    }
+                  ],
+                  "open": false
+                }
+              },
+              "meaning": "独立含义"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "rule-empty-fields",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {},
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {},
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "role-default-forbidden",
+      "slot": "definition",
+      "input": {
+        "req:subject": {
+          "roles": {
+            "owner": {
+              "type": {
+                "decl": {
+                  "definitionId": "Subject"
+                },
+                "arguments": [
+                  {
+                    "core": "Text"
+                  }
+                ]
+              },
+              "default": null
+            }
+          },
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:subject",
+        "body": {
+          "roles": {
+            "owner": {
+              "type": {
+                "decl": {
+                  "definitionId": "Subject"
+                },
+                "arguments": [
+                  {
+                    "core": "Text"
+                  }
+                ]
+              },
+              "default": null
+            }
+          },
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "enum-value-extra",
+      "slot": "definition",
+      "input": {
+        "req:enum-value": {
+          "identity": "forged"
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:enum-value",
+        "body": {
+          "identity": "forged"
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "value-type-generic-forbidden",
+      "slot": "definition",
+      "input": {
+        "req:value-type": {
+          "enumMembers": [
+            {
+              "definitionId": ""
+            }
+          ],
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:value-type",
+        "body": {
+          "enumMembers": [
+            {
+              "definitionId": ""
+            }
+          ],
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "value-type-empty",
+      "slot": "definition",
+      "input": {
+        "req:value-type": {
+          "enumMembers": []
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:value-type",
+        "body": {
+          "enumMembers": []
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "subject-empty-kinds",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": []
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": []
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "enum-empty-allowed",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "enum",
+                "allowed": []
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "enum",
+                "allowed": []
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "set-missing-element",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "set"
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "set"
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "set-unknown-element",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "any"
+                }
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "any"
+                }
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "positive-integer-mixed-fields",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "positive-integer",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  }
+                ]
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": false,
+              "type": {
+                "kind": "positive-integer",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  }
+                ]
+              },
+              "meaning": "m"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "rule-field-default",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义",
+              "default": 1
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义",
+              "default": 1
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "rule-field-empty-meaning",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": ""
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "x": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": ""
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "rule-implementation-is-not-binding",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "f0": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义"
+            },
+            "f1": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  },
+                  {
+                    "import": "库",
+                    "export": "枚举/成员"
+                  }
+                ],
+                "valueType": {
+                  "decl": {
+                    "definitionId": "Enum"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f2": {
+              "required": true,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "set",
+                  "element": {
+                    "kind": "subject",
+                    "subjectKinds": [
+                      {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f3": {
+              "required": true,
+              "type": {
+                "kind": "positive-integer"
+              },
+              "meaning": "独立含义"
+            },
+            "f4": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "list": {
+                    "builtin": "Int"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f5": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "record": [
+                    {
+                      "name": "",
+                      "type": {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    }
+                  ],
+                  "open": false
+                }
+              },
+              "meaning": "独立含义"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "bound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "f0": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义"
+            },
+            "f1": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  },
+                  {
+                    "import": "库",
+                    "export": "枚举/成员"
+                  }
+                ],
+                "valueType": {
+                  "decl": {
+                    "definitionId": "Enum"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f2": {
+              "required": true,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "set",
+                  "element": {
+                    "kind": "subject",
+                    "subjectKinds": [
+                      {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f3": {
+              "required": true,
+              "type": {
+                "kind": "positive-integer"
+              },
+              "meaning": "独立含义"
+            },
+            "f4": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "list": {
+                    "builtin": "Int"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f5": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "record": [
+                    {
+                      "name": "",
+                      "type": {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    }
+                  ],
+                  "open": false
+                }
+              },
+              "meaning": "独立含义"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "import": "库",
+                "export": "枚举/成员"
+              }
+            }
+          },
+          "implementation": "bound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "rule-malformed-method",
+      "slot": "definition",
+      "input": {
+        "req:rule": {
+          "strength": "require",
+          "fields": {
+            "f0": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义"
+            },
+            "f1": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  },
+                  {
+                    "import": "库",
+                    "export": "枚举/成员"
+                  }
+                ],
+                "valueType": {
+                  "decl": {
+                    "definitionId": "Enum"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f2": {
+              "required": true,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "set",
+                  "element": {
+                    "kind": "subject",
+                    "subjectKinds": [
+                      {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f3": {
+              "required": true,
+              "type": {
+                "kind": "positive-integer"
+              },
+              "meaning": "独立含义"
+            },
+            "f4": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "list": {
+                    "builtin": "Int"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f5": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "record": [
+                    {
+                      "name": "",
+                      "type": {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    }
+                  ],
+                  "open": false
+                }
+              },
+              "meaning": "独立含义"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "definitionId": "",
+                "extra": true
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "expectedExpanded": {
+        "kind": "req:rule",
+        "body": {
+          "strength": "require",
+          "fields": {
+            "f0": {
+              "required": true,
+              "type": {
+                "kind": "subject",
+                "subjectKinds": [
+                  {
+                    "decl": {
+                      "definitionId": ""
+                    }
+                  }
+                ]
+              },
+              "meaning": "独立含义"
+            },
+            "f1": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "allowed": [
+                  {
+                    "definitionId": ""
+                  },
+                  {
+                    "import": "库",
+                    "export": "枚举/成员"
+                  }
+                ],
+                "valueType": {
+                  "decl": {
+                    "definitionId": "Enum"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f2": {
+              "required": true,
+              "type": {
+                "kind": "set",
+                "element": {
+                  "kind": "set",
+                  "element": {
+                    "kind": "subject",
+                    "subjectKinds": [
+                      {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f3": {
+              "required": true,
+              "type": {
+                "kind": "positive-integer"
+              },
+              "meaning": "独立含义"
+            },
+            "f4": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "list": {
+                    "builtin": "Int"
+                  }
+                }
+              },
+              "meaning": "独立含义"
+            },
+            "f5": {
+              "required": true,
+              "type": {
+                "kind": "value",
+                "valueType": {
+                  "record": [
+                    {
+                      "name": "",
+                      "type": {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    }
+                  ],
+                  "open": false
+                }
+              },
+              "meaning": "独立含义"
+            }
+          },
+          "semantics": {
+            "source": "source:1",
+            "section": "fields",
+            "scope": "all",
+            "interpretation": {
+              "methodRef": {
+                "definitionId": "",
+                "extra": true
+              }
+            }
+          },
+          "implementation": "unbound",
+          "typeParams": [
+            {
+              "key": "T",
+              "name": "T"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "requirement-qualifiers-not-universal",
+      "slot": "definition",
+      "input": {
+        "req:enum-value": {},
+        "qualifiers": {}
+      },
+      "expectedExpanded": {
+        "kind": "req:enum-value",
+        "body": {},
+        "qualifiers": {}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "requirement-display-name-is-text",
+      "slot": "definition",
+      "input": {
+        "req:enum-value": {},
+        "name": 1
+      },
+      "expectedExpanded": {
+        "kind": "req:enum-value",
+        "body": {},
+        "name": 1
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "scalar-attributes",
+      "slot": "type",
+      "input": {
+        "int": {
+          "bits": 32,
+          "overflow": "checked"
+        }
+      },
+      "expectedExpanded": {
+        "tag": "scalar",
+        "name": "int",
+        "bits": 32,
+        "overflow": "checked"
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": true
+    },
+    {
+      "name": "field-preserves-optional-mutable",
+      "slot": "type",
+      "input": {
+        "record": {
+          "": {
+            "type": "bool",
+            "optional": true,
+            "mutable": false
+          },
+          "other": "text"
+        },
+        "open": false
+      },
+      "expectedExpanded": {
+        "tag": "record",
+        "fields": {
+          "": {
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "optional": true,
+            "mutable": false
+          },
+          "other": {
+            "type": {
+              "tag": "scalar",
+              "name": "text"
+            }
+          }
+        },
+        "open": false
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": true
+    },
+    {
+      "name": "nominal-structured-ref",
+      "slot": "type",
+      "input": {
+        "nominal": {
+          "space": "import",
+          "alias": "库",
+          "export": ""
+        }
+      },
+      "expectedExpanded": {
+        "tag": "nominal",
+        "ref": {
+          "space": "import",
+          "alias": "库",
+          "export": ""
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": true
+    },
+    {
+      "name": "exact-type-no-short-child",
+      "slot": "type",
+      "input": {
+        "tag": "option",
+        "inner": "bool"
+      },
+      "expectedExpanded": {
+        "tag": "option",
+        "inner": "bool"
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": false
+    },
+    {
+      "name": "record-field-unknown-kept",
+      "slot": "type",
+      "input": {
+        "record": {
+          "x": {
+            "type": "bool",
+            "default": true
+          }
+        },
+        "open": false
+      },
+      "expectedExpanded": {
+        "tag": "record",
+        "fields": {
+          "x": {
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "default": true
+          }
+        },
+        "open": false
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": false
+    },
+    {
+      "name": "rational-endpoint",
+      "slot": "type",
+      "input": {
+        "rational": true
+      },
+      "expectedExpanded": {
+        "tag": "rational"
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": true
+    },
+    {
+      "name": "wire-nested-candidate-type",
+      "slot": "type",
+      "input": {
+        "wireVariant": {
+          "known": {
+            "": {
+              "record": {
+                "a": "int"
+              },
+              "open": false
+            },
+            "Text": "text"
+          },
+          "unknown": "preserve-raw-frame",
+          "encoding": "tagged-json-frame",
+          "duplicates": "reject-known-preserve-unknown"
+        }
+      },
+      "expectedExpanded": {
+        "tag": "wire-variant",
+        "known": {
+          "": {
+            "tag": "record",
+            "fields": {
+              "a": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                }
+              }
+            },
+            "open": false
+          },
+          "Text": {
+            "tag": "scalar",
+            "name": "text"
+          }
+        },
+        "unknown": "preserve-raw-frame",
+        "encoding": "tagged-json-frame",
+        "duplicates": "reject-known-preserve-unknown"
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": true
+    },
+    {
+      "name": "wire-unknown-fields-rejected",
+      "slot": "type",
+      "input": {
+        "wireVariant": {
+          "known": {
+            "": {
+              "record": {
+                "a": "int"
+              },
+              "open": false
+            },
+            "Text": "text"
+          },
+          "unknown": "preserve-raw-frame",
+          "encoding": "tagged-json-frame",
+          "duplicates": "reject-known-preserve-unknown",
+          "extra": true
+        }
+      },
+      "expectedExpanded": {
+        "tag": "wire-variant",
+        "known": {
+          "": {
+            "tag": "record",
+            "fields": {
+              "a": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                }
+              }
+            },
+            "open": false
+          },
+          "Text": {
+            "tag": "scalar",
+            "name": "text"
+          }
+        },
+        "unknown": "preserve-raw-frame",
+        "encoding": "tagged-json-frame",
+        "duplicates": "reject-known-preserve-unknown",
+        "extra": true
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expectedValid": false
+    },
+    {
+      "name": "rational-denominator-'3'",
+      "slot": "definition",
+      "input": {
+        "core:constant": {
+          "type": {
+            "rational": true
+          },
+          "literal": {
+            "numerator": "-1",
+            "denominator": "3"
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "core:constant",
+        "body": {
+          "type": {
+            "tag": "rational"
+          },
+          "value": {
+            "op": "literal",
+            "type": {
+              "tag": "rational"
+            },
+            "value": {
+              "numerator": "-1",
+              "denominator": "3"
+            }
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "rational-denominator-'0'",
+      "slot": "definition",
+      "input": {
+        "core:constant": {
+          "type": {
+            "rational": true
+          },
+          "literal": {
+            "numerator": "-1",
+            "denominator": "0"
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "core:constant",
+        "body": {
+          "type": {
+            "tag": "rational"
+          },
+          "value": {
+            "op": "literal",
+            "type": {
+              "tag": "rational"
+            },
+            "value": {
+              "numerator": "-1",
+              "denominator": "0"
+            }
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "rational-denominator-'03'",
+      "slot": "definition",
+      "input": {
+        "core:constant": {
+          "type": {
+            "rational": true
+          },
+          "literal": {
+            "numerator": "-1",
+            "denominator": "03"
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "core:constant",
+        "body": {
+          "type": {
+            "tag": "rational"
+          },
+          "value": {
+            "op": "literal",
+            "type": {
+              "tag": "rational"
+            },
+            "value": {
+              "numerator": "-1",
+              "denominator": "03"
+            }
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "rational-denominator-'3\\n'",
+      "slot": "definition",
+      "input": {
+        "core:constant": {
+          "type": {
+            "rational": true
+          },
+          "literal": {
+            "numerator": "-1",
+            "denominator": "3\n"
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "core:constant",
+        "body": {
+          "type": {
+            "tag": "rational"
+          },
+          "value": {
+            "op": "literal",
+            "type": {
+              "tag": "rational"
+            },
+            "value": {
+              "numerator": "-1",
+              "denominator": "3\n"
+            }
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "constant-raw-data-not-grammar",
+      "slot": "definition",
+      "input": {
+        "core:constant": {
+          "type": {
+            "nominal": "local:Json"
+          },
+          "literal": {
+            "all": [
+              1
+            ],
+            "op": "not",
+            "kind": "core:type",
+            "local:X": {
+              "tag": "rational"
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "core:constant",
+        "body": {
+          "type": {
+            "tag": "nominal",
+            "ref": "local:Json"
+          },
+          "value": {
+            "op": "literal",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Json"
+            },
+            "value": {
+              "all": [
+                1
+              ],
+              "op": "not",
+              "kind": "core:type",
+              "local:X": {
+                "tag": "rational"
+              }
+            }
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "formula-combinators",
+      "slot": "formula",
+      "input": {
+        "all": [
+          {
+            "any": [
+              {
+                "local:P": {
+                  "x": "input"
+                }
+              }
+            ]
+          },
+          {
+            "not": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "iff": [
+              {
+                "local:P": {
+                  "x": "input"
+                }
+              },
+              {
+                "local:P": {
+                  "x": "input"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expectedExpanded": {
+        "op": "all",
+        "items": [
+          {
+            "op": "any",
+            "items": [
+              {
+                "op": "call",
+                "meaningRef": "local:P",
+                "bindings": {
+                  "x": "input"
+                }
+              }
+            ]
+          },
+          {
+            "op": "not",
+            "item": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "op": "all",
+            "items": [
+              {
+                "op": "implies",
+                "if": {
+                  "op": "call",
+                  "meaningRef": "local:P",
+                  "bindings": {
+                    "x": "input"
+                  }
+                },
+                "then": {
+                  "op": "call",
+                  "meaningRef": "local:P",
+                  "bindings": {
+                    "x": "input"
+                  }
+                }
+              },
+              {
+                "op": "implies",
+                "if": {
+                  "op": "call",
+                  "meaningRef": "local:P",
+                  "bindings": {
+                    "x": "input"
+                  }
+                },
+                "then": {
+                  "op": "call",
+                  "meaningRef": "local:P",
+                  "bindings": {
+                    "x": "input"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base#/$defs/formula",
+      "expectedValid": true
+    },
+    {
+      "name": "exact-formula-no-short-child",
+      "slot": "formula",
+      "input": {
+        "op": "all",
+        "items": [
+          {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        ]
+      },
+      "expectedExpanded": {
+        "op": "all",
+        "items": [
+          {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        ]
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base#/$defs/formula",
+      "expectedValid": false
+    },
+    {
+      "name": "quantifier-count",
+      "slot": "formula",
+      "input": {
+        "quantify": {
+          "quantifier": "exactly",
+          "binder": "x",
+          "domainRef": "local:Items",
+          "count": 3,
+          "predicate": {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "op": "quantify",
+        "quantifier": "exactly",
+        "binder": "x",
+        "domainRef": "local:Items",
+        "count": 3,
+        "predicate": {
+          "op": "call",
+          "meaningRef": "local:P",
+          "bindings": {
+            "x": "input"
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base#/$defs/formula",
+      "expectedValid": true
+    },
+    {
+      "name": "quantifier-missing-count",
+      "slot": "formula",
+      "input": {
+        "quantify": {
+          "quantifier": "exactly",
+          "binder": "x",
+          "domainRef": "local:Items",
+          "predicate": {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "op": "quantify",
+        "quantifier": "exactly",
+        "binder": "x",
+        "domainRef": "local:Items",
+        "predicate": {
+          "op": "call",
+          "meaningRef": "local:P",
+          "bindings": {
+            "x": "input"
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base#/$defs/formula",
+      "expectedValid": false
+    },
+    {
+      "name": "forall-with-count",
+      "slot": "formula",
+      "input": {
+        "quantify": {
+          "quantifier": "forall",
+          "binder": "x",
+          "domainRef": "local:Items",
+          "count": 3,
+          "predicate": {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "op": "quantify",
+        "quantifier": "forall",
+        "binder": "x",
+        "domainRef": "local:Items",
+        "count": 3,
+        "predicate": {
+          "op": "call",
+          "meaningRef": "local:P",
+          "bindings": {
+            "x": "input"
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base#/$defs/formula",
+      "expectedValid": false
+    },
+    {
+      "name": "temporal-until",
+      "slot": "formula",
+      "input": {
+        "temporal": {
+          "operator": "until",
+          "clockRef": "clock:1",
+          "item": {
+            "local:P": {
+              "x": "input"
+            }
+          },
+          "boundary": {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "op": "temporal",
+        "operator": "until",
+        "clockRef": "clock:1",
+        "item": {
+          "op": "call",
+          "meaningRef": "local:P",
+          "bindings": {
+            "x": "input"
+          }
+        },
+        "boundary": {
+          "op": "call",
+          "meaningRef": "local:P",
+          "bindings": {
+            "x": "input"
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base#/$defs/formula",
+      "expectedValid": true
+    },
+    {
+      "name": "temporal-until-needs-boundary",
+      "slot": "formula",
+      "input": {
+        "temporal": {
+          "operator": "until",
+          "clockRef": "clock:1",
+          "item": {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "op": "temporal",
+        "operator": "until",
+        "clockRef": "clock:1",
+        "item": {
+          "op": "call",
+          "meaningRef": "local:P",
+          "bindings": {
+            "x": "input"
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base#/$defs/formula",
+      "expectedValid": false
+    },
+    {
+      "name": "six-modalities-assumption-observation",
+      "slot": "goal",
+      "input": {
+        "roles": {
+          "input": "local:T"
+        },
+        "clauses": {
+          "a": {
+            "achieve": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          },
+          "b": {
+            "maintain": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          },
+          "c": {
+            "avoid": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          },
+          "d": {
+            "oblige": {
+              "actorRole": "input",
+              "trigger": {
+                "local:P": {
+                  "x": "input"
+                }
+              },
+              "fulfilment": {
+                "local:P": {
+                  "x": "input"
+                }
+              },
+              "temporalMode": "open-ended"
+            }
+          },
+          "e": {
+            "permit": {
+              "actorRole": "input",
+              "actionRef": "local:A"
+            }
+          },
+          "f": {
+            "prefer": {
+              "qualityRef": "local:Q",
+              "direction": "minimize"
+            }
+          }
+        },
+        "assumptions": [
+          {
+            "id": "a",
+            "formula": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          }
+        ],
+        "observations": [
+          {
+            "meaningRef": "local:P",
+            "sourceRef": "observation:1"
+          }
+        ]
+      },
+      "expectedExpanded": {
+        "roles": {
+          "input": {
+            "typeRef": "local:T",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "a",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "id": "b",
+            "modality": "maintain",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "id": "c",
+            "modality": "avoid",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "id": "d",
+            "modality": "oblige",
+            "actorRole": "input",
+            "trigger": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            },
+            "fulfilment": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            },
+            "temporalMode": "open-ended"
+          },
+          {
+            "id": "e",
+            "modality": "permit",
+            "actorRole": "input",
+            "actionRef": "local:A"
+          },
+          {
+            "id": "f",
+            "modality": "prefer",
+            "qualityRef": "local:Q",
+            "direction": "minimize"
+          }
+        ],
+        "assumptions": [
+          {
+            "id": "a",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          }
+        ],
+        "observations": [
+          {
+            "meaningRef": "local:P",
+            "sourceRef": "observation:1"
+          }
+        ]
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base",
+      "expectedValid": true
+    },
+    {
+      "name": "obligation-needs-time-regime",
+      "slot": "goal",
+      "input": {
+        "roles": {
+          "input": "local:T"
+        },
+        "clauses": {
+          "a": {
+            "achieve": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          },
+          "b": {
+            "maintain": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          },
+          "c": {
+            "avoid": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          },
+          "d": {
+            "oblige": {
+              "actorRole": "input",
+              "trigger": {
+                "local:P": {
+                  "x": "input"
+                }
+              },
+              "fulfilment": {
+                "local:P": {
+                  "x": "input"
+                }
+              }
+            }
+          },
+          "e": {
+            "permit": {
+              "actorRole": "input",
+              "actionRef": "local:A"
+            }
+          },
+          "f": {
+            "prefer": {
+              "qualityRef": "local:Q",
+              "direction": "minimize"
+            }
+          }
+        },
+        "assumptions": [
+          {
+            "id": "a",
+            "formula": {
+              "local:P": {
+                "x": "input"
+              }
+            }
+          }
+        ],
+        "observations": [
+          {
+            "meaningRef": "local:P",
+            "sourceRef": "observation:1"
+          }
+        ]
+      },
+      "expectedExpanded": {
+        "roles": {
+          "input": {
+            "typeRef": "local:T",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "a",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "id": "b",
+            "modality": "maintain",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "id": "c",
+            "modality": "avoid",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "id": "d",
+            "modality": "oblige",
+            "actorRole": "input",
+            "trigger": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            },
+            "fulfilment": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          },
+          {
+            "id": "e",
+            "modality": "permit",
+            "actorRole": "input",
+            "actionRef": "local:A"
+          },
+          {
+            "id": "f",
+            "modality": "prefer",
+            "qualityRef": "local:Q",
+            "direction": "minimize"
+          }
+        ],
+        "assumptions": [
+          {
+            "id": "a",
+            "formula": {
+              "op": "call",
+              "meaningRef": "local:P",
+              "bindings": {
+                "x": "input"
+              }
+            }
+          }
+        ],
+        "observations": [
+          {
+            "meaningRef": "local:P",
+            "sourceRef": "observation:1"
+          }
+        ]
+      },
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base",
+      "expectedValid": false
+    },
+    {
+      "name": "state-external-table",
+      "slot": "definition",
+      "input": {
+        "state:machine": {
+          "states": [
+            "A",
+            "B"
+          ],
+          "initial": "A",
+          "events": [
+            "go"
+          ],
+          "transitions": {
+            "table": {
+              "B": {
+                "go": "A"
+              },
+              "A": {
+                "go": "B"
+              }
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "state:machine",
+        "body": {
+          "states": [
+            "A",
+            "B"
+          ],
+          "initial": "A",
+          "events": [
+            {
+              "name": "go",
+              "payload": {
+                "tag": "scalar",
+                "name": "unit"
+              }
+            }
+          ],
+          "transitions": [
+            {
+              "from": "A",
+              "event": "go",
+              "to": "B"
+            },
+            {
+              "from": "B",
+              "event": "go",
+              "to": "A"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "state-internal-rules",
+      "slot": "definition",
+      "input": {
+        "state:machine": {
+          "states": [
+            "A",
+            "B"
+          ],
+          "initial": "A",
+          "events": [
+            "go"
+          ],
+          "transitions": {
+            "rules": [
+              {
+                "from": "A",
+                "event": "go",
+                "to": "A",
+                "kind": "internal"
+              }
+            ]
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "state:machine",
+        "body": {
+          "states": [
+            "A",
+            "B"
+          ],
+          "initial": "A",
+          "events": [
+            {
+              "name": "go",
+              "payload": {
+                "tag": "scalar",
+                "name": "unit"
+              }
+            }
+          ],
+          "transitions": [
+            {
+              "from": "A",
+              "event": "go",
+              "to": "A",
+              "kind": "internal"
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "state-table-object-target-rejected",
+      "slot": "definition",
+      "input": {
+        "state:machine": {
+          "states": [
+            "A",
+            "B"
+          ],
+          "initial": "A",
+          "events": [
+            "go"
+          ],
+          "transitions": {
+            "table": {
+              "A": {
+                "go": {
+                  "to": "B",
+                  "kind": "internal"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "kind": "state:machine",
+        "body": {
+          "states": [
+            "A",
+            "B"
+          ],
+          "initial": "A",
+          "events": [
+            {
+              "name": "go",
+              "payload": {
+                "tag": "scalar",
+                "name": "unit"
+              }
+            }
+          ],
+          "transitions": [
+            {
+              "from": "A",
+              "event": "go",
+              "to": {
+                "to": "B",
+                "kind": "internal"
+              }
+            }
+          ]
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": false
+    },
+    {
+      "name": "module-empty-name-import-and-array-exports",
+      "slot": "module_value",
+      "input": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {
+          "": {
+            "req:enum-value": {},
+            "name": "other"
+          },
+          "Bool": {
+            "core:type": "bool"
+          }
+        },
+        "imports": {
+          "库": {
+            "locked": "module:lib",
+            "constraint": "exact"
+          }
+        },
+        "exports": [
+          "",
+          "Bool"
+        ]
+      },
+      "expectedExpanded": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {
+          "": {
+            "kind": "req:enum-value",
+            "body": {},
+            "name": "other"
+          },
+          "Bool": {
+            "kind": "core:type",
+            "body": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            }
+          }
+        },
+        "imports": {
+          "库": {
+            "mode": "locked",
+            "moduleId": "module:lib",
+            "constraint": "exact"
+          }
+        },
+        "exports": {
+          "": {
+            "definitionId": ""
+          },
+          "Bool": {
+            "definitionId": "Bool"
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "expectedValid": true
+    },
+    {
+      "name": "exact-definition-no-short-body",
+      "slot": "module_value",
+      "input": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {
+          "T": {
+            "kind": "core:type",
+            "body": {
+              "type": "bool"
+            }
+          }
+        }
+      },
+      "expectedExpanded": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {
+          "T": {
+            "kind": "core:type",
+            "body": {
+              "type": "bool"
+            }
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "expectedValid": false
+    },
+    {
+      "name": "exact-import-with-short-key-rejected",
+      "slot": "module_value",
+      "input": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {},
+        "imports": {
+          "x": {
+            "mode": "workspace",
+            "moduleId": "m",
+            "workspace": "m"
+          }
+        }
+      },
+      "expectedExpanded": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {},
+        "imports": {
+          "x": {
+            "mode": "workspace",
+            "moduleId": "m",
+            "workspace": "m"
+          }
+        }
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "expectedValid": false
+    },
+    {
+      "name": "mixed-kind",
+      "slot": "definition",
+      "input": {
+        "core:type": "bool",
+        "req:enum-value": {}
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "mixed-body",
+      "slot": "definition",
+      "input": {
+        "core:type": "bool",
+        "body": {}
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "unknown-kind",
+      "slot": "definition",
+      "input": {
+        "future:kind": {}
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "record-needs-open",
+      "slot": "type",
+      "input": {
+        "record": {}
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "scalar-override",
+      "slot": "type",
+      "input": {
+        "bool": {
+          "tag": "rational"
+        }
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "formula-op-override",
+      "slot": "formula",
+      "input": {
+        "quantify": {
+          "op": "call"
+        }
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "iff-arity",
+      "slot": "formula",
+      "input": {
+        "iff": [
+          {
+            "local:P": {
+              "x": "input"
+            }
+          }
+        ]
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "literal-value-conflict",
+      "slot": "definition",
+      "input": {
+        "core:constant": {
+          "type": "bool",
+          "literal": true,
+          "value": {}
+        }
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "duplicate-export",
+      "slot": "module_value",
+      "input": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {
+          "x": {
+            "core:type": "bool"
+          }
+        },
+        "exports": [
+          "x",
+          "x"
+        ]
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "missing-local-export",
+      "slot": "module_value",
+      "input": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {},
+        "exports": [
+          "x"
+        ]
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "ambiguous-import",
+      "slot": "module_value",
+      "input": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:codec-cases",
+        "definitions": {},
+        "imports": {
+          "x": {
+            "locked": "m",
+            "workspace": "m"
+          }
+        }
+      },
+      "expectedExpansionError": true
+    },
+    {
+      "name": "clause-id-override",
+      "slot": "goal",
+      "input": {
+        "clauses": {
+          "x": {
+            "achieve": {
+              "local:P": {
+                "x": "input"
+              }
+            },
+            "id": "y"
+          }
+        }
+      },
+      "expectedExpansionError": true
+    }
+  ]
+}

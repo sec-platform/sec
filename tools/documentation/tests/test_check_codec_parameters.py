@@ -18,8 +18,8 @@ class CodecParameters(TestCase):
                   'properties': {'parent': {'$ref': 'urn:test:a'},
                                  'name': {'$ref': 'urn:test:a#/$defs/Name'}}}
         self.capture = {}
-        self.manifest = {'schema': 'gift.design-codec-parameters/1',
-                         'scope': 'complete-base-structure-only', 'resources': [], 'externals': []}
+        self.manifest = {'schema': 'gift.design-codec-parameters/2',
+                         'scope': 'complete-candidate-structure-only', 'resources': [], 'externals': [], 'extensions': []}
         for name, value in (('a', self.a), ('b', self.b)):
             path = 'schema/' + name + '.json'
             raw = json.dumps(value).encode()
@@ -100,3 +100,42 @@ class CodecParameters(TestCase):
         with self.assertRaisesRegex(c.CodecDrift, 'invalid pointer'): self.build()
         self.manifest['guess'] = True
         with self.assertRaisesRegex(c.CodecDrift, 'unexpected/missing'): self.build()
+
+    def extension(self):
+        self.a['$defs']['Union'] = {'oneOf': [{'$ref': '#/$defs/Name'}]}
+        self.update_a()
+        extension = {'resource': 'urn:test:a', 'pointer': '/$defs/Union', 'keyword': 'oneOf',
+                     'expectedSha256': c.node_digest(self.a['$defs']['Union']),
+                     'append': [{'$ref': 'urn:test:b'}]}
+        self.manifest['extensions'] = [extension]
+        return extension
+
+    def test_extension_preserves_original_branches_and_rebinds_new_edge(self):
+        self.extension()
+        graph = self.build()
+        self.assertEqual(graph['urn:test:a:candidate']['$defs']['Union'],
+                         {'oneOf': [{'$ref': '#/$defs/Name'}, {'$ref': 'urn:test:b:candidate'}]})
+        self.assertEqual(graph['urn:test:a:candidate']['$defs']['Name'], {'type': 'string'})
+
+    def test_extension_old_node_drift_and_duplicate_rejected(self):
+        extension = self.extension()
+        extension['expectedSha256'] = '0' * 64
+        with self.assertRaisesRegex(c.CodecDrift, 'extension old node'): self.build()
+        extension['expectedSha256'] = c.node_digest(self.a['$defs']['Union'])
+        self.manifest['extensions'].append(copy.deepcopy(extension))
+        with self.assertRaisesRegex(c.CodecDrift, 'duplicate'): self.build()
+
+    def test_extension_cannot_lose_original_union_through_replacement(self):
+        self.extension()
+        self.manifest['resources'][0]['replacements'].append({
+            'pointer': '/$defs/Union', 'expected': copy.deepcopy(self.a['$defs']['Union']),
+            'replacement': {'oneOf': []}})
+        with self.assertRaisesRegex(c.CodecDrift, 'extension node or ancestor'): self.build()
+
+    def test_extension_only_accepts_declared_schema_combinators_and_refs(self):
+        extension = self.extension()
+        extension['keyword'] = 'examples'
+        with self.assertRaisesRegex(c.CodecDrift, 'combinator'): self.build()
+        extension['keyword'] = 'oneOf'
+        extension['append'] = [{'type': 'string'}]
+        with self.assertRaisesRegex(c.CodecDrift, 'extension branch'): self.build()

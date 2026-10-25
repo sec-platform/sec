@@ -1,4 +1,4 @@
-"""Rebuild the bounded complete-base design Schema graph from captured bytes.
+"""Rebuild the bounded complete-candidate design Schema graph from captured bytes.
 
 This is a documentation drift check, not a language Reader, linker or validator.
 Only declared Schema nodes and Schema $id/$ref edges are transformed. Derived
@@ -35,6 +35,10 @@ def exact_keys(value, keys, label):
 
 def same(a, b):
     return json.dumps(a, sort_keys=True, ensure_ascii=True) == json.dumps(b, sort_keys=True, ensure_ascii=True)
+
+
+def node_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(',', ':')).encode('ascii')).hexdigest()
 
 
 def tokens(pointer):
@@ -99,8 +103,8 @@ def build_graph(captured):
     if MANIFEST not in captured:
         fail('parameter manifest missing')
     manifest = decode(captured[MANIFEST], MANIFEST)
-    exact_keys(manifest, ('schema', 'scope', 'resources', 'externals'), MANIFEST)
-    if manifest['schema'] != 'gift.design-codec-parameters/1' or manifest['scope'] != 'complete-base-structure-only':
+    exact_keys(manifest, ('schema', 'scope', 'resources', 'externals', 'extensions'), MANIFEST)
+    if manifest['schema'] != 'gift.design-codec-parameters/2' or manifest['scope'] != 'complete-candidate-structure-only':
         fail('unsupported manifest identity/scope')
     resources, externals = manifest['resources'], manifest['externals']
     if not isinstance(resources, list) or not resources or not isinstance(externals, list):
@@ -130,6 +134,32 @@ def build_graph(captured):
         fail('candidate identity collision')
     if any(item['id'] == item['candidateId'] for item in resources):
         fail('candidate must have a distinct identity')
+    # Bind extension preimages before terminal replacements. An extension may
+    # contain a replaced descendant; append must retain that transformed node.
+    extensions = manifest['extensions']
+    if not isinstance(extensions, list):
+        fail('extensions must be an array')
+    extension_keys = set()
+    for extension in extensions:
+        exact_keys(extension, ('resource', 'pointer', 'keyword', 'expectedSha256', 'append'), 'extension')
+        identity, keyword = extension['resource'], extension['keyword']
+        if identity not in source or identity not in {x['id'] for x in resources}:
+            fail('extension target is not a transformed resource')
+        parts = tuple(tokens(extension['pointer']))
+        if parts not in {p for p, _ in schema_nodes(source[identity])} or keyword not in ('oneOf', 'allOf'):
+            fail('extension requires a declared Schema combinator')
+        node = locate(source[identity], parts)
+        key = (identity, parts, keyword)
+        if key in extension_keys or not isinstance(node, dict) or not isinstance(node.get(keyword), list):
+            fail('duplicate or missing extension combinator')
+        extension_keys.add(key)
+        if node_digest(node) != extension['expectedSha256']:
+            fail('extension old node mismatch')
+        additions = extension['append']
+        if not isinstance(additions, list) or not additions:
+            fail('extension requires explicit referenced branches')
+        for branch in additions:
+            exact_keys(branch, ('$ref',), 'extension branch')
     for item in resources:
         value = source[item['id']]
         allowed = {p for p, _ in schema_nodes(value)}
@@ -141,6 +171,9 @@ def build_graph(captured):
             parts = tuple(tokens(replacement['pointer']))
             if parts not in allowed or any(parts[:len(p)] == p or p[:len(parts)] == parts for p in seen):
                 fail('non-Schema or overlapping replacement: ' + replacement['pointer'])
+            if any(identity == item['id'] and extension_parts[:len(parts)] == parts
+                   for identity, extension_parts, _ in extension_keys):
+                fail('replacement would replace an extension node or ancestor: ' + replacement['pointer'])
             seen.append(parts)
             if not same(locate(value, parts), replacement['expected']):
                 fail('old node mismatch: ' + replacement['pointer'])
@@ -148,6 +181,11 @@ def build_graph(captured):
             list(schema_nodes(replacement['replacement']))
             parent = locate(value, parts[:-1])
             parent[int(parts[-1]) if isinstance(parent, list) else parts[-1]] = copy.deepcopy(replacement['replacement'])
+    for extension in extensions:
+        node = locate(source[extension['resource']], tokens(extension['pointer']))
+        if not isinstance(node, dict) or not isinstance(node.get(extension['keyword']), list):
+            fail('replacement removed the extension combinator')
+        node[extension['keyword']].extend(copy.deepcopy(extension['append']))
     addresses = {identity: {p for p, _ in schema_nodes(value)} for identity, value in source.items()}
     output = {}
     for identity, value in source.items():
@@ -178,5 +216,5 @@ if __name__ == '__main__':
     from pathlib import Path
     from source_inventory import capture_source_bytes
     root = Path(__file__).resolve().parents[2]
-    print(json.dumps({'scope': 'complete-base-structure-only',
+    print(json.dumps({'scope': 'complete-candidate-structure-only',
                       'schemas': list(build_graph(capture_source_bytes(root)).values())}, ensure_ascii=True))

@@ -26,14 +26,14 @@ Name、SourceRef与仅含三个互斥对象的StructuredSourceRef见[names.schem
 <a id="legacy"></a>
 ## 旧需求声明的单源承接
 
-新容器的 requirement 声明空间增加现行原 owner 已定义的 `req:rule / req:subject / req:value-type / req:enum-value` 分派。不是新造四种业务能力，也不把它们强行改成 Bool Meaning。**复用其准确Body形状与语义，候选解码应用前述Name参数；不手写一个不完整的业务翻译器，也不声称旧二进制Reader自动接受新名字。** 新容器装载该已固定 requirement 方言；Body 始终由同一个专业 owner 维护。四类新增声明尚无完整机器Body Schema，convergence校准分支只覆盖所列样例；实现完整Reader时须按本节链接的原owner完成全部分派并取得符合性证据。
+新容器的 requirement 声明空间增加现行原 owner 已定义的 `req:rule / req:subject / req:value-type / req:enum-value` 分派。不是新造四种业务能力，也不把它们强行改成 Bool Meaning。**复用其准确Body形状与语义，候选解码应用前述Name参数；不手写一个不完整的业务翻译器，也不声称旧二进制Reader自动接受新名字。** 新容器装载该已固定 requirement 方言；Body 始终由[原字段目录](../../../docs/作者/结构化源码.md#5-字段目录和完整含义)维护，其[完整机器Schema](../../requirements/requirement-declarations.schema.json)经参数图进入完整候选。convergence校准仅保留自己的专业范围；真实Reader仍须取得相应结构、语义与加载资格。
 
 | 原声明 | 保留的结构与身份 | 新容器实际消费者 |
 |---|---|---|
 | req:subject | nominal identity、roles、各角色类型与出现域 | Requirement 主体绑定；不凭记录布局认同不同主体 |
 | req:enum-value | 原 definitionId、所属声明域、公开出口 | 名义枚举成员；不降成自由 Text |
 | req:value-type | 原有限名义枚举目录及成员集合 | 值域检查；不是重新造全部 record/quantity 类型系统 |
-| req:rule | strength、字段 required/type/default/meaning（只保留原合法字段）、semantics 的出处/范围、implementation 状态 | 实际 Rule 使用点、义务生成、强软约束与选型；unbound 仍然 unbound |
+| req:rule | strength、字段 required/type/meaning、semantics 的出处/范围及可选固定interpretation、implementation:"unbound"、可选共同typeParams；默认只归composite.parameters.default | 实际 Rule 使用点、义务生成、强软约束与选型；unbound 仍然 unbound |
 
 迁移输入是旧字节、旧 Decoder/Body 内容、导入图和锁、Definition/Use/Root、来源与接受关系，不只有几个文件名。先以旧 Reader 得到合法对象，再按有限声明结构逐节点拷入新容器：保留 moduleId、namespace、原 definitionId、name、字段次序有用部分、出口别名和全部 typed refs；新名称规则使旧冒号/Unicode 键不再必须改名。相对资料引用保持原文档身份与原解析基准，移动文件时可换定位但不得换语义修订。
 
@@ -58,9 +58,9 @@ Name、SourceRef与仅含三个互斥对象的StructuredSourceRef见[names.schem
 
 预览不推进轮转状态，正式采用在原应用边界核候选集合/政策修订及当前lastAccepted后原子提交选择和状态；并发冲突重新按当前基础选择，不能两个旧预览各自消费同一轮。选择是否被采用、作用是否完成与产品要求是否履行继续分别结算。轮转是明确政策，不证明任意动态增删集合中的长期公平或全体最优；有这种要求时另保留其假设与进展义务。这里的lastAccepted属原应用协调，不增加可写需求账本。
 
-**有理量。** `{"rational":true}`为准确有理类型的短型；literal 用规范 `numerator` 整数字符串与正 `denominator`。语义为 n/d；规范值用 gcd 约分，零分母拒绝，负号仅分子，源原字节仍保留。量值引用原单位定义及其仿射/线性转换，不给 1/3 偷换单位或浮点舍入。比较交叉相乘采用精确整数并记真实资源成本。已有十进制业务槽不改义；新有理画像由目标显式接受或返回适配缺项。
+**有理量。** `{"rational":true}`确定展开为同一候选Type中的`{tag:"rational"}`；[完整类型节点](complete-types.schema.json)约束直接有理literal使用规范`numerator`整数字符串与正`denominator`，不得把负数、零、前导零或尾换行分母当成合法值。语义为 n/d；规范值用 gcd 约分，零分母拒绝，负号仅分子，源原字节仍保留。Schema只检查直接字面结构，嵌套值及名义类型别名仍由准确类型值解码器验证。量值引用原单位定义及其仿射/线性转换，不给 1/3 偷换单位或浮点舍入。比较交叉相乘采用精确整数并记真实资源成本。已有十进制业务槽不改义；新有理画像由目标显式接受或返回适配缺项。
 
-**未知变体。** `wireVariant`描述传输拥有者，不改变所有闭合 variant。已知 A/B严格解码；在能准确取得一个不重复的顶层 tag 时，未知 C保留完整 frame 字节、编码、标签原文和前像，可原样转发/保存，不默认具有可执行业务含义。未知 payload 的重复字段/顺序/空白也属于 raw 保存范围；重复顶层 tag 无法明确分派，必须报格式错误；对已知分支拒绝重复键。不能在编辑一个已知 sibling 时重序列化未知部分导致字节丢失；没有真实子帧边界就保留整个 frame 或请求明确接管。解码 raw 与当前公开未知封装分开，不把 raw 字节同 source JSON 二次无损断言。
+**未知变体。** `wireVariant`描述传输拥有者，完整形为`{tag:"wire-variant",known,unknown,encoding,duplicates}`，不改变所有闭合 variant。known按准确Name映射至同一候选Type，合法载荷不局限于样本中的text/int；实际编码资格仍须真实类型/专业消费者取得。已知 A/B严格解码；在能准确取得一个不重复的顶层 tag 时，未知 C保留完整 frame 字节、编码、标签原文和前像，可原样转发/保存，不默认具有可执行业务含义。未知 payload 的重复字段/顺序/空白也属于 raw 保存范围；重复顶层 tag 无法明确分派，必须报格式错误；对已知分支拒绝重复键。不能在编辑一个已知 sibling 时重序列化未知部分导致字节丢失；没有真实子帧边界就保留整个 frame 或请求明确接管。解码 raw 与当前公开未知封装分开，不把 raw 字节同 source JSON 二次无损断言。
 
 **大结构参数。** 数学 Int 和字段的安全整数上限分别维护。超过原 count/replicas 范围的值作为准确 Int 参数进入专业规划合同，证明该目标提供者的实际容量与方法之前不降低到原 Number。旧 reader 继续拒绝越界；源可以表达不意味着可以建造该数量实例。静态只要比较数量的请求不必部署任何实例。业务约束无真实超大需求时不增加全局 Bignum 运行开销。
 
