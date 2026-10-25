@@ -3,7 +3,6 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { readJson } from "../../../src/adapters/filesystem/files.ts";
 import {
   appendSemanticMutationRecoveryRecord,
   loadSemanticMutationRecoveryRecords,
@@ -21,20 +20,12 @@ import {
   assertSemanticMutationTransactionRoot,
   semanticMutationTransactionRoot
 } from '../../../src/adapters/mutation/transaction-identity.ts';
-import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
-import { loadWorkspaceEngineeringIRBuildInput } from '../../../src/adapters/workspace/engineering-input.ts';
 import { projectSemanticMutationRequestRecordView } from '../../../src/application/semantic-mutation-query.ts';
-import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../../src/assurance/verification/contract/types.ts';
 import {
   applySemanticMutation,
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace
 } from '../../../src/bootstrap/engineering/cli.ts';
-import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
-import { projectArchitectureView } from '../../../src/compiler/projection/project-architecture-view.ts';
-import { projectScenarioView } from '../../../src/compiler/projection/project-scenario-view.ts';
-import { projectStateView } from '../../../src/compiler/projection/project-state-view.ts';
 import { sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
 import { semanticMutationRequestIdentityDigest } from '../../../src/compiler/semantic-mutation/identity.ts';
 import { assertSemanticMutationRecoveryRecordInvariant, semanticMutationRecoveryRecordRevision } from '../../../src/compiler/semantic-mutation/recovery-record.ts';
@@ -51,7 +42,7 @@ import {
   rolledBackResult
 } from '../../helpers/semantic-mutation-recovery-fixture.ts';
 import { prepareTicketSemanticRuntime } from '../../testkit/semantic-runtime.ts';
-import { prepareVerifiedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 const allowCommit = async (): Promise<void> => undefined;
 
@@ -1039,37 +1030,6 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
     expect(fixture.runtimeContractProvenance?.hash).toBeDefined();
   }, 'engineering-compiler-semantic-runtime-contract-');
 }, 120000);
-
-test('ticket semantic core closes the verified pipeline and three canonical projections', async () => {
-  const workspaceRoot = await prepareVerifiedWorkspace({
-    blockIds: ['ticket/basic'],
-    prefix: 'engineering-compiler-semantic-core-vertical-'
-  });
-  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
-
-  const verificationReport = await readJson<VerificationReport>(verificationReportPath);
-  const ticketSnapshot = buildValidatedEngineeringIR(
-    (await loadWorkspaceEngineeringIRBuildInput(workspaceRoot)).engineeringIRInput
-  );
-  expect(verificationReport.fast.status).toBe('passed');
-  expect(verificationReport.fast.unit.status).toBe('passed');
-  expect(verificationReport.fast.acceptance.status).toBe('passed');
-  expect(verificationReport.runtime.unit.status).toBe('passed');
-  expect(verificationReport.summary.status).toBe('passed');
-
-  const architecture = projectArchitectureView(ticketSnapshot, 'responsibility:ticket:TicketLifecycle');
-  expect(architecture.subject).toBe('responsibility:ticket:TicketLifecycle');
-  expect(architecture.nodes.some((node) => node.entityId === 'responsibility:ticket:TicketLifecycle')).toBe(true);
-
-  const scenario = projectScenarioView(ticketSnapshot, 'scenario:ticket:create-ticket');
-  expect(scenario.subject).toBe('scenario:ticket:create-ticket');
-  expect(scenario.nodes.some((node) => node.id === 'scenario:ticket:create-ticket#step:create')).toBe(true);
-
-  const state = projectStateView(ticketSnapshot, 'state:ticket:ticket-status');
-  expect(state.subject).toBe('state:ticket:ticket-status');
-  expect(state.edges.filter((edge) => edge.relation === 'TRANSITIONS_TO')).toHaveLength(3);
-}, 120_000);
-
 
 test.skipIf(process.platform === 'win32')(
   'SM-3 rejected terminal reader rejects a substituted symlink leaf',

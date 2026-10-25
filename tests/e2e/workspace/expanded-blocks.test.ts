@@ -45,6 +45,9 @@ test('expanded official block set composes and verifies as one project', async (
   expect(resolvedLock.resolvedBlocks.map((block) => block.id).sort()).toEqual(expectedBlockIds);
 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
+  expect(report.fast.status).toBe('passed');
+  expect(report.fast.unit.status).toBe('passed');
+  expect(report.fast.acceptance.status).toBe('passed');
   expect(report.summary.status).toBe('passed');
   expect(report.runtime.unit.status).toBe('passed');
   expect(report.runtime.acceptance.status).toBe('skipped');

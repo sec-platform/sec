@@ -229,10 +229,6 @@ export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOp
   return preparePipelineFixture('locked-all-default', 'engineering-compiler-locked-', options);
 }
 
-export async function prepareVerifiedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
-  return preparePipelineFixture('verified-fast-default', 'engineering-compiler-verified-', options);
-}
-
 export async function prepareResolvedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
   return preparePipelineFixture('resolved-default', 'engineering-compiler-resolved-', options);
 }

@@ -25,6 +25,7 @@ beforeAll(async () => {
 
 test('architecture projection preserves Responsibility, Port, Effect, and Permission Fact edges', () => {
   const view = projectArchitectureView(ticketSnapshot, 'responsibility:ticket:TicketLifecycle');
+  expect(view.subject).toBe('responsibility:ticket:TicketLifecycle');
 
   const lifecycle = view.nodes.find((node) => node.entityId === 'responsibility:ticket:TicketLifecycle');
   expect(lifecycle?.badges).toEqual(expect.arrayContaining(['stateful']));
@@ -57,6 +58,7 @@ test('architecture projection preserves Responsibility, Port, Effect, and Permis
 
 test('state projection exposes owner, backing field, mutator, and transition loops', () => {
   const view = projectStateView(ticketSnapshot, 'state:ticket:ticket-status');
+  expect(view.subject).toBe('state:ticket:ticket-status');
 
   expect(view.nodes.map((node) => node.entityId)).toEqual(expect.arrayContaining([
     'state:ticket:ticket-status',
@@ -139,6 +141,7 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
 
   const scenarioId = "scenario:ticket:create-ticket";
   const canonicalView = projectScenarioView(ticketSnapshot, scenarioId);
+  expect(canonicalView.subject).toBe(scenarioId);
   expect(
     canonicalView.nodes.every((node) =>
       node.references.some(

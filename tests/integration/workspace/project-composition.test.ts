@@ -2,9 +2,8 @@ import { expect, test } from 'bun:test';
 import { readFile, stat } from 'node:fs/promises';
 import { validateResolvedTemplates as validateWithComposition } from '../../../src/adapters/verification/validate-resolved-templates.ts';
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
-import { readLockFile, saveLock } from '../../../src/adapters/workspace/lock.ts';
+import { readLockFile } from '../../../src/adapters/workspace/lock.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { composeWorkspace } from '../../../src/bootstrap/engineering/compose-orchestrator.ts';
 import { composeProject } from '../../../src/bootstrap/engineering/project-composition.ts';
 import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import type { DependencyProjectOperationFactory } from '../../../src/execution/dependency-materialization.ts';
@@ -16,8 +15,7 @@ const unreachedDependencies: DependencyProjectOperationFactory = {
   }
 };
 
-// Independent expected outputs for the empty resolved workspace, not one
-// consumer's result reused as the oracle for the other.
+// Independent expected outputs for the empty resolved workspace.
 const minimalGeneratedPaths = [
   CI_ARTIFACT_FILES.blockUsageMap,
   CI_ARTIFACT_FILES.installManifest,
@@ -29,25 +27,8 @@ const minimalGeneratedPaths = [
   'tsconfig.json'
 ].sort();
 
-// Real providers, no dependency install/typecheck. The second keeper exercises
-// the actual temporary validation consumer, rather than a second direct call.
-test('workspace composition publishes the complete minimal artifact set', async () => {
-  await withTempWorkspace(async root => {
-    await initWorkspace(root);
-    const lock = readLockFile(root);
-    Object.assign(lock.passStatus, { parse: 'succeeded', align: 'succeeded', resolve: 'succeeded' });
-    await saveLock(root, lock);
-    await composeWorkspace(root, { opaqueModuleMaterializationMode: 'workspace-link' });
-    const persisted = readLockFile(root);
-    expect(persisted.passStatus.compose).toBe('succeeded');
-    expect(persisted.generatedPaths).toEqual(minimalGeneratedPaths);
-    const manifest = JSON.parse(await readFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.installManifest), 'utf8'));
-    const usage = JSON.parse(await readFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.blockUsageMap), 'utf8'));
-    expect(manifest).toEqual([]);
-    expect(usage).toEqual({ blocks: [] });
-  });
-});
-
+// Real providers, no dependency install/typecheck: composition publishes into
+// the validation consumer's isolated root before the injected failure.
 test('template validation consumes injected composition and preserves its failure through cleanup', async () => {
   await withTempWorkspace(async root => {
     await initWorkspace(root);
