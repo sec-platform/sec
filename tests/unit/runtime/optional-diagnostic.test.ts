@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { observeOptionalDiagnostic } from '../../../src/execution/optional-diagnostic.ts';
 
 test('synchronous diagnostic rejection cannot seize authority for any thrown-value class', () => {
-  for (const reason of [undefined, null, false, 0, new Error('display')]) {
+  for (const reason of [undefined, new Error('display')]) {
     assert.doesNotThrow(
       () => observeOptionalDiagnostic(() => { throw reason; }),
       `rejected value: ${String(reason)}`

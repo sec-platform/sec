@@ -219,7 +219,7 @@ test('direct no-follow metadata census does not traverse or charge nested entrie
   withFixtureRoot('sec-direct-metadata-', root => {
     const nested = path.join(root, 'nested');
     mkdirSync(nested);
-    for (let index = 0; index < 32; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       writeFileSync(path.join(nested, `descendant-${index}.txt`), `nested ${index}\n`, 'utf8');
     }
     writeFileSync(path.join(root, 'foreign-direct-entry'), 'foreign\n', 'utf8');

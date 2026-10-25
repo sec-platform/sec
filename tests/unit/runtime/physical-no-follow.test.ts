@@ -1104,7 +1104,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
     { device: entry!.device, inode: entry!.inode },
     'retained executable'
   );
-  try {
+  settleWorkspaceCallbackSync(() => {
     assertRetainedNoFollowCapability(capability, 'ordinary-file', 'retained executable test');
     expect(() => assertRetainedNoFollowCapability(capability, 'executable', 'forged executable role'))
       .toThrow('was not issued by the physical no-follow owner');
@@ -1125,16 +1125,22 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
       expect(() => renameSync(filePath, displaced)).toThrow();
       capability.assertCurrent();
     } else {
-      renameSync(filePath, displaced);
-      writeFileSync(filePath, bytes);
-      expectPhysicalCode(
-        () => capability.assertCurrent(),
-        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-      );
+      // Replacing the name unlinks the retained inode; the child-file keeper
+      // separately covers a displaced inode retained under a second name.
+      writeFileSync(displaced, bytes, { flag: 'wx' });
+      renameSync(displaced, filePath);
+      const replacement = retainNoFollowOrdinaryFile(parentChain, 'executable.bin');
+      settleWorkspaceCallbackSync(() => {
+        expect(replacement.physical.device).toBe(capability.physical.device);
+        expect(replacement.physical.inode).not.toBe(capability.physical.inode);
+        expect(Buffer.from(replacement.readBytes())).toEqual(bytes);
+        expectPhysicalCode(
+          () => capability.assertCurrent(),
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+        );
+      }, () => replacement.dispose());
     }
-  } finally {
-    capability.dispose();
-  }
+  }, () => capability.dispose());
 }));
 
 test.skipIf(process.platform !== 'linux')('retained ordinary-file digest rejects a same-size in-place rewrite', () => withFixtureRoot(root => {

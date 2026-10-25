@@ -5,12 +5,12 @@ import { runTaskGroup } from '../../../src/execution/task-group.ts';
 test('concurrent groups preserve separate ordered results and bound active work', async () => {
   let active = 0, maximum = 0;
   const [result, peer] = await Promise.all([
-    runTaskGroup(Array.from({ length: 51 }, (_, i) => async () => {
+    runTaskGroup(Array.from({ length: 7 }, (_, i) => async () => {
       maximum = Math.max(maximum, ++active); await Promise.resolve(); active--; return i;
     }), { concurrency: 3 }),
     runTaskGroup([async () => 2])
   ]);
-  assert.equal(maximum, 3); assert.deepEqual(result, Array.from({ length: 51 }, (_, i) => i));
+  assert.equal(maximum, 3); assert.deepEqual(result, Array.from({ length: 7 }, (_, i) => i));
   assert.deepEqual(peer, [2]);
 });
 

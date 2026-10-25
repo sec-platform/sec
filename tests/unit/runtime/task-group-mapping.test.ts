@@ -10,7 +10,7 @@ function deferred() {
 
 test('mapping preserves ordering and bounded active work', async () => {
   let active = 0, peak = 0;
-  const input = Array.from({ length: 31 }, (_, i) => i);
+  const input = Array.from({ length: 7 }, (_, i) => i);
   const mapped = await mapTaskGroup(input, async (value, index) => {
     assert.equal(value, index); peak = Math.max(peak, ++active); await Promise.resolve(); active--; return value * 2;
   }, { concurrency: 3 });

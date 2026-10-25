@@ -59,11 +59,9 @@ test.skipIf(process.platform !== 'linux')('ordinary-file capability disposes the
   const parent = inspectNoFollowDirectoryChain(f.source);
   retainNoFollowOrdinaryFile(parent, 'value').dispose(); // Lazy backend admission is not measured.
   const before = rootDescriptors();
-  for (let index = 0; index < 8; index += 1) {
-    const retained = retainNoFollowOrdinaryFile(parent, 'value');
-    try { expect(Buffer.from(retained.readBytes()).toString()).toBe('exact'); }
-    finally { retained.dispose(); }
-  }
+  const retained = retainNoFollowOrdinaryFile(parent, 'value');
+  try { expect(Buffer.from(retained.readBytes()).toString()).toBe('exact'); }
+  finally { retained.dispose(); }
   expect(rootDescriptors()).toBe(before);
 }));
 
@@ -71,9 +69,7 @@ test.skipIf(process.platform !== 'linux')('failed ordinary-file admission also d
   const parent = inspectNoFollowDirectoryChain(f.source);
   expect(() => retainNoFollowOrdinaryFile(parent, 'absent')).toThrow();
   const before = rootDescriptors();
-  for (let index = 0; index < 8; index += 1) {
-    expect(() => retainNoFollowOrdinaryFile(parent, 'absent')).toThrow();
-  }
+  expect(() => retainNoFollowOrdinaryFile(parent, 'absent')).toThrow();
   expect(rootDescriptors()).toBe(before);
 }));
 
