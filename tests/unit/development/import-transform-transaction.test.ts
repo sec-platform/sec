@@ -9,8 +9,8 @@ import {
   retireTerminalImportTransformTransactions
 } from '../../../src/adapters/self-hosting/development/runner/import-transform-transaction.ts';
 
-async function withWorkspace(run: (root: string) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-import-transaction-'));
+async function withWorkspace(run: (root: string) => Promise<void>, prefix = 'sec-import-transaction-'): Promise<void> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
   await settleWorkspaceCallback(() => run(root), () => rm(root, { recursive: true, force: true }));
 }
 
@@ -110,8 +110,7 @@ test('interrupted terminal deletion is outside active recovery and resumes witho
 });
 
 test('journal faults preserve physical rollback priority and ancestor aliases publish zero outside bytes', async () => {
-  const outside = await mkdtemp(path.join(tmpdir(), 'sec-import-outside-'));
-  await settleWorkspaceCallback(async () => {
+  await withWorkspace(async (outside) => {
     await writeFile(path.join(outside, 'a.ts'), 'outside\n');
     await withWorkspace(async (root) => {
       const link = path.join(root, 'link');
@@ -121,7 +120,7 @@ test('journal faults preserve physical rollback priority and ancestor aliases pu
       }])).rejects.toThrow();
       expect(await readFile(path.join(outside, 'a.ts'), 'utf8')).toBe('outside\n');
     });
-  }, () => rm(outside, { recursive: true, force: true }));
+  }, 'sec-import-outside-');
 
   const runRollback = async (hooks: Parameters<typeof publishImportTransformTransaction>[2]) => {
     let outcome: Awaited<ReturnType<typeof publishImportTransformTransaction>>;
@@ -158,8 +157,7 @@ test('journal faults preserve physical rollback priority and ancestor aliases pu
 });
 
 test('ancestor replacement after publication becomes a rollback conflict before any outside write', async () => {
-  const outside = await mkdtemp(path.join(tmpdir(), 'sec-import-ancestor-outside-'));
-  await settleWorkspaceCallback(async () => {
+  await withWorkspace(async (outside) => {
     await writeFile(path.join(outside, 'a.ts'), 'outside\n');
     await withWorkspace(async (root) => {
       const link = path.join(root, 'link');
@@ -179,7 +177,7 @@ test('ancestor replacement after publication becomes a rollback conflict before 
       expect(outcome).toMatchObject({ status: 'recovery-required', reasonCode: 'rollback-conflict' });
       expect(await readFile(path.join(outside, 'a.ts'), 'utf8')).toBe('outside\n');
     });
-  }, () => rm(outside, { recursive: true, force: true }));
+  }, 'sec-import-ancestor-outside-');
 });
 
 test('a legacy journal is read-only evidence and blocks a new transaction until migration', async () => {
