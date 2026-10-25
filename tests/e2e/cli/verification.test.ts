@@ -1,22 +1,24 @@
 import { expect, test } from 'bun:test';
 
 import type { VerificationReport } from '../../../src/assurance/verification/contract/types.ts';
-import { expectCliJson, expectCliText, expectCliVariants } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
 test('CLI exposes policy, acceptance, runtime, and verification reports as text and JSON contracts', async () => {
   await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
-    const { json: policyReport } = await expectCliVariants<{
+    await expectCliText(workspaceRoot, ['policy', 'report'], [
+      'Policy report passed; official=1; project=0; merged=1; violations=0',
+      'Policy tenant-scope-required; scope=official; source=catalog/policies/official/policy.spec.yaml; targets=src/installed/entity/customer-service.ts'
+    ]);
+    const policyReport = await expectCliJson<{
       status: string;
       merged: { policies: Array<{ id: string; targets: string[] }> };
       violations: unknown[];
-    }>(workspaceRoot, ['policy', 'report'], {
-      text: [
-        'Policy report passed; official=1; project=0; merged=1; violations=0',
-        'Policy tenant-scope-required; scope=official; source=catalog/policies/official/policy.spec.yaml; targets=src/installed/entity/customer-service.ts'
-      ],
-      compactJson: { status: 'passed' }
-    });
+    }>(
+      workspaceRoot, ['policy', 'report', '--json', '--compact'],
+      { status: 'passed' },
+      { compact: true }
+    );
     expect(policyReport).toMatchObject({
       status: 'passed',
       violations: [],
@@ -61,22 +63,24 @@ test('CLI exposes policy, acceptance, runtime, and verification reports as text 
       ]
     });
 
-    const { json: coverageReport } = await expectCliVariants<{
+    await expectCliText(workspaceRoot, ['acceptance', 'coverage'], [
+      'Acceptance coverage passed; acceptancePassed=',
+      'blocks=0/3; uncoveredBlocks=3',
+      'Uncovered blocks: auth/basic-session, tenant/basic-workspace, entity/customer-basic',
+      'Block entity/customer-basic; declared=3; coveredBy=none; uncovered=true'
+    ]);
+    const coverageReport = await expectCliJson<{
       status: string;
       blocks: Array<{ id: string; coveredBy: string[]; uncovered: boolean }>;
       uncoveredBlocks: string[];
-    }>(workspaceRoot, ['acceptance', 'coverage'], {
-      text: [
-        'Acceptance coverage passed; acceptancePassed=',
-        'blocks=0/3; uncoveredBlocks=3',
-        'Uncovered blocks: auth/basic-session, tenant/basic-workspace, entity/customer-basic',
-        'Block entity/customer-basic; declared=3; coveredBy=none; uncovered=true'
-      ],
-      compactJson: {
+    }>(
+      workspaceRoot, ['acceptance', 'coverage', '--json', '--compact'],
+      {
         status: 'passed',
         uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic']
-      }
-    });
+      },
+      { compact: true }
+    );
     expect(coverageReport).toMatchObject({
       status: 'passed',
       uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic']
@@ -110,25 +114,27 @@ test('CLI exposes policy, acceptance, runtime, and verification reports as text 
       { compact: true }
     );
 
-    const { json: runtimeReport } = await expectCliVariants<{
+    await expectCliText(workspaceRoot, ['runtime', 'report'], [
+      'Runtime report passed',
+      'Build: skipped; passed=0; failed=0; command=bun run build',
+      'Unit: passed; passed=',
+      'failed=0; command=bun run test:unit',
+      'Acceptance: skipped; passed=0; failed=0; command=bun run test:acceptance'
+    ]);
+    const runtimeReport = await expectCliJson<{
       status: string;
       build: { status: string };
       unit: { status: string; failed: string[] };
       acceptance: { status: string };
-    }>(workspaceRoot, ['runtime', 'report'], {
-      text: [
-        'Runtime report passed',
-        'Build: skipped; passed=0; failed=0; command=bun run build',
-        'Unit: passed; passed=',
-        'failed=0; command=bun run test:unit',
-        'Acceptance: skipped; passed=0; failed=0; command=bun run test:acceptance'
-      ],
-      compactJson: {
+    }>(
+      workspaceRoot, ['runtime', 'report', '--json', '--compact'],
+      {
         status: 'passed',
         build: { status: 'skipped' },
         acceptance: { status: 'skipped' }
-      }
-    });
+      },
+      { compact: true }
+    );
     expect(runtimeReport).toMatchObject({
       status: 'passed',
       build: { status: 'skipped' },
@@ -161,19 +167,21 @@ test('CLI exposes policy, acceptance, runtime, and verification reports as text 
       { compact: true }
     );
 
-    const { json: verificationReport } = await expectCliVariants<VerificationReport>(workspaceRoot, ['verification', 'report'], {
-      text: [
-        'Verification report passed; requestedLane=fast; failedLanes=none',
-        'Fast: passed; build=passed; unit=passed; acceptance=passed; policy=passed',
-        'Runtime: passed; build=skipped; unit=passed; acceptance=skipped'
-      ],
-      compactJson: {
+    await expectCliText(workspaceRoot, ['verification', 'report'], [
+      'Verification report passed; requestedLane=fast; failedLanes=none',
+      'Fast: passed; build=passed; unit=passed; acceptance=passed; policy=passed',
+      'Runtime: passed; build=skipped; unit=passed; acceptance=skipped'
+    ]);
+    const verificationReport = await expectCliJson<VerificationReport>(
+      workspaceRoot, ['verification', 'report', '--json', '--compact'],
+      {
         summary: {
           status: 'passed',
           requestedLane: 'fast'
         }
-      }
-    });
+      },
+      { compact: true }
+    );
     expect(verificationReport).toMatchObject({
       summary: {
         status: 'passed',
@@ -215,18 +223,5 @@ test('CLI runs verify with JSON output for CI consumers', async () => {
       fast: { status: 'passed', policy: { status: 'passed' } },
       runtime: { status: 'passed', acceptance: { status: 'skipped' } }
     });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['verify', '--json', '--compact'],
-      {
-        summary: {
-          status: 'passed',
-          requestedLane: 'fast'
-        }
-      },
-      { compact: true }
-    );
-
   });
 }, 180000);

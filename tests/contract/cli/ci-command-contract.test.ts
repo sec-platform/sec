@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { CiContract } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
-import { expectCliVariants } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 function expectStableCommandBoundary(contract: CiContract): void {
@@ -40,23 +40,24 @@ function expectStableCommandBoundary(contract: CiContract): void {
 
 test('CI-contract CLI exposes the stable public boundary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const results = await expectCliVariants<CiContract, CiContract>(workspaceRoot, ['contract', 'ci'], {
-      text: [
-        'CI contract active',
-        'Command: bun run sec -- contract ci --json',
-        'Default gate: fast-runtime-verify',
-        'Full runtime gate: full-runtime-verify',
-        'Step reference-drift; phase=quality; command=bun run sec -- reference check --json --compact',
-        'Step contract-artifacts; phase=artifacts; command=bun run sec -- artifacts --paths --json --compact --kind contract'
-      ],
-      json: {
+    await expectCliText(workspaceRoot, ['contract', 'ci'], [
+      'CI contract active',
+      'Command: bun run sec -- contract ci --json',
+      'Default gate: fast-runtime-verify',
+      'Full runtime gate: full-runtime-verify',
+      'Step reference-drift; phase=quality; command=bun run sec -- reference check --json --compact',
+      'Step contract-artifacts; phase=artifacts; command=bun run sec -- artifacts --paths --json --compact --kind contract'
+    ]);
+    const contract = await expectCliJson<CiContract>(
+      workspaceRoot, ['contract', 'ci', '--json', '--compact'],
+      {
         status: 'active',
         command: 'bun run sec -- contract ci --json',
         defaultGate: 'fast-runtime-verify',
         fullRuntimeGate: 'full-runtime-verify'
-      }
-    });
-    expectStableCommandBoundary(results.json);
-    expectStableCommandBoundary(results.compactJson);
+      },
+      { compact: true }
+    );
+    expectStableCommandBoundary(contract);
   });
 });

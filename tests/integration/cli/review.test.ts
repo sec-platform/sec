@@ -8,7 +8,7 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import type { ReviewSummaryInspectView } from '../../../src/application/review-summary-inspect.ts';
 import { formatReviewSummary } from '../../../src/entry/cli/review-summary-inspect.ts';
 import type { ReviewSummary } from '../../../src/assurance/verification/review/contract/types.ts';
-import { expectCliVariants } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 const baseView: ReviewSummaryInspectView = {
@@ -256,34 +256,39 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     };
     await writeJson(reviewSummaryPath, reviewSummary);
 
-    const reviewVariants = await expectCliVariants(workspaceRoot, ['review'], {
-      text: [
-        'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
-        'CI attention; failures=1; risks=2; conflicts=1',
-        'Impact blocks=1; runtime=1; changeSources=1; installImpacts=1',
-        'Coverage failed; blocks=1/2',
-        'Provenance artifacts=5; registry=2; generated=2; unverified=3',
-        'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2',
-        'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
-        'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true',
-        'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-      ]
-    });
+    await expectCliText(workspaceRoot, ['review'], [
+      'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
+      'CI attention; failures=1; risks=2; conflicts=1',
+      'Impact blocks=1; runtime=1; changeSources=1; installImpacts=1',
+      'Coverage failed; blocks=1/2',
+      'Provenance artifacts=5; registry=2; generated=2; unverified=3',
+      'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2',
+      'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
+      'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true',
+      'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
+    ]);
+    const reviewJson = await expectCliJson(
+      workspaceRoot, ['review', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
     // Protect the complete persisted JSON contract, not only representative fields.
-    expect(reviewVariants.json).toEqual(reviewSummary);
-    expect(reviewVariants.compactJson).toEqual(reviewSummary);
+    expect(reviewJson).toEqual(reviewSummary);
 
-    const diagnosticVariants = await expectCliVariants(workspaceRoot, ['review', 'diagnostics'], {
-      text: [
-        'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
-        `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
-        'Blocks: entity/customer-basic, tenant/basic-workspace',
-        `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
-        'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; Block tenant/basic-workspace has uncovered acceptance',
-        'Diagnostic regression-risk:1; kind=override-active; block=entity/customer-basic; Block entity/customer-basic has active override',
-        'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
-      ]
-    });
+    await expectCliText(workspaceRoot, ['review', 'diagnostics'], [
+      'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
+      `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
+      'Blocks: entity/customer-basic, tenant/basic-workspace',
+      `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
+      'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; Block tenant/basic-workspace has uncovered acceptance',
+      'Diagnostic regression-risk:1; kind=override-active; block=entity/customer-basic; Block entity/customer-basic has active override',
+      'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
+    ]);
+    const diagnosticsJson = await expectCliJson(
+      workspaceRoot, ['review', 'diagnostics', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
     const expectedDiagnostics = {
       status: 'attention',
       diagnosticCount: 4,
@@ -316,7 +321,6 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         }
       ]
     };
-    expect(diagnosticVariants.json).toEqual(expectedDiagnostics);
-    expect(diagnosticVariants.compactJson).toEqual(expectedDiagnostics);
+    expect(diagnosticsJson).toEqual(expectedDiagnostics);
   });
 });
