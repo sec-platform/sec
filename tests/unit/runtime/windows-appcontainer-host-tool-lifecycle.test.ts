@@ -1,3 +1,4 @@
+import { settleResourcesAsync, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -280,6 +281,8 @@ test.skipIf(process.platform !== 'win32')(
     const marker = 'main-responsive-before-hard-exit\n';
     const tempRoot = await mkdtemp(join(tmpdir(), 'sec-observed-hard-exit-'));
     const scriptPath = join(tempRoot, 'worker-ffi-hard-exit.mjs');
+    let rootMayBeRetired = true;
+    let primary: ResourceSettlementFailure | undefined;
 
     try {
       await writeFile(scriptPath, `
@@ -372,6 +375,7 @@ if (Bun.isMainThread) {
 `, 'utf8');
 
       const startedAt = performance.now();
+      rootMayBeRetired = false;
       const outcome = await runObservedCommand(process.execPath, [
         '--no-env-file',
         '--no-install',
@@ -384,6 +388,9 @@ if (Bun.isMainThread) {
         timeoutMs: 1_500
       });
       const durationMs = performance.now() - startedAt;
+      rootMayBeRetired = outcome.termination.treeClosed
+        && outcome.termination.streamsDrained
+        && (!outcome.started || outcome.termination.childCloseObserved);
 
       expect(outcome.status).toBe('exited');
       expect(outcome.exitCode).toBe(hardExitCode);
@@ -407,8 +414,19 @@ if (Bun.isMainThread) {
         streamsDrained: true,
         treeClosed: true
       });
+    } catch (error) {
+      primary = { label: 'native hard-exit fixture', error };
+      throw error;
     } finally {
-      await rm(tempRoot, { force: true, recursive: true });
+      await settleResourcesAsync({ primary, cleanup: [{
+        label: 'native hard-exit fixture root',
+        settle: async () => {
+          if (!rootMayBeRetired) {
+            throw new Error(`Native child settlement is unproven; fixture root is preserved: ${tempRoot}`);
+          }
+          await rm(tempRoot, { force: true, recursive: true });
+        }
+      }] });
     }
   }
 );
