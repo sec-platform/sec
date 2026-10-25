@@ -98,7 +98,8 @@ function expectCodedFailure(run: () => unknown, code: string): void {
 }
 
 test('public Fact Delta v1 schema and deterministic digest contract stay frozen', () => {
-  const snapshot = buildValidatedEngineeringIR(source());
+  const snapshot = buildValidatedEngineeringIR(sourceWithBlock());
+  const beforeJson = JSON.stringify(snapshot);
   const delta = buildFactDelta(endpoint(snapshot), endpoint(snapshot));
 
   expect(Object.keys(delta)).toEqual([
@@ -119,6 +120,15 @@ test('public Fact Delta v1 schema and deterministic digest contract stay frozen'
   expect(Object.keys(delta.from)).toEqual(['transactionId', 'inputRevision', 'semanticRevision']);
   expect(delta.contractVersion).toBe('1');
   expect(delta.scope).toBe('fact-set');
+  expect(delta).toMatchObject({ graphId: snapshot.ir.graphId, appId: snapshot.ir.appId, added: [], removed: [], changed: [] });
+  expect(delta.fromFactSetDigest).toBe(delta.toFactSetDigest);
+  expect(Object.isFrozen(delta)).toBe(true);
+  // The exact schema above contains only scalar fields, the two scalar-only
+  // endpoints, and the three empty change arrays in this no-change result.
+  for (const value of Object.values(delta)) {
+    if (value !== null && typeof value === 'object') expect(Object.isFrozen(value)).toBe(true);
+  }
+  expect(JSON.stringify(snapshot)).toBe(beforeJson);
   expect(delta.fromFactSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(delta.toFactSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(delta.deltaRevision).toMatch(/^sha256:[0-9a-f]{64}$/);

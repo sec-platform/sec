@@ -3,7 +3,6 @@ import { beforeAll, expect, test } from 'bun:test';
 import { loadWorkspaceEngineeringIRBuildInput } from '../../../src/adapters/workspace/engineering-input.ts';
 import { type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
-import { buildSemanticViewSet } from '../../../src/compiler/projection/build-semantic-view-set.ts';
 import { projectArchitectureView } from '../../../src/compiler/projection/project-architecture-view.ts';
 import { projectScenarioView } from '../../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../../src/compiler/projection/project-state-view.ts';
@@ -49,6 +48,11 @@ test('architecture projection preserves Responsibility, Port, Effect, and Permis
   )).toBe(true);
   expect(view.inspector.map((section) => section.id)).toEqual([...INSPECTOR_SECTION_IDS]);
   expect(view.overlays[0]?.entries.length).toBeGreaterThan(0);
+
+  if (false) {
+    // @ts-expect-error Projection consumers require a branded validated snapshot.
+    projectArchitectureView(ticketSnapshot.ir);
+  }
 });
 
 test('scenario projection only accepts validated Facts and validator rejects a tampered Scenario cache', () => {
@@ -100,23 +104,6 @@ test('state projection exposes owner, backing field, mutator, and transition loo
     edge.target === 'state:ticket:ticket-status' &&
     edge.relation === 'MUTATES'
   )).toBe(true);
-});
-
-test('SemanticViewSet is deterministic, deeply frozen, and rejects raw IR at the type seam', () => {
-  const first = buildSemanticViewSet(ticketSnapshot);
-  const second = buildSemanticViewSet(ticketSnapshot);
-
-  expect(first).toEqual(second);
-  expect(first.views[0]?.viewKind).toBe('architecture');
-  expect(new Set(first.views.map((view) => view.viewKind))).toEqual(new Set(['architecture', 'scenario', 'state']));
-  expect(Object.isFrozen(first)).toBe(true);
-  expect(Object.isFrozen(first.views)).toBe(true);
-  expect(Object.isFrozen(first.views[0]?.nodes)).toBe(true);
-
-  if (false) {
-    // @ts-expect-error Projection consumers require a branded validated snapshot.
-    projectArchitectureView(ticketSnapshot.ir);
-  }
 });
 
 test("Ticket closes the P0-2A identity, assertion, signature, and Scenario ownership vertical", () => {

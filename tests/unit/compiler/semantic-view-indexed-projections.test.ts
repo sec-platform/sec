@@ -121,7 +121,10 @@ for (const frozen of [false, true]) {
       ['state', 'state:0'], ['state', 'state:1'], ['state', 'state:2']
     ]);
     assert.equal(result.formatVersion, '1');
-    assert.deepEqual(result.views, expected); assert.ok(Object.isFrozen(result.views));
+    assert.deepEqual(result.views, expected);
+    assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.views));
+    assert.ok(Object.isFrozen(result.views[0]?.nodes));
+    if (frozen) assert.deepEqual(buildSemanticViewSet(snapshot), result);
     assert.equal(JSON.stringify(snapshot.ir), before);
   });
 }

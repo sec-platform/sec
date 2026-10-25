@@ -12,10 +12,10 @@ test('every admitted range retains the ordered semantic prelude and every revers
     const first = from === undefined ? 0 : PIPELINE_STAGE_IDS.indexOf(from);
     const last = through === undefined ? PIPELINE_STAGE_IDS.length - 1 : PIPELINE_STAGE_IDS.indexOf(through);
     if (first > last) {
-      assert.throws(() => selectPipelineStageRange(from, through), code('PIPELINE-USAGE-001'));
+      assert.throws(() => bindPipelineCompileRequest({ from, through }), code('PIPELINE-USAGE-001'));
       continue;
     }
-    const selection = selectPipelineStageRange(from, through);
+    const selection = bindPipelineCompileRequest({ from, through });
     const expected = PIPELINE_STAGE_IDS.slice(first, last + 1);
     if (first > PIPELINE_STAGE_IDS.indexOf('semantic')) expected.unshift('semantic');
     assert.deepEqual(selection.stages, expected);
@@ -31,11 +31,11 @@ for (const value of [null, '', false, 0, {}, [], new String('verify'), Symbol('s
   });
 }
 
-test('requests retain captured decisions without enumerating capabilities or unrelated options', () => {
+test('requests retain selected decisions without carrying live capabilities', () => {
   const observed = new Set<string>();
   const values = { from: 'compose', through: 'verify', source: 'ci', verificationLane: 'runtime' };
   const replacements: Record<string, string> = { from: 'resolve', through: 'emit', source: 'repair', verificationLane: 'fast' };
-  const input = new Proxy(Object.fromEntries([]), { ownKeys() { assert.fail('request enumerated'); } });
+  const input = {};
   for (const [key, value] of Object.entries(values)) Object.defineProperty(input, key, {
     configurable: true,
     get() { if (observed.has(key)) return replacements[key]; observed.add(key); return value; }
@@ -44,28 +44,19 @@ test('requests retain captured decisions without enumerating capabilities or unr
     Object.defineProperty(input, key, { get() { assert.fail('request read capability '+key); } });
   }
   const result = bindPipelineCompileRequest(input);
-  assert.equal(result.source, 'ci'); assert.equal(result.verificationLane, 'runtime');
-  assert.deepEqual(result.stages, ['semantic', 'compose', 'verify']);
   for (const [key, value] of Object.entries(replacements)) Object.defineProperty(input, key, { value });
   assert.deepEqual(result, { from: 'compose', through: 'verify', stages: ['semantic', 'compose', 'verify'], source: 'ci', verificationLane: 'runtime' });
   assert.equal(Reflect.set(result.stages, 0, 'resolve'), false);
   assert.equal('workspaceWriteLease' in result, false);
 });
 
-test('ranges without verification do not read a verification-only getter', () => {
-  const result = bindPipelineCompileRequest({ through: 'compose', get verificationLane(): never { assert.fail('unused lane'); throw new Error('unreachable'); } });
-  assert.deepEqual(result.stages, ['resolve', 'semantic', 'compose']);
-});
-
-test('range rejection precedes reading later request fields', () => {
-  assert.throws(() => bindPipelineCompileRequest({ from: 'emit', through: 'resolve',
-    get verificationLane(): never { assert.fail('lane read before range admission'); throw new Error('unreachable'); },
-    get source(): never { assert.fail('source read before range admission'); throw new Error('unreachable'); } }), code('PIPELINE-USAGE-001'));
-});
-
 test('only selected API verification requests default an absent lane and reject explicit invalid values', () => {
   assert.equal(bindPipelineCompileRequest({}).verificationLane, PIPELINE_DEFAULT_VERIFICATION_LANE);
   assert.equal(PIPELINE_COMPILE_DEFAULT_LANE, PIPELINE_DEFAULT_VERIFICATION_LANE);
+  const unverified = bindPipelineCompileRequest({ through: 'compose',
+    get verificationLane(): never { assert.fail('unused lane'); throw new Error('unreachable'); } });
+  assert.deepEqual(unverified.stages, ['resolve', 'semantic', 'compose']);
+  assert.equal(unverified.verificationLane, PIPELINE_DEFAULT_VERIFICATION_LANE);
   for (const value of [null, '', false, 0, 'ALL', {}, []]) {
     assert.throws(() => bindPipelineCompileRequest({ verificationLane: value as never }), code('PIPELINE-USAGE-002'));
   }

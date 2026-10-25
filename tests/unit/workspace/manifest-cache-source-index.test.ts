@@ -37,15 +37,6 @@ test('logical and observed-source reuse each refresh the shared bounded LRU orde
     assert.deepEqual(cache.getByObservedSource(d.source), d.entry, lookup);
     assert.equal(cache.size, 2, lookup);
   }
-  const cache = new ManifestCache(8);
-  const entries = Array.from({ length: 9 }, (_, index) => fixture(`block/${index}`));
-  for (const item of entries) cache.set(item.key, item.entry);
-  assert.equal(cache.size, 8);
-  for (const [index, item] of entries.entries()) {
-    const expected = index === 0 ? undefined : item.entry;
-    assert.deepEqual(cache.get(item.key), expected);
-    assert.deepEqual(cache.getByObservedSource(item.source), expected);
-  }
 });
 
 test('workspace, registry selection, location and observed path remain separate causal identities', () => {

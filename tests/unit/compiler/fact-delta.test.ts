@@ -90,27 +90,6 @@ function expectDeepFrozen(value: unknown): void {
   for (const nested of Object.values(value as Record<string, unknown>)) expectDeepFrozen(nested);
 }
 
-test('empty Fact Delta is deterministic, transaction-independent, and deeply frozen', () => {
-  const snapshot = buildValidatedEngineeringIR(input());
-  const beforeJson = JSON.stringify(snapshot);
-  const first = buildFactDelta(context(snapshot, 'tx:before-1'), context(snapshot, 'tx:after-1'));
-  const second = buildFactDelta(context(snapshot, 'tx:before-2'), context(snapshot, 'tx:after-2'));
-
-  expect(first).toMatchObject({
-    contractVersion: '1',
-    scope: 'fact-set',
-    graphId: snapshot.ir.graphId,
-    appId: snapshot.ir.appId,
-    added: [],
-    removed: [],
-    changed: []
-  });
-  expect(first.fromFactSetDigest).toBe(first.toFactSetDigest);
-  expect(first.deltaRevision).toBe(second.deltaRevision);
-  expect(JSON.stringify(snapshot)).toBe(beforeJson);
-  expectDeepFrozen(first);
-});
-
 test('Fact add/remove preserves direction and object changes are remove plus add', () => {
   const before = buildValidatedEngineeringIR(input('delta-app', 'Delta App', ['alpha/basic']));
   const after = buildValidatedEngineeringIR(input('delta-app', 'Delta App', ['alpha/basic', 'beta/basic', 'gamma/basic']));
