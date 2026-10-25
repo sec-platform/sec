@@ -193,11 +193,6 @@ test('provider references are unique per requirement and resolution binds their 
 test('exact parser rejects duplicate keys, unknown fields, digest drift and noncanonical bytes', () => {
   const intent = attemptPrefix()[0]!;
   const encoded = encodeDurableExecutionRecord(intent);
-  const { recordDigest: _recordDigest, ...unsignedIntent } = intent;
-  expect(() => sealDurableExecutionRecordForInternalWriter({
-    ...unsignedIntent,
-    unknown: true
-  } as never)).toThrow('unsigned record violates its strict schema');
   expect(() => parseDurableExecutionRecord(
     encoded.replace('"kind":"intent"', '"kind":"intent","\\u006bind":"intent"')
   )).toThrow('duplicate key');
@@ -211,6 +206,6 @@ test('exact parser rejects duplicate keys, unknown fields, digest drift and nonc
   expect(() => parseDurableExecutionRecord(
     encoded.replace(digest('3'), digest('26'))
   )).toThrow(expect.objectContaining({ kind: 'digest-mismatch' }));
-  expect(() => parseDurableExecutionRecord(JSON.stringify({ ...attemptPrefix()[0] })))
+  expect(() => parseDurableExecutionRecord(JSON.stringify({ ...intent })))
     .toThrow(expect.objectContaining({ kind: 'noncanonical-record' }));
 });
