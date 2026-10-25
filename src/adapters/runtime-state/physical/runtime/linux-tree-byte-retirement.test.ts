@@ -2,25 +2,32 @@ import { expect, spyOn, test } from 'bun:test';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources } from '../../../../execution/resource-settlement.ts';
 
 import { linuxOpenRetainedAbsoluteDirectory, linuxReleaseExclusiveFileGuard, linuxTryExclusiveFileGuard } from './physical-no-follow-native.ts';
 import { inspectNoFollowDirectoryChain, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory } from './physical-no-follow.ts';
 
 function fixture() {
   const parentPath = mkdtempSync(path.join(tmpdir(), 'gift-linux-tree-byte-retirement-'));
-  const rootPath = path.join(parentPath, 'original');
-  mkdirSync(path.join(rootPath, 'nested'), { recursive: true });
-  const expectedFileBytes = new Map([['nested/z.json', Buffer.from('first original\n')], ['nested/a.json', Buffer.from('second original\n')]]);
-  for (const [relativePath, bytes] of expectedFileBytes) writeFileSync(path.join(rootPath, relativePath), bytes);
-  const parent = inspectNoFollowDirectoryChain(parentPath, 'Tree byte retirement test parent').target;
-  const root = inspectNoFollowDirectoryChain(rootPath, 'Tree byte retirement test root').target;
-  // Permission restoration consumes the canonical scan's original mode and
-  // retained POSIX ownership; the default content inventory omits both.
-  const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: performance.now() + 30_000,
-    includePermissionMode: true, maximumBytes: 1024, maximumEntries: 8 });
-  const retire = (restoreOwnerPermissions = false) => retireNoFollowDirectoryTree({ parent, root, inventory, expectedFileBytes,
-    restoreOwnerPermissions, deadlineAtMonotonicMs: performance.now() + 30_000 });
-  return { parentPath, rootPath, expectedFileBytes, retire };
+  try {
+    const rootPath = path.join(parentPath, 'original');
+    mkdirSync(path.join(rootPath, 'nested'), { recursive: true });
+    const expectedFileBytes = new Map([['nested/z.json', Buffer.from('first original\n')], ['nested/a.json', Buffer.from('second original\n')]]);
+    for (const [relativePath, bytes] of expectedFileBytes) writeFileSync(path.join(rootPath, relativePath), bytes);
+    const parent = inspectNoFollowDirectoryChain(parentPath, 'Tree byte retirement test parent').target;
+    const root = inspectNoFollowDirectoryChain(rootPath, 'Tree byte retirement test root').target;
+    // Permission restoration consumes the canonical scan's original mode and
+    // retained POSIX ownership; the default content inventory omits both.
+    const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: performance.now() + 30_000,
+      includePermissionMode: true, maximumBytes: 1024, maximumEntries: 8 });
+    const retire = (restoreOwnerPermissions = false) => retireNoFollowDirectoryTree({ parent, root, inventory, expectedFileBytes,
+      restoreOwnerPermissions, deadlineAtMonotonicMs: performance.now() + 30_000 });
+    return { parentPath, rootPath, expectedFileBytes, retire };
+  } catch (error) {
+    settleResources({ primary: { label: 'linux-tree-byte-retirement-fixture-construction', error },
+      cleanup: [{ label: 'linux-tree-byte-retirement-fixture-root', settle: () => rmSync(parentPath, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 for (const interruptionPoint of ['file', 'directory'] as const) {

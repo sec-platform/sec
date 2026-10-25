@@ -4,6 +4,7 @@ import { copyFileSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { copyRecursive } from '../../../src/adapters/filesystem/discovery.ts';
 
 function deferred() {
@@ -13,9 +14,15 @@ function deferred() {
 }
 async function fixture() {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-copy-lifecycle-'));
-  const source = path.join(root, 'source'), target = path.join(root, 'target');
-  await fs.mkdir(source);
-  return { root, source, target };
+  try {
+    const source = path.join(root, 'source'), target = path.join(root, 'target');
+    await fs.mkdir(source);
+    return { root, source, target };
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'workspace-copy-lifecycle-fixture-construction', error },
+      cleanup: [{ label: 'workspace-copy-lifecycle-fixture-root', settle: () => fs.rm(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 async function absent(p: string) {
   try { await fs.lstat(p); return false; }

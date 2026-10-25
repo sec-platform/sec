@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources } from '../../../../execution/resource-settlement.ts';
 import { createRawTestExecutableFixture } from '../../../../../tests/testkit/raw-process.ts';
 
 import {
@@ -50,14 +51,20 @@ function legacyOwner(overrides: Partial<PhysicalMutationLeaseOwner> = {}): Physi
 
 function fixture(options: Readonly<{ namespace?: boolean }> = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-mutation-lease-'));
-  if (options.namespace === true) mkdirSync(path.join(root, NAMESPACE_LEAF));
-  const parent = inspectNoFollowDirectoryChain(root, 'Mutation lease adoption fixture').target;
-  const writeLegacy = (owner: PhysicalMutationLeaseOwner): string => {
-    const bytes = `${JSON.stringify(owner)}\n`;
-    writeFileSync(path.join(root, LEASE_NAME), bytes, 'utf8');
-    return bytes;
-  };
-  return { root, parent, writeLegacy };
+  try {
+    if (options.namespace === true) mkdirSync(path.join(root, NAMESPACE_LEAF));
+    const parent = inspectNoFollowDirectoryChain(root, 'Mutation lease adoption fixture').target;
+    const writeLegacy = (owner: PhysicalMutationLeaseOwner): string => {
+      const bytes = `${JSON.stringify(owner)}\n`;
+      writeFileSync(path.join(root, LEASE_NAME), bytes, 'utf8');
+      return bytes;
+    };
+    return { root, parent, writeLegacy };
+  } catch (error) {
+    settleResources({ primary: { label: 'mutation-lease-fixture-construction', error },
+      cleanup: [{ label: 'mutation-lease-fixture-root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 function expectBlocked(action: () => unknown, status: 'legacy-unproven' | 'unknown'): void {

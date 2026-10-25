@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { pathToFileURL } from 'node:url';
 
 import {
@@ -41,7 +42,8 @@ function fixture(): Readonly<{
       parent: inspectNoFollowDirectoryChain(path.join(root, 'lease-parent'), 'lease test parent').target
     });
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: { label: 'physical-mutation-lease-fixture-construction', error },
+      cleanup: [{ label: 'physical-mutation-lease-fixture-root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
     throw error;
   }
 }

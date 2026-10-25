@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { pathToFileURL } from 'node:url';
 import {
   acquirePhysicalMutationLease, assertPhysicalMutationLeaseOwned,
@@ -19,8 +20,14 @@ const ownerUrl = pathToFileURL(path.resolve('src/adapters/runtime-state/physical
 const physicalUrl = pathToFileURL(path.resolve('src/adapters/runtime-state/physical/runtime/physical-no-follow.ts')).href;
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-coordination-'));
-  const parent = inspectNoFollowDirectoryChain(root).target;
-  return { root, parent };
+  try {
+    const parent = inspectNoFollowDirectoryChain(root).target;
+    return { root, parent };
+  } catch (error) {
+    settleResources({ primary: { label: 'physical-mutation-coordination-fixture-construction', error },
+      cleanup: [{ label: 'physical-mutation-coordination-fixture-root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 function child(root: string, code: string) {
   const result = Bun.spawnSync([process.execPath, '--no-env-file', '-e', `
