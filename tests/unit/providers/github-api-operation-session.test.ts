@@ -428,7 +428,6 @@ for (const reason of [undefined, null, false, 0, '', new Error('operation failed
   test(`read session distinguishes failure occurrence from ${String(reason)} payload`, async () => {
     const api = capability({
       effect: 'read',
-      principal: Object.freeze({ ...PRINCIPAL, permission: 'admin' }),
       transport: async () => Response.json({})
     });
     const outcome = await withGitHubApiTestSession({

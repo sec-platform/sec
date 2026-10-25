@@ -58,8 +58,6 @@ async function withGitResolution<T>(
 }
 
 function issueTestGitReadOperation(input: Readonly<{
-  deadlineAtUnixMs?: number;
-  maxInputBytes?: number;
   maxOutputBytes?: number;
   maxProcesses?: number;
 }> = {}): BoundSemanticOperation {
@@ -67,8 +65,7 @@ function issueTestGitReadOperation(input: Readonly<{
     operation: 'git-read.host-observation',
     intentDigest: `sha256:${'3'.repeat(64)}` as OperationDigest,
     decisionDigest: TEST_GIT_READ_CONTRACT_DIGEST,
-    deadlineAtUnixMs: input.deadlineAtUnixMs
-      ?? Date.now() + GIT_READ_OPERATION_BUDGET.deadlineMs,
+    deadlineAtUnixMs: Date.now() + GIT_READ_OPERATION_BUDGET.deadlineMs,
     attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: TEST_GIT_READ_CONTRACT_DIGEST
     }),
@@ -76,7 +73,7 @@ function issueTestGitReadOperation(input: Readonly<{
       { resource: 'duration-ms', maximum: GIT_READ_OPERATION_BUDGET.deadlineMs },
       {
         resource: 'input-bytes',
-        maximum: input.maxInputBytes ?? GIT_READ_OPERATION_BUDGET.maxStdinBytes
+        maximum: GIT_READ_OPERATION_BUDGET.maxStdinBytes
       },
       {
         resource: 'output-bytes',
