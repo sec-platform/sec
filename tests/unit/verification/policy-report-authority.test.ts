@@ -66,27 +66,27 @@ test('Policy Report authority preserves source-structure diagnostics without tre
 });
 
 test('Policy Report authority rejects noncanonical identity, forged status and missing evaluator assurance', () => {
-  const badId = structuredClone(structuralPolicyReport()) as any;
+  const badId = structuralPolicyReport() as any;
   badId.official.policies = ['Tenant Scope'];
   expect(() => validatePolicyReport(badId)).toThrow();
 
-  const forged = structuredClone(structuralPolicyReport()) as any;
+  const forged = structuralPolicyReport() as any;
   forged.status = 'failed';
   expect(() => validatePolicyReport(forged)).toThrow('status differs');
 
-  const noEvaluation = structuredClone(structuralPolicyReport()) as any;
+  const noEvaluation = structuralPolicyReport() as any;
   delete noEvaluation.evaluation;
   expect(() => validatePolicyReport(noEvaluation)).toThrow('evaluator assurance');
 });
 
 test('Policy Report authority rejects merged policy that is not bound to its declared winning source', () => {
-  const candidate = structuredClone(structuralPolicyReport()) as any;
+  const candidate = structuralPolicyReport() as any;
   candidate.merged.policies[0].sourcePath = 'model/policies/other.yaml';
   expect(() => validatePolicyReport(candidate)).toThrow('winner');
 });
 
 test('Policy Report authority binds the merged policy to the native model declaration', () => {
-  const candidate = structuredClone(structuralPolicyReport()) as any;
+  const candidate = structuralPolicyReport() as any;
   candidate.official = { policies: [], sources: [], violations: [] };
   candidate.project = {
     policies: ['tenant_scope'],
@@ -107,7 +107,7 @@ test('Policy Report authority binds the merged policy to the native model declar
 });
 
 test('Policy Report authority uses code-unit order instead of host locale order', () => {
-  const candidate = structuredClone(structuralPolicyReport()) as any;
+  const candidate = structuralPolicyReport() as any;
   const template = candidate.diagnostics[0];
   candidate.diagnostics = [
     { ...template, message: 'Z' },
@@ -121,7 +121,7 @@ test('Policy Report authority uses code-unit order instead of host locale order'
 });
 
 test('Policy Report authority rejects duplicate semantic findings', () => {
-  const candidate = structuredClone(structuralPolicyReport()) as any;
+  const candidate = structuralPolicyReport() as any;
   candidate.diagnostics.push(structuredClone(candidate.diagnostics[0]));
   expect(() => validatePolicyReport(candidate)).toThrow('duplicate semantic findings');
 });

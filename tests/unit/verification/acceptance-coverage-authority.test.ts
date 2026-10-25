@@ -35,7 +35,7 @@ test('Acceptance Coverage authority accepts canonical derived coverage and rejec
 });
 
 test('Acceptance Coverage authority rejects covered acceptance not declared by target', () => {
-  const candidate = structuredClone(canonicalCoverage()) as any;
+  const candidate = canonicalCoverage() as any;
   candidate.blocks[0].coveredBy = ['acceptance_other'];
 
   expect(() => validateAcceptanceCoverageReport(candidate))
@@ -43,7 +43,7 @@ test('Acceptance Coverage authority rejects covered acceptance not declared by t
 });
 
 test('Acceptance Coverage authority rejects forged uncovered projection', () => {
-  const candidate = structuredClone(canonicalCoverage()) as any;
+  const candidate = canonicalCoverage() as any;
   candidate.blocks[0].uncovered = true;
   candidate.uncoveredBlocks = ['auth/basic-session'];
 
@@ -52,7 +52,7 @@ test('Acceptance Coverage authority rejects forged uncovered projection', () => 
 });
 
 test('Acceptance Coverage authority rejects uncovered list that differs from entries', () => {
-  const candidate = structuredClone(canonicalCoverage()) as any;
+  const candidate = canonicalCoverage() as any;
   candidate.uncoveredBlocks = ['auth/basic-session'];
 
   expect(() => validateAcceptanceCoverageReport(candidate))
@@ -60,19 +60,19 @@ test('Acceptance Coverage authority rejects uncovered list that differs from ent
 });
 
 test('Acceptance Coverage authority rejects duplicate or noncanonical Acceptance identities', () => {
-  const duplicate = structuredClone(canonicalCoverage()) as any;
+  const duplicate = canonicalCoverage() as any;
   duplicate.acceptancePassed = ['acceptance_login', 'acceptance_login'];
   expect(() => validateAcceptanceCoverageReport(duplicate))
     .toThrow('unique and canonically ordered');
 
-  const noncanonical = structuredClone(canonicalCoverage()) as any;
+  const noncanonical = canonicalCoverage() as any;
   noncanonical.acceptancePassed = ['Acceptance Login'];
   expect(() => validateAcceptanceCoverageReport(noncanonical))
     .toThrow('canonical Acceptance IDs');
 });
 
 test('Acceptance Coverage authority rejects noncanonical block ordering', () => {
-  const blockOrder = structuredClone(canonicalCoverage()) as any;
+  const blockOrder = canonicalCoverage() as any;
   blockOrder.source.resolvedBlockIds.push('billing/basic-plan');
   blockOrder.source.acceptancePlan.unshift('acceptance_billing');
   blockOrder.source.declarations.push({
