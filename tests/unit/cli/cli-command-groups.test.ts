@@ -57,10 +57,15 @@ test('verification rejects an unknown lane before loading its executor', async (
     (error: unknown) => (error as { code?: string }).code === 'CLI-USAGE-001');
 });
 
-for (const name of ['repair','lock','explain','artifacts','policy','acceptance','runtime','review','contract']) {
-  test(`${name} rejects an invalid mode through the existing argument parser`, async () => {
+for (const [args, expectedCode] of [
+  ...['repair','lock','explain','artifacts','policy','acceptance','runtime','review','contract']
+    .map(name => [[name, 'not-a-mode'], 'commander.invalidArgument'] as const),
+  [['upgrade'], 'CLI-USAGE-001'],
+  [['upgrade', 'a-block'], 'CLI-USAGE-001']
+] as const) {
+  test(`${args.join(' ')} rejects incomplete or invalid arguments before loading a domain`, async () => {
     const { command } = program();
-    await assert.rejects(command.parseAsync([name, 'not-a-mode'], { from: 'user' }),
-      (error: unknown) => (error as { code?: string }).code === 'commander.invalidArgument');
+    await assert.rejects(command.parseAsync([...args], { from: 'user' }),
+      (error: unknown) => (error as { code?: string }).code === expectedCode);
   });
 }

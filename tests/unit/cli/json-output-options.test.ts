@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
+import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progress.ts';
 import { addJsonFlags, jsonOpts } from '../../../src/entry/cli/command-options.ts';
 import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../../src/entry/cli/json-output-options.ts';
 
@@ -16,10 +17,22 @@ test('compact output requires JSON for both absent and disabled flags', () => {
   }
 });
 
-test('captured output is independent of later caller mutation', () => {
+test('captured output and selected JSON progress survive caller mutation until completion', async () => {
   const input = { json: true, compact: false };
   const output = jsonOpts(input);
+  const expected = Object.freeze({ result: 'completed' });
+  let finish!: () => void;
+  let calls = 0;
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const work = runWithOptionalSpinner('unused text', input, async () => {
+    calls += 1;
+    await held;
+    return expected;
+  });
   input.json = false;
+  finish();
+  assert.equal(await work, expected);
+  assert.equal(calls, 1);
   assert.equal(output.json, true);
   assert.equal(Reflect.set(output, 'compact', true), false);
 });

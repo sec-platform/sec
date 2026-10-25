@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { jsonOpts } from '../../../src/entry/cli/command-options.ts';
 import { commandValue } from '../../../src/entry/cli/command-value.ts';
+import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progress.ts';
 import { registerWorkspaceAction } from '../../../src/entry/cli/workspace-action.ts';
 
 function program() { return new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} }); }
@@ -32,7 +33,7 @@ test('JSON suppresses text formatting while preserving the projected payload thr
   const root = program();
   registerWorkspaceAction(root.command('sample'), {
     decode: () => ({ request: 1, output: jsonOpts({ json: true, compact: true }) }),
-    progress: { text: 'Working', run: async (_text, _output, execute) => execute() }, execute: async () => ({ domain: 1 }),
+    progress: { text: 'Working', run: runWithOptionalSpinner }, execute: async () => ({ domain: 1 }),
     view: (value) => commandValue({ projected: value.domain }, () => assert.fail('JSON formatted text'))
   });
   assert.deepEqual(await capture(() => root.parseAsync(['sample'], { from: 'user' })), [['{"projected":1}']]);
@@ -42,8 +43,10 @@ for (const phase of ['decode', 'execute-sync', 'execute-async', 'view-sync', 'vi
   test(`${phase} failure never retries execution or invokes an earlier phase again`, async () => {
     const reason = phase === 'execute-async' ? undefined : Object.freeze({ phase });
     const root = program(), events: string[] = [];
+    const jsonProgress = phase === 'execute-sync' || phase === 'execute-async';
     registerWorkspaceAction(root.command('sample'), {
-      decode: () => { events.push('decode'); if (phase === 'decode') throw reason; return { request: 1, output: jsonOpts({}) }; },
+      decode: () => { events.push('decode'); if (phase === 'decode') throw reason; return { request: 1, output: jsonOpts({ json: jsonProgress, compact: jsonProgress }) }; },
+      ...(jsonProgress ? { progress: { text: 'Unused JSON progress', run: runWithOptionalSpinner } } : {}),
       execute: () => { events.push('execute'); if (phase === 'execute-sync') throw reason; if (phase === 'execute-async') return Promise.reject(reason); return Promise.resolve(1); },
       view: (value) => { events.push('view'); if (phase === 'view-sync') throw reason; if (phase === 'view-async') return Promise.reject(reason);
         return commandValue(value, () => { events.push('format'); if (phase === 'format') throw reason; return 'ok'; }); }
