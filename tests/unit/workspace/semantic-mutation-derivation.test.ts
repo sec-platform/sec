@@ -5,7 +5,6 @@ import {
   type SemanticMutationDerivationOperations,
   type SemanticMutationPlanningCapability
 } from '../../../src/application/semantic-mutation-derivation.ts';
-import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { semanticMutationByteDigest } from '../../../src/compiler/semantic-mutation/canonical.ts';
 import type { FactDeltaEndpointContext } from '../../../src/semantics/engineering-ir/delta-types.ts';
 import type { SemanticMutationRollbackManifest, SemanticMutationSourceEditPlan } from '../../../src/semantics/mutation/types.ts';
@@ -45,27 +44,8 @@ const rollbackManifest: SemanticMutationRollbackManifest = {
   pathEvidenceRevision: digest, rollbackManifestDigest: digest
 };
 
-// Independent staged source input, compiled only to establish the endpoint
-// precondition. Expected call order and stop boundaries below are literal.
-const stagedSnapshot = buildValidatedEngineeringIR({
-  app: { id: 'mutation-app', name: 'Mutation App' },
-  resolvedBlocks: [{ id: 'item/basic', version: '0.1.0', kind: 'capability', installOrder: 1,
-    manifestPath: 'source/model/block.manifest.yaml', registrySourceId: 'workspace',
-    registryKind: 'private', registryLocation: 'workspace', registryPath: 'source/model' }],
-  manifests: [], acceptanceIds: [], policyDeclarations: [],
-  semanticContracts: [{ blockId: 'item/basic', contractPath: 'source/model/item.yaml', contract: {
-    formatVersion: '1', id: 'item-core', namespace: 'item',
-    entities: [{ id: 'Item', fields: [{ id: 'status', type: 'ItemStatus', mutable: true }] }],
-    states: [{ id: 'item-status', entity: 'Item', field: 'status', owner: 'ItemStateMachine',
-      values: ['closed', 'open'], transitions: [{ from: 'open', to: 'closed', by: 'closeItem' }] }],
-    responsibilities: [{ id: 'ItemStateMachine', role: 'Own item status', owns: ['Item.status'],
-      implements: ['closeItem'], dependsOn: [] }],
-    operations: [{ id: 'closeItem', responsibility: 'ItemStateMachine', inputs: ['Item'], output: 'Item',
-      reads: ['Item.status'], writes: [], mutates: ['Item.status'], requiresPolicies: [], requiresPermissions: [],
-      performsEffects: [], emits: [], invokes: [], awaits: [] }],
-    events: [], policies: [], permissions: [], effects: [], scenarios: []
-  } }]
-});
+// Reuse the validated staged endpoint; call order and stop-boundary oracles remain literal.
+const stagedSnapshot = fixture.staged.snapshot;
 
 function setup() {
   const events: string[] = [];
