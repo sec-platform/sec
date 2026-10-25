@@ -181,7 +181,6 @@ test('worktree retirement preserves one covered ignored root outside the target 
     fixture.options
   );
 
-  expect(receipt).not.toBeNull();
   expect(receipt).toMatchObject({ terminal: 'completed' });
   expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['node_modules']);
   const persistedReceipt = JSON.parse(JSON.stringify(canonicalJson(receipt))) as NonNullable<typeof receipt>;

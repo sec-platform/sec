@@ -46,7 +46,6 @@ test('shared retained parent binding still rejects directory substitution before
     await fs.mkdir(parentPath);
     await fs.writeFile(path.join(parentPath, 'first.json'), '{"value":1}\n', 'utf8');
     const parent = retainOptionalDirectory(parentPath, 'workflow fixture');
-    expect(parent).not.toBeNull();
     if (parent === null) throw new Error('workflow fixture parent unexpectedly absent');
 
     expect(readOptionalRetainedJsonLeaf<{ value: number }>(

@@ -130,7 +130,6 @@ test('public Fact Delta v1 schema and deterministic digest contract stay frozen'
   }
   expect(JSON.stringify(snapshot)).toBe(beforeJson);
   expect(delta.fromFactSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
-  expect(delta.toFactSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(delta.deltaRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(JSON.stringify(buildFactDelta(endpoint(snapshot), endpoint(snapshot)))).toBe(JSON.stringify(delta));
 

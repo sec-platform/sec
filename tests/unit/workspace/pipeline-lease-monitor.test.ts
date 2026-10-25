@@ -162,7 +162,6 @@ for (const bodyFailure of [
     });
     await assert.rejects(run, error => {
       assert.ok(error instanceof ResourceCompositeSettlementError);
-      assert.equal(error.failures.length, 2);
       assert.deepEqual(error.failures.map(entry => entry.label), ['lease-observation', 'lease-monitored-operation']);
       assert.equal(error.failures[0]!.error, leaseFailure);
       assert.ok(Object.is(error.failures[1]!.error, bodyFailure));

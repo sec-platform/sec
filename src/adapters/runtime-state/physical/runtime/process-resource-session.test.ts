@@ -1040,7 +1040,6 @@ test('bound command admission rejects reentrant close before registering retaine
       transferred = true;
     })
       .toThrow('original live issuer');
-    expect(closed).toBeDefined();
     if (closed === undefined) throw new Error('Reentrant close did not return its original receipt.');
     expect(session.close()).toBe(closed);
     expect(session.processCount).toBe(0);

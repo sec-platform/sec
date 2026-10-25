@@ -131,7 +131,6 @@ function expectRegistrySelection(output: readonly string[], secondVersion: '2.0.
   const row = rows[0]!;
   expect(row).toMatch(/^Registry\s+cache\/probe:\s+first@1\.0\.0\s+selected\s+by\s+source-order(?=\s|[,;]|$)/u);
   const shadowed = /(?:^|[\s;])shadowed:\s*([^;]*)/u.exec(row)?.[1];
-  expect(shadowed).toBeDefined();
   expect(shadowed).toMatch(new RegExp(`(?:^|[\\s,;])second@${secondVersion.replaceAll('.', '\\.')}\\s+\\(workspace:registry-second\\)(?=$|[\\s,;])`, 'u'));
   expect(shadowed).toMatch(/(?:^|[\s,;])third@3\.0\.0\s+\(workspace:registry-third\)(?=$|[\s,;])/u);
 }
