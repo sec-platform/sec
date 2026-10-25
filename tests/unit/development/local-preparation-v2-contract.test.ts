@@ -49,6 +49,12 @@ test('V2 source preparation round-trips into an immutable detached input, includ
   expect(value.schema).toBe(CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA);
   const parsed = parse(value);
   expect(parsed).toEqual(value);
+  // Fixed externally computed vectors bind every declared input and the operation domain.
+  expect(value.request.requestDigest).toBe('sha256:5b313b8e73e3dfdcdc3060b335b46baac6e7b85e08ecb5e6a0a4ef8ed9c44aed');
+  expect(value.request.requestOperationId).toBe('sha256:0c942f85e094bfa926f444bca504d7f9bc123dc41ac7a9e429d135ae19397fae');
+  const reordered = Object.fromEntries(Object.entries(value).reverse());
+  reordered.request = Object.fromEntries(Object.entries(value.request).reverse());
+  expect(parse(reordered)).toEqual(value);
   expect(parsed.authorityStage).toBe('preparation-only');
   expect(parsed.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
   expect(value.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
@@ -61,22 +67,13 @@ test('V2 source preparation round-trips into an immutable detached input, includ
   Object.assign(input.qualificationRequirements, { nativeProfileDigest: DIGEST_B });
   (input.authorizedPaths as string[])[0] = 'src/retargeted.ts';
   expect(value.request).toMatchObject(originalInput);
-  expect(() => assertVerificationSessionLocalPreparationV2Current(value, parse(value))).not.toThrow();
+  expect(() => assertVerificationSessionLocalPreparationV2Current(value, parsed)).not.toThrow();
   const completeInput = body();
   expect(createVerificationSessionLocalPreparationRequestV2({ ...completeInput, profile: 'full',
     qualificationRequirements: { ...completeInput.qualificationRequirements, nativeContentManifestDigest: DIGEST_A } })
     .request.qualificationRequirements.nativeContentManifestDigest).toBe(DIGEST_A);
 });
 
-test('V2 digest preimages match independent canonical SHA-256 vectors and key order does not matter', () => {
-  const value = envelope();
-  // Fixed externally computed vectors bind every declared input and the operation domain.
-  expect(value.request.requestDigest).toBe('sha256:5b313b8e73e3dfdcdc3060b335b46baac6e7b85e08ecb5e6a0a4ef8ed9c44aed');
-  expect(value.request.requestOperationId).toBe('sha256:0c942f85e094bfa926f444bca504d7f9bc123dc41ac7a9e429d135ae19397fae');
-  const reordered = Object.fromEntries(Object.entries(value).reverse());
-  reordered.request = Object.fromEntries(Object.entries(value.request).reverse());
-  expect(parse(reordered)).toEqual(value);
-});
 
 const changedBodyCases: readonly (readonly [string, (value: VerificationSessionLocalPreparationRequestV2Body) => VerificationSessionLocalPreparationRequestV2Body])[] = [
   ['repository', value => ({ ...value, repository: 'sec-platform/other' })],

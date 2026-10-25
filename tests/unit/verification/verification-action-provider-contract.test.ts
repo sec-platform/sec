@@ -221,14 +221,6 @@ describe('VerificationAction provider pure state contract', () => {
     expect(result.terminalPayloadDigest).toBe(PAYLOAD);
   });
 
-  test('anchored terminal remains opaque to provider Result and cleanup semantics', () => {
-    const result = reduceVerificationActionProviderState(complete());
-    expect(result.disposition).toBe('terminal-anchored');
-    expect(result.terminalPayloadDigest).toBe(PAYLOAD);
-    expect('resultStatus' in result).toBe(false);
-    expect('cleanupStatus' in result).toBe(false);
-  });
-
   test('provider status cannot encode or promote Verification Result', () => {
     const canonical = complete();
     const forged = {
@@ -259,6 +251,9 @@ describe('VerificationAction provider pure state contract', () => {
     const result = reduceVerificationActionProviderState(complete(true, repairer, 99));
     expect(result.disposition).toBe('terminal-anchored');
     expect(result.physicalExecutionAllowed).toBe(false);
+    expect(result.terminalPayloadDigest).toBe(PAYLOAD);
+    expect('resultStatus' in result).toBe(false);
+    expect('cleanupStatus' in result).toBe(false);
   });
 
   test('retained tombstone plus expired terminal artifact blocks replay and reuse', () => {

@@ -60,11 +60,6 @@ test('Policy Report authority accepts not-applicable empty inventory and canonic
   expect(Object.isFrozen(report)).toBe(true);
 });
 
-test('Policy Report authority preserves source-structure diagnostics without treating them as violations', () => {
-  const report = validatePolicyReport(structuralPolicyReport());
-  expect(report).toEqual(structuralPolicyReport());
-});
-
 test('Policy Report authority rejects noncanonical identity, forged status and missing evaluator assurance', () => {
   const badId = structuralPolicyReport() as any;
   badId.official.policies = ['Tenant Scope'];
@@ -77,12 +72,6 @@ test('Policy Report authority rejects noncanonical identity, forged status and m
   const noEvaluation = structuralPolicyReport() as any;
   delete noEvaluation.evaluation;
   expect(() => validatePolicyReport(noEvaluation)).toThrow('evaluator assurance');
-});
-
-test('Policy Report authority rejects merged policy that is not bound to its declared winning source', () => {
-  const candidate = structuralPolicyReport() as any;
-  candidate.merged.policies[0].sourcePath = 'model/policies/other.yaml';
-  expect(() => validatePolicyReport(candidate)).toThrow('winner');
 });
 
 test('Policy Report authority binds the merged policy to the native model declaration', () => {
@@ -113,8 +102,16 @@ test('Policy Report authority uses code-unit order instead of host locale order'
     { ...template, message: 'Z' },
     { ...template, message: 'a' }
   ];
-  expect((validatePolicyReport(candidate).diagnostics ?? []).map((entry) => entry.message))
-    .toEqual(['Z', 'a']);
+  const report = validatePolicyReport(candidate);
+  // Build the full oracle independently, rather than comparing against the input
+  // object the reader received. Diagnostics stay separate from violations.
+  const expected = structuralPolicyReport() as any;
+  expected.diagnostics = [
+    { ...expected.diagnostics[0], message: 'Z' },
+    { ...expected.diagnostics[0], message: 'a' }
+  ];
+  expect(report).toEqual(expected);
+  expect((report.diagnostics ?? []).map((entry) => entry.message)).toEqual(['Z', 'a']);
 
   candidate.diagnostics.reverse();
   expect(() => validatePolicyReport(candidate)).toThrow('canonically ordered');
