@@ -46,6 +46,24 @@ function fixtureRoot(): string {
   return mkdtempSync(path.join(tmpdir(), 'sec-physical-no-follow-'));
 }
 
+// Synchronous physical cases retain separate cold roots and native windows;
+// only their identical root lifetime is owned here. Inner capabilities remain
+// the responsibility of each case and must settle before this callback returns.
+function withFixtureRoot(use: (root: string) => void): void {
+  const root = fixtureRoot();
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    use(root);
+  } catch (error) {
+    primary = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
+  }
+}
+
 function expectPhysicalCode(action: () => unknown, code: PhysicalNoFollowError['code']): void {
   try {
     action();
@@ -57,82 +75,49 @@ function expectPhysicalCode(action: () => unknown, code: PhysicalNoFollowError['
   throw new Error(`Expected PhysicalNoFollowError ${code}.`);
 }
 
-test.skipIf(process.platform !== 'linux')('Linux no-follow reader preserves a literal-backslash leaf name', () => {
-  const root = fixtureRoot();
-  let fixtureFailure29: ResourceSettlementFailure | undefined;
-  try {
-    writeFileSync(path.join(root, 'a\\b'), 'literal backslash');
-    const parent = inspectNoFollowDirectoryChain(root).target;
-    expect(Buffer.from(readNoFollowOrdinaryFile(parent, 'a\\b')!)).toEqual(Buffer.from('literal backslash'));
-    expect(scanNoFollowDirectoryTreeInventory(parent).some(entry => entry.relativePath === 'a\\b')).toBeTrue();
-    expectPhysicalCode(() => readNoFollowOrdinaryFile(parent, '../escape'), 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
-  } catch (error) {
-    fixtureFailure29 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure29,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test.skipIf(process.platform !== 'linux')('Linux no-follow reader preserves a literal-backslash leaf name', () => withFixtureRoot(root => {
+  writeFileSync(path.join(root, 'a\\b'), 'literal backslash');
+  const parent = inspectNoFollowDirectoryChain(root).target;
+  expect(Buffer.from(readNoFollowOrdinaryFile(parent, 'a\\b')!)).toEqual(Buffer.from('literal backslash'));
+  expect(scanNoFollowDirectoryTreeInventory(parent).some(entry => entry.relativePath === 'a\\b')).toBeTrue();
+  expectPhysicalCode(() => readNoFollowOrdinaryFile(parent, '../escape'), 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
+}));
 
-test('no-follow directory inspection returns an ordered physical chain and only ENOENT means absent', () => {
-  const root = fixtureRoot();
-  let fixtureFailure28: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'ordinary', 'target');
-    mkdirSync(target, { recursive: true });
-    const observed = inspectNoFollowDirectoryChain(target, 'test target');
-    expect(observed.target.path).toBe(path.resolve(target));
-    expect(observed.ancestors.at(-1)).toEqual(observed.target);
-    expect(observed.ancestors.length).toBeGreaterThan(1);
-    expect(inspectExactNoFollowDirectoryPresence(path.join(root, 'missing'))).toEqual({ state: 'absent' });
-  } catch (error) {
-    fixtureFailure28 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure28,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test('no-follow directory inspection returns an ordered physical chain and only ENOENT means absent', () => withFixtureRoot(root => {
+  const target = path.join(root, 'ordinary', 'target');
+  mkdirSync(target, { recursive: true });
+  const observed = inspectNoFollowDirectoryChain(target, 'test target');
+  expect(observed.target.path).toBe(path.resolve(target));
+  expect(observed.ancestors.at(-1)).toEqual(observed.target);
+  expect(observed.ancestors.length).toBeGreaterThan(1);
+  expect(inspectExactNoFollowDirectoryPresence(path.join(root, 'missing'))).toEqual({ state: 'absent' });
+}));
 
-test('no-follow inspection rejects a symlink/junction target and a symlink/junction ancestor', () => {
-  const root = fixtureRoot();
-  let fixtureFailure27: ResourceSettlementFailure | undefined;
-  try {
-    const ordinary = path.join(root, 'ordinary');
-    const external = path.join(root, 'external');
-    const alias = path.join(root, 'alias');
-    const dangling = path.join(root, 'dangling');
-    mkdirSync(ordinary);
-    mkdirSync(external);
-    symlinkSync(external, alias, process.platform === 'win32' ? 'junction' : 'dir');
-    symlinkSync(path.join(root, 'missing-target'), dangling, process.platform === 'win32' ? 'junction' : 'dir');
+test('no-follow inspection rejects a symlink/junction target and a symlink/junction ancestor', () => withFixtureRoot(root => {
+  const ordinary = path.join(root, 'ordinary');
+  const external = path.join(root, 'external');
+  const alias = path.join(root, 'alias');
+  const dangling = path.join(root, 'dangling');
+  mkdirSync(ordinary);
+  mkdirSync(external);
+  symlinkSync(external, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  symlinkSync(path.join(root, 'missing-target'), dangling, process.platform === 'win32' ? 'junction' : 'dir');
 
-    expectPhysicalCode(
-      () => inspectNoFollowDirectoryChain(alias, 'alias target'),
-      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
-    );
-    expectPhysicalCode(
-      () => inspectNoFollowDirectoryChain(path.join(alias, 'child'), 'alias child'),
-      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
-    );
-    // A dangling link is unsafe, not the only allowed "absent" outcome.
-    expectPhysicalCode(
-      () => inspectExactNoFollowDirectoryPresence(dangling, 'dangling alias'),
-      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
-    );
-    expect(inspectNoFollowDirectoryChain(ordinary).target.path).toBe(path.resolve(ordinary));
-  } catch (error) {
-    fixtureFailure27 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure27,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+  expectPhysicalCode(
+    () => inspectNoFollowDirectoryChain(alias, 'alias target'),
+    'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+  );
+  expectPhysicalCode(
+    () => inspectNoFollowDirectoryChain(path.join(alias, 'child'), 'alias child'),
+    'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+  );
+  // A dangling link is unsafe, not the only allowed "absent" outcome.
+  expectPhysicalCode(
+    () => inspectExactNoFollowDirectoryPresence(dangling, 'dangling alias'),
+    'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+  );
+  expect(inspectNoFollowDirectoryChain(ordinary).target.path).toBe(path.resolve(ordinary));
+}));
 
 test.skipIf(process.platform !== 'win32')(
   'Windows wrong-kind link inspection closes its opened native handle before returning the typed failure',
@@ -162,48 +147,35 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retained child inspection is create-free and exclusive creation never adopts a collision', () => {
-  const root = fixtureRoot();
-  let fixtureFailure26: ResourceSettlementFailure | undefined;
-  try {
-    const parentPath = path.join(root, 'parent');
-    const displacedParent = path.join(root, 'parent-displaced');
-    mkdirSync(parentPath);
-    const parent = inspectNoFollowDirectoryChain(parentPath).target;
+test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retained child inspection is create-free and exclusive creation never adopts a collision', () => withFixtureRoot(root => {
+  const parentPath = path.join(root, 'parent');
+  const displacedParent = path.join(root, 'parent-displaced');
+  mkdirSync(parentPath);
+  const parent = inspectNoFollowDirectoryChain(parentPath).target;
 
-    expect(inspectNoFollowDirectoryChild(parent, 'child')).toBeNull();
-    expect(lstatSync(path.join(parentPath, 'child'), { throwIfNoEntry: false })).toBeUndefined();
-    const child = createExclusiveNoFollowDirectory(parent, 'child');
-    expect(inspectNoFollowDirectoryChild(parent, 'child')).toEqual(child);
-    expectPhysicalCode(
-      () => createExclusiveNoFollowDirectory(parent, 'child'),
-      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-    );
+  expect(inspectNoFollowDirectoryChild(parent, 'child')).toBeNull();
+  expect(lstatSync(path.join(parentPath, 'child'), { throwIfNoEntry: false })).toBeUndefined();
+  const child = createExclusiveNoFollowDirectory(parent, 'child');
+  expect(inspectNoFollowDirectoryChild(parent, 'child')).toEqual(child);
+  expectPhysicalCode(
+    () => createExclusiveNoFollowDirectory(parent, 'child'),
+    'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+  );
 
-    renameSync(parentPath, displacedParent);
-    mkdirSync(parentPath);
-    expectPhysicalCode(
-      () => createExclusiveNoFollowDirectory(parent, 'replacement-child'),
-      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-    );
-    expect(lstatSync(path.join(parentPath, 'replacement-child'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(existsSync(path.join(displacedParent, 'child'))).toBe(true);
-  } catch (error) {
-    fixtureFailure26 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure26,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+  renameSync(parentPath, displacedParent);
+  mkdirSync(parentPath);
+  expectPhysicalCode(
+    () => createExclusiveNoFollowDirectory(parent, 'replacement-child'),
+    'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+  );
+  expect(lstatSync(path.join(parentPath, 'replacement-child'), { throwIfNoEntry: false })).toBeUndefined();
+  expect(existsSync(path.join(displacedParent, 'child'))).toBe(true);
+}));
 
 test.skipIf(process.platform !== 'win32')(
   'Windows relative directory leaf inspection proves hidden absence and rejects reparse children',
   () => {
-    const root = fixtureRoot();
-    let fixtureFailure25: ResourceSettlementFailure | undefined;
-    try {
+    withFixtureRoot(root => {
       const parentPath = path.join(root, 'parent');
       const externalPath = path.join(root, 'external');
       mkdirSync(parentPath);
@@ -228,238 +200,187 @@ test.skipIf(process.platform !== 'win32')(
         () => inspectNoFollowDirectoryLeaf(parent, '..'),
         'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
       );
-    } catch (error) {
-      fixtureFailure25 = { label: 'fixture operation', error };
-    } finally {
-      settleResources({
-        primary: fixtureFailure25,
-        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-      });
-    }
+    });
   }
 );
 
-test.skipIf(process.platform !== 'linux')('Linux directory-create transaction rejects parent, ancestor, and child replacement races', () => {
-  const root = fixtureRoot();
-  let fixtureFailure24: ResourceSettlementFailure | undefined;
-  try {
-    const expectRaceRejected = (
-      point: LinuxNoFollowDirectoryCreateRacePoint,
-      targetPath: string,
-      displacedPath: string,
-      action: (actor: LinuxNoFollowDirectoryCreateRaceActor) => unknown
-    ): void => {
-      const actor = createLinuxNoFollowDirectoryCreateRaceActorForTests({
-        point,
-        targetPath,
-        displacedPath
-      });
-      expectPhysicalCode(() => action(actor), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
-    };
-
-    const exclusiveParentPath = path.join(root, 'exclusive-parent');
-    mkdirSync(exclusiveParentPath);
-    const exclusiveParent = inspectNoFollowDirectoryChain(exclusiveParentPath).target;
-    const exclusiveTarget = path.join(exclusiveParentPath, 'child');
-    const exclusiveDisplaced = path.join(exclusiveParentPath, 'child-displaced');
-    expectRaceRejected(
-      'before-child-witness',
-      exclusiveTarget,
-      exclusiveDisplaced,
-      (actor) => createExclusiveNoFollowDirectory(exclusiveParent, 'child', actor)
-    );
-    expect(lstatSync(exclusiveTarget).isDirectory()).toBe(true);
-    expect(lstatSync(exclusiveDisplaced).isDirectory()).toBe(true);
-
-    const chainParentPath = path.join(root, 'chain-parent');
-    mkdirSync(chainParentPath);
-    const chainParent = inspectNoFollowDirectoryChain(chainParentPath).target;
-    const chainTarget = path.join(chainParentPath, 'operation-root');
-    const chainDisplaced = path.join(chainParentPath, 'operation-root-displaced');
-    expectRaceRejected(
-      'before-child-witness',
-      chainTarget,
-      chainDisplaced,
-      (actor) => createNoFollowDirectoryChain(
-        chainParent,
-        ['operation-root', 'generation-one'],
-        actor
-      )
-    );
-    expect(lstatSync(chainTarget).isDirectory()).toBe(true);
-    expect(lstatSync(chainDisplaced).isDirectory()).toBe(true);
-    expect(lstatSync(path.join(chainTarget, 'generation-one'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(lstatSync(path.join(chainDisplaced, 'generation-one'), { throwIfNoEntry: false })).toBeUndefined();
-
-    const prewatchExclusiveParent = path.join(root, 'prewatch-exclusive-parent');
-    const prewatchExclusiveDisplaced = path.join(root, 'prewatch-exclusive-parent-displaced');
-    mkdirSync(prewatchExclusiveParent);
-    const prewatchExclusiveIdentity = inspectNoFollowDirectoryChain(
-      prewatchExclusiveParent
-    ).target;
-    expectRaceRejected(
-      'before-canonical-chain-open',
-      prewatchExclusiveParent,
-      prewatchExclusiveDisplaced,
-      (actor) => createExclusiveNoFollowDirectory(prewatchExclusiveIdentity, 'child', actor)
-    );
-    expect(lstatSync(prewatchExclusiveParent).isDirectory()).toBe(true);
-    expect(lstatSync(prewatchExclusiveDisplaced).isDirectory()).toBe(true);
-    expect(lstatSync(path.join(prewatchExclusiveParent, 'child'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(lstatSync(path.join(prewatchExclusiveDisplaced, 'child'), { throwIfNoEntry: false })).toBeUndefined();
-
-    const ancestorExclusiveScope = path.join(root, 'ancestor-exclusive-scope');
-    const ancestorExclusiveParent = path.join(ancestorExclusiveScope, 'run', 'parent');
-    const ancestorExclusiveDisplaced = path.join(root, 'ancestor-exclusive-scope-displaced');
-    mkdirSync(ancestorExclusiveParent, { recursive: true });
-    const ancestorExclusiveIdentity = inspectNoFollowDirectoryChain(
-      ancestorExclusiveParent
-    ).target;
-    expectRaceRejected(
-      'after-ancestor-open',
-      ancestorExclusiveScope,
-      ancestorExclusiveDisplaced,
-      (actor) => createExclusiveNoFollowDirectory(ancestorExclusiveIdentity, 'child', actor)
-    );
-    expect(lstatSync(ancestorExclusiveScope).isDirectory()).toBe(true);
-    expect(lstatSync(ancestorExclusiveDisplaced).isDirectory()).toBe(true);
-    expect(lstatSync(path.join(ancestorExclusiveScope, 'run', 'parent', 'child'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(lstatSync(path.join(ancestorExclusiveDisplaced, 'run', 'parent', 'child'), { throwIfNoEntry: false })).toBeUndefined();
-
-    const ancestorChainScope = path.join(root, 'ancestor-chain-scope');
-    const ancestorChainParent = path.join(ancestorChainScope, 'run', 'parent');
-    const ancestorChainDisplaced = path.join(root, 'ancestor-chain-scope-displaced');
-    mkdirSync(ancestorChainParent, { recursive: true });
-    const ancestorChainIdentity = inspectNoFollowDirectoryChain(ancestorChainParent).target;
-    expectRaceRejected(
-      'after-ancestor-open',
-      ancestorChainScope,
-      ancestorChainDisplaced,
-      (actor) => createNoFollowDirectoryChain(
-        ancestorChainIdentity,
-        ['operation-root', 'generation-one'],
-        actor
-      )
-    );
-    expect(lstatSync(ancestorChainScope).isDirectory()).toBe(true);
-    expect(lstatSync(ancestorChainDisplaced).isDirectory()).toBe(true);
-    expect(lstatSync(path.join(ancestorChainScope, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(lstatSync(path.join(ancestorChainDisplaced, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
-  } catch (error) {
-    fixtureFailure24 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure24,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+test.skipIf(process.platform !== 'linux')('Linux directory-create transaction rejects parent, ancestor, and child replacement races', () => withFixtureRoot(root => {
+  const expectRaceRejected = (
+    point: LinuxNoFollowDirectoryCreateRacePoint,
+    targetPath: string,
+    displacedPath: string,
+    action: (actor: LinuxNoFollowDirectoryCreateRaceActor) => unknown
+  ): void => {
+    const actor = createLinuxNoFollowDirectoryCreateRaceActorForTests({
+      point,
+      targetPath,
+      displacedPath
     });
-  }
-});
+    expectPhysicalCode(() => action(actor), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+  };
 
-test('operation directory creation is retained-parent relative and returns exact created identities', () => {
-  const root = fixtureRoot();
-  let fixtureFailure23: ResourceSettlementFailure | undefined;
-  try {
-    const retained = inspectNoFollowDirectoryChain(root, 'directory creation root').target;
-    const created = createNoFollowDirectoryChain(retained, ['operation-root', 'generation-one']);
-    expect(created.path).toBe(path.join(root, 'operation-root', 'generation-one'));
-    expect(inspectNoFollowDirectoryChain(created.path, 'created directory').target.inode).toBe(created.inode);
-  } catch (error) {
-    fixtureFailure23 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure23,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+  const exclusiveParentPath = path.join(root, 'exclusive-parent');
+  mkdirSync(exclusiveParentPath);
+  const exclusiveParent = inspectNoFollowDirectoryChain(exclusiveParentPath).target;
+  const exclusiveTarget = path.join(exclusiveParentPath, 'child');
+  const exclusiveDisplaced = path.join(exclusiveParentPath, 'child-displaced');
+  expectRaceRejected(
+    'before-child-witness',
+    exclusiveTarget,
+    exclusiveDisplaced,
+    (actor) => createExclusiveNoFollowDirectory(exclusiveParent, 'child', actor)
+  );
+  expect(lstatSync(exclusiveTarget).isDirectory()).toBe(true);
+  expect(lstatSync(exclusiveDisplaced).isDirectory()).toBe(true);
 
-test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced retained parent', () => {
-  const root = fixtureRoot();
-  let fixtureFailure22: ResourceSettlementFailure | undefined;
-  try {
-    const parentPath = path.join(root, 'parent');
-    mkdirSync(parentPath);
-    writeFileSync(path.join(parentPath, 'ordinary.json'), '{"safe":true}\n', 'utf8');
-    symlinkSync(path.join(root, 'missing.json'), path.join(parentPath, 'dangling.json'), 'file');
-    const parent = inspectNoFollowDirectoryChain(parentPath, 'reader parent').target;
-    expect(Buffer.from(readNoFollowOrdinaryFile(parent, 'ordinary.json')!).toString('utf8')).toBe('{"safe":true}\n');
-    expectPhysicalCode(
-      () => readNoFollowOrdinaryFile(parent, 'dangling.json'),
-      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
-    );
-    const moved = `${parentPath}-moved`;
-    renameSync(parentPath, moved);
-    mkdirSync(parentPath);
-    writeFileSync(path.join(parentPath, 'ordinary.json'), '{"replaced":true}\n', 'utf8');
-    expectPhysicalCode(
-      () => readNoFollowOrdinaryFile(parent, 'ordinary.json'),
-      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-    );
-    expect(readFileSync(path.join(moved, 'ordinary.json'), 'utf8')).toBe('{"safe":true}\n');
-  } catch (error) {
-    fixtureFailure22 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure22,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+  const chainParentPath = path.join(root, 'chain-parent');
+  mkdirSync(chainParentPath);
+  const chainParent = inspectNoFollowDirectoryChain(chainParentPath).target;
+  const chainTarget = path.join(chainParentPath, 'operation-root');
+  const chainDisplaced = path.join(chainParentPath, 'operation-root-displaced');
+  expectRaceRejected(
+    'before-child-witness',
+    chainTarget,
+    chainDisplaced,
+    (actor) => createNoFollowDirectoryChain(
+      chainParent,
+      ['operation-root', 'generation-one'],
+      actor
+    )
+  );
+  expect(lstatSync(chainTarget).isDirectory()).toBe(true);
+  expect(lstatSync(chainDisplaced).isDirectory()).toBe(true);
+  expect(lstatSync(path.join(chainTarget, 'generation-one'), { throwIfNoEntry: false })).toBeUndefined();
+  expect(lstatSync(path.join(chainDisplaced, 'generation-one'), { throwIfNoEntry: false })).toBeUndefined();
 
-test('retained child-process directory reads the authorized inode after lexical replacement', () => {
-  const root = fixtureRoot();
-  let fixtureFailure21: ResourceSettlementFailure | undefined;
+  const prewatchExclusiveParent = path.join(root, 'prewatch-exclusive-parent');
+  const prewatchExclusiveDisplaced = path.join(root, 'prewatch-exclusive-parent-displaced');
+  mkdirSync(prewatchExclusiveParent);
+  const prewatchExclusiveIdentity = inspectNoFollowDirectoryChain(
+    prewatchExclusiveParent
+  ).target;
+  expectRaceRejected(
+    'before-canonical-chain-open',
+    prewatchExclusiveParent,
+    prewatchExclusiveDisplaced,
+    (actor) => createExclusiveNoFollowDirectory(prewatchExclusiveIdentity, 'child', actor)
+  );
+  expect(lstatSync(prewatchExclusiveParent).isDirectory()).toBe(true);
+  expect(lstatSync(prewatchExclusiveDisplaced).isDirectory()).toBe(true);
+  expect(lstatSync(path.join(prewatchExclusiveParent, 'child'), { throwIfNoEntry: false })).toBeUndefined();
+  expect(lstatSync(path.join(prewatchExclusiveDisplaced, 'child'), { throwIfNoEntry: false })).toBeUndefined();
+
+  const ancestorExclusiveScope = path.join(root, 'ancestor-exclusive-scope');
+  const ancestorExclusiveParent = path.join(ancestorExclusiveScope, 'run', 'parent');
+  const ancestorExclusiveDisplaced = path.join(root, 'ancestor-exclusive-scope-displaced');
+  mkdirSync(ancestorExclusiveParent, { recursive: true });
+  const ancestorExclusiveIdentity = inspectNoFollowDirectoryChain(
+    ancestorExclusiveParent
+  ).target;
+  expectRaceRejected(
+    'after-ancestor-open',
+    ancestorExclusiveScope,
+    ancestorExclusiveDisplaced,
+    (actor) => createExclusiveNoFollowDirectory(ancestorExclusiveIdentity, 'child', actor)
+  );
+  expect(lstatSync(ancestorExclusiveScope).isDirectory()).toBe(true);
+  expect(lstatSync(ancestorExclusiveDisplaced).isDirectory()).toBe(true);
+  expect(lstatSync(path.join(ancestorExclusiveScope, 'run', 'parent', 'child'), { throwIfNoEntry: false })).toBeUndefined();
+  expect(lstatSync(path.join(ancestorExclusiveDisplaced, 'run', 'parent', 'child'), { throwIfNoEntry: false })).toBeUndefined();
+
+  const ancestorChainScope = path.join(root, 'ancestor-chain-scope');
+  const ancestorChainParent = path.join(ancestorChainScope, 'run', 'parent');
+  const ancestorChainDisplaced = path.join(root, 'ancestor-chain-scope-displaced');
+  mkdirSync(ancestorChainParent, { recursive: true });
+  const ancestorChainIdentity = inspectNoFollowDirectoryChain(ancestorChainParent).target;
+  expectRaceRejected(
+    'after-ancestor-open',
+    ancestorChainScope,
+    ancestorChainDisplaced,
+    (actor) => createNoFollowDirectoryChain(
+      ancestorChainIdentity,
+      ['operation-root', 'generation-one'],
+      actor
+    )
+  );
+  expect(lstatSync(ancestorChainScope).isDirectory()).toBe(true);
+  expect(lstatSync(ancestorChainDisplaced).isDirectory()).toBe(true);
+  expect(lstatSync(path.join(ancestorChainScope, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
+  expect(lstatSync(path.join(ancestorChainDisplaced, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
+}));
+
+test('operation directory creation is retained-parent relative and returns exact created identities', () => withFixtureRoot(root => {
+  const retained = inspectNoFollowDirectoryChain(root, 'directory creation root').target;
+  const created = createNoFollowDirectoryChain(retained, ['operation-root', 'generation-one']);
+  expect(created.path).toBe(path.join(root, 'operation-root', 'generation-one'));
+  expect(inspectNoFollowDirectoryChain(created.path, 'created directory').target.inode).toBe(created.inode);
+}));
+
+test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced retained parent', () => withFixtureRoot(root => {
+  const parentPath = path.join(root, 'parent');
+  mkdirSync(parentPath);
+  writeFileSync(path.join(parentPath, 'ordinary.json'), '{"safe":true}\n', 'utf8');
+  symlinkSync(path.join(root, 'missing.json'), path.join(parentPath, 'dangling.json'), 'file');
+  const parent = inspectNoFollowDirectoryChain(parentPath, 'reader parent').target;
+  expect(Buffer.from(readNoFollowOrdinaryFile(parent, 'ordinary.json')!).toString('utf8')).toBe('{"safe":true}\n');
+  expectPhysicalCode(
+    () => readNoFollowOrdinaryFile(parent, 'dangling.json'),
+    'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+  );
+  const moved = `${parentPath}-moved`;
+  renameSync(parentPath, moved);
+  mkdirSync(parentPath);
+  writeFileSync(path.join(parentPath, 'ordinary.json'), '{"replaced":true}\n', 'utf8');
+  expectPhysicalCode(
+    () => readNoFollowOrdinaryFile(parent, 'ordinary.json'),
+    'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+  );
+  expect(readFileSync(path.join(moved, 'ordinary.json'), 'utf8')).toBe('{"safe":true}\n');
+}));
+
+test('retained child-process directory reads the authorized inode after lexical replacement', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  const displaced = path.join(root, 'target-displaced');
+  mkdirSync(target);
+  writeFileSync(path.join(target, 'value.txt'), 'authorized\n', 'utf8');
+  const capability = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(target, 'retained child directory'),
+    3,
+    'retained child directory'
+  );
   try {
-    const target = path.join(root, 'target');
-    const displaced = path.join(root, 'target-displaced');
-    mkdirSync(target);
-    writeFileSync(path.join(target, 'value.txt'), 'authorized\n', 'utf8');
-    const capability = retainNoFollowDirectoryForChildProcess(
-      inspectNoFollowDirectoryChain(target, 'retained child directory'),
-      3,
-      'retained child directory'
-    );
-    try {
-      if (process.platform === 'linux') {
-        expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
-        expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
-      }
-      if (process.platform === 'linux') {
-        renameSync(target, displaced);
-        mkdirSync(target);
-        writeFileSync(path.join(target, 'value.txt'), 'replacement\n', 'utf8');
-      } else if (process.platform === 'win32') {
-        expect(() => renameSync(target, displaced)).toThrow();
-      }
-      const stdio: Array<'ignore' | 'pipe' | number> = [
-        'ignore',
-        'pipe',
-        'pipe',
-        capability.stdioSourceDescriptor ?? 'ignore'
-      ];
-      const child = spawnSync(rawExecutable.command, [
-        '-e',
-        'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
-        path.join(capability.childPath, 'value.txt')
-      ], {
-        encoding: 'utf8',
-        stdio
-      });
-      expect(child.status).toBe(0);
-      expect(child.stdout).toBe('authorized\n');
-      capability.assertCurrent();
-    } finally {
-      capability.dispose();
+    if (process.platform === 'linux') {
+      expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
+      expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
     }
-  } catch (error) {
-    fixtureFailure21 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure21,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    if (process.platform === 'linux') {
+      renameSync(target, displaced);
+      mkdirSync(target);
+      writeFileSync(path.join(target, 'value.txt'), 'replacement\n', 'utf8');
+    } else if (process.platform === 'win32') {
+      expect(() => renameSync(target, displaced)).toThrow();
+    }
+    const stdio: Array<'ignore' | 'pipe' | number> = [
+      'ignore',
+      'pipe',
+      'pipe',
+      capability.stdioSourceDescriptor ?? 'ignore'
+    ];
+    const child = spawnSync(rawExecutable.command, [
+      '-e',
+      'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
+      path.join(capability.childPath, 'value.txt')
+    ], {
+      encoding: 'utf8',
+      stdio
     });
+    expect(child.status).toBe(0);
+    expect(child.stdout).toBe('authorized\n');
+    capability.assertCurrent();
+  } finally {
+    capability.dispose();
   }
-});
+}));
 
 test('sealed directory generation excludes membership and byte writers for its child lifetime', async () => {
   const root = fixtureRoot();
@@ -598,168 +519,124 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'win32')('Windows retained child-process boundary blocks relocation above its pinned parent', () => {
-  const root = fixtureRoot();
-  let fixtureFailure20: ResourceSettlementFailure | undefined;
+test.skipIf(process.platform !== 'win32')('Windows retained child-process boundary blocks relocation above its pinned parent', () => withFixtureRoot(root => {
+  const ancestor = path.join(root, 'ancestor');
+  const parent = path.join(ancestor, 'parent');
+  const target = path.join(parent, 'target');
+  const displaced = path.join(root, 'ancestor-displaced');
+  mkdirSync(target, { recursive: true });
+  const capability = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(target, 'retained descendant boundary'),
+    3,
+    'retained descendant boundary'
+  );
   try {
-    const ancestor = path.join(root, 'ancestor');
-    const parent = path.join(ancestor, 'parent');
-    const target = path.join(parent, 'target');
-    const displaced = path.join(root, 'ancestor-displaced');
-    mkdirSync(target, { recursive: true });
-    const capability = retainNoFollowDirectoryForChildProcess(
-      inspectNoFollowDirectoryChain(target, 'retained descendant boundary'),
-      3,
-      'retained descendant boundary'
-    );
-    try {
-      expect(() => renameSync(ancestor, displaced)).toThrow();
-      capability.assertCurrent();
-    } finally {
-      capability.dispose();
-    }
-  } catch (error) {
-    fixtureFailure20 = { label: 'fixture operation', error };
+    expect(() => renameSync(ancestor, displaced)).toThrow();
+    capability.assertCurrent();
   } finally {
-    settleResources({
-      primary: fixtureFailure20,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
+    capability.dispose();
   }
-});
+}));
 
-test('retained child-process file reads the observed inode after leaf replacement', () => {
-  const root = fixtureRoot();
-  let fixtureFailure19: ResourceSettlementFailure | undefined;
+test('retained child-process file reads the observed inode after leaf replacement', () => withFixtureRoot(root => {
+  const filePath = path.join(root, 'index');
+  const displaced = path.join(root, 'index-displaced');
+  writeFileSync(filePath, 'authorized-index\n', 'utf8');
+  const parent = inspectNoFollowDirectoryChain(root, 'retained file parent');
+  const entry = inspectNoFollowOrdinaryFileEntry(parent.target, 'index')!;
+  const capability = retainNoFollowOrdinaryFileForChildProcess(
+    parent,
+    entry,
+    3,
+    'retained index file'
+  );
   try {
-    const filePath = path.join(root, 'index');
-    const displaced = path.join(root, 'index-displaced');
-    writeFileSync(filePath, 'authorized-index\n', 'utf8');
-    const parent = inspectNoFollowDirectoryChain(root, 'retained file parent');
-    const entry = inspectNoFollowOrdinaryFileEntry(parent.target, 'index')!;
-    const capability = retainNoFollowOrdinaryFileForChildProcess(
-      parent,
-      entry,
-      3,
-      'retained index file'
-    );
-    try {
-      expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
-      expect(capability.size).toBe(Buffer.byteLength('authorized-index\n'));
-      const expectedDigest = `sha256:${createHash('sha256').update('authorized-index\n').digest('hex')}` as const;
+    expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
+    expect(capability.size).toBe(Buffer.byteLength('authorized-index\n'));
+    const expectedDigest = `sha256:${createHash('sha256').update('authorized-index\n').digest('hex')}` as const;
+    expect(capability.digest().byteDigest).toBe(expectedDigest);
+    capability.assertCurrent();
+    if (process.platform === 'linux') {
+      expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
+      expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
+    } else {
+      expect(capability.stdioSourceDescriptor).toBeNull();
+    }
+    if (process.platform === 'linux') {
+      renameSync(filePath, displaced);
+      writeFileSync(filePath, 'replacement-index\n', 'utf8');
+    } else if (process.platform === 'win32') {
+      expect(() => renameSync(filePath, displaced)).toThrow();
+    }
+    const child = spawnSync(rawExecutable.command, [
+      '-e',
+      'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
+      capability.childPath
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe', capability.stdioSourceDescriptor ?? 'ignore']
+    });
+    expect(child.status).toBe(0);
+    expect(child.stdout).toBe('authorized-index\n');
+    if (process.platform === 'linux') {
+      // A retained descriptor can still read the old inode. That fact does
+      // not renew the current lexical/source binding after replacement.
+      expectPhysicalCode(() => capability.digest(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+      expectPhysicalCode(() => capability.assertCurrent(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+    } else {
       expect(capability.digest().byteDigest).toBe(expectedDigest);
       capability.assertCurrent();
-      if (process.platform === 'linux') {
-        expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
-        expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
-      } else {
-        expect(capability.stdioSourceDescriptor).toBeNull();
-      }
-      if (process.platform === 'linux') {
-        renameSync(filePath, displaced);
-        writeFileSync(filePath, 'replacement-index\n', 'utf8');
-      } else if (process.platform === 'win32') {
-        expect(() => renameSync(filePath, displaced)).toThrow();
-      }
-      const child = spawnSync(rawExecutable.command, [
-        '-e',
-        'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
-        capability.childPath
-      ], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe', capability.stdioSourceDescriptor ?? 'ignore']
-      });
-      expect(child.status).toBe(0);
-      expect(child.stdout).toBe('authorized-index\n');
-      if (process.platform === 'linux') {
-        // A retained descriptor can still read the old inode. That fact does
-        // not renew the current lexical/source binding after replacement.
-        expectPhysicalCode(() => capability.digest(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
-        expectPhysicalCode(() => capability.assertCurrent(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
-      } else {
-        expect(capability.digest().byteDigest).toBe(expectedDigest);
-        capability.assertCurrent();
-      }
-    } finally {
-      capability.dispose();
     }
-  } catch (error) {
-    fixtureFailure19 = { label: 'fixture operation', error };
   } finally {
-    settleResources({
-      primary: fixtureFailure19,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
+    capability.dispose();
   }
-});
+}));
 
 test('native Git write-tree uses a cold private index beneath its retained parent', () => {
   expect(runRetainedGitWriteTreeProbe()).toMatch(/^[0-9a-f]{40}$/u);
 });
 
-test('exact ordinary leaf observation bounds only the selected leaf without scanning unrelated entries', () => {
-  const root = fixtureRoot();
-  let fixtureFailure18: ResourceSettlementFailure | undefined;
-  try {
-    writeFileSync(path.join(root, 'fence.json'), '{"safe":true}\n', 'utf8');
-    writeFileSync(path.join(root, 'unrelated-large.bin'), Buffer.alloc(65 * 1024 * 1024));
-    const parent = inspectNoFollowDirectoryChain(root, 'exact leaf parent').target;
+test('exact ordinary leaf observation bounds only the selected leaf without scanning unrelated entries', () => withFixtureRoot(root => {
+  writeFileSync(path.join(root, 'fence.json'), '{"safe":true}\n', 'utf8');
+  writeFileSync(path.join(root, 'unrelated-large.bin'), Buffer.alloc(65 * 1024 * 1024));
+  const parent = inspectNoFollowDirectoryChain(root, 'exact leaf parent').target;
 
-    const entry = inspectNoFollowOrdinaryFileEntry(parent, 'fence.json');
+  const entry = inspectNoFollowOrdinaryFileEntry(parent, 'fence.json');
 
-    expect(entry?.relativePath).toBe('fence.json');
-    expect(entry?.kind).toBe('file');
-    expect(entry?.size).toBe(Buffer.byteLength('{"safe":true}\n'));
-    expect(Buffer.from(entry?.bytes ?? []).toString('utf8')).toBe('{"safe":true}\n');
-    if (process.platform === 'linux') {
-      const metadata = lstatSync(path.join(root, 'fence.json'), { bigint: true });
-      expect(entry?.device).toBe(String(metadata.dev));
-      expect(entry?.inode).toBe(String(metadata.ino));
-    }
-    expectPhysicalCode(
-      () => inspectNoFollowOrdinaryFileEntry(parent, 'unrelated-large.bin'),
-      'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED'
-    );
-  } catch (error) {
-    fixtureFailure18 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure18,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
+  expect(entry?.relativePath).toBe('fence.json');
+  expect(entry?.kind).toBe('file');
+  expect(entry?.size).toBe(Buffer.byteLength('{"safe":true}\n'));
+  expect(Buffer.from(entry?.bytes ?? []).toString('utf8')).toBe('{"safe":true}\n');
+  if (process.platform === 'linux') {
+    const metadata = lstatSync(path.join(root, 'fence.json'), { bigint: true });
+    expect(entry?.device).toBe(String(metadata.dev));
+    expect(entry?.inode).toBe(String(metadata.ino));
   }
-});
+  expectPhysicalCode(
+    () => inspectNoFollowOrdinaryFileEntry(parent, 'unrelated-large.bin'),
+    'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED'
+  );
+}));
 
-test('exact ordinary leaf identity follows the retained physical file rather than its name or bytes', () => {
-  const root = fixtureRoot();
-  let fixtureFailure17: ResourceSettlementFailure | undefined;
-  try {
-    const originalPath = path.join(root, 'original.json');
-    const aliasPath = path.join(root, 'alias.json');
-    writeFileSync(originalPath, '{"same":true}\n', 'utf8');
-    linkSync(originalPath, aliasPath);
-    const parent = inspectNoFollowDirectoryChain(root, 'identity leaf parent').target;
-    const original = inspectNoFollowOrdinaryFileEntry(parent, 'original.json');
-    const alias = inspectNoFollowOrdinaryFileEntry(parent, 'alias.json');
-    expect(alias?.device).toBe(original?.device);
-    expect(alias?.inode).toBe(original?.inode);
-    expect(alias?.size).toBe(original?.size);
-    expect(Buffer.from(alias?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
+test('exact ordinary leaf identity follows the retained physical file rather than its name or bytes', () => withFixtureRoot(root => {
+  const originalPath = path.join(root, 'original.json');
+  const aliasPath = path.join(root, 'alias.json');
+  writeFileSync(originalPath, '{"same":true}\n', 'utf8');
+  linkSync(originalPath, aliasPath);
+  const parent = inspectNoFollowDirectoryChain(root, 'identity leaf parent').target;
+  const original = inspectNoFollowOrdinaryFileEntry(parent, 'original.json');
+  const alias = inspectNoFollowOrdinaryFileEntry(parent, 'alias.json');
+  expect(alias?.device).toBe(original?.device);
+  expect(alias?.inode).toBe(original?.inode);
+  expect(alias?.size).toBe(original?.size);
+  expect(Buffer.from(alias?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
 
-    rmSync(aliasPath);
-    writeFileSync(aliasPath, '{"same":true}\n', 'utf8');
-    const replacement = inspectNoFollowOrdinaryFileEntry(parent, 'alias.json');
-    expect(`${replacement?.device}:${replacement?.inode}`).not.toBe(`${original?.device}:${original?.inode}`);
-    expect(Buffer.from(replacement?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
-  } catch (error) {
-    fixtureFailure17 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure17,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+  rmSync(aliasPath);
+  writeFileSync(aliasPath, '{"same":true}\n', 'utf8');
+  const replacement = inspectNoFollowOrdinaryFileEntry(parent, 'alias.json');
+  expect(`${replacement?.device}:${replacement?.inode}`).not.toBe(`${original?.device}:${original?.inode}`);
+  expect(Buffer.from(replacement?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
+}));
 
 test.skipIf(process.platform !== 'linux')('Linux exact ordinary leaf rejects a FIFO without a blocking open', async () => {
   const root = fixtureRoot();
@@ -802,56 +679,34 @@ test.skipIf(process.platform !== 'linux')('Linux exact ordinary leaf rejects a F
   }
 }, 5_000);
 
-test('retained directory relocation preserves its identity and rejects a rebuilt original path', () => {
-  const root = fixtureRoot();
-  let fixtureFailure16: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'target');
-    mkdirSync(target);
-    writeFileSync(path.join(target, 'keep.txt'), 'bound-to-target\n', 'utf8');
-    const original = inspectNoFollowDirectoryChain(target, 'relocation source').target;
-    const moved = relocateRetainedNoFollowDirectory({ directory: original, tombstoneName: 'target-tombstone' });
-    if (process.platform === 'linux') expect(moved.inode).toBe(original.inode);
-    expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
-    expect(readFileSync(path.join(moved.path, 'keep.txt'), 'utf8')).toBe('bound-to-target\n');
-    mkdirSync(target);
-    expectPhysicalCode(
-      () => assertSameNoFollowDirectoryIdentity(original, 'rebuilt original path'),
-      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-    );
-    expect(existsSync(target)).toBe(true);
-  } catch (error) {
-    fixtureFailure16 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure16,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test('retained directory relocation preserves its identity and rejects a rebuilt original path', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  mkdirSync(target);
+  writeFileSync(path.join(target, 'keep.txt'), 'bound-to-target\n', 'utf8');
+  const original = inspectNoFollowDirectoryChain(target, 'relocation source').target;
+  const moved = relocateRetainedNoFollowDirectory({ directory: original, tombstoneName: 'target-tombstone' });
+  if (process.platform === 'linux') expect(moved.inode).toBe(original.inode);
+  expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
+  expect(readFileSync(path.join(moved.path, 'keep.txt'), 'utf8')).toBe('bound-to-target\n');
+  mkdirSync(target);
+  expectPhysicalCode(
+    () => assertSameNoFollowDirectoryIdentity(original, 'rebuilt original path'),
+    'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+  );
+  expect(existsSync(target)).toBe(true);
+}));
 
-test('tree scan records a child link as an unsafe leaf and never traverses it', () => {
-  const root = fixtureRoot();
-  let fixtureFailure15: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'target');
-    const external = path.join(root, 'external');
-    mkdirSync(target);
-    mkdirSync(external);
-    writeFileSync(path.join(external, 'must-not-traverse.txt'), 'external');
-    symlinkSync(external, path.join(target, 'child-link'), process.platform === 'win32' ? 'junction' : 'dir');
-    const entries = scanNoFollowDirectoryTree(inspectNoFollowDirectoryChain(target, 'scan target').target);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ relativePath: 'child-link', kind: 'link' });
-  } catch (error) {
-    fixtureFailure15 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure15,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test('tree scan records a child link as an unsafe leaf and never traverses it', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  const external = path.join(root, 'external');
+  mkdirSync(target);
+  mkdirSync(external);
+  writeFileSync(path.join(external, 'must-not-traverse.txt'), 'external');
+  symlinkSync(external, path.join(target, 'child-link'), process.platform === 'win32' ? 'junction' : 'dir');
+  const entries = scanNoFollowDirectoryTree(inspectNoFollowDirectoryChain(target, 'scan target').target);
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({ relativePath: 'child-link', kind: 'link' });
+}));
 
 test('selected forest retains one root, emits selector prefixes, and shares hard bounds', () => {
   const root = fixtureRoot();
@@ -913,9 +768,7 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
 });
 
 test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact retained-link targets', () => {
-  const root = fixtureRoot();
-  let fixtureFailure14: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot(root => {
     const target = path.join(root, 'target');
     mkdirSync(target);
     symlinkSync('../external-target', path.join(target, 'relative-link'), 'file');
@@ -929,14 +782,7 @@ test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact re
     expect(entries.get('absolute-link')).toMatchObject({
       kind: 'link', linkTarget: path.join(root, 'missing-target')
     });
-  } catch (error) {
-    fixtureFailure14 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure14,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('Linux bulk copy preserves contained relative links and resolves ancestor-link chains', async () => {
@@ -1002,34 +848,23 @@ test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or pro
   });
 });
 
-test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('permission-mode inventory is opt-in and Windows projects an explicit unavailable value', () => {
-  const root = fixtureRoot();
-  let fixtureFailure13: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'target');
-    mkdirSync(target);
-    writeFileSync(path.join(target, 'ordinary.txt'), 'ordinary\n', 'utf8');
-    const identity = inspectNoFollowDirectoryChain(target, 'permission inventory target').target;
-    const defaultEntry = scanNoFollowDirectoryTreeInventory(identity)[0]!;
-    expect('permissionMode' in defaultEntry).toBe(false);
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('permission-mode inventory is opt-in and Windows projects an explicit unavailable value', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  mkdirSync(target);
+  writeFileSync(path.join(target, 'ordinary.txt'), 'ordinary\n', 'utf8');
+  const identity = inspectNoFollowDirectoryChain(target, 'permission inventory target').target;
+  const defaultEntry = scanNoFollowDirectoryTreeInventory(identity)[0]!;
+  expect('permissionMode' in defaultEntry).toBe(false);
 
-    const projectedEntry = scanNoFollowDirectoryTreeInventory(identity, {
-      includePermissionMode: true
-    })[0]!;
-    if (process.platform === 'win32') {
-      expect(projectedEntry.permissionMode).toBeNull();
-    } else {
-      expect(projectedEntry.permissionMode).toBe(statSync(path.join(target, 'ordinary.txt')).mode & 0o7777);
-    }
-  } catch (error) {
-    fixtureFailure13 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure13,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
+  const projectedEntry = scanNoFollowDirectoryTreeInventory(identity, {
+    includePermissionMode: true
+  })[0]!;
+  if (process.platform === 'win32') {
+    expect(projectedEntry.permissionMode).toBeNull();
+  } else {
+    expect(projectedEntry.permissionMode).toBe(statSync(path.join(target, 'ordinary.txt')).mode & 0o7777);
   }
-});
+}));
 
 test.skipIf(process.platform !== 'linux')(
   'Linux bulk copy preserves descriptor-observed file and directory modes only when opted in',
@@ -1199,184 +1034,151 @@ test.skipIf(process.platform !== 'linux' || process.geteuid?.() === 0)(
   }
 );
 
-test('streaming tree inventory preserves the canonical digest domain beyond the bounded byte reader', () => {
-  const root = fixtureRoot();
-  let fixtureFailure12: ResourceSettlementFailure | undefined;
+test('streaming tree inventory preserves the canonical digest domain beyond the bounded byte reader', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  mkdirSync(target);
+  const smallBytes = Buffer.from('canonical-small-content\n', 'utf8');
+  writeFileSync(path.join(target, 'small.txt'), smallBytes);
+  const largePath = path.join(target, 'large.bin');
+  const largeSize = 64 * 1024 * 1024 + 4096;
+  writeFileSync(largePath, '');
+  truncateSync(largePath, largeSize);
+  const largeHandle = openSync(largePath, 'r+');
   try {
-    const target = path.join(root, 'target');
-    mkdirSync(target);
-    const smallBytes = Buffer.from('canonical-small-content\n', 'utf8');
-    writeFileSync(path.join(target, 'small.txt'), smallBytes);
-    const largePath = path.join(target, 'large.bin');
-    const largeSize = 64 * 1024 * 1024 + 4096;
-    writeFileSync(largePath, '');
-    truncateSync(largePath, largeSize);
-    const largeHandle = openSync(largePath, 'r+');
-    try {
-      writeSync(largeHandle, Buffer.from('large-start'), 0, 11, 0);
-      writeSync(largeHandle, Buffer.from('large-end'), 0, 9, largeSize - 9);
-    } finally {
-      closeSync(largeHandle);
-    }
-    // Independent fixture oracle: hash the known prefix, sparse zero region,
-    // and suffix, without reading through either inventory/digest owner.
-    const contentHash = createHash('sha256').update('{"bytes":"');
-    const byteHash = createHash('sha256');
-    const start = Buffer.from('large-start');
-    const end = Buffer.from('large-end');
-    contentHash.update(start.toString('hex'));
-    byteHash.update(start);
-    const zeros = Buffer.alloc(1024 * 1024);
-    const zeroHex = zeros.toString('hex');
-    for (let remaining = largeSize - start.length - end.length; remaining > 0;) {
-      const size = Math.min(remaining, zeros.length);
-      contentHash.update(zeroHex.slice(0, size * 2));
-      byteHash.update(zeros.subarray(0, size));
-      remaining -= size;
-    }
-    contentHash.update(end.toString('hex')).update('"}');
-    byteHash.update(end);
-    const expectedContentDigest = `sha256:${contentHash.digest('hex')}`;
-    const expectedByteDigest = `sha256:${byteHash.digest('hex')}`;
-    const identity = inspectNoFollowDirectoryChain(target, 'streaming inventory target').target;
-    expect(() => scanNoFollowDirectoryTree(identity)).toThrow('exceeds the bounded no-follow read size');
-    expect(() => readNoFollowOrdinaryFile(identity, 'large.bin')).toThrow('exceeds the bounded no-follow read size');
-    expect(readNoFollowOrdinaryFile(identity, 'large.bin', { maximumBytes: largeSize })?.byteLength).toBe(largeSize);
-    const first = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
-    expect(first.get('small.txt')?.contentDigest).toBe(
-      sha256({ bytes: smallBytes.toString('hex') }) as `sha256:${string}`
-    );
-    expect(inspectNoFollowOrdinaryFileDigest(identity, 'small.txt')).toEqual({
-      size: smallBytes.byteLength,
-      byteDigest: `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
-    });
-    const rawInventory = new Map(scanNoFollowDirectoryTreeInventory(identity, {
-      includeByteDigest: true
-    }).map((entry) => [entry.relativePath, entry]));
-    expect(rawInventory.get('small.txt')?.byteDigest).toBe(
-      `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
-    );
-    expect(first.get('small.txt')).not.toHaveProperty('byteDigest');
-    expect(first.get('large.bin')).toMatchObject({
-      kind: 'file', size: largeSize, contentDigest: expectedContentDigest
-    });
-    expect(rawInventory.get('large.bin')).toMatchObject({
-      kind: 'file', size: largeSize,
-      contentDigest: expectedContentDigest, byteDigest: expectedByteDigest
-    });
-  } catch (error) {
-    fixtureFailure12 = { label: 'fixture operation', error };
+    writeSync(largeHandle, Buffer.from('large-start'), 0, 11, 0);
+    writeSync(largeHandle, Buffer.from('large-end'), 0, 9, largeSize - 9);
   } finally {
-    settleResources({
-      primary: fixtureFailure12,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
+    closeSync(largeHandle);
   }
-});
+  // Independent fixture oracle: hash the known prefix, sparse zero region,
+  // and suffix, without reading through either inventory/digest owner.
+  const contentHash = createHash('sha256').update('{"bytes":"');
+  const byteHash = createHash('sha256');
+  const start = Buffer.from('large-start');
+  const end = Buffer.from('large-end');
+  contentHash.update(start.toString('hex'));
+  byteHash.update(start);
+  const zeros = Buffer.alloc(1024 * 1024);
+  const zeroHex = zeros.toString('hex');
+  for (let remaining = largeSize - start.length - end.length; remaining > 0;) {
+    const size = Math.min(remaining, zeros.length);
+    contentHash.update(zeroHex.slice(0, size * 2));
+    byteHash.update(zeros.subarray(0, size));
+    remaining -= size;
+  }
+  contentHash.update(end.toString('hex')).update('"}');
+  byteHash.update(end);
+  const expectedContentDigest = `sha256:${contentHash.digest('hex')}`;
+  const expectedByteDigest = `sha256:${byteHash.digest('hex')}`;
+  const identity = inspectNoFollowDirectoryChain(target, 'streaming inventory target').target;
+  expect(() => scanNoFollowDirectoryTree(identity)).toThrow('exceeds the bounded no-follow read size');
+  expect(() => readNoFollowOrdinaryFile(identity, 'large.bin')).toThrow('exceeds the bounded no-follow read size');
+  expect(readNoFollowOrdinaryFile(identity, 'large.bin', { maximumBytes: largeSize })?.byteLength).toBe(largeSize);
+  const first = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
+  expect(first.get('small.txt')?.contentDigest).toBe(
+    sha256({ bytes: smallBytes.toString('hex') }) as `sha256:${string}`
+  );
+  expect(inspectNoFollowOrdinaryFileDigest(identity, 'small.txt')).toEqual({
+    size: smallBytes.byteLength,
+    byteDigest: `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
+  });
+  const rawInventory = new Map(scanNoFollowDirectoryTreeInventory(identity, {
+    includeByteDigest: true
+  }).map((entry) => [entry.relativePath, entry]));
+  expect(rawInventory.get('small.txt')?.byteDigest).toBe(
+    `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
+  );
+  expect(first.get('small.txt')).not.toHaveProperty('byteDigest');
+  expect(first.get('large.bin')).toMatchObject({
+    kind: 'file', size: largeSize, contentDigest: expectedContentDigest
+  });
+  expect(rawInventory.get('large.bin')).toMatchObject({
+    kind: 'file', size: largeSize,
+    contentDigest: expectedContentDigest, byteDigest: expectedByteDigest
+  });
+}));
 
-test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained ordinary-file capability binds raw digest, size, and leaf identity to one handle', () => {
-  const root = fixtureRoot();
-  let fixtureFailure11: ResourceSettlementFailure | undefined;
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained ordinary-file capability binds raw digest, size, and leaf identity to one handle', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  const filePath = path.join(target, 'executable.bin');
+  const bytes = Buffer.from('retained executable bytes\n', 'utf8');
+  mkdirSync(target);
+  writeFileSync(filePath, bytes);
+  const parentChain = inspectNoFollowDirectoryChain(target, 'retained executable parent');
+  const entry = inspectNoFollowOrdinaryFileEntry(parentChain.target, 'executable.bin');
+  expect(entry).not.toBeNull();
+  const capability = retainNoFollowOrdinaryFile(
+    parentChain,
+    'executable.bin',
+    { device: entry!.device, inode: entry!.inode },
+    'retained executable'
+  );
   try {
-    const target = path.join(root, 'target');
-    const filePath = path.join(target, 'executable.bin');
-    const bytes = Buffer.from('retained executable bytes\n', 'utf8');
-    mkdirSync(target);
-    writeFileSync(filePath, bytes);
-    const parentChain = inspectNoFollowDirectoryChain(target, 'retained executable parent');
-    const entry = inspectNoFollowOrdinaryFileEntry(parentChain.target, 'executable.bin');
-    expect(entry).not.toBeNull();
-    const capability = retainNoFollowOrdinaryFile(
-      parentChain,
-      'executable.bin',
-      { device: entry!.device, inode: entry!.inode },
-      'retained executable'
-    );
-    try {
-      assertRetainedNoFollowCapability(capability, 'ordinary-file', 'retained executable test');
-      expect(() => assertRetainedNoFollowCapability(capability, 'executable', 'forged executable role'))
-        .toThrow('was not issued by the physical no-follow owner');
-      expect(() => assertRetainedNoFollowCapability({ ...capability }, 'ordinary-file', 'forged capability'))
-        .toThrow('was not issued by the physical no-follow owner');
-      expect(capability.size).toBe(bytes.byteLength);
-      expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
-      expect(Buffer.from(capability.readBytes())).toEqual(bytes);
-      const observed = capability.digest();
-      expect(observed.size).toBe(bytes.byteLength);
-      expect(observed.byteDigest).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
+    assertRetainedNoFollowCapability(capability, 'ordinary-file', 'retained executable test');
+    expect(() => assertRetainedNoFollowCapability(capability, 'executable', 'forged executable role'))
+      .toThrow('was not issued by the physical no-follow owner');
+    expect(() => assertRetainedNoFollowCapability({ ...capability }, 'ordinary-file', 'forged capability'))
+      .toThrow('was not issued by the physical no-follow owner');
+    expect(capability.size).toBe(bytes.byteLength);
+    expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
+    expect(Buffer.from(capability.readBytes())).toEqual(bytes);
+    const observed = capability.digest();
+    expect(observed.size).toBe(bytes.byteLength);
+    expect(observed.byteDigest).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
+    capability.assertCurrent();
+
+    const displaced = path.join(target, 'executable-displaced.bin');
+    if (process.platform === 'win32') {
+      // The retained Windows handle withholds delete sharing, so a lexical
+      // replacement is rejected by the kernel while the capability lives.
+      expect(() => renameSync(filePath, displaced)).toThrow();
       capability.assertCurrent();
-
-      const displaced = path.join(target, 'executable-displaced.bin');
-      if (process.platform === 'win32') {
-        // The retained Windows handle withholds delete sharing, so a lexical
-        // replacement is rejected by the kernel while the capability lives.
-        expect(() => renameSync(filePath, displaced)).toThrow();
-        capability.assertCurrent();
-      } else {
-        renameSync(filePath, displaced);
-        writeFileSync(filePath, bytes);
-        expectPhysicalCode(
-          () => capability.assertCurrent(),
-          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-        );
-      }
-    } finally {
-      capability.dispose();
-    }
-  } catch (error) {
-    fixtureFailure11 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure11,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
-
-test.skipIf(process.platform !== 'linux')('retained ordinary-file digest rejects a same-size in-place rewrite', () => {
-  const root = fixtureRoot();
-  let fixtureFailure10: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'target');
-    const filePath = path.join(target, 'executable.bin');
-    const original = Buffer.from('same-size-original\n', 'utf8');
-    const replacement = Buffer.from('same-size-replaced\n', 'utf8');
-    expect(replacement.byteLength).toBe(original.byteLength);
-    mkdirSync(target);
-    writeFileSync(filePath, original);
-    chmodSync(filePath, 0o755);
-    const parent = inspectNoFollowDirectoryChain(target, 'same-size rewrite parent');
-    const capability = retainNoFollowOrdinaryFile(
-      parent,
-      'executable.bin',
-      undefined,
-      'same-size rewrite capability',
-      3,
-      'executable'
-    );
-    try {
-      const writer = openSync(filePath, 'r+');
-      try {
-        writeSync(writer, replacement, 0, replacement.byteLength, 0);
-      } finally {
-        closeSync(writer);
-      }
+    } else {
+      renameSync(filePath, displaced);
+      writeFileSync(filePath, bytes);
       expectPhysicalCode(
-        () => capability.digest(),
+        () => capability.assertCurrent(),
         'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
       );
-    } finally {
-      capability.dispose();
     }
-  } catch (error) {
-    fixtureFailure10 = { label: 'fixture operation', error };
   } finally {
-    settleResources({
-      primary: fixtureFailure10,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
+    capability.dispose();
   }
-});
+}));
+
+test.skipIf(process.platform !== 'linux')('retained ordinary-file digest rejects a same-size in-place rewrite', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  const filePath = path.join(target, 'executable.bin');
+  const original = Buffer.from('same-size-original\n', 'utf8');
+  const replacement = Buffer.from('same-size-replaced\n', 'utf8');
+  expect(replacement.byteLength).toBe(original.byteLength);
+  mkdirSync(target);
+  writeFileSync(filePath, original);
+  chmodSync(filePath, 0o755);
+  const parent = inspectNoFollowDirectoryChain(target, 'same-size rewrite parent');
+  const capability = retainNoFollowOrdinaryFile(
+    parent,
+    'executable.bin',
+    undefined,
+    'same-size rewrite capability',
+    3,
+    'executable'
+  );
+  try {
+    const writer = openSync(filePath, 'r+');
+    try {
+      writeSync(writer, replacement, 0, replacement.byteLength, 0);
+    } finally {
+      closeSync(writer);
+    }
+    expectPhysicalCode(
+      () => capability.digest(),
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    );
+  } finally {
+    capability.dispose();
+  }
+}));
 
 test.skipIf(process.platform !== 'win32')(
   'Windows executable role excludes existing and future writers until disposal',
@@ -1438,52 +1240,41 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => {
-  const root = fixtureRoot();
-  let fixtureFailure9: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'target');
-    mkdirSync(target);
-    const sparse = path.join(target, 'large-sparse.bin');
-    const second = path.join(target, 'second.txt');
-    closeSync(openSync(sparse, 'w'));
-    truncateSync(sparse, 512 * 1024 * 1024);
-    writeFileSync(second, 'small');
-    const identity = inspectNoFollowDirectoryChain(target, 'metadata target').target;
+test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  mkdirSync(target);
+  const sparse = path.join(target, 'large-sparse.bin');
+  const second = path.join(target, 'second.txt');
+  closeSync(openSync(sparse, 'w'));
+  truncateSync(sparse, 512 * 1024 * 1024);
+  writeFileSync(second, 'small');
+  const identity = inspectNoFollowDirectoryChain(target, 'metadata target').target;
 
-    const startedAt = performance.now();
-    const inventory = new Map(scanNoFollowDirectoryTreeMetadata(identity, {
-      deadlineAtMs: startedAt + 2_000,
-      maximumEntries: 2
-    }).map((entry) => [entry.relativePath, entry]));
-    expect(inventory.get('large-sparse.bin')).toMatchObject({
-      kind: 'file',
-      size: 512 * 1024 * 1024,
-      contentDigest: null
-    });
-    expectPhysicalCode(
-      () => scanNoFollowDirectoryTreeMetadata(identity, {
-        deadlineAtMs: performance.now() + 2_000,
-        maximumEntries: 1
-      }),
-      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
-    );
-    expectPhysicalCode(
-      () => scanNoFollowDirectoryTreeMetadata(identity, {
-        deadlineAtMs: performance.now() - 1,
-        maximumEntries: 10
-      }),
-      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
-    );
-  } catch (error) {
-    fixtureFailure9 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure9,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+  const startedAt = performance.now();
+  const inventory = new Map(scanNoFollowDirectoryTreeMetadata(identity, {
+    deadlineAtMs: startedAt + 2_000,
+    maximumEntries: 2
+  }).map((entry) => [entry.relativePath, entry]));
+  expect(inventory.get('large-sparse.bin')).toMatchObject({
+    kind: 'file',
+    size: 512 * 1024 * 1024,
+    contentDigest: null
+  });
+  expectPhysicalCode(
+    () => scanNoFollowDirectoryTreeMetadata(identity, {
+      deadlineAtMs: performance.now() + 2_000,
+      maximumEntries: 1
+    }),
+    'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
+  );
+  expectPhysicalCode(
+    () => scanNoFollowDirectoryTreeMetadata(identity, {
+      deadlineAtMs: performance.now() - 1,
+      maximumEntries: 10
+    }),
+    'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
+  );
+}));
 
 test('exclusive durable canonical publication is idempotent and refuses a conflicting existing value', () => {
   const root = fixtureRoot();
@@ -1608,9 +1399,7 @@ test.skipIf(process.platform !== 'linux')(
 );
 
 test('durable canonical replacement uses retained-parent publication and exact final readback', () => {
-  const root = fixtureRoot();
-  let fixtureFailure8: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot(root => {
     const parentPath = path.join(root, 'replacement');
     mkdirSync(parentPath);
     const parent = inspectNoFollowDirectoryChain(parentPath, 'replacement parent').target;
@@ -1622,14 +1411,7 @@ test('durable canonical replacement uses retained-parent publication and exact f
     replaceDurableCanonicalFile({ parent, name: 'latest.json', bytes: first, validate });
     const replaced = replaceDurableCanonicalFile({ parent, name: 'latest.json', bytes: second, validate });
     expect(readFileSync(replaced.path)).toEqual(second);
-  } catch (error) {
-    fixtureFailure8 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure8,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('cooperative durable replacement rejects same-inode byte drift and accepts the exact preimage under held leases', async () => {
@@ -1682,9 +1464,7 @@ test.skipIf(process.platform !== 'win32')('Windows durable identity and byte-pre
     { point: 'after-preimage-quarantine' as const, status: 'rolled-back' as const, expected: 'old\n' },
     { point: 'after-candidate-publication' as const, status: 'completed' as const, expected: 'new\n' }
   ].flatMap(scenario => [false, true].map(bytePreimage => ({ ...scenario, bytePreimage })))) {
-    const root = fixtureRoot();
-    let fixtureFailure7: ResourceSettlementFailure | undefined;
-    try {
+    withFixtureRoot(root => {
       const parentPath = path.join(root, 'cas');
       mkdirSync(parentPath);
       const finalPath = path.join(parentPath, 'owner.json');
@@ -1719,14 +1499,7 @@ test.skipIf(process.platform !== 'win32')('Windows durable identity and byte-pre
       expect(readFileSync(finalPath, 'utf8')).toBe(scenario.expected);
       expect(recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }).status).toBe('none');
       expect(readdirSync(parentPath).filter(name => name.startsWith('.sec-cas-'))).toEqual([]);
-    } catch (error) {
-      fixtureFailure7 = { label: 'fixture operation', error };
-    } finally {
-      settleResources({
-        primary: fixtureFailure7,
-        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-      });
-    }
+    });
   }
 });
 
@@ -1814,43 +1587,32 @@ test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage rec
   });
 });
 
-test.skipIf(process.platform !== 'win32')('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
-  const root = fixtureRoot();
-  let fixtureFailure6: ResourceSettlementFailure | undefined;
-  try {
-    const parentPath = path.join(root, 'cas');
-    mkdirSync(parentPath);
-    const finalPath = path.join(parentPath, 'owner.json');
-    writeFileSync(finalPath, 'old\n', 'utf8');
-    const parent = inspectNoFollowDirectoryChain(parentPath, 'CAS foreign parent').target;
-    const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json')!;
-    expectPhysicalCode(() => replaceDurableCanonicalFile({
-      parent,
-      name: 'owner.json',
-      bytes: Buffer.from('new\n', 'utf8'),
-      expectedExisting: { device: current.device, inode: current.inode },
-      validate: () => undefined,
-      windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
-        'after-candidate-publication'
-      )
-    }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
-    renameSync(finalPath, path.join(parentPath, 'displaced-installed.json'));
-    writeFileSync(finalPath, 'new\n', 'utf8');
-    expectPhysicalCode(
-      () => recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }),
-      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-    );
-    expect(readFileSync(finalPath, 'utf8')).toBe('new\n');
-    expect(readdirSync(parentPath).some(name => name.endsWith('.txn'))).toBe(true);
-  } catch (error) {
-    fixtureFailure6 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure6,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test.skipIf(process.platform !== 'win32')('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => withFixtureRoot(root => {
+  const parentPath = path.join(root, 'cas');
+  mkdirSync(parentPath);
+  const finalPath = path.join(parentPath, 'owner.json');
+  writeFileSync(finalPath, 'old\n', 'utf8');
+  const parent = inspectNoFollowDirectoryChain(parentPath, 'CAS foreign parent').target;
+  const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json')!;
+  expectPhysicalCode(() => replaceDurableCanonicalFile({
+    parent,
+    name: 'owner.json',
+    bytes: Buffer.from('new\n', 'utf8'),
+    expectedExisting: { device: current.device, inode: current.inode },
+    validate: () => undefined,
+    windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
+      'after-candidate-publication'
+    )
+  }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+  renameSync(finalPath, path.join(parentPath, 'displaced-installed.json'));
+  writeFileSync(finalPath, 'new\n', 'utf8');
+  expectPhysicalCode(
+    () => recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }),
+    'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+  );
+  expect(readFileSync(finalPath, 'utf8')).toBe('new\n');
+  expect(readdirSync(parentPath).some(name => name.endsWith('.txn'))).toBe(true);
+}));
 
 test.skipIf(process.platform !== 'win32')('Windows retained-handle deletion removes authorized file directory and reparse leaf and rejects a replaced parent', () => {
   const root = fixtureRoot();
@@ -1930,9 +1692,7 @@ test.skipIf(process.platform !== 'win32')('Windows retained-handle deletion remo
 });
 
 test.skipIf(process.platform !== 'linux')('Linux retained openat leaf deletion covers an ordinary file directory and dangling link', () => {
-  const root = fixtureRoot();
-  let fixtureFailure5: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot(root => {
     const target = path.join(root, 'target');
     mkdirSync(target);
     writeFileSync(path.join(target, 'authorized-file.txt'), 'only-this-file\n', 'utf8');
@@ -1952,89 +1712,58 @@ test.skipIf(process.platform !== 'linux')('Linux retained openat leaf deletion c
       });
       expect(lstatSync(path.join(target, name), { throwIfNoEntry: false })).toBeUndefined();
     }
-  } catch (error) {
-    fixtureFailure5 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure5,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
-test('retained deletion rejects a replaced inventoried ancestor before touching a hard-linked leaf', () => {
-  const root = fixtureRoot();
-  let fixtureFailure4: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'target');
-    const parent = path.join(target, 'parent');
-    mkdirSync(parent, { recursive: true });
-    writeFileSync(path.join(parent, 'leaf.txt'), 'authorized inode\n', 'utf8');
-    const targetIdentity = inspectNoFollowDirectoryChain(target, 'ancestor target').target;
-    const inventory = new Map(scanNoFollowDirectoryTree(targetIdentity).map((entry) => [entry.relativePath, entry]));
-    const authorizedParent = inventory.get('parent')!;
-    const authorizedLeaf = inventory.get('parent/leaf.txt')!;
-    const retainedParent = `${parent}-retained`;
-    renameSync(parent, retainedParent);
-    mkdirSync(parent);
-    linkSync(path.join(retainedParent, 'leaf.txt'), path.join(parent, 'leaf.txt'));
-    expectPhysicalCode(() => deleteRetainedNoFollowEntry({
-      root: targetIdentity,
-      relativePath: 'parent/leaf.txt',
-      kind: 'file',
-      device: authorizedLeaf.device,
-      inode: authorizedLeaf.inode,
-      ancestorDirectories: [{ relativePath: 'parent', device: authorizedParent.device, inode: authorizedParent.inode }]
-    }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
-    expect(readFileSync(path.join(retainedParent, 'leaf.txt'), 'utf8')).toBe('authorized inode\n');
-    expect(readFileSync(path.join(parent, 'leaf.txt'), 'utf8')).toBe('authorized inode\n');
-  } catch (error) {
-    fixtureFailure4 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure4,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test('retained deletion rejects a replaced inventoried ancestor before touching a hard-linked leaf', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  const parent = path.join(target, 'parent');
+  mkdirSync(parent, { recursive: true });
+  writeFileSync(path.join(parent, 'leaf.txt'), 'authorized inode\n', 'utf8');
+  const targetIdentity = inspectNoFollowDirectoryChain(target, 'ancestor target').target;
+  const inventory = new Map(scanNoFollowDirectoryTree(targetIdentity).map((entry) => [entry.relativePath, entry]));
+  const authorizedParent = inventory.get('parent')!;
+  const authorizedLeaf = inventory.get('parent/leaf.txt')!;
+  const retainedParent = `${parent}-retained`;
+  renameSync(parent, retainedParent);
+  mkdirSync(parent);
+  linkSync(path.join(retainedParent, 'leaf.txt'), path.join(parent, 'leaf.txt'));
+  expectPhysicalCode(() => deleteRetainedNoFollowEntry({
+    root: targetIdentity,
+    relativePath: 'parent/leaf.txt',
+    kind: 'file',
+    device: authorizedLeaf.device,
+    inode: authorizedLeaf.inode,
+    ancestorDirectories: [{ relativePath: 'parent', device: authorizedParent.device, inode: authorizedParent.inode }]
+  }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+  expect(readFileSync(path.join(retainedParent, 'leaf.txt'), 'utf8')).toBe('authorized inode\n');
+  expect(readFileSync(path.join(parent, 'leaf.txt'), 'utf8')).toBe('authorized inode\n');
+}));
 
-test.skipIf(process.platform !== 'linux')('Linux retained deletion accepts selected-name absence when another hard link survives', () => {
-  const root = fixtureRoot();
-  let fixtureFailure3: ResourceSettlementFailure | undefined;
-  try {
-    const target = path.join(root, 'target');
-    mkdirSync(target);
-    writeFileSync(path.join(target, 'selected.txt'), 'shared inode\n', 'utf8');
-    linkSync(path.join(target, 'selected.txt'), path.join(root, 'surviving-link.txt'));
-    const identity = inspectNoFollowDirectoryChain(target, 'hard-link target').target;
-    const selected = scanNoFollowDirectoryTree(identity).find((entry) => entry.relativePath === 'selected.txt')!;
-    deleteRetainedNoFollowEntry({
-      root: identity,
-      relativePath: selected.relativePath,
-      kind: 'file',
-      device: selected.device,
-      inode: selected.inode,
-      ancestorDirectories: []
-    });
-    expect(lstatSync(path.join(target, 'selected.txt'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(readFileSync(path.join(root, 'surviving-link.txt'), 'utf8')).toBe('shared inode\n');
-  } catch (error) {
-    fixtureFailure3 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure3,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test.skipIf(process.platform !== 'linux')('Linux retained deletion accepts selected-name absence when another hard link survives', () => withFixtureRoot(root => {
+  const target = path.join(root, 'target');
+  mkdirSync(target);
+  writeFileSync(path.join(target, 'selected.txt'), 'shared inode\n', 'utf8');
+  linkSync(path.join(target, 'selected.txt'), path.join(root, 'surviving-link.txt'));
+  const identity = inspectNoFollowDirectoryChain(target, 'hard-link target').target;
+  const selected = scanNoFollowDirectoryTree(identity).find((entry) => entry.relativePath === 'selected.txt')!;
+  deleteRetainedNoFollowEntry({
+    root: identity,
+    relativePath: selected.relativePath,
+    kind: 'file',
+    device: selected.device,
+    inode: selected.inode,
+    ancestorDirectories: []
+  });
+  expect(lstatSync(path.join(target, 'selected.txt'), { throwIfNoEntry: false })).toBeUndefined();
+  expect(readFileSync(path.join(root, 'surviving-link.txt'), 'utf8')).toBe('shared inode\n');
+}));
 
 
 test.skipIf(process.platform !== 'linux')(
   'durable publication applies an authenticated ordinary POSIX creation mode',
   () => {
-    const root = fixtureRoot();
-    let fixtureFailure2: ResourceSettlementFailure | undefined;
-    try {
+    withFixtureRoot(root => {
       const target = path.join(root, 'target');
       mkdirSync(target);
       const parent = inspectNoFollowDirectoryChain(target, 'explicit-mode publication parent').target;
@@ -2048,14 +1777,7 @@ test.skipIf(process.platform !== 'linux')(
       });
       expect(receipt.created).toBe(true);
       expect(statSync(path.join(target, 'tool.sh')).mode & 0o777).toBe(0o755);
-    } catch (error) {
-      fixtureFailure2 = { label: 'fixture operation', error };
-    } finally {
-      settleResources({
-        primary: fixtureFailure2,
-        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-      });
-    }
+    });
   }
 );
 
@@ -2098,37 +1820,26 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
   }
 );
 
-test('no-follow tree observation prunes canonical excluded subtrees before traversal', () => {
-  const root = fixtureRoot();
-  let fixtureFailure1: ResourceSettlementFailure | undefined;
-  try {
-    mkdirSync(path.join(root, 'excluded', 'deep'), { recursive: true });
-    for (let index = 0; index < 8; index += 1) {
-      writeFileSync(path.join(root, 'excluded', 'deep', `ignored-${index}.txt`), 'ignored');
-    }
-    writeFileSync(path.join(root, 'included.txt'), 'included');
-    const physicalRoot = inspectNoFollowDirectoryChain(root, 'excluded observation root').target;
-    const observed = scanNoFollowDirectoryTree(physicalRoot, {
+test('no-follow tree observation prunes canonical excluded subtrees before traversal', () => withFixtureRoot(root => {
+  mkdirSync(path.join(root, 'excluded', 'deep'), { recursive: true });
+  for (let index = 0; index < 8; index += 1) {
+    writeFileSync(path.join(root, 'excluded', 'deep', `ignored-${index}.txt`), 'ignored');
+  }
+  writeFileSync(path.join(root, 'included.txt'), 'included');
+  const physicalRoot = inspectNoFollowDirectoryChain(root, 'excluded observation root').target;
+  const observed = scanNoFollowDirectoryTree(physicalRoot, {
+    maximumEntries: 2,
+    maximumBytes: 1024,
+    excludeRelativePaths: ['excluded']
+  });
+  expect(observed.map(({ relativePath }) => relativePath)).toEqual(['included.txt']);
+  expect(Buffer.from(observed[0]!.bytes ?? []).toString('utf8')).toBe('included');
+  expectPhysicalCode(
+    () => scanNoFollowDirectoryTree(physicalRoot, {
       maximumEntries: 2,
       maximumBytes: 1024,
-      excludeRelativePaths: ['excluded']
-    });
-    expect(observed.map(({ relativePath }) => relativePath)).toEqual(['included.txt']);
-    expect(Buffer.from(observed[0]!.bytes ?? []).toString('utf8')).toBe('included');
-    expectPhysicalCode(
-      () => scanNoFollowDirectoryTree(physicalRoot, {
-        maximumEntries: 2,
-        maximumBytes: 1024,
-        excludeRelativePaths: ['../escape']
-      }),
-      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
-    );
-  } catch (error) {
-    fixtureFailure1 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure1,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+      excludeRelativePaths: ['../escape']
+    }),
+    'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+  );
+}));
