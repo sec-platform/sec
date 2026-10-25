@@ -36,13 +36,8 @@ export function buildPrivatePlanRegistrySource(): PlanFile['registry']['sources'
 
 export async function buildManifestValidationPlan(
   entry: ManifestEntry,
-  manifests: ManifestEntry[]
+  manifestMap: ReadonlyMap<string, ManifestEntry>
 ): Promise<PlanFile> {
-  const manifestMap = new Map<string, ManifestEntry>();
-  for (const m of manifests) {
-    manifestMap.set(m.manifest.id, m);
-  }
-
   const blocks: PlanFile['blocks'] = [];
   const visited = new Set<string>();
 

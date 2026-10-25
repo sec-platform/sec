@@ -23,11 +23,12 @@ function registryValidationConcurrency(): number {
 test('official registry blocks typecheck in their minimal resolved closure', async () => {
   const manifests = await loadAllManifests();
   expect(manifests.length).toBeGreaterThan(0);
+  const manifestMap = new Map(manifests.map((entry) => [entry.manifest.id, entry]));
 
   const limit = pLimit(registryValidationConcurrency());
   const results = await Promise.all(manifests.map((entry) => limit(async (): Promise<RegistryValidationFailure | null> => {
     try {
-      const plan = await buildManifestValidationPlan(entry, manifests);
+      const plan = await buildManifestValidationPlan(entry, manifestMap);
       const lock = await resolveGraph(process.cwd(), plan);
       await validateResolvedTemplates(process.cwd(), lock, undefined, {
         forWorkspace: (root) => createDependencyOperation({ workspaceRoot: root })
