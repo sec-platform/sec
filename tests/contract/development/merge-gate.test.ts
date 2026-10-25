@@ -105,7 +105,20 @@ function review(options: {
   });
 }
 
+const fixtureBaselines = new Map<'passed' | 'failed', CodexDevelopmentMergeGateInput>();
+
 function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopmentMergeGateInput {
+  let baseline = fixtureBaselines.get(resultStatus);
+  if (baseline === undefined) {
+    baseline = buildFixture(resultStatus);
+    fixtureBaselines.set(resultStatus, baseline);
+  }
+  // These content-bound DTOs carry no live runtime admission. Each test receives an
+  // independent mutable input; only the private deterministic preparation is reused.
+  return structuredClone(baseline);
+}
+
+function buildFixture(resultStatus: 'passed' | 'failed'): CodexDevelopmentMergeGateInput {
   const scopeSeed = createScopeAuthorization({
     repository: REPOSITORY,
     prNumber: PR,

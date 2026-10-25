@@ -55,9 +55,9 @@ test('real Git treats admitted dash-prefixed filenames as data for every support
   ];
   for (const args of commands) {
     assert.equal(gitReadCommandIsObservation(args), true, JSON.stringify(args));
-    commandSucceeded(git(args));
+    const output = commandSucceeded(git(args));
+    if (args[0] === 'ls-files') assert.equal(output, '--textconv\0');
   }
-  assert.equal(commandSucceeded(git(['ls-files', '-z', '--', '--textconv'])), '--textconv\0');
   assert.equal(readFileSync(path.join(root, '--textconv'), 'utf8'), 'changed\n');
 }));
 

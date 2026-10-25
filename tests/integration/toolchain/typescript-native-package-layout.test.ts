@@ -34,7 +34,6 @@ for (const predecessorMode of [0o755, 0o555]) {
       // cleanup depend on a writable predecessor mode or a privileged runner.
       await chmod(packageRoot, predecessorMode);
       await writeFile(path.join(root, 'good.ts'), 'const count: number = 1;\n');
-      await writeFile(path.join(root, 'bad.ts'), 'const count: number = "wrong";\n');
       const identity = inspectNoFollowDirectoryChain(packageRoot).target;
       const inventory = scanNoFollowDirectoryTreeInventory(identity, {
         deadlineAtMs: performance.now() + 30_000, maximumBytes: 256 * 1024 * 1024, maximumEntries: 1024
@@ -63,6 +62,7 @@ for (const predecessorMode of [0o755, 0o555]) {
         expect(good.error).toBeUndefined();
         expect(good.status, good.stderr + good.stdout).toBe(0);
         if (predecessorMode === 0o755) {
+          await writeFile(path.join(root, 'bad.ts'), 'const count: number = "wrong";\n');
           const bad = spawnSync(retained.childPath, [...args.slice(0, -1), path.join(root, 'bad.ts')], options);
           expect(bad.error).toBeUndefined();
           expect(bad.status).not.toBe(0);

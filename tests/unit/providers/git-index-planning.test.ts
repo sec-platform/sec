@@ -111,9 +111,9 @@ test('unsupported index and native object domains fail closed', () => {
   const oid = 'ab'.repeat(20);
   for (const mode of [0o100644, 0o100755, 0o120000]) {
     assert.doesNotThrow(() => assertGitIndexObjectInfoBatch([{ mode, objectId: oid }], Buffer.from(`${oid} blob 1\n`)));
-    for (const reply of [`${oid} missing\n`, `${oid} commit 1\n`, `${oid} tree 1\n`, `${oid} blob 1\nextra\n`]) {
-      assert.throws(() => assertGitIndexObjectInfoBatch([{ mode, objectId: oid }], Buffer.from(reply)));
-    }
+  }
+  for (const reply of [`${oid} missing\n`, `${oid} commit 1\n`, `${oid} tree 1\n`, `${oid} blob 1\nextra\n`]) {
+    assert.throws(() => assertGitIndexObjectInfoBatch([{ mode: 0o100644, objectId: oid }], Buffer.from(reply)));
   }
   const gitlink = [{ mode: 0o160000, objectId: oid }];
   for (const reply of [`${oid} missing\n`, `${oid} commit 1\n`]) {

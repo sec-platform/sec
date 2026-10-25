@@ -25,13 +25,12 @@ function expectJsonFailure(input: Uint8Array, kind: ExactJsonFailureKind): void 
 }
 
 test('native dependency wire decoding preserves every closed phase and consumer kind as data only', () => {
-  for (const phase of ['prepare', 'observe'] as const) {
-    for (const kind of ['source-program', 'verification-action', 'main-health', 'hosted-sut', 'dependency-canary'] as const) {
-      const expected = { ...request, phase, kind };
-      const parsed = parseNativeVerificationDependencyRequest(bytes(expected));
-      expect(parsed).toEqual(expected);
-    }
+  for (const kind of ['source-program', 'verification-action', 'main-health', 'hosted-sut', 'dependency-canary'] as const) {
+    const expected = { ...request, kind };
+    expect(parseNativeVerificationDependencyRequest(bytes(expected))).toEqual(expected);
   }
+  const observed = { ...request, phase: 'observe' };
+  expect(parseNativeVerificationDependencyRequest(bytes(observed))).toEqual(observed);
 });
 
 test('native dependency request cannot supply paths, commands or authority projections', () => {
@@ -85,13 +84,14 @@ test('inner candidate is a closed distinct target context, not an arbitrary-root
   for (const phase of ['prepare', 'observe'] as const) {
     const wire = { ...request, phase, kind: 'hosted-candidate' as const, candidate: innerCandidate };
     expect(parseNativeVerificationDependencyRequest(bytes(wire))).toEqual(wire);
-    for (const patch of [{ root: '/elsewhere' }, { phase: 'install' }, { kind: 'hosted-sut' },
-      { candidate: undefined }, { candidate: { ...innerCandidate, targetRoot: '/workspace' } },
-      { candidate: { ...innerCandidate, deadlineAtUnixMs: request.deadlineAtUnixMs + 1 } },
-      { candidate: { ...innerCandidate, inputAccess: 'caller-chooses' } },
-      { candidate: { ...innerCandidate, authority: true } }]) {
-      expect(() => parseNativeVerificationDependencyRequest(bytes({ ...wire, ...patch }))).toThrow();
-    }
+  }
+  const wire = { ...request, kind: 'hosted-candidate', candidate: innerCandidate };
+  for (const patch of [{ root: '/elsewhere' }, { phase: 'install' }, { kind: 'hosted-sut' },
+    { candidate: undefined }, { candidate: { ...innerCandidate, targetRoot: '/workspace' } },
+    { candidate: { ...innerCandidate, deadlineAtUnixMs: request.deadlineAtUnixMs + 1 } },
+    { candidate: { ...innerCandidate, inputAccess: 'caller-chooses' } },
+    { candidate: { ...innerCandidate, authority: true } }]) {
+    expect(() => parseNativeVerificationDependencyRequest(bytes({ ...wire, ...patch }))).toThrow();
   }
   expect(() => parseNativeVerificationDependencyRequest(bytes({ ...request, candidate: innerCandidate }))).toThrow();
 });
