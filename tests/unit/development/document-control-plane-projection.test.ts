@@ -132,7 +132,7 @@ function stablePlanBindingFixture(tracking = 'issue-1') {
   };
 }
 
-test('stable plan bytes bind independently to each exact candidate base without minting authority', () => {
+test('stable plan binding keeps exact base and scope across transition and selection projections', () => {
   const { bytes, projectionInput, binding } = stablePlanBindingFixture();
   for (const [main, tree] of [[exactMain, exactMainTree], ['e'.repeat(40), 'f'.repeat(40)]]) {
     const projection = compileWorkRollingTransitionProjection({
@@ -151,10 +151,6 @@ test('stable plan bytes bind independently to each exact candidate base without 
       active: { ...proposal.projectionInput.active, tracking: 'none' }
     })
   })).toBeUndefined();
-});
-
-test('stable plan binding rejects absent projections and stale base, tree, manifest or scope identity', () => {
-  const { bytes, binding, projectionInput } = stablePlanBindingFixture();
   expect(() => assertStablePlanRollingBinding({ ...binding, projection: null }))
     .toThrow('requires a digest-bound rolling machine projection');
   expect(() => assertStablePlanRollingBinding({ ...binding, exactMain: 'e'.repeat(40) }))
@@ -178,10 +174,6 @@ test('stable plan binding rejects absent projections and stale base, tree, manif
     manifest: CodexDevelopmentParseCurrentWorkPackageManifest(changedBytes.toString('utf8')),
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(changedBytes) as `sha256:${string}`
   })).toThrow('rolling machine manifest binding');
-});
-
-test('ordinary selection projection binds stable plan base and active identity; v1 keeps its prior base contract', () => {
-  const { binding } = stablePlanBindingFixture();
   const selected = {
     schema: 'sec-work-rolling-projection-v1', exactMain,
     roadmapRevision: rawSha256('roadmap'), catalogDigest: rawSha256('catalog'),

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { observeSourceTransitionReadView } from '../../../src/adapters/self-hosting/control/agent/source-transition-read-view.ts';
 import {
   runSourceProgramTransition,
@@ -69,9 +70,13 @@ test('source use case waits for independent settlement and preserves both owner 
   ports.runVerification = async () => { await ownerSettled; throw verificationFailure; };
   let returned = false;
   const running = runSourceProgramTransition(request, control, ports).then(result => { returned = true; return result; });
-  await Promise.resolve(); await Promise.resolve();
-  expect(returned).toBe(false);
-  settle();
+  await settleWorkspaceCallback(async () => {
+    await Promise.resolve(); await Promise.resolve();
+    expect(returned).toBe(false);
+  }, async () => {
+    settle();
+    await running;
+  });
   const outcome = await running;
   expect(outcome.status).toBe('failed');
   expect(outcome.failures.map(failure => failure.cause)).toEqual([sourceFailure, verificationFailure]);
