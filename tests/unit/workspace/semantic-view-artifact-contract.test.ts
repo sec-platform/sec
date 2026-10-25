@@ -38,8 +38,9 @@ function expectInvalidSemanticViews(value: unknown): void {
 }
 
 test('ReviewSummary preserves the complete canonical Fact identity set', () => {
+  const base = buildSemanticViewFixture();
   const view: SemanticView = {
-    ...buildSemanticViewFixture().views[0]!,
+    ...base.views[0]!,
     nodes: [{
       id: 'app:fixture',
       entityId: 'app:fixture',
@@ -67,33 +68,35 @@ test('ReviewSummary preserves the complete canonical Fact identity set', () => {
       }]
     }]
   };
-  const semanticViews = { ...buildSemanticViewFixture(), views: [view] };
+  const semanticViews = { ...base, views: [view] };
   const lock = buildReviewLock({ semanticViews });
   const factIds = semanticViewFactIds(view);
+  const summary = buildSemanticViewSummary(lock);
 
   expect(factIds).toEqual(['fact:inspector', 'fact:node', 'fact:overlay']);
-  expect(buildSemanticViewSummary(lock)?.views[0]?.factIds).toEqual(factIds);
-  expect(buildSemanticViewSummary(lock)?.factIds).toEqual(factIds);
+  expect(summary?.views[0]?.factIds).toEqual(factIds);
+  expect(summary?.factIds).toEqual(factIds);
 });
 
 test('canonical projection rejects missing and lowering-task-stale Lock revisions', () => {
+  const base = buildSemanticViewFixture();
   expect(() => requireLockSemanticViews(buildReviewLock())).toThrow('missing canonical semanticViews');
   expect(semanticViewArtifactsAreCurrent(
-    buildReviewLock({ semanticViews: buildSemanticViewFixture() }),
+    buildReviewLock({ semanticViews: base }),
     { nodes: [], edges: [], overlays: { provenance: [], coverage: { blocks: [] } } } as unknown as ExplainGraph
   )).toBe(false);
   expectInvalidSemanticViews({
-    ...buildSemanticViewFixture(),
+    ...base,
     views: [null]
   });
   expectInvalidSemanticViews({
-    ...buildSemanticViewFixture(),
+    ...base,
     views: [{ formatVersion: '1', viewKind: 'architecture' }]
   });
   expectInvalidSemanticViews({
-    ...buildSemanticViewFixture(),
+    ...base,
     views: [{
-      ...buildSemanticViewFixture().views[0]!,
+      ...base.views[0]!,
       edges: [{
         id: 'edge:invalid',
         source: 'app:fixture',

@@ -41,9 +41,10 @@ test('fresh and cached entry points share admission for unprojected imports and 
       source.manifests = [{ blockId: 'block', manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] }, generators: [{ id: 'generator', kind: 'generate-state-transition-map', contract: 'core', state: 'state', target: 'src/a:b.ts', consumes: ['state', 'transition'], produces: 'typescript-runtime-contract', typeBinding: { name: 'ActualExport:Name', importFrom: './types' }, verification: ['arbitrary:selector'], [field]: 'a:b' }] } }];
     })
   ];
+  const base = buildEngineeringIR(input());
   for (const mutate of mutations) {
     const source = input();
-    const cached = buildEngineeringIR(source);
+    const cached = structuredClone(base);
     mutate(source);
     cached.inputRevision = `sha256:${digest(inputRevisionPayload(source))}`;
     expect(() => buildEngineeringIR(source)).toThrow('identity component');
@@ -117,13 +118,14 @@ test('fact preimages keep legacy bytes while NUL stays legal in values and label
 
 test('persisted entity validation rejects ambiguous v1 identities before issuing a snapshot', () => {
   const source = input();
+  const base = buildEngineeringIR(source);
   for (const entity of [
     { kind: 'event' as const, id: 'event:a:b:c' },
     { kind: 'field' as const, id: 'field:a:Entity.field.extra' },
     { kind: 'generator' as const, id: 'generator:a:b:c' },
     { kind: 'scenario-step' as const, id: 'scenario:a:b:c#step:d' }
   ]) {
-    const ir = buildEngineeringIR(source);
+    const ir = structuredClone(base);
     ir.entities.push({ ...entity, label: 'persisted', attributes: [] });
     ir.entities.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     expect(() => validateEngineeringIR(ir, source)).toThrow('does not match canonical');

@@ -358,10 +358,9 @@ test('owner resolution rejects registry sources, ambiguous ownership, and unauth
   });
 
   const unauthorized = authorization('semantic-contract-owner:item:other');
-  const unauthorizedFixture = fixture(contract, unauthorized);
   expect(resolveSemanticMutationSource(
-    { ...unauthorizedFixture.request, requestRevision: 'sha256:'.padEnd(71, '0') },
-    unauthorizedFixture.base,
+    normalized,
+    base,
     unauthorized,
     [authoring]
   ).status).toBe('rejected');

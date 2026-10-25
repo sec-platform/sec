@@ -40,9 +40,10 @@ function clone<Value>(value: Value): Value {
 
 function resign(
   source: BuildEngineeringIRInput,
+  base: EngineeringIR,
   mutate: (ir: EngineeringIR) => void
 ): ValidatedEngineeringIRSnapshot {
-  const ir = clone(buildEngineeringIR(source));
+  const ir = clone(base);
   mutate(ir);
   ir.entities.sort((left, right) => left.id.localeCompare(right.id));
   ir.facts.sort((left, right) => left.id.localeCompare(right.id));
@@ -109,12 +110,13 @@ test('Fact add/remove preserves direction and object changes are remove plus add
   expect(reverse.removed.map((fact) => fact.id)).toEqual(forward.added.map((fact) => fact.id));
 
   const twoBlocks = input('delta-app', 'Delta App', ['alpha/basic', 'beta/basic']);
-  const alpha = resign(twoBlocks, (ir) => {
+  const twoBlockIR = buildEngineeringIR(twoBlocks);
+  const alpha = resign(twoBlocks, twoBlockIR, (ir) => {
     ir.facts = ir.facts.filter((fact) =>
       fact.object.kind === 'entity' && fact.object.entityId === 'block:alpha/basic'
     );
   });
-  const beta = resign(twoBlocks, (ir) => {
+  const beta = resign(twoBlocks, twoBlockIR, (ir) => {
     ir.facts = ir.facts.filter((fact) =>
       fact.object.kind === 'entity' && fact.object.entityId === 'block:beta/basic'
     );
@@ -130,7 +132,7 @@ test('Fact add/remove preserves direction and object changes are remove plus add
 test('assertion deltas distinguish identity set changes from confidence and evidence updates', () => {
   const source = input();
   const before = buildValidatedEngineeringIR(source);
-  const added = resign(source, (ir) => {
+  const added = resign(source, before.ir, (ir) => {
     const fact = ir.facts[0]!;
     const provenance = [{ kind: 'ai' as const, sourceId: 'delta-review' }];
     fact.assertions.push({
@@ -159,7 +161,7 @@ test('assertion deltas distinguish identity set changes from confidence and evid
   expect(addDelta.changed[0]?.removedAssertions).toEqual([]);
   expect(removeDelta.changed[0]?.removedAssertions).toHaveLength(1);
 
-  const identityChanged = resign(source, (ir) => {
+  const identityChanged = resign(source, before.ir, (ir) => {
     const fact = ir.facts[0]!;
     const assertion = fact.assertions[0]!;
     assertion.authority = 'observed';
@@ -170,7 +172,7 @@ test('assertion deltas distinguish identity set changes from confidence and evid
   expect(identityDelta.changed[0]?.addedAssertions).toHaveLength(1);
   expect(identityDelta.changed[0]?.removedAssertions).toHaveLength(1);
   expect(identityDelta.changed[0]?.updatedAssertions).toEqual([]);
-  const after = resign(source, (ir) => {
+  const after = resign(source, before.ir, (ir) => {
     const assertion = ir.facts[0]!.assertions[0]!;
     assertion.confidence = 0.5;
     assertion.evidence = [{ kind: 'verification', ref: 'acceptance:delta' }];
@@ -213,7 +215,8 @@ test('canonicalized declaration order does not create Fact churn', () => {
 });
 
 test('endpoint, lineage, and unsupported validity failures use stable diagnostics', () => {
-  const before = buildValidatedEngineeringIR(input());
+  const source = input();
+  const before = buildValidatedEngineeringIR(source);
   const otherApp = buildValidatedEngineeringIR(input('other-app'));
   expectCodedFailure(
     () => buildFactDelta(
@@ -227,10 +230,9 @@ test('endpoint, lineage, and unsupported validity failures use stable diagnostic
     'FACT-DELTA-002'
   );
 
-  const source = input();
   // The core validator now rejects unsupported closed intervals before a
   // snapshot can be branded and later handed to Fact Delta.
-  expectCodedFailure(() => resign(source, (ir) => {
+  expectCodedFailure(() => resign(source, before.ir, (ir) => {
     ir.facts[0]!.assertions[0]!.validToRevision = 'sha256:closed';
   }), 'IR-VALIDATION-009');
 });

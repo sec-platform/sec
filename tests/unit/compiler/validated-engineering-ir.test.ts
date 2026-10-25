@@ -60,31 +60,33 @@ test('validated snapshots are produced only after the full boundary and are deep
 
 test('validator rejects stale input and semantic revisions', () => {
   const source = input();
-  const staleInput = clone(buildEngineeringIR(source));
+  const base = buildEngineeringIR(source);
+  const staleInput = clone(base);
   staleInput.inputRevision = 'sha256:stale-input';
   expectCodedFailure(() => validateEngineeringIR(staleInput, source), 'IR-VALIDATION-003');
 
-  const staleSemantic = clone(buildEngineeringIR(source));
+  const staleSemantic = clone(base);
   staleSemantic.entities[0]!.label = 'Tampered label';
   expectCodedFailure(() => validateEngineeringIR(staleSemantic, source), 'IR-VALIDATION-004');
 });
 
 test('validator rejects forged Entity, Fact, Assertion, and validity identities', () => {
   const source = input();
+  const base = buildEngineeringIR(source);
 
-  const forgedEntity = clone(buildEngineeringIR(source));
+  const forgedEntity = clone(base);
   forgedEntity.entities[0]!.id = 'block:forged-app';
   expectCodedFailure(() => validateEngineeringIR(forgedEntity, source), 'IR-VALIDATION-006');
 
-  const forgedFact = clone(buildEngineeringIR(source));
+  const forgedFact = clone(base);
   forgedFact.facts[0]!.id = 'fact:forged';
   expectCodedFailure(() => validateEngineeringIR(forgedFact, source), 'IR-VALIDATION-007');
 
-  const forgedAssertion = clone(buildEngineeringIR(source));
+  const forgedAssertion = clone(base);
   forgedAssertion.facts[0]!.assertions[0]!.id = 'assertion:forged';
   expectCodedFailure(() => validateEngineeringIR(forgedAssertion, source), 'IR-VALIDATION-008');
 
-  const staleValidity = clone(buildEngineeringIR(source));
+  const staleValidity = clone(base);
   staleValidity.facts[0]!.assertions[0]!.validFromRevision = 'sha256:stale-validity';
   expectCodedFailure(() => validateEngineeringIR(staleValidity, source), 'IR-VALIDATION-009');
 });
@@ -175,7 +177,8 @@ test('raw validator rejects invalid confidence, empty provenance and unsupported
 
 test('raw validator checks bounded evidence identities without letting JSON hooks execute', () => {
   const source = input();
-  const valid = clone(buildEngineeringIR(source));
+  const base = buildEngineeringIR(source);
+  const valid = clone(base);
   valid.facts[0]!.assertions[0]!.evidence = [{
     kind: 'verification', ref: 'acceptance:case-a', digest: `sha256:${'a'.repeat(64)}`
   }];
@@ -190,17 +193,17 @@ test('raw validator checks bounded evidence identities without letting JSON hook
     { kind: 'verification', ref: 'x'.repeat(2_049) },
     { kind: 'verification', ref: 'case', unapproved: 'extra' }
   ]) {
-    const forged = clone(buildEngineeringIR(source));
+    const forged = clone(base);
     forged.facts[0]!.assertions[0]!.evidence = [record] as never;
     expectCodedFailure(() => validateEngineeringIR(forged, source), 'IR-VALIDATION-008');
   }
-  const excessive = clone(buildEngineeringIR(source));
+  const excessive = clone(base);
   excessive.facts[0]!.assertions[0]!.evidence = Array.from({ length: 1_025 },
     (_, index) => ({ kind: 'test', ref: `case:${index}` }));
   expectCodedFailure(() => validateEngineeringIR(excessive, source), 'IR-VALIDATION-008');
 
   let getterCalls = 0;
-  const dangerous = clone(buildEngineeringIR(source));
+  const dangerous = clone(base);
   dangerous.facts[0]!.assertions[0]!.evidence = [{
     kind: 'verification',
     ref: 'case',
@@ -221,20 +224,21 @@ test('a non-equivalent duplicated entity attribute cannot obtain a validated ide
 
 test('validator reports stable diagnostics for forged runtime enum values', () => {
   const source = input();
+  const base = buildEngineeringIR(source);
 
-  const unknownPredicate = clone(buildEngineeringIR(source));
+  const unknownPredicate = clone(base);
   const predicateFact = unknownPredicate.facts[0]!;
   predicateFact.predicate = 'UNKNOWN' as typeof predicateFact.predicate;
   expectCodedFailure(() => validateEngineeringIR(unknownPredicate, source), 'IR-PREDICATE-006');
 
-  const unknownAuthority = clone(buildEngineeringIR(source));
+  const unknownAuthority = clone(base);
   const authorityFact = unknownAuthority.facts[0]!;
   const assertion = authorityFact.assertions[0]!;
   assertion.authority = 'unknown' as typeof assertion.authority;
   assertion.id = factAssertionId(authorityFact.id, assertion.authority, assertion.provenance);
   expectCodedFailure(() => validateEngineeringIR(unknownAuthority, source), 'IR-VALIDATION-008');
 
-  const unknownProvenance = clone(buildEngineeringIR(source));
+  const unknownProvenance = clone(base);
   const provenanceFact = unknownProvenance.facts[0]!;
   const provenanceAssertion = provenanceFact.assertions[0]!;
   provenanceAssertion.provenance[0]!.kind = 'unknown' as typeof provenanceAssertion.provenance[number]['kind'];
