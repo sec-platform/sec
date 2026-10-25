@@ -124,10 +124,7 @@ test.skipIf(process.platform !== 'linux')('retained permissions reject a substit
   }
 });
 
-test.skipIf(process.platform !== 'linux')('same-owner special POSIX bits are copied exactly instead of being silently stripped', async () => {
-  const f = await fixture(0o2640);
-  try {
-    await copyRetainedNoFollowFilePermissions(f.input);
-    expect(statSync(f.target.path).mode & 0o7777).toBe(0o2640);
-  } finally { f.close(); }
-});
+test.skipIf(process.platform !== 'linux')('same-owner special POSIX bits are copied exactly instead of being silently stripped', async () => withFixture(async f => {
+  await copyRetainedNoFollowFilePermissions(f.input);
+  expect(statSync(f.target.path).mode & 0o7777).toBe(0o2640);
+}, 0o2640));

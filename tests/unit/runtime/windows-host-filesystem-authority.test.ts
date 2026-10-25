@@ -21,6 +21,10 @@ import {
   acquireSecRuntimeStatePhysicalAuthority
 } from '../../../src/adapters/runtime-state/workspace-state/physical-authority.ts';
 
+async function withRootFixture(prefix: string, use: (root: string) => Promise<void>): Promise<void> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  await settleWorkspaceCallback(() => use(root), () => rm(root, { recursive: true, force: true }));
+}
 
 function windowsRuntimeAuthorityInput(root: string): Readonly<{
   repositoryRoot: string;
@@ -96,30 +100,25 @@ test.skipIf(process.platform !== 'win32')(
 
 test.skipIf(process.platform !== 'win32')(
   'Windows host directory authority rejects a changed ACL digest',
-  async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-'));
+  async () => withRootFixture('sec-windows-host-authority-', async root => {
     const authorityRoot = path.join(root, 'local-app-data');
     let aclDigest = `sha256:${'a'.repeat(64)}`;
-    await settleWorkspaceCallback(async () => {
-      await mkdir(authorityRoot);
-      const authority = await proveWindowsHostDirectoryAuthorityForTests(
-        authorityRoot,
-        async () => ({
-          aclDigest,
-          ownerSid: 'S-1-5-21-1000'
-        })
-      );
-      expect(authority.rootPath).toBe(path.resolve(authorityRoot));
-      await authority.assertCurrent();
-      aclDigest = `sha256:${'b'.repeat(64)}`;
-      await expect(authority.assertCurrent()).rejects.toMatchObject({
-        failure: 'physical-identity-changed'
-      });
-      expect(await readdir(authorityRoot)).toEqual([]);
-    }, async () => {
-      await rm(root, { recursive: true, force: true });
+    await mkdir(authorityRoot);
+    const authority = await proveWindowsHostDirectoryAuthorityForTests(
+      authorityRoot,
+      async () => ({
+        aclDigest,
+        ownerSid: 'S-1-5-21-1000'
+      })
+    );
+    expect(authority.rootPath).toBe(path.resolve(authorityRoot));
+    await authority.assertCurrent();
+    aclDigest = `sha256:${'b'.repeat(64)}`;
+    await expect(authority.assertCurrent()).rejects.toMatchObject({
+      failure: 'physical-identity-changed'
     });
-  }
+    expect(await readdir(authorityRoot)).toEqual([]);
+  })
 );
 
 test.skipIf(process.platform !== 'win32')(
@@ -252,30 +251,25 @@ test.skipIf(process.platform !== 'win32')(
 
 test.skipIf(process.platform !== 'win32')(
   'Windows read-only tree rejects an exhausted admission before opening an ACL session',
-  async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-deadline-'));
+  async () => withRootFixture('sec-windows-tree-deadline-', async root => {
     const repositoryRoot = path.join(root, 'repository');
     const generationRoot = path.join(repositoryRoot, 'generation');
     const executablePath = path.join(generationRoot, 'compiler.exe');
-    await settleWorkspaceCallback(async () => {
-      await mkdir(generationRoot, { recursive: true });
-      await writeFile(executablePath, 'immutable compiler generation');
-      const before = observeWindowsAclSessionLifecycleForTests();
-      await expect(sealExistingWindowsReadOnlyTreeAuthority(
-        generationRoot,
-        [executablePath],
-        {
-          deadlineAtMs: Date.now() - 1,
-          ownerRootPath: generationRoot,
-          ownership: 'repository-dependency-generation',
-          repositoryRootPath: repositoryRoot
-        }
-      )).rejects.toMatchObject({ failure: 'deadline-exhausted' });
-      expect(observeWindowsAclSessionLifecycleForTests().opened).toBe(before.opened);
-    }, async () => {
-      await rm(root, { recursive: true, force: true });
-    });
-  }
+    await mkdir(generationRoot, { recursive: true });
+    await writeFile(executablePath, 'immutable compiler generation');
+    const before = observeWindowsAclSessionLifecycleForTests();
+    await expect(sealExistingWindowsReadOnlyTreeAuthority(
+      generationRoot,
+      [executablePath],
+      {
+        deadlineAtMs: Date.now() - 1,
+        ownerRootPath: generationRoot,
+        ownership: 'repository-dependency-generation',
+        repositoryRootPath: repositoryRoot
+      }
+    )).rejects.toMatchObject({ failure: 'deadline-exhausted' });
+    expect(observeWindowsAclSessionLifecycleForTests().opened).toBe(before.opened);
+  })
 );
 
 test.skipIf(process.platform !== 'win32')(
@@ -400,44 +394,34 @@ test.skipIf(process.platform !== 'win32')(
 
 test.skipIf(process.platform !== 'win32')(
   'Windows native host authority fails closed before unavailable or expired admission',
-  async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-native-admission-'));
-    await settleWorkspaceCallback(async () => {
-      const controller = new AbortController();
-      controller.abort();
-      await expect(hardenExistingWindowsHostDirectoryAuthority(root, {
-        signal: controller.signal
-      })).rejects.toMatchObject({ failure: 'aborted' });
-      await expect(hardenExistingWindowsHostDirectoryAuthority(root, {
-        deadlineAtMs: Date.now() - 1
-      })).rejects.toMatchObject({ failure: 'deadline-exhausted' });
-      await expect(hardenExistingWindowsHostDirectoryAuthority(
-        path.join(root, 'missing')
-      )).rejects.toMatchObject({
-        failure: 'native-provider-unavailable', cause: { code: 'ENOENT' }
-      });
-    }, async () => {
-      await rm(root, { recursive: true, force: true });
+  async () => withRootFixture('sec-windows-native-admission-', async root => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(hardenExistingWindowsHostDirectoryAuthority(root, {
+      signal: controller.signal
+    })).rejects.toMatchObject({ failure: 'aborted' });
+    await expect(hardenExistingWindowsHostDirectoryAuthority(root, {
+      deadlineAtMs: Date.now() - 1
+    })).rejects.toMatchObject({ failure: 'deadline-exhausted' });
+    await expect(hardenExistingWindowsHostDirectoryAuthority(
+      path.join(root, 'missing')
+    )).rejects.toMatchObject({
+      failure: 'native-provider-unavailable', cause: { code: 'ENOENT' }
     });
-  }
+  })
 );
 
 test.skipIf(process.platform !== 'win32')(
   'Windows host directory authority rejects a physical root whose ACL proof is untrusted',
-  async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-untrusted-'));
-    await settleWorkspaceCallback(async () => {
-      await expect(proveWindowsHostDirectoryAuthorityForTests(
-        root,
-        async () => {
-          throw new Error('untrusted-writer:S-1-1-0');
-        }
-      )).rejects.toThrow('untrusted-writer:S-1-1-0');
-      expect(await readdir(root)).toEqual([]);
-    }, async () => {
-      await rm(root, { recursive: true, force: true });
-    });
-  }
+  async () => withRootFixture('sec-windows-host-untrusted-', async root => {
+    await expect(proveWindowsHostDirectoryAuthorityForTests(
+      root,
+      async () => {
+        throw new Error('untrusted-writer:S-1-1-0');
+      }
+    )).rejects.toThrow('untrusted-writer:S-1-1-0');
+    expect(await readdir(root)).toEqual([]);
+  })
 );
 
 test.skipIf(process.platform !== 'win32')(

@@ -12,6 +12,17 @@ async function fixture(run: (root: string) => Promise<void>) {
     async () => rmSync(root, { recursive: true, force: true }));
 }
 
+async function cwdFixture(run: (root: string, other: string) => Promise<void>) {
+  await fixture(async root => {
+    const before = process.cwd(), other = path.join(root, 'other');
+    mkdirSync(other);
+    await settleWorkspaceCallback(async () => {
+      process.chdir(root);
+      await run(root, other);
+    }, async () => { process.chdir(before); });
+  });
+}
+
 test('ordinary buffer writes detach bytes before the first filesystem suspension', async () => fixture(async root => {
   const target = path.join(root, 'nested/value.bin'), bytes = Buffer.from('original');
   const pending = writeBuffer(target, bytes, async () => { bytes.fill(0); });
@@ -46,51 +57,36 @@ test('non-byte views are rejected before requesting a write grant', async () => 
   assert.equal(existsSync(path.join(root, 'value')), false);
 }));
 
-test('buffer writes keep the original working directory across the fence', async () => fixture(async root => {
-  const before = process.cwd(), other = path.join(root, 'other'); mkdirSync(other);
-  try {
-    process.chdir(root); await writeBuffer('value.bin', Buffer.from('fixed'), async () => { process.chdir(other); });
-    assert.equal(readFileSync(path.join(root, 'value.bin'), 'utf8'), 'fixed');
-    assert.equal(existsSync(path.join(other, 'value.bin')), false);
-  } finally { process.chdir(before); }
+test('buffer writes keep the original working directory across the fence', async () => cwdFixture(async (root, other) => {
+  await writeBuffer('value.bin', Buffer.from('fixed'), async () => { process.chdir(other); });
+  assert.equal(readFileSync(path.join(root, 'value.bin'), 'utf8'), 'fixed');
+  assert.equal(existsSync(path.join(other, 'value.bin')), false);
 }));
 
-test('directory creation captures a relative destination before its fence', async () => fixture(async root => {
-  const before = process.cwd(), other = path.join(root, 'other'); mkdirSync(other);
-  try {
-    process.chdir(root); await ensureDir('created', async () => { process.chdir(other); });
-    assert.ok(existsSync(path.join(root, 'created'))); assert.equal(existsSync(path.join(other, 'created')), false);
-  } finally { process.chdir(before); }
+test('directory creation captures a relative destination before its fence', async () => cwdFixture(async (root, other) => {
+  await ensureDir('created', async () => { process.chdir(other); });
+  assert.ok(existsSync(path.join(root, 'created'))); assert.equal(existsSync(path.join(other, 'created')), false);
 }));
 
-test('hard-link detachment cannot unlink another directory after a fence changes cwd', async () => fixture(async root => {
-  const before = process.cwd(), other = path.join(root, 'other'); mkdirSync(other);
+test('hard-link detachment cannot unlink another directory after a fence changes cwd', async () => cwdFixture(async (root, other) => {
   writeFileSync(path.join(root, 'source'), 'owned'); linkSync(path.join(root, 'source'), path.join(root, 'target'));
   writeFileSync(path.join(other, 'target'), 'unrelated');
-  try {
-    process.chdir(root); await prepareOrdinaryFileWrite('target', async () => { process.chdir(other); });
-    assert.equal(existsSync(path.join(root, 'target')), false);
-    assert.equal(readFileSync(path.join(other, 'target'), 'utf8'), 'unrelated');
-    assert.equal(readFileSync(path.join(root, 'source'), 'utf8'), 'owned');
-  } finally { process.chdir(before); }
+  await prepareOrdinaryFileWrite('target', async () => { process.chdir(other); });
+  assert.equal(existsSync(path.join(root, 'target')), false);
+  assert.equal(readFileSync(path.join(other, 'target'), 'utf8'), 'unrelated');
+  assert.equal(readFileSync(path.join(root, 'source'), 'utf8'), 'owned');
 }));
 
-test('directory removal keeps its initial target and does not delete a same-named sibling', async () => fixture(async root => {
-  const before = process.cwd(), other = path.join(root, 'other'); mkdirSync(other);
+test('directory removal keeps its initial target and does not delete a same-named sibling', async () => cwdFixture(async (root, other) => {
   mkdirSync(path.join(root, 'target')); mkdirSync(path.join(other, 'target'));
-  try {
-    process.chdir(root); await removeDir('target', async () => { process.chdir(other); });
-    assert.equal(existsSync(path.join(root, 'target')), false); assert.ok(existsSync(path.join(other, 'target')));
-  } finally { process.chdir(before); }
+  await removeDir('target', async () => { process.chdir(other); });
+  assert.equal(existsSync(path.join(root, 'target')), false); assert.ok(existsSync(path.join(other, 'target')));
 }));
 
-test('JSON conversion cannot redirect its target through a toJSON cwd change', async () => fixture(async root => {
-  const before = process.cwd(), other = path.join(root, 'other'); mkdirSync(other);
-  try {
-    process.chdir(root); await writeJson('value.json', { toJSON() { process.chdir(other); return { value: 7 }; } });
-    assert.equal(readFileSync(path.join(root, 'value.json'), 'utf8'), '{\n  "value": 7\n}\n');
-    assert.equal(existsSync(path.join(other, 'value.json')), false);
-  } finally { process.chdir(before); }
+test('JSON conversion cannot redirect its target through a toJSON cwd change', async () => cwdFixture(async (root, other) => {
+  await writeJson('value.json', { toJSON() { process.chdir(other); return { value: 7 }; } });
+  assert.equal(readFileSync(path.join(root, 'value.json'), 'utf8'), '{\n  "value": 7\n}\n');
+  assert.equal(existsSync(path.join(other, 'value.json')), false);
 }));
 
 test('JSON file output refuses an empty conversion before filesystem effects', async () => fixture(async root => {
