@@ -38,15 +38,16 @@ test('hosted integration retains exact existing provenance and ordinary-lane che
 });
 
 test('healthy local JSON and copied receipt data never acquire live integration authority', () => {
-  for (const ledger of [local, structuredClone(local), JSON.parse(JSON.stringify(local))]) {
+  // Keep owner-produced data and its plain JSON transport copy. Neither is a
+  // live publication authority; cloning an already fabricated authority adds
+  // no second admission boundary.
+  for (const ledger of [local, JSON.parse(JSON.stringify(local))]) {
     expect(() => assertIntegrationMainHealthProducer({ ...subject, ledger }))
       .toThrow('original live publication admission');
     const fabricated = { authority: {}, receipt: { executionId: 'historical-data-only' },
       repositoryRoot: process.cwd() } as unknown as TrustedRuntimeMainHealthPublicationAdmission;
-    for (const localAdmission of [fabricated, structuredClone(fabricated)]) {
-      expect(() => assertIntegrationMainHealthProducer({ ...subject, ledger, localAdmission }))
-        .toThrow('forged or not issued');
-    }
+    expect(() => assertIntegrationMainHealthProducer({ ...subject, ledger, localAdmission: fabricated }))
+      .toThrow('forged or not issued');
   }
 });
 

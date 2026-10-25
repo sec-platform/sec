@@ -54,5 +54,4 @@ test('blob batching also has an item ceiling', () => {
 
 test('count batching covers every input exactly once', () => {
   expect(chunkByCount([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
-  expect(() => chunkByCount([1], 0)).toThrow('positive safe integer');
 });

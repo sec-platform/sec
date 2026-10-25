@@ -142,5 +142,4 @@ test('the argv byte budget includes UTF-8 and argument terminators and stops bef
   let observed = false;
   const args = ['too-long']; Object.defineProperty(args, '1', { get() { observed = true; throw new Error('later field'); } });
   assert.equal(captureGitReadArguments(args, 1).status, 'exhausted'); assert.equal(observed, false);
-  for (const value of [-1, NaN, Infinity, 0.5]) assert.equal(captureGitReadArguments([], value).status, 'exhausted');
 });

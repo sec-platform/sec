@@ -40,17 +40,7 @@ test('prefixes never authorize a drifted PR, duplicate identity, or wrong base',
   }
 });
 
-test('parses canonical merged PR facts and rejects bounded-query saturation', () => {
-  expect(parseMergedPullRequestHeads(JSON.stringify([{
-    number: 42,
-    headRefName: 'fix/example',
-    headRefOid: HEAD,
-    baseRefName: 'main',
-    state: 'MERGED',
-    mergeCommit: { oid: MERGE },
-    url: 'https://github.com/sec-platform/sec/pull/42'
-  }]), 'sec-platform/sec')).toEqual([merged()]);
-
+test('merged PR parsing rejects bounded-query saturation', () => {
   const saturated = Array.from({ length: 1_000 }, (_, index) => ({
     number: index + 1,
     headRefName: `fix/example-${index}`,
@@ -76,6 +66,8 @@ test('missing provider merge commits remain unknown only for their exact local r
       url: 'https://github.com/sec-platform/sec/pull/43' }
   ];
   const observed = parseMergedPullRequestHeads(JSON.stringify(records), 'sec-platform/sec');
+  expect(observed[0]).toEqual(merged());
+  expect(observed).toHaveLength(2);
   expect(observed[1]?.mergeCommitSha).toBeNull();
   const plan = (mergedPullRequests: typeof observed) => planMergedLocalBranchResidueCloseout({
     defaultBranch: 'main',

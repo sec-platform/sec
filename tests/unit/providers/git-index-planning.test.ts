@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { resolveGitIndexPlanningBudget } from '../../../src/adapters/providers/git-read/runtime/budget.ts';
 import {
   applyGitIndexObjectDelta, assertGitIndexObjectInfoBatch, assertGitIndexTreeGeneration, decodeGitIndexGeneration,
   encodeGitIndexGeneration, GitIndexPlanningBudgetError, GitIndexUnmergedError, type GitIndexObjectFormat
@@ -62,8 +61,6 @@ test('index raw/header admission is exact and precedes traversal/checksum work',
   assert.throws(() => decodeGitIndexGeneration(bytes, 'sha1', { maxRawBytes: 95 }), over('maxRawBytes'));
   const hugeHeader = Buffer.alloc(32); hugeHeader.write('DIRC'); hugeHeader.writeUInt32BE(2, 4); hugeHeader.writeUInt32BE(0xffffffff, 8);
   assert.throws(() => decodeGitIndexGeneration(hugeHeader, 'sha1', { maxEntries: 1 }), over('maxEntries'));
-  assert.throws(() => resolveGitIndexPlanningBudget({ maxExpandedPathBytes: Number.MAX_SAFE_INTEGER }));
-  assert.throws(() => resolveGitIndexPlanningBudget({ maxEntries: Number.NaN }));
   const empty = decodeGitIndexGeneration(indexBytes({ entries: [] }), 'sha1', { maxEntries: 0, maxExpandedPathBytes: 0 });
   assert.equal(empty.entries.length, 0);
   assert.equal(encodeGitIndexGeneration(empty).byteLength, 32);

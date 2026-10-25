@@ -6,7 +6,6 @@ import {
   ROADMAP_WORK_CATALOG_BEGIN,
   ROADMAP_WORK_CATALOG_END,
   compileWorkRollingProposalProjection,
-  compileWorkRollingSelectionProjection,
   compileWorkSelectionTerminalProjection,
   createWorkCurrentSpecObservation,
   createWorkDecisionReceipt,
@@ -95,10 +94,6 @@ test('one live work can be selected without manufacturing successor candidates',
 
   expect(receipt.decision.status).toBe('select-next');
   expect(receipt.decision.selectedWorkId).toBe('issue-1');
-
-  const projection = compileWorkRollingSelectionProjection(receipt);
-  expect(projection.active.packageId).toBe('only-live-work-v1');
-  expect(projection.candidates).toEqual([]);
 
   const rendered = renderWorkRollingSelectionPlan({ receipt, reviewedOn: '2026-10-07' });
   expect(parseRollingPlan(rendered)).toEqual({

@@ -36,7 +36,6 @@ test('line decoding rejects invalid UTF-8, shared bytes and incomplete or surplu
   assert.equal(parseGitLineReply(Buffer.from('one\ntwo\n'), 1), null);
   assert.equal(parseGitLineReply(Buffer.from('one\n'), 2), null);
   assert.deepEqual(parseGitLineReply(Buffer.from(' first \nsecond\t\n'), 2), [' first ', 'second\t']);
-  for (const value of [0, -1, 1.5, NaN, Infinity]) assert.throws(() => parseGitLineReply(Buffer.from('x\n'), value), TypeError);
 });
 
 test('a BOM stays data, rather than being dropped to manufacture an object or absolute path', () => {

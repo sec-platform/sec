@@ -1064,10 +1064,21 @@ describe('work-selection live contract', () => {
     });
     expect(selected.decision.status).toBe('select-next');
     expect(continued.decision.status).toBe('continue-active');
-    expect(compileWorkRollingTopology(continued)).toEqual({
-      activePackageId: compileWorkRollingSelectionProjection(selected).active.packageId,
-      candidatePackageIds: compileWorkRollingSelectionProjection(selected).candidates.map(({ packageId }) => packageId)
-    });
+    const expectedTopology = {
+      activePackageId: 'controlled-pr-issue-disposition-single-writer-v1',
+      candidatePackageIds: [
+        'generated-ignored-state-lifecycle-v1',
+        'git-worktree-physical-closeout-v1',
+        'delegation-consumer-zero-retirement-v1',
+        'candidate-control-transaction-v1'
+      ]
+    };
+    const projection = compileWorkRollingSelectionProjection(selected);
+    expect({
+      activePackageId: projection.active.packageId,
+      candidatePackageIds: projection.candidates.map(({ packageId }) => packageId)
+    }).toEqual(expectedTopology);
+    expect(compileWorkRollingTopology(continued)).toEqual(expectedTopology);
   });
 
   test('ready-successor count excludes a direct deferred successor', () => {
