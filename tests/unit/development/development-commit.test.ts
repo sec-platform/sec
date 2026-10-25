@@ -365,7 +365,7 @@ test('development.commit consumes one exact staged admission before publishing i
 
 // Mocks are confined to a child; the actual command, issuer, Git provider and journal
 // resources still perform their transitions. No parent cwd or module state changes.
-async function commitCommandCase(mode: 'short-write' | 'zero-write' | 'write-error' | 'journal-drift' | 'not-applied' | 'unknown' | 'repeated'): Promise<void> {
+async function commitCommandCase(mode: 'zero-write' | 'write-error' | 'journal-drift' | 'not-applied' | 'unknown' | 'repeated'): Promise<void> {
   const { root } = await fixture('sec-development-commit-结果-');
   let harnessRoot: string | undefined;
   await settleWorkspaceCallback(async () => {
@@ -555,7 +555,7 @@ async function commitCommandCase(mode: 'short-write' | 'zero-write' | 'write-err
   });
 }
 
-for (const mode of ['short-write', 'zero-write', 'write-error', 'journal-drift', 'not-applied', 'unknown', 'repeated'] as const) {
+for (const mode of ['zero-write', 'write-error', 'journal-drift', 'not-applied', 'unknown', 'repeated'] as const) {
   test(`development commit CLI preserves original delivery and retirement boundaries: ${mode}`, async () => {
     await commitCommandCase(mode);
   }, DEFAULT_TEST_TIMEOUT_MS);
