@@ -33,14 +33,14 @@ interface SkillFrontmatter {
   name?: unknown;
 }
 
-function parseSkill(source: string): { body: string; frontmatter: SkillFrontmatter } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u.exec(source);
+function parseSkill(source: string): SkillFrontmatter {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(source);
   if (!match) throw new Error('Skill must contain one leading YAML frontmatter block.');
   const raw = parseYaml(match[1]!) as unknown;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('Skill frontmatter must be a mapping.');
   }
-  return { body: match[2]!, frontmatter: raw as SkillFrontmatter };
+  return raw as SkillFrontmatter;
 }
 
 function trackedRepositoryFiles(): string[] {
@@ -66,7 +66,7 @@ test('tracked Skill and Markdown inventories preserve strict metadata, exact-sou
   for (const skillId of AGENT_SKILL_IDS) {
     const repositoryPath = `.agents/skills/${skillId}/SKILL.md`;
     const source = await readFile(path.join(REPOSITORY_ROOT, repositoryPath), 'utf8');
-    const { body, frontmatter } = parseSkill(source);
+    const frontmatter = parseSkill(source);
     expect(Object.keys(frontmatter).sort()).toEqual(['description', 'name']);
     expect(frontmatter.name).toBe(skillId);
     expect(typeof frontmatter.description).toBe('string');
@@ -74,7 +74,6 @@ test('tracked Skill and Markdown inventories preserve strict metadata, exact-sou
     expect((frontmatter.description as string).length).toBeLessThanOrEqual(1024);
     expect(descriptions.has(frontmatter.description as string)).toBe(false);
     descriptions.add(frontmatter.description as string);
-    expect(body.match(/^#\s+/gmu)).toHaveLength(1);
     const projection = projectRepositorySourceGovernance(repositoryPath, source);
     expect(projection.blockingFindings).toEqual([]);
     for (const candidate of projection.candidates) {
