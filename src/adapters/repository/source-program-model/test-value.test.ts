@@ -12,14 +12,9 @@ import { compileRepositorySourceProgramModel } from './repository.ts';
 import { compileSourceProgramTestRewriteDispositions } from './test-disposition-decisions.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue } from './test-value.ts';
 import { compileTypeScriptSourceProgramModel } from './typescript.ts';
+import { moduleMembership } from './test/typescript-model-input.ts';
 
 const repositoryRoot = process.cwd();
-const moduleMembership = Object.freeze({
-  descriptors: Object.freeze([]),
-  graphRoots: Object.freeze([]),
-  moduleRoots: Object.freeze([]),
-  moduleForPath: () => null
-});
 
 interface CompileOptions {
   readonly baselineTestPaths?: readonly string[];
@@ -27,25 +22,17 @@ interface CompileOptions {
   readonly dispositions?: readonly unknown[];
 }
 
-function sourceRevisionFor(files: Readonly<Record<string, string>>): string {
-  const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  return sha256(sourceFiles.map(({ path, contentDigest }) => ({
-    path,
-    contentDigest
-  })));
+function sourceRevisionFor(files: readonly Readonly<{ path: string; contentDigest: string }>[]): string {
+  return sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
 }
 
 function compileExactTypeScriptModel(files: readonly Readonly<{
   path: string;
   source: string;
   contentDigest: string;
-}>[]) {
+}>[], sourceRevision: string) {
   return compileTypeScriptSourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    sourceRevision,
     files,
     moduleMembership
   });
@@ -61,8 +48,8 @@ function compile(
     source,
     contentDigest: rawSha256(source)
   }));
-  const sourceRevision = sourceRevisionFor(files);
-  const typeScriptModel = compileExactTypeScriptModel(sourceFiles);
+  const sourceRevision = sourceRevisionFor(sourceFiles);
+  const typeScriptModel = compileExactTypeScriptModel(sourceFiles, sourceRevision);
   const model = compileRepositorySourceProgramModel({
     sourceRevision,
     files: sourceFiles,
@@ -248,13 +235,13 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
     'tests/unit/rewritten.test.ts',
     'tests/unit/unknown.test.ts'
   ];
-  const sourceRevision = sourceRevisionFor(files);
   const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
     path, source, contentDigest: rawSha256(source)
   }));
+  const sourceRevision = sourceRevisionFor(sourceFiles);
   const model = compileRepositorySourceProgramModel({
     sourceRevision, files: sourceFiles, moduleMembership,
-    typescriptModel: compileExactTypeScriptModel(sourceFiles), unknowns: []
+    typescriptModel: compileExactTypeScriptModel(sourceFiles, sourceRevision), unknowns: []
   });
   const input = { repositoryRoot, files: sourceFiles, model, baselineTestPaths };
   const seed = compileSourceProgramTestValue(input);
@@ -356,9 +343,10 @@ test('repository rewrite decisions bind stable paths and reasons to exact curren
   const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
     path, source, contentDigest: rawSha256(source)
   }));
+  const sourceRevision = sourceRevisionFor(sourceFiles);
   const model = compileRepositorySourceProgramModel({
-    sourceRevision: sourceRevisionFor(files), files: sourceFiles, moduleMembership,
-    typescriptModel: compileExactTypeScriptModel(sourceFiles), unknowns: []
+    sourceRevision, files: sourceFiles, moduleMembership,
+    typescriptModel: compileExactTypeScriptModel(sourceFiles, sourceRevision), unknowns: []
   });
   const input = { repositoryRoot, files: sourceFiles, model, baselineTestPaths, baselineEvidence };
   const observed = compileSourceProgramTestValue(input);
@@ -449,17 +437,15 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
   baselineSources.push(Object.freeze({
     path: retainedPath, source: retainedSource, contentDigest: rawSha256(retainedSource)
   }));
-  const baselineRevision = sha256(baselineSources.map(({ path, contentDigest }) => ({
-    path,
-    contentDigest
-  })));
+  const baselineRevision = sourceRevisionFor(baselineSources);
   const candidateSourceFiles = Object.entries(candidateFiles).map(([path, source]) => Object.freeze({
       path,
       source,
       contentDigest: rawSha256(source)
     }));
-  const baselineModel = compileExactTypeScriptModel(baselineSources);
-  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles);
+  const baselineModel = compileExactTypeScriptModel(baselineSources, baselineRevision);
+  const candidateRevision = sourceRevisionFor(candidateSourceFiles);
+  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles, candidateRevision);
   const baselineEvidence = compileSourceProgramTestBaselineEvidence({
     baselineTestPaths: baselinePaths,
     baselineModel,
@@ -509,7 +495,7 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     { observationStatus: 'resolved', observationReason: null }
   ]);
   const model = compileRepositorySourceProgramModel({
-    sourceRevision: sourceRevisionFor(candidateFiles), files: candidateSourceFiles,
+    sourceRevision: candidateRevision, files: candidateSourceFiles,
     moduleMembership, typescriptModel: candidateModel, unknowns: []
   });
   const input = {
@@ -557,18 +543,16 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
     source: baselineSource,
     contentDigest: rawSha256(baselineSource)
   })];
-  const baselineRevision = sha256(baselineFiles.map(({ path, contentDigest }) => ({
-    path,
-    contentDigest
-  })));
+  const baselineRevision = sourceRevisionFor(baselineFiles);
   const candidateSourceFiles = Object.entries(candidateFiles).map(([path, source]) => Object.freeze({
     path,
     source,
     contentDigest: rawSha256(source)
   }));
-  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles);
+  const candidateRevision = sourceRevisionFor(candidateSourceFiles);
+  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles, candidateRevision);
   const model = compileRepositorySourceProgramModel({
-    sourceRevision: sourceRevisionFor(candidateFiles), files: candidateSourceFiles,
+    sourceRevision: candidateRevision, files: candidateSourceFiles,
     moduleMembership, typescriptModel: candidateModel, unknowns: []
   });
   const initial = compileSourceProgramTestValue({
@@ -576,7 +560,7 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
     baselineTestPaths: [baselinePath],
     baselineEvidence: compileSourceProgramTestBaselineEvidence({
       baselineTestPaths: [baselinePath],
-      baselineModel: compileExactTypeScriptModel(baselineFiles),
+      baselineModel: compileExactTypeScriptModel(baselineFiles, baselineRevision),
       candidateModel,
       baselineRevision
     })

@@ -20,12 +20,12 @@ if (config.error !== undefined) throw new Error(ts.flattenDiagnosticMessageText(
  * This does not qualify the separate native repository typecheck entry or
  * claim checker equivalence. Export reachability remains Knip/graph work.
  */
-async function verificationFailure(source: string, surface: 'src' | 'tests', provider?: string): Promise<CodedFailure | undefined> {
+async function verificationFailure(entries: Readonly<Record<string, string>>, surface: 'src' | 'tests', provider?: string): Promise<CodedFailure | undefined> {
   return withTempWorkspace(async root => {
     const directory = path.join(root, surface);
     await fs.mkdir(directory);
     await fs.writeFile(path.join(root, 'package.json'), '{"type":"module"}\n');
-    await fs.writeFile(path.join(directory, 'entry.ts'), source);
+    for (const [name, source] of Object.entries(entries)) await fs.writeFile(path.join(directory, name), source);
     if (provider !== undefined) await fs.writeFile(path.join(directory, 'provider.ts'), provider);
     const fixtureConfig = {
       ...config.config,
@@ -34,7 +34,9 @@ async function verificationFailure(source: string, surface: 'src' | 'tests', pro
     await fs.writeFile(path.join(root, 'tsconfig.json'), JSON.stringify(fixtureConfig));
     const parsed = ts.parseJsonConfigFileContent(fixtureConfig, ts.sys, root);
     assert.deepEqual(parsed.errors.map(value => value.code), []);
-    assert.ok(parsed.fileNames.some(file => path.resolve(file) === path.join(directory, 'entry.ts')), 'The repository configuration must select the fixture');
+    for (const name of Object.keys(entries)) {
+      assert.ok(parsed.fileNames.some(file => path.resolve(file) === path.join(directory, name)), 'The repository configuration must select every fixture entry');
+    }
     try {
       await typecheckProject(root, { isolated: false }, {
         async ensureProjectDependencies() {
@@ -55,7 +57,7 @@ async function verificationFailure(source: string, surface: 'src' | 'tests', pro
 }
 
 async function rejectsUnused(source: string, surface: 'src' | 'tests', binding: string, column: number, provider?: string): Promise<void> {
-  const failure = await verificationFailure(source, surface, provider);
+  const failure = await verificationFailure({ 'entry.ts': source }, surface, provider);
   assert.ok(failure, 'Unused code must reject project verification');
   assert.match(failure.message, /\bTS6133:/u);
   // Each negative fixture has exactly one unused binding. Checking the entire
@@ -65,9 +67,6 @@ async function rejectsUnused(source: string, surface: 'src' | 'tests', binding: 
   assert.equal(typeof failure.details[0], 'string');
   assert.ok(failure.details[0].includes(`/${surface}/entry.ts:1:${column} `));
   assert.ok(failure.details[0].includes(`'${binding}'`));
-}
-async function accepts(source: string, surface: 'src' | 'tests', provider?: string): Promise<void> {
-  assert.equal(await verificationFailure(source, surface, provider), undefined);
 }
 
 for (const surface of ['src', 'tests'] as const) {
@@ -83,12 +82,11 @@ for (const surface of ['src', 'tests'] as const) {
   });
 
   test(`${surface} keeps used declarations, deliberate callback positions and public contracts`, async () => {
-    await accepts('const value = 1; export function evaluate() { return value; }', surface);
-    await accepts('export function callback(_error: unknown, value: number) { return value; }', surface);
-    await accepts('export type PublicContract = { value: number }; export const entrypoint = 1;', surface);
-  });
-
-  test(`${surface} does not classify explicit side-effect imports as unused bindings`, async () => {
-    await accepts('import "./provider.js"; export const result = 2;', surface, 'export const initialized = 1;');
+    assert.equal(await verificationFailure({
+      'used.ts': 'const value = 1; export function evaluate() { return value; }',
+      'callback.ts': 'export function callback(_error: unknown, value: number) { return value; }',
+      'public.ts': 'export type PublicContract = { value: number }; export const entrypoint = 1;',
+      'entry.ts': 'import "./provider.js"; export const result = 2;'
+    }, surface, 'export const initialized = 1;'), undefined);
   });
 }
