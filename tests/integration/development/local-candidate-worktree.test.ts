@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import { createLocalGitWorktreeAddFailureActorForTests } from '../../../src/adapters/providers/git/local-worktree.ts';
@@ -205,50 +206,53 @@ for (const residue of ['present', 'absent'] as const) {
   test.skipIf(process.platform !== 'linux')(`unresolved native add with ${residue} residue forbids the next same-identity acquisition`, async () => {
     const value = fixture();
     const control = path.join(value.root, '.tmp', 'native-add-control');
-    mkdirSync(control, { recursive: true });
     const fifo = path.join(control, 'gate');
-    const fifoResult = spawnSync('mkfifo', [fifo], { encoding: 'utf8' });
-    if (fifoResult.status !== 0) throw new Error(fifoResult.stderr);
-    const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
     const hooks = path.join(control, 'hooks');
-    mkdirSync(hooks);
-    writeFileSync(path.join(hooks, 'post-checkout'), `#!/bin/sh\ncat ${shellQuote(fifo)} >/dev/null\n`, { mode: 0o700 });
     let nativeChild: ReturnType<typeof spawn> | undefined;
     let nativeClosed: Promise<void> | undefined;
     let writer: number | undefined;
     let nativeStarts = 0;
     let nativeExit: number | null | undefined;
-    const failureActor = createLocalGitWorktreeAddFailureActorForTests({ phase: 'after-start-admission',
-      fail: async (input) => {
-        nativeStarts++;
-        // A native Git root is genuinely still active. The present case has
-        // completed checkout and waits in a fixture-only hook; the absent case
-        // waits while reading its fixture-only include before creation begins.
-        nativeChild = spawn(input.executablePath, [
-          '-c', `core.hooksPath=${residue === 'present' ? hooks : '/dev/null'}`,
-          ...(residue === 'absent' ? ['-c', `include.path=${fifo}`] : []),
-          'worktree', 'add', '--detach', '--', input.candidateRoot, input.headSha
-        ], { cwd: input.cwd, env: input.environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-        nativeChild.stdout?.resume();
-        nativeChild.stderr?.resume();
-        nativeClosed = new Promise<void>((resolve, reject) => {
-          nativeChild!.once('error', reject);
-          nativeChild!.once('close', (code) => { nativeExit = code; resolve(); });
-        });
-        const deadline = Date.now() + 5_000;
-        for (;;) {
-          try { writer = openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK); break; }
-          catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENXIO' || Date.now() >= deadline) throw error;
-            await delay(5);
+    let nativeMayBeRunning = false;
+    let nativeTreeClosed = false;
+    await settleWorkspaceCallback(async () => {
+      mkdirSync(control, { recursive: true });
+      const fifoResult = spawnSync('mkfifo', [fifo], { encoding: 'utf8' });
+      if (fifoResult.status !== 0) throw new Error(fifoResult.stderr);
+      const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+      mkdirSync(hooks);
+      writeFileSync(path.join(hooks, 'post-checkout'), `#!/bin/sh\ncat ${shellQuote(fifo)} >/dev/null\n`, { mode: 0o700 });
+      const failureActor = createLocalGitWorktreeAddFailureActorForTests({ phase: 'after-start-admission',
+        fail: async (input) => {
+          nativeStarts++;
+          // A native Git root is genuinely still active. The present case has
+          // completed checkout and waits in a fixture-only hook; the absent case
+          // waits while reading its fixture-only include before creation begins.
+          nativeMayBeRunning = true;
+          nativeChild = spawn(input.executablePath, [
+            '-c', `core.hooksPath=${residue === 'present' ? hooks : '/dev/null'}`,
+            ...(residue === 'absent' ? ['-c', `include.path=${fifo}`] : []),
+            'worktree', 'add', '--detach', '--', input.candidateRoot, input.headSha
+          ], { cwd: input.cwd, env: input.environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+          nativeChild.stdout?.resume();
+          nativeChild.stderr?.resume();
+          nativeClosed = new Promise<void>((resolve, reject) => {
+            nativeChild!.once('error', reject);
+            nativeChild!.once('close', (code) => { nativeExit = code; resolve(); });
+          });
+          const deadline = Date.now() + 5_000;
+          for (;;) {
+            try { writer = openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK); break; }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENXIO' || Date.now() >= deadline) throw error;
+              await delay(5);
+            }
           }
+          expect(nativeChild.exitCode).toBeNull();
+          process.kill(nativeChild.pid!, 0);
+          throw new Error('fixture native add termination is genuinely unproven');
         }
-        expect(nativeChild.exitCode).toBeNull();
-        process.kill(nativeChild.pid!, 0);
-        throw new Error('fixture native add termination is genuinely unproven');
-      }
-    });
-    try {
+      });
       // Keep a genuine but never-started owner attempt for the same target.
       // Repointing JSON at it must not bypass a different unresolved add.
       const preparedFailure = createLocalGitWorktreeAddFailureActorForTests({ phase: 'before-start',
@@ -289,30 +293,43 @@ for (const residue of ['present', 'absent'] as const) {
       }
       expect(nativeChild!.exitCode).toBeNull();
       process.kill(nativeChild!.pid!, 0);
-    } finally {
-      // Remove only the fixture gate before EOF so a second native config read
-      // cannot block on reopening the same FIFO. Join precedes repository cleanup.
-      rmSync(fifo, { force: true });
-      if (writer !== undefined) closeSync(writer);
-      if (nativeChild !== undefined && nativeClosed !== undefined) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const closed = await Promise.race([nativeClosed.then(() => true), new Promise<false>((resolve) => {
-          timer = setTimeout(() => resolve(false), 5_000);
-        })]);
-        if (timer !== undefined) clearTimeout(timer);
-        if (!closed) {
-          try { process.kill(-nativeChild.pid!, 'SIGKILL'); } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }, async () => {
+      await settleResourcesAsync({ cleanup: [
+        // Unlink and close are independent release attempts. A failed unlink
+        // must not strand the writer or skip the native process-group join.
+        { label: 'native-add fixture FIFO', settle: () => rmSync(fifo, { force: true }) },
+        { label: 'native-add fixture writer', settle: () => { if (writer !== undefined) closeSync(writer); } },
+        { label: 'native-add fixture process group', settle: async () => {
+          if (!nativeMayBeRunning) return;
+          if (nativeChild === undefined || nativeClosed === undefined) {
+            throw new Error('Fixture native Git process-group settlement is unproven; repository retained.');
           }
-          await nativeClosed;
-        }
-        expect(nativeChild.exitCode !== null || nativeChild.signalCode !== null).toBe(true);
-        if (closed) expect(nativeExit).toBe(0);
-        try { process.kill(-nativeChild.pid!, 0); throw new Error('Fixture native Git process group remains live.'); }
-        catch (error) { expect((error as NodeJS.ErrnoException).code).toBe('ESRCH'); }
-      }
-      rmSync(value.ownedRoot, { recursive: true, force: true });
-    }
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          let closed: boolean;
+          try {
+            closed = await Promise.race([nativeClosed.then(() => true), new Promise<false>((resolve) => {
+              timer = setTimeout(() => resolve(false), 5_000);
+            })]);
+          } finally { if (timer !== undefined) clearTimeout(timer); }
+          if (!closed) {
+            try { process.kill(-nativeChild.pid!, 'SIGKILL'); } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+            }
+            await nativeClosed;
+          }
+          expect(nativeChild.exitCode !== null || nativeChild.signalCode !== null).toBe(true);
+          if (closed) expect(nativeExit).toBe(0);
+          try { process.kill(-nativeChild.pid!, 0); throw new Error('Fixture native Git process group remains live.'); }
+          catch (error) { expect((error as NodeJS.ErrnoException).code).toBe('ESRCH'); }
+          nativeTreeClosed = true;
+        } },
+        { label: 'native-add fixture repository', settle: () => {
+          // A rejection or root close alone never authorizes deletion beneath
+          // an unresolved writer. Preserve the original group-absence fence.
+          if (!nativeMayBeRunning || nativeTreeClosed) rmSync(value.ownedRoot, { recursive: true, force: true });
+        } }
+      ] });
+    });
   }, 30_000);
 }
 
