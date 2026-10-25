@@ -27,15 +27,6 @@ test('bare, detached and branch records keep their distinct required fields', ()
   }
 });
 
-test('a dot-leading component is invalid at every depth, not only the beginning', () => {
-  for (const branch of ['.hidden', 'topic/.hidden', 'topic/.hidden/leaf', 'topic/../leaf']) {
-    assert.throws(() => parseWorktreePorcelainZ(record(`HEAD ${oid}`, `branch refs/heads/${branch}`)), /branch field/);
-  }
-  for (const branch of ['main', 'topic/sub.name', 'topic/@name', '分支/主题']) {
-    assert.equal(parseWorktreePorcelainZ(record(`HEAD ${oid}`, `branch refs/heads/${branch}`))[0]!.branch, branch);
-  }
-});
-
 test('object-id assertion never coerces a non-string or evaluates caller conversion hooks', () => {
   let coerced = false;
   const value = { toString() { coerced = true; return oid; } };
@@ -54,14 +45,6 @@ test('object-id assertion never coerces a non-string or evaluates caller convers
 test('only documented conflict pairs may contain an unmerged marker', () => {
   for (const pair of ['U ', ' U', 'UM', 'MU', 'UT', 'TU', 'UR', 'RU', 'UC', 'CU']) {
     assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from(`${pair} conflict\0`)), /status pair/);
-  }
-});
-
-test('all seven merge-conflict pairs remain valid, including those with no U character', () => {
-  for (const pair of ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']) {
-    assert.deepEqual(parseWorktreeStatusPorcelainZ(Buffer.from(`${pair} conflict\0`)), [
-      { index: pair[0], worktree: pair[1], path: 'conflict', originalPath: null }
-    ]);
   }
 });
 
@@ -86,12 +69,24 @@ test('real Git conflict stages project to the same seven exact status pairs', ()
   }
   gitProtocolSuccess(git(['update-index', '--index-info'], undefined, indexRecords.join('')));
   const source = gitProtocolSuccess(git(['status', '--porcelain=v1', '-z', '--untracked-files=no']));
-  assert.deepEqual(parseWorktreeStatusPorcelainZ(Buffer.from(source)).map(value => [value.path, value.index + value.worktree]), [
-    ['mask1', 'DD'], ['mask2', 'AU'], ['mask3', 'UD'], ['mask4', 'UA'], ['mask5', 'DU'], ['mask6', 'AA'], ['mask7', 'UU']
+  assert.deepEqual(parseWorktreeStatusPorcelainZ(Buffer.from(source)), [
+    { index: 'D', worktree: 'D', path: 'mask1', originalPath: null },
+    { index: 'A', worktree: 'U', path: 'mask2', originalPath: null },
+    { index: 'U', worktree: 'D', path: 'mask3', originalPath: null },
+    { index: 'U', worktree: 'A', path: 'mask4', originalPath: null },
+    { index: 'D', worktree: 'U', path: 'mask5', originalPath: null },
+    { index: 'A', worktree: 'A', path: 'mask6', originalPath: null },
+    { index: 'U', worktree: 'U', path: 'mask7', originalPath: null }
   ]);
 }));
 
 test('real Git rejects nested dot components while ordinary branch names still parse', () => {
+  for (const branch of ['.hidden', 'topic/../leaf']) {
+    assert.throws(() => parseWorktreePorcelainZ(record(`HEAD ${oid}`, `branch refs/heads/${branch}`)), /branch field/);
+  }
+  for (const branch of ['main', 'topic/@name']) {
+    assert.equal(parseWorktreePorcelainZ(record(`HEAD ${oid}`, `branch refs/heads/${branch}`))[0]!.branch, branch);
+  }
   // Full refname validation is a repository-independent Git builtin, unlike
   // --branch shorthand expansion. Keep the native oracle without an unused
   // initialized repository, and do not select ambient configuration or traces.
@@ -104,7 +99,7 @@ test('real Git rejects nested dot components while ordinary branch names still p
   for (const branch of ['topic/.hidden', 'topic/.hidden/leaf']) {
     const response = git(['check-ref-format', `refs/heads/${branch}`]);
     assert.equal(response.error, undefined); assert.equal(response.status, 1);
-    assert.throws(() => parseWorktreePorcelainZ(record(`HEAD ${oid}`, `branch refs/heads/${branch}`)));
+    assert.throws(() => parseWorktreePorcelainZ(record(`HEAD ${oid}`, `branch refs/heads/${branch}`)), /branch field/);
   }
   for (const branch of ['topic/sub.name', '分支/主题']) {
     gitProtocolSuccess(git(['check-ref-format', `refs/heads/${branch}`]));

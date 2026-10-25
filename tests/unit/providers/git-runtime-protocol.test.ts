@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 import { gitReadCommandIsObservation } from '../../../src/adapters/providers/git-read/runtime/read-command.ts';
@@ -42,6 +42,8 @@ test('real Git keeps literal filename semantics despite a conflicting caller glo
 }));
 
 test('real Git treats admitted dash-prefixed filenames as data for every supported pathspec command', () => inRepository(async (root, git) => {
+  const trace = path.join(root, 'unadmitted-trace.log');
+  const statusEnvironment = canonicalGitChildEnvironment({}, { ...process.env, GIT_TRACE_SETUP: trace });
   writeFileSync(path.join(root, '--textconv'), 'original\n'); writeFileSync(path.join(root, '--cached'), 'cached\n');
   commandSucceeded(git(['add', '--', '--textconv', '--cached']));
   commandSucceeded(git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--no-gpg-sign', '--quiet', '-m', 'fixture']));
@@ -55,9 +57,10 @@ test('real Git treats admitted dash-prefixed filenames as data for every support
   ];
   for (const args of commands) {
     assert.equal(gitReadCommandIsObservation(args), true, JSON.stringify(args));
-    const output = commandSucceeded(git(args));
+    const output = commandSucceeded(git(args, args[0] === 'status' ? statusEnvironment : undefined));
     if (args[0] === 'ls-files') assert.equal(output, '--textconv\0');
   }
+  assert.equal(existsSync(trace), false);
   assert.equal(readFileSync(path.join(root, '--textconv'), 'utf8'), 'changed\n');
 }));
 
