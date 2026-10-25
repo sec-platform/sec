@@ -3,7 +3,7 @@ import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
-import { settleWorkspaceCallback } from './workspace-cleanup.ts';
+import { withRetainedBunTestCommands, type RetainedBunTestWorkspaceRun } from './process-resource.ts';
 
 export type GitProtocolCommand = (
   args: readonly string[], env?: NodeJS.ProcessEnv, input?: string | Uint8Array
@@ -13,7 +13,7 @@ export type GitProtocolCommand = (
  * authority issuer. Setup is independent of every environment/parser under test.
  * Only bounded local subprocesses and this fixture's own directory are used. */
 export async function inGitProtocolRepository(
-  run: (root: string, git: GitProtocolCommand, environment: Readonly<NodeJS.ProcessEnv>) => Promise<void>,
+  run: (root: string, git: GitProtocolCommand, environment: Readonly<NodeJS.ProcessEnv>, command: RetainedBunTestWorkspaceRun) => Promise<void>,
   objectFormat: 'sha1' | 'sha256' = 'sha1'
 ): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-protocol-'));
@@ -25,9 +25,9 @@ export async function inGitProtocolRepository(
   const git: GitProtocolCommand = (args, env = fixtureEnv, input) => spawnSync('git', [...args], {
     cwd: root, env, input, encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true
   });
-  return settleWorkspaceCallback(async () => {
+  return withRetainedBunTestCommands(root, async (command) => {
     gitProtocolSuccess(git(['init', '--quiet', `--object-format=${objectFormat}`]));
-    await run(root, git, fixtureEnv);
+    await run(root, git, fixtureEnv, command);
   }, async () => { rmSync(root, { recursive: true, force: true }); });
 }
 

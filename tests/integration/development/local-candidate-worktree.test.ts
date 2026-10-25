@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestCommands, type RetainedBunTestWorkspaceRun } from '../../testkit/process-resource.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 
@@ -85,12 +85,12 @@ function fixture() {
   }
 }
 
-async function withFixture(run: (value: ReturnType<typeof fixture>, lease: LocalCandidateWorktreeLease) => Promise<void>) {
+async function withFixture(run: (value: ReturnType<typeof fixture>, lease: LocalCandidateWorktreeLease, command: RetainedBunTestWorkspaceRun) => Promise<void>) {
   const value = fixture();
   let lease: LocalCandidateWorktreeLease | undefined;
-  return settleWorkspaceCallback(async () => {
+  return withRetainedBunTestCommands(value.root, async (command) => {
     lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
-    await run(value, lease);
+    await run(value, lease, command);
   }, async () => {
     await lease?.release();
     rmSync(value.ownedRoot, { recursive: true, force: true });
@@ -350,7 +350,7 @@ for (const interruptedReplacement of [false, true]) {
   test.skipIf(interruptedReplacement && process.platform !== 'win32')(interruptedReplacement
     ? 'Windows restart recovers the quarantined candidate marker without manufacturing prior Git closure'
     : 'restart cannot reconstruct authentic prior Git closure from candidate marker JSON', async () => {
-    await withFixture(async (value, lease) => {
+    await withFixture(async (value, lease, command) => {
       await lease.release();
       const bytes = readFileSync(lease.markerPath);
       if (interruptedReplacement) {
@@ -376,7 +376,7 @@ for (const interruptedReplacement of [false, true]) {
       const source = `import { acquireLocalCandidateWorktree } from ${JSON.stringify(modulePath)};
         try { const lease = await acquireLocalCandidateWorktree(${JSON.stringify(value.input)}); await lease.release(); process.exitCode = 2; }
         catch (error) { console.log(JSON.stringify({ reason: error.reason })); }`;
-      const result = await runRetainedBunTestCommand(['-e', source], { cwd: value.root, env: process.env,
+      const result = await command(['-e', source], { cwd: value.root, env: process.env,
         timeoutMs: 10_000 });
       expect(result.code).toBe(0);
       expect(JSON.parse(result.stdout.trim())).toEqual({ reason: 'prior-attempt-closure-unavailable' });
