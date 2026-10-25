@@ -466,7 +466,7 @@ describe('compiler dependency installation', () => {
       });
     }));
 
-  effectfulTest(test, 'reclaims a dead compiler install owner instead of timing out future development', {
+  effectfulTest(test, 'preserves dead compiler owners and reclaim markers without effect-closure evidence', {
     operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
     cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
   }, (effectfulContext) =>
@@ -481,27 +481,60 @@ describe('compiler dependency installation', () => {
       }, tempRoot);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       const lockPath = compilerCoordinationLockPath(tempRoot);
-      await withInjectedFile(lockPath, `${JSON.stringify({
+      const lockBytes = `${JSON.stringify({
         createdAt: '2026-01-01T00:00:00.000Z',
         pid: 2_147_483_647,
         token: 'dead-owner'
-      })}\n`, async () => {
-        let installCalls = 0;
-
-        const ready = await ensureCompilerDepsReady({
-          ...operation,
-          materialize: async (_args, command) => {
-            installCalls += 1;
-            await installCompilerDependencyFixture(command.cwd, 'recovered');
-            return { code: 0, stdout: 'ok', stderr: '' };
-          },
-          pollIntervalMs: 10,
-        }, tempRoot);
-
-        expect(ready.source).toBe('installed');
-        expect(installCalls).toBe(1);
-        await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
-      });
+      })}\n`;
+      for (const marker of ['absent', 'owned', 'legacy'] as const) {
+        await withInjectedFile(lockPath, lockBytes, async () => {
+          const original = observeNoFollowOwnedFile(lockPath, 'Dead compiler owner fixture');
+          if (original === null) throw new Error('Dead compiler owner fixture is absent.');
+          const reclaimPath = `${lockPath}.reclaim`;
+          let installCalls = 0;
+          const assertPreserved = async () => {
+            await expect(ensureCompilerDepsReady({
+              ...operation,
+              materialize: async () => {
+                installCalls += 1;
+                throw new Error('An unclosed compiler effect must not admit another installer.');
+              },
+              pollIntervalMs: 10
+            }, tempRoot)).rejects.toMatchObject({
+              code: 'RUNTIME-DEPS-003',
+              details: {
+                ownerRoot: tempRoot,
+                lockPath,
+                reclaimPath,
+                reason: marker === 'absent' ? 'owner-process-absent'
+                  : marker === 'owned' ? 'reclaim-owner-process-absent' : 'legacy-reclaim-without-closure',
+                recoveryRequired: true,
+                recoveryEntry: 'migrateDependencyTransitionJournal',
+                effectQuiescence: 'unproven'
+              }
+            });
+            expect(installCalls).toBe(0);
+            const retained = observeNoFollowOwnedFile(lockPath, 'Preserved dead compiler owner');
+            expect(retained).toMatchObject({ device: original.device, inode: original.inode, size: original.size });
+            expect(await fs.readFile(lockPath, 'utf8')).toBe(lockBytes);
+          };
+          if (marker === 'absent') {
+            await assertPreserved();
+            await expect(fs.lstat(reclaimPath)).rejects.toMatchObject({ code: 'ENOENT' });
+          } else {
+            const markerBytes = marker === 'legacy' ? '123e4567-e89b-42d3-a456-426614174000\n'
+              : `${JSON.stringify({ schema: 'sec-runtime-dependency-install-lock-reclaim-v1',
+                createdAt: '2026-01-01T00:00:00.000Z', pid: 2_147_483_647, token: 'dead-reclaimer',
+                lock: { device: original.device, inode: original.inode, size: original.size } })}\n`;
+            await withInjectedFile(reclaimPath, markerBytes, async () => {
+              const expired = new Date('2026-01-01T00:00:00.000Z');
+              await fs.utimes(reclaimPath, expired, expired);
+              await assertPreserved();
+              expect(await fs.readFile(reclaimPath, 'utf8')).toBe(markerBytes);
+            });
+          }
+        });
+      }
     }));
 
   effectfulTest(test, 'preserves an unissued legacy reclaim marker for explicit architecture migration', {

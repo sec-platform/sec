@@ -2399,9 +2399,30 @@ async function settleInstallLockOwnedFileDeletion(input: Readonly<{
   throw new Error('Unreachable install lock deletion settlement state.');
 }
 
+function compilerInstallLockRecoveryRequired(
+  ownerRoot: string,
+  lockPath: string,
+  reason: 'owner-process-absent' | 'reclaim-owner-process-absent' | 'legacy-reclaim-without-closure'
+): CodedFailure {
+  return new CodedFailure(
+    'RUNTIME-DEPS-003',
+    'Compiler dependency lock recovery requires proof that the original effects are closed; lock and stage are preserved',
+    {
+      ownerRoot,
+      lockPath,
+      reclaimPath: `${lockPath}.reclaim`,
+      reason,
+      recoveryRequired: true,
+      recoveryEntry: 'migrateDependencyTransitionJournal',
+      effectQuiescence: 'unproven'
+    }
+  );
+}
+
 async function reclaimOrphanInstallLock(
   lockPath: string,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationOptions,
+  compilerOwnerRoot?: string
 ): Promise<boolean> {
   const reclaimPath = `${lockPath}.reclaim`;
   const initialLockObservation = observeNoFollowOwnedFile(
@@ -2413,6 +2434,12 @@ async function reclaimOrphanInstallLock(
     readNoFollowOwnedFileJson(initialLockObservation, 'Install lock orphan candidate admission')
   );
   if (initialOwner === null || processIsAlive(initialOwner.pid)) return false;
+  // A retained compiler lock may protect an installer whose descendants did
+  // not settle. Parent death and elapsed time cannot authorize a competing
+  // installer or stage retirement. The original owner must recover that effect.
+  if (compilerOwnerRoot !== undefined) {
+    throw compilerInstallLockRecoveryRequired(compilerOwnerRoot, lockPath, 'owner-process-absent');
+  }
   const initialCreatedAtMs = Date.parse(initialOwner.createdAt);
   if (!Number.isFinite(initialCreatedAtMs) || Date.now() - initialCreatedAtMs < 5_000) return false;
   let reclaimMarker: Readonly<{
@@ -2554,7 +2581,8 @@ type InstallLockReclaimState = 'absent' | 'active' | 'terminal-handoff';
 async function reclaimLockState(
   reclaimPath: string,
   lockPath: string,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationOptions,
+  compilerOwnerRoot?: string
 ): Promise<InstallLockReclaimState> {
   const observation = observeNoFollowOwnedFile(reclaimPath, 'Install lock reclaim marker');
   if (observation === null) return 'absent';
@@ -2593,6 +2621,9 @@ async function reclaimLockState(
   })();
   if (owner !== null) {
     if (processIsAlive(owner.pid)) return 'active';
+    if (compilerOwnerRoot !== undefined) {
+      throw compilerInstallLockRecoveryRequired(compilerOwnerRoot, lockPath, 'reclaim-owner-process-absent');
+    }
     const createdAtMs = Date.parse(owner.createdAt);
     if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs < 5_000) return 'active';
     await settleInstallLockOwnedFileDeletion({
@@ -2620,6 +2651,9 @@ async function reclaimLockState(
   // any paired lock owner is also provably dead.  Unknown bytes remain a
   // typed preservation barrier.
   if (!isLegacyInstallLockReclaimBytes(bytes)) return 'active';
+  if (compilerOwnerRoot !== undefined) {
+    throw compilerInstallLockRecoveryRequired(compilerOwnerRoot, lockPath, 'legacy-reclaim-without-closure');
+  }
   let legacyMtimeMs: number;
   try {
     const stat = lstatSync(reclaimPath);
@@ -2728,7 +2762,8 @@ function runtimeDependencyInstallLockSettlementFailure(input: Readonly<{
 async function withInstallLock<T>(
   lockPath: string,
   options: RuntimeDependencyInstallOptions,
-  callback: () => Promise<T>
+  callback: () => Promise<T>,
+  compilerOwnerRoot?: string
 ): Promise<T> {
   const operationOptions = runtimeDependencyOperationOptions(options);
   const context = runtimeDependencyOperationContext(operationOptions);
@@ -2749,7 +2784,7 @@ async function withInstallLock<T>(
 
       while (true) {
         runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock admission');
-        const reclaimState = await reclaimLockState(`${lockPath}.reclaim`, lockPath, operationOptions);
+        const reclaimState = await reclaimLockState(`${lockPath}.reclaim`, lockPath, operationOptions, compilerOwnerRoot);
         if (reclaimState === 'terminal-handoff') {
           throw new InstallLockTerminalHandoffObservedError(lockPath);
         }
@@ -2807,7 +2842,7 @@ async function withInstallLock<T>(
         owner = null;
         ownerObservation = null;
         runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock orphan recovery');
-        if (await reclaimOrphanInstallLock(lockPath, operationOptions)) {
+        if (await reclaimOrphanInstallLock(lockPath, operationOptions, compilerOwnerRoot)) {
           runtimeDependencyOperationRemainingMs(operationOptions, 'Install lock orphan recovery readback');
           continue;
         }
@@ -3097,7 +3132,8 @@ export async function withCompilerDependencyCoordinationLease<T>(
         } finally {
           compilerDependencyCoordinationSessions.delete(operationOptions);
         }
-      }
+      },
+      root
     ) };
   } catch (error) {
     primary = { error };
@@ -3352,7 +3388,7 @@ async function migrateCompilerDependencyCoordination(
         coordinationRootPhysical: generatedStatePhysicalIdentity(coordinationRoot),
         workspaceLocatorKey: roots.workspaceLocatorKey
         });
-      });
+      }, root);
     } catch (error) {
       if (!(error instanceof InstallLockTerminalHandoffObservedError) ||
           !sameHostPath(error.lockPath, legacyLockPath)) throw error;

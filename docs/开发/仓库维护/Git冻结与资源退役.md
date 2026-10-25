@@ -90,6 +90,8 @@ CodeQL projection、真实 review submission、inline finding/thread、人工裁
 
 编译依赖阶段意图的退休在首个文件删除前持久发布绑定三阶段原字节与物理身份的标记；任一删除切点中断后，原 dependency owner 在相同协调租约内认证标记并续退。普通读取遇到该标记必须返回明确恢复入口，不把缺少阶段文件误判为外来残片。
 
+编译依赖锁保护的安装进程树尚未证明终结时，父 PID 缺席、锁龄或 reclaim 标记 TTL 都不能授权删除原锁、退休 stage 或启动竞争安装。当前及已认证旧协调位置的 compiler lock 保留原字节与物理对象，并返回绑定原 root、lock 和 `migrateDependencyTransitionJournal` 入口的 `recovery-required`；该提示不声称入口已经取得效果静止依据。原持有者在进程树真实结算后按准确 token／物理身份释放，以及已认证的协调 cutover、原租约内阶段和 journal 恢复仍可完成。无合格终结证据的崩溃锁恢复仍缺 pre-lease 启动检查点与后继完整启动接合，不能用下面仅针对旧 consumer 记录的恢复机制代签；Linux 也尚无相匹配的启动边界签发者。
+
 旧依赖占用记录丢失原持有者身份时，普通进程清单、目录可改名或重开一个新 capability 都不能证明原借用结束。Windows 恢复由原 dependency owner 的 `recoverObsoleteCompilerDependencyConsumers(root, generationPaths)` 承担：首次调用只将明确选择的非活动 canonical generation、原 acquired 字节及物理身份绑定到原生启动序列和最新完整启动事件，持久保存一个恢复意图，不撤销借用。再次调用复用该意图；只有原生启动序列与完整启动事件记录号都严格前进，且最新启动确认为完整启动时，才能退役这批旧代次记录。休眠、快速启动、未知事件版本、日志缺失或回退均不能满足条件。完整重启影响整个宿主，必须另有相应授权。
 
 恢复在原协调租约下先核全量新借用、活动 locator、owner 和物理身份；新增借用或漂移保留对象并阻断。合格的旧代次恢复直接退役原记录，不伪造正常 released 或旧 capability 的退休回执；之后复用原 consumer-zero、publisher proof 和物理 GC。恢复意图覆盖部分记录删除与物理清理中断，只有三个责任——记录退役、目录缺席回读及恢复意图自身删除——全部成立才完成；它不扩展为进程台账、常驻清理器或永久备份。无新借用且其余准入成立时，重启后调用同一函数即可续接，无须再指定目录。
