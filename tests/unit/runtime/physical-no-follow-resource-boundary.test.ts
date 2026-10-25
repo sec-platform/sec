@@ -2,6 +2,7 @@ import { expect, spyOn, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import * as treeObservation from '../../../src/adapters/runtime-state/physical/runtime/physical-directory-tree-observation.ts';
 
 import {
@@ -19,9 +20,17 @@ import {
 
 function fixture() {
   const workspace = mkdtempSync(path.join(tmpdir(), 'sec-physical-resource-boundary-'));
-  const source = path.join(workspace, 'source');
-  mkdirSync(source);
-  return { workspace, source, cleanup: () => rmSync(workspace, { recursive: true, force: true }) };
+  try {
+    const source = path.join(workspace, 'source');
+    mkdirSync(source);
+    return { workspace, source, cleanup: () => rmSync(workspace, { recursive: true, force: true }) };
+  } catch (error) {
+    settleResources({
+      primary: { label: 'physical-resource-fixture-construction', error },
+      cleanup: [{ label: 'physical-resource-fixture-root', settle: () => rmSync(workspace, { recursive: true, force: true }) }]
+    });
+    throw error;
+  }
 }
 
 function rootDescriptors(): number {

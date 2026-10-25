@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import {
   classifyCanonicalWorkspacePublicationFailure,
   deleteExpectedCanonicalWorkspaceFile,
@@ -10,9 +11,15 @@ import {
 } from '../../../src/adapters/filesystem/file-publication.ts';
 
 async function fixture(run: (root: string, target: string) => Promise<void>) {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-publication-snapshot-'));
-  const target = path.join(root, 'data', 'value.txt'); mkdirSync(path.dirname(target));
-  try { await run(root, target); } finally { rmSync(root, { recursive: true, force: true }); }
+  await withAcquiredResource({
+    operationLabel: 'publication-snapshot-fixture', resourceLabel: 'publication-snapshot-root',
+    acquire: () => mkdtempSync(path.join(tmpdir(), 'sec-publication-snapshot-')),
+    use: async root => {
+      const target = path.join(root, 'data', 'value.txt'); mkdirSync(path.dirname(target));
+      await run(root, target);
+    },
+    release: root => rmSync(root, { recursive: true, force: true })
+  });
 }
 
 test('rollback refuses a replacement file at the final deletion fence', async () => fixture(async (root, target) => {
