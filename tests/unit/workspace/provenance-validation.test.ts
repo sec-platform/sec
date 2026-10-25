@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -81,9 +82,13 @@ test('Provenance V1 rejects noncanonical artifact and verification evidence orde
 
 test('canonical Provenance reader returns null for physical absence', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-provenance-reader-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
     expect(readOptionalProvenanceFile(path.join(root, 'absent.json'), 'test Provenance')).toBeNull();
+  } catch (error) {
+    primary = { label: 'Provenance absence assertion', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'Provenance fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });

@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,6 +53,7 @@ function emptyGitTestImpactBase(): string {
 
 function sourceProvider(sources: Readonly<Record<string, string>>) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
     cpSync(emptyGitTestImpactBase(), root, { recursive: true });
     const fixtureSources = {
@@ -82,8 +84,11 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
       testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
+  } catch (error) {
+    primary = { label: 'source-provider fixture', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'source-provider root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 }
 

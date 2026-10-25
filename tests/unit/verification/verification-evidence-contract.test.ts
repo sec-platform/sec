@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { expect, spyOn, test } from 'bun:test';
 import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -139,6 +140,7 @@ test('reuse preserves known failure and never promotes non-pass to PASS', () => 
 
 test('verification evidence preserves configured ordinary output paths and invalidates the old artifact before execution', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-verification-evidence-output-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const parent = path.join(root, 'configured output 雪', 'nested');
     const target = path.join(parent, 'evidence.json');
@@ -157,14 +159,18 @@ test('verification evidence preserves configured ordinary output paths and inval
     CodexDevelopmentWriteVerificationEvidenceV4Atomic(target, failed);
     expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(failed);
     expect(readdirSync(parent)).toEqual(['evidence.json']);
+  } catch (error) {
+    primary = { label: 'evidence assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 for (const kind of ['symlink', 'hardlink'] as const) {
   test(`verification evidence preparation and publication preserve a ${kind} output and its source`, () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-verification-evidence-alias-'));
+    let primary: ResourceSettlementFailure | undefined;
     try {
       const source = path.join(root, 'source.json');
       const target = path.join(root, 'evidence.json');
@@ -186,14 +192,18 @@ for (const kind of ['symlink', 'hardlink'] as const) {
         expect(current.ino).toBe(identity.ino);
         expect(readdirSync(root).sort()).toEqual(originalNames);
       }
+    } catch (error) {
+      primary = { label: 'evidence assertions', error };
+      throw error;
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      settleResources({ primary, cleanup: [{ label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
     }
   });
 }
 
 test('verification evidence rejects a symlink parent before creating missing output directories', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-verification-evidence-parent-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const outside = path.join(root, 'outside');
     const alias = path.join(root, 'alias');
@@ -203,33 +213,44 @@ test('verification evidence rejects a symlink parent before creating missing out
     expect(() => CodexDevelopmentPrepareVerificationEvidenceTarget(target)).toThrow(physical.PhysicalNoFollowError);
     expect(() => CodexDevelopmentWriteVerificationEvidenceV4Atomic(target, evidence())).toThrow(physical.PhysicalNoFollowError);
     expect(readdirSync(outside)).toEqual([]);
+  } catch (error) {
+    primary = { label: 'evidence assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test.skipIf(process.platform !== 'linux')('verification evidence readback failure reports failure and preserves the already published effect', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-verification-evidence-readback-'));
-  const target = path.join(root, 'evidence.json');
-  writeFileSync(target, '{"stale":true}\n');
-  const next = evidence();
-  const originalRead = leafObservation.readNoFollowOrdinaryFile;
-  let finalReadbackObserved = false;
-  const spy = spyOn(leafObservation, 'readNoFollowOrdinaryFile').mockImplementation((...args) => {
-    const bytes = originalRead(...args);
-    if (args[0].path === root && args[1] === 'evidence.json') {
-      finalReadbackObserved = true;
-      return Buffer.from('{"readback":"corrupt"}\n');
-    }
-    return bytes;
-  });
+  const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
+    { label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }
+  ];
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    const target = path.join(root, 'evidence.json');
+    writeFileSync(target, '{"stale":true}\n');
+    const next = evidence();
+    const originalRead = leafObservation.readNoFollowOrdinaryFile;
+    let finalReadbackObserved = false;
+    const spy = spyOn(leafObservation, 'readNoFollowOrdinaryFile');
+    cleanup.unshift({ label: 'evidence readback spy', settle: () => spy.mockRestore() });
+    spy.mockImplementation((...args) => {
+      const bytes = originalRead(...args);
+      if (args[0].path === root && args[1] === 'evidence.json') {
+        finalReadbackObserved = true;
+        return Buffer.from('{"readback":"corrupt"}\n');
+      }
+      return bytes;
+    });
     expect(() => CodexDevelopmentWriteVerificationEvidenceV4Atomic(target, next)).toThrow(physical.PhysicalNoFollowError);
     expect(finalReadbackObserved).toBe(true);
     expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(next);
     expect(readdirSync(root)).toEqual(['evidence.json']);
+  } catch (error) {
+    primary = { label: 'evidence readback assertions', error };
+    throw error;
   } finally {
-    spy.mockRestore();
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary, cleanup });
   }
 });

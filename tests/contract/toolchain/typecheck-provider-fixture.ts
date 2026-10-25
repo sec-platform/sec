@@ -173,24 +173,20 @@ export async function writeNativeCheckerFixture(
   const aliasRoot = path.join(nodeModulesPath, '@typescript', 'native');
   const nativeRoot = path.join(nodeModulesPath, ...nativePackageName.split('/'));
   const executable = process.platform === 'win32' ? 'tsc.exe' : 'tsc';
-  await Promise.all([
-    fs.mkdir(path.join(aliasRoot, 'bin'), { recursive: true }),
-    fs.mkdir(path.join(nativeRoot, 'lib'), { recursive: true })
-  ]);
-  await Promise.all([
-    fs.writeFile(path.join(aliasRoot, 'package.json'), JSON.stringify({
-      name: 'typescript',
-      version,
-      bin: { tsc: './bin/tsc' },
-      optionalDependencies: { [nativePackageName]: version }
-    })),
-    fs.writeFile(path.join(aliasRoot, 'bin', 'tsc'), input.wrapperBytes ?? 'native-wrapper'),
-    fs.writeFile(path.join(nativeRoot, 'package.json'), JSON.stringify({
-      name: nativePackageName,
-      version: nativeVersion
-    })),
-    fs.writeFile(path.join(nativeRoot, 'lib', executable), input.executableBytes ?? 'native-executable')
-  ]);
+  await fs.mkdir(path.join(aliasRoot, 'bin'), { recursive: true });
+  await fs.mkdir(path.join(nativeRoot, 'lib'), { recursive: true });
+  await fs.writeFile(path.join(aliasRoot, 'package.json'), JSON.stringify({
+    name: 'typescript',
+    version,
+    bin: { tsc: './bin/tsc' },
+    optionalDependencies: { [nativePackageName]: version }
+  }));
+  await fs.writeFile(path.join(aliasRoot, 'bin', 'tsc'), input.wrapperBytes ?? 'native-wrapper');
+  await fs.writeFile(path.join(nativeRoot, 'package.json'), JSON.stringify({
+    name: nativePackageName,
+    version: nativeVersion
+  }));
+  await fs.writeFile(path.join(nativeRoot, 'lib', executable), input.executableBytes ?? 'native-executable');
   return nodeModulesPath;
 }
 

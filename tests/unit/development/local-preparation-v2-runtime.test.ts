@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -59,18 +60,28 @@ function stateFixture(operation: (input: { root: string; state: string; cache: s
   prepared: ReturnType<typeof preparation> }) => void) {
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-local-v2-'));
   const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
-  mkdirSync(root);
   const oldState = process.env.SEC_STATE_HOME, oldCache = process.env.SEC_CACHE_HOME;
-  process.env.SEC_STATE_HOME = state; process.env.SEC_CACHE_HOME = cache;
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    mkdirSync(root);
+    process.env.SEC_STATE_HOME = state; process.env.SEC_CACHE_HOME = cache;
     const layout = resolveSecRuntimeStateForRepository({ repositoryRoot: root, repository: 'sec-platform/sec' });
     const prepared = preparation();
     operation({ root, state, cache, prepared, records: path.join(layout.repositoryStateRoot, 'trusted-runtime',
       'local-preparation-v2', prepared.request.requestOperationId.slice(7)) });
+  } catch (error) {
+    primary = { label: 'V2 fixture callback', error };
+    throw error;
   } finally {
-    if (oldState === undefined) delete process.env.SEC_STATE_HOME; else process.env.SEC_STATE_HOME = oldState;
-    if (oldCache === undefined) delete process.env.SEC_CACHE_HOME; else process.env.SEC_CACHE_HOME = oldCache;
-    rmSync(parent, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [
+      { label: 'previous state home', settle: () => {
+        if (oldState === undefined) delete process.env.SEC_STATE_HOME; else process.env.SEC_STATE_HOME = oldState;
+      } },
+      { label: 'previous cache home', settle: () => {
+        if (oldCache === undefined) delete process.env.SEC_CACHE_HOME; else process.env.SEC_CACHE_HOME = oldCache;
+      } },
+      { label: 'V2 fixture root', settle: () => rmSync(parent, { recursive: true, force: true }) }
+    ] });
   }
 }
 

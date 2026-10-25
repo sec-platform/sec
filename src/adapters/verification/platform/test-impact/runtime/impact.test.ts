@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -29,6 +30,7 @@ function git(repositoryRoot: string, args: readonly string[]): string {
 
 test('observed local program edges continue through test helpers to runnable tests', () => {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-test-impact-observed-edge-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const sources = {
       'src/value.ts': 'export const value = 1;\n',
@@ -83,7 +85,10 @@ test('observed local program edges continue through test helpers to runnable tes
     });
     expect(selectTestsForSources(['src/value.json'], provider).fast).toEqual(['tests/unit/value.test.ts']);
     expect(compilation.testObservations.resourceReads.map(({ target }) => target)).toEqual(['src/value.json']);
+  } catch (error) {
+    primary = { label: 'observed-edge assertions', error };
+    throw error;
   } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'observed-edge root', settle: () => rmSync(repositoryRoot, { recursive: true, force: true }) }] });
   }
 });

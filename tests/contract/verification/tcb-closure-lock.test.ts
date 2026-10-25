@@ -191,8 +191,10 @@ test('TCB fixed native dependency entry retains its real transitive TypeScript s
 });
 
 test('TCB candidate root exclusively drives closure discovery and hashing', () => {
-  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-')));
+  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    const root = realpathSync.native(createdRoot);
     writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
     writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
     const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
@@ -211,14 +213,19 @@ test('TCB candidate root exclusively drives closure discovery and hashing', () =
       expect(lock.moduleContentDigests[module]).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
     }
     finalizeTcbClosureCandidateSnapshot(snapshot);
+  } catch (error) {
+    primary = { label: 'TCB candidate assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'TCB candidate root', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('one explicit candidate snapshot rejects discovery-to-hash mutation and missing-path appearance', () => {
-  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-snapshot-')));
+  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-snapshot-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    const root = realpathSync.native(createdRoot);
     writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
     writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
     const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
@@ -234,15 +241,25 @@ test('one explicit candidate snapshot rejects discovery-to-hash mutation and mis
     writeFileSync(path.join(root, 'appeared.ts'), 'export const appeared = true;\n', 'utf8');
     expect(() => finalizeTcbClosureCandidateSnapshot(missingSnapshot))
       .toThrow('after observing a missing module');
+  } catch (error) {
+    primary = { label: 'TCB candidate assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'TCB candidate root', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('TCB candidate root rejects aliases, traversal, and non-regular candidate leaves', () => {
-  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-negative-')));
-  const outside = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-outside-')));
+  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-negative-'));
+  const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
+    { label: 'TCB candidate root', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }
+  ];
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    const root = realpathSync.native(createdRoot);
+    const createdOutside = mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-outside-'));
+    cleanup.push({ label: 'TCB outside root', settle: () => rmSync(createdOutside, { recursive: true, force: true }) });
+    const outside = realpathSync.native(createdOutside);
     writeFileSync(path.join(root, 'entry.ts'), 'export const entry = 1;\n', 'utf8');
     writeFileSync(path.join(root, 'root-file'), 'not a directory\n', 'utf8');
     mkdirSync(path.join(root, 'directory.ts'));
@@ -278,9 +295,11 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
     expect(statSync(outsideFile, { bigint: true })).toMatchObject({
       dev: outsideIdentity.dev, ino: outsideIdentity.ino, nlink: outsideIdentity.nlink
     });
+  } catch (error) {
+    primary = { label: 'TCB candidate assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(outside, { recursive: true, force: true });
+    settleResources({ primary, cleanup });
   }
 });
 
