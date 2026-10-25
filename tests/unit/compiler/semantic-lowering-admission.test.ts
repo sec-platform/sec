@@ -46,18 +46,12 @@ async function fixture(run: (root: string) => Promise<void>) {
   }, async () => { rmSync(root, { recursive: true, force: true }); });
 }
 
-for (const targets of [['src/a.ts', 'src/a.ts'], ['src/a.ts', 'src/A.ts'], ['src/a', 'src/a/child.ts'], ['src/a/child.ts', 'src/a']]) {
-  test(`output ownership rejects conflicting file targets ${targets.join(' | ')}`, () => {
+test('semantic output ownership accepts distinct siblings but rejects duplicate identities and conflicting targets', () => {
+  for (const targets of [['src/a.ts', 'src/a.ts'], ['src/a.ts', 'src/A.ts'], ['src/a', 'src/a/child.ts'], ['src/a/child.ts', 'src/a']]) {
     const first = { ...task('one'), target: targets[0]! }, second = { ...task('two'), target: targets[1]! };
     assert.throws(() => assertUniqueSemanticOutputPaths([first, second]));
-  });
-}
-
-test('duplicate task identities cannot manufacture two independently published results', () => {
+  }
   assert.throws(() => assertUniqueSemanticOutputPaths([task('same'), { ...task('same'), target: 'src/other.ts' }]));
-});
-
-test('siblings and delimiter-like file names that do not contain each other remain admissible', () => {
   assert.doesNotThrow(() => assertUniqueSemanticOutputPaths([
     { ...task('one'), target: 'src/a.ts' }, { ...task('two'), target: 'src/a-test.ts' },
     { ...task('three'), target: 'src/a.tsx' }, { ...task('four'), target: 'src/a-test/child.ts' }

@@ -28,13 +28,11 @@ test('Block conflict selectors retain their own namespace alongside local Overri
   }
 });
 
-for (const field of [{ source: 'custom' }, { conflictsWith: [7] }, { reason: '   ' }, { foreign: true }, { entry: false }]) {
-  test(`direct validation refuses malformed structure ${JSON.stringify(field)}`, () => {
+test('Override admission rejects malformed fields and unauthorized paths, owners or conflicts', () => {
+  for (const field of [{ source: 'custom' }, { conflictsWith: [7] }, { reason: '   ' }, { foreign: true }, { entry: false }]) {
     assert.throws(() => validate({ overrides: [{ ...row(), ...field }] }), error => (error as { code?: string }).code === 'OVERRIDE-SCHEMA-001');
-  });
-}
+  }
 
-test('schema acceptance does not authorize a reserved target, duplicate owner or unknown conflict', () => {
   for (const input of [
     { overrides: [row('first', 'package.json')] },
     { overrides: [row('first', 'src/a.ts'), row('second', 'src/a.ts')] },

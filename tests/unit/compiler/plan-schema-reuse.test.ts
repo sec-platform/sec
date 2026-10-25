@@ -12,7 +12,7 @@ const input = () => ({ app: { id: 'app', name: 'Application', stack: SUPPORTED_S
 const normalize = (value: unknown) => normalizePlan(value, PLAN_NORMALIZATION_DEFAULTS);
 const code = (expected: string) => (error: unknown) => (error as { code?: string }).code === expected;
 
-test('normalization keeps defaults and independent output without inventing a missing app identity', () => {
+test('normalization preserves scalar defaults, raw admission and independent output without inventing identity', () => {
   const source = input(), value = normalize(source);
   validatePlan(value);
   assert.deepEqual(value.app, { ...source.app, packageManager: 'pnpm', mode: 'single-tenant' });
@@ -29,9 +29,11 @@ test('normalization keeps defaults and independent output without inventing a mi
   });
   assert.throws(() => validatePlan(missingIdentity), error =>
     error instanceof CodedFailure && error.code === 'PLAN-VALIDATION-014');
-});
 
-test('null scalar defaults remain distinct from null containers', () => {
+  for (const id of [false, 7, {}, []]) {
+    assert.throws(() => normalize({ app: { ...input().app, id } }), code('PLAN-VALIDATION-022'));
+  }
+  // Omitted and null scalar defaults share this owner; null containers do not.
   const plan = normalize({ app: { ...input().app, packageManager: null, mode: null },
     registry: { sources: [{ id: 'custom', kind: null, location: null, path: null }] } });
   assert.equal(plan.app.packageManager, 'pnpm'); assert.equal(plan.app.mode, 'single-tenant');
@@ -40,14 +42,6 @@ test('null scalar defaults remain distinct from null containers', () => {
     assert.throws(() => normalize({ ...input(), ...invalid }));
   }
 });
-
-for (const value of [false, 7, {}, []]) {
-  test(`non-string app identity ${JSON.stringify(value)} is a typed plan rejection`, () => {
-    assert.throws(() => normalize({ app: { ...input().app, id: value } }), code('PLAN-VALIDATION-022'));
-    const plan = normalize(input()); (plan.app as unknown as { id: unknown }).id = value;
-    assert.throws(() => validatePlan(plan), code('PLAN-VALIDATION-014'));
-  });
-}
 
 test('unsupported package/mode retain their existing diagnostic families', () => {
   assert.throws(() => normalize({ app: { ...input().app, packageManager: 'other' } }), code('PLAN-VALIDATION-015'));

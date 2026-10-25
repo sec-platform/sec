@@ -20,17 +20,6 @@ test('decoding preserves every supported severity and rule identity', () => {
   }
 });
 
-for (const fields of [
-  { id: '' }, { id: 'Upper' }, { id: 'with space' }, { severity: 'fatal' },
-  { rule: 'not-a-rule' }, { appliesTo: [] }, { appliesTo: ['Upper/Block'] },
-  { appliesTo: ['block/b', 'block/a'] }, { appliesTo: ['block/a', 'block/a'] },
-  { appliesTo: [1] }, { unknownField: true }
-]) {
-  test(`original policy declaration constraints remain strict: ${JSON.stringify(fields)}`, () => {
-    assert.equal(PolicyRuleSchema.safeParse({ ...policy(), ...fields }).success, false);
-  });
-}
-
 test('one source cannot choose between conflicting duplicates by encounter order', () => {
   const first = policy(), changed = { ...policy(), severity: 'error' };
   for (const policies of [[first, changed], [changed, first]]) {
@@ -49,7 +38,16 @@ test('schema parsing owns output arrays while leaving caller declarations unchan
   assert.deepEqual(second.policies[0]!.appliesTo, ['block/a', 'block/b']);
 });
 
-test('empty declared policy set stays legal but omitted or null containers are not invented', () => {
+test('policy fields and containers remain strict while an empty declared set stays legal', () => {
+  for (const fields of [
+  { id: '' }, { id: 'Upper' }, { id: 'with space' }, { severity: 'fatal' },
+  { rule: 'not-a-rule' }, { appliesTo: [] }, { appliesTo: ['Upper/Block'] },
+  { appliesTo: ['block/b', 'block/a'] }, { appliesTo: ['block/a', 'block/a'] },
+  { appliesTo: [1] }, { unknownField: true }
+]) {
+    assert.equal(PolicyRuleSchema.safeParse({ ...policy(), ...fields }).success, false);
+  }
+
   assert.deepEqual(PolicySpecSchema.parse({ policies: [] }), { policies: [] });
   for (const input of [{}, null, [], { policies: null }, { policies: [], authority: true }]) {
     assert.equal(PolicySpecSchema.safeParse(input).success, false);
