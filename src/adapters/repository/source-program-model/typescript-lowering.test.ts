@@ -1,14 +1,9 @@
 import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { compileTypeScriptSourceProgramModel } from './typescript.ts';
+import { moduleMembership } from './test/typescript-model-input.ts';
 
 test('TypeScript semantic compilation keeps production and test surfaces distinct while excluding resources', () => {
-  const moduleMembership = Object.freeze({
-    descriptors: Object.freeze([]),
-    graphRoots: Object.freeze([]),
-    moduleRoots: Object.freeze([]),
-    moduleForPath: () => null
-  });
   const files = [
     ['src/example.ts', 'export const productionValue = 1;\n'],
     ['tests/example.test.ts', 'export const mirroredTestValue = 2;\n'],
@@ -35,12 +30,6 @@ test('TypeScript semantic compilation keeps production and test surfaces distinc
 });
 
 test('TypeScript semantic references preserve aliases without treating shadowed or dynamic computed names as target references', () => {
-  const moduleMembership = Object.freeze({
-    descriptors: Object.freeze([]),
-    graphRoots: Object.freeze([]),
-    moduleRoots: Object.freeze([]),
-    moduleForPath: () => null
-  });
   const sources = [
     {
       path: 'src/bootstrap/reference-target.ts',

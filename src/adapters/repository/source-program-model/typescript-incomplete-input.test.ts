@@ -7,18 +7,13 @@ import {
   compileTypeScriptSourceProgramModelIncremental,
   releaseTypeScriptSourceProgramWorkspace
 } from './typescript.ts';
-
-const moduleMembership = Object.freeze({
-  descriptors: Object.freeze([]),
-  graphRoots: Object.freeze([]),
-  moduleRoots: Object.freeze([]),
-  moduleForPath: () => null
-});
+import { moduleMembership } from './test/typescript-model-input.ts';
 
 function input(source: string) {
+  const contentDigest = rawSha256(source);
   return {
-    sourceRevision: rawSha256(source),
-    files: [{ path: 'src/example.ts', source, contentDigest: rawSha256(source) }],
+    sourceRevision: contentDigest,
+    files: [{ path: 'src/example.ts', source, contentDigest }],
     moduleMembership
   };
 }

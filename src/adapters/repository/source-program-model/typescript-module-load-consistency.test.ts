@@ -12,11 +12,13 @@ import {
   releaseTypeScriptSourceProgramWorkspace,
   sourceProgramTypeScriptCompilerIdentity
 } from './typescript.ts';
+import { moduleMembership } from './test/typescript-model-input.ts';
 
-const moduleMembership = Object.freeze({
-  descriptors: Object.freeze([]), graphRoots: Object.freeze([]),
-  moduleRoots: Object.freeze([]), moduleForPath: () => null
+const targetSource = 'export const value = 1;';
+const targetFile = Object.freeze({
+  path: 'src/b.ts', source: targetSource, contentDigest: rawSha256(targetSource)
 });
+
 const cases = [
   ['ordinary same-named function', 'function require() {} require();', false, false],
   ['ordinary same-named parameter', "function run(require: () => void) { require(); }", false, false],
@@ -39,11 +41,9 @@ const cases = [
 for (const [name, source, hasDependency, unresolved] of cases) {
   test(`graph and semantic facts share loader identity: ${name}`, () => {
     try {
-      const files = [
-        { path: 'src/a.ts', source, contentDigest: rawSha256(source) },
-        { path: 'src/b.ts', source: 'export const value = 1;', contentDigest: rawSha256('export const value = 1;') }
-      ];
-      const model = compileTypeScriptSourceProgramModel({ sourceRevision: rawSha256(source), files, moduleMembership });
+      const sourceRevision = rawSha256(source);
+      const files = [{ path: 'src/a.ts', source, contentDigest: sourceRevision }, targetFile];
+      const model = compileTypeScriptSourceProgramModel({ sourceRevision, files, moduleMembership });
       const graph = compileSourceProgramRepositoryModuleGraph({ files: files.map(({ path }) => path),
         readSource: (path) => files.find((file) => file.path === path)?.source ?? null });
       const references = model.references.filter((reference) => reference.kind === 'import'
