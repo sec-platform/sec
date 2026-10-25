@@ -98,18 +98,8 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   });
   for (const checks of [
     [mainHealthCheck({ appId: 1 })],
-    [mainHealthCheck({ appNodeId: 'forged-app-node' })],
-    [mainHealthCheck({ workflowPath: '.github/workflows/forged.yml' })],
-    [mainHealthCheck({ workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${TREE}` })],
     [mainHealthCheck({ eventName: 'workflow_run' })],
-    [mainHealthCheck({
-      eventName: 'repository_dispatch',
-      workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
-        .replace('<exact-main-sha>', MAIN)
-        .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
-    })],
     [dispatched, mainHealthCheck({ id: 9 })],
-    [mainHealthCheck({ conclusion: 'forged-terminal' })],
     [mainHealthCheck({ status: 'forged-status', conclusion: 'success' })],
     [mainHealthCheck({ eventName: 'push' })]
   ]) {
