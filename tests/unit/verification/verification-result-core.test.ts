@@ -318,17 +318,17 @@ test('regression 8: cleanup failure after assertions pass → failed', () => {
 // ---------------------------------------------------------------------------
 
 test('validator rejects proof-shaped placeholders that do not describe an execution', () => {
-  const zeroInput = structuredClone(passedGate('zero-input', ['claim']));
+  const zeroInput = passedGate('zero-input', ['claim']);
   zeroInput.inputDigest = `sha256:${'0'.repeat(64)}`;
   expect(() => CodexDevelopmentAssertVerificationGateResult(zeroInput))
     .toThrow(/all-zero proof placeholder/);
 
-  const emptyInvocation = structuredClone(passedGate('empty-invocation', ['claim']));
+  const emptyInvocation = passedGate('empty-invocation', ['claim']);
   emptyInvocation.execution!.argv = [];
   expect(() => CodexDevelopmentAssertVerificationGateResult(emptyInvocation))
     .toThrow(/actual invocation/);
 
-  const epochExecution = structuredClone(passedGate('epoch-execution', ['claim']));
+  const epochExecution = passedGate('epoch-execution', ['claim']);
   epochExecution.execution!.startedAt = '1970-01-01T00:00:00.000Z';
   expect(() => CodexDevelopmentAssertVerificationGateResult(epochExecution))
     .toThrow(/real forward execution interval/);

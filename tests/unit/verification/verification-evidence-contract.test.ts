@@ -117,8 +117,7 @@ test('non-current evidence and forged Action plan/key cannot be promoted to V4 P
 });
 
 test('reuse preserves known failure and never promotes non-pass to PASS', () => {
-  const failed = gateEvidence(0, 'failed');
-  const reusedFailure = structuredClone(failed) as typeof failed;
+  const reusedFailure = gateEvidence(0, 'failed');
   (reusedFailure.result as { disposition: string; execution: unknown }).disposition = 'reused';
   (reusedFailure.result as { execution: unknown }).execution = null;
   (reusedFailure.result as { evidenceRefs: string[] }).evidenceRefs = ['artifact://known-failure'];

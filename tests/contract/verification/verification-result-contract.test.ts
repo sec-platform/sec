@@ -195,7 +195,8 @@ test('builder rejects invalid input', () => {
 // ---------------------------------------------------------------------------
 
 function canonicalAggregateFixture() {
-  const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
+  // Reader fixtures are independent ordinary wire data, not writer self-checks.
+  const gate: VerificationGateResult = { schema: VERIFICATION_GATE_RESULT_SCHEMA, ...minimalValidInput() };
   const claims = [{
     claimId: 'claim-1',
     requiredGateIds: ['gate-1'],
@@ -477,8 +478,8 @@ test('aggregate input is an exact ordinary container and snapshots trusted views
 
   let trustedCoverageExecutions = 0;
   const mutableInput: VerificationAggregateInput = {
-    claims: structuredClone(fixture.claims),
-    gateResults: structuredClone(fixture.gates),
+    claims: fixture.claims,
+    gateResults: fixture.gates,
     isCoverageComplete: (claim, gates) => {
       trustedCoverageExecutions += 1;
       (mutableInput.claims[0]!.requiredGateIds as string[]).length = 0;
@@ -506,9 +507,9 @@ test('aggregate input rejects top-level and nested Proxy views without executing
     trapCalls: topLevel.trapCalls
   });
 
-  const claimObject = recordedProxy(structuredClone(fixture.claims[0]!), true);
+  const claimObject = recordedProxy(fixture.claims[0]!, true);
   views.push({
-    input: { claims: [claimObject.proxy], gateResults: structuredClone(fixture.gates) },
+    input: { claims: [claimObject.proxy], gateResults: fixture.gates },
     trapCalls: claimObject.trapCalls
   });
 
@@ -516,7 +517,7 @@ test('aggregate input rejects top-level and nested Proxy views without executing
   const nestedGateArray = recordedProxy(nestedGateArrayTarget.requiredForClaims, true);
   nestedGateArrayTarget.requiredForClaims = nestedGateArray.proxy;
   views.push({
-    input: { claims: structuredClone(fixture.claims), gateResults: [nestedGateArrayTarget] },
+    input: { claims: fixture.claims, gateResults: [nestedGateArrayTarget] },
     trapCalls: nestedGateArray.trapCalls
   });
 
@@ -527,8 +528,8 @@ test('aggregate input rejects top-level and nested Proxy views without executing
   }, true);
   views.push({
     input: {
-      claims: structuredClone(fixture.claims),
-      gateResults: structuredClone(fixture.gates),
+      claims: fixture.claims,
+      gateResults: fixture.gates,
       isCoverageComplete: coverageCallback.proxy
     },
     trapCalls: coverageCallback.trapCalls
@@ -588,7 +589,7 @@ test('trusted claims and serialized passes cannot close vacuously', () => {
     gateResults: fixture.gates
   })).toThrow(/owningEnvironments must not be empty/);
 
-  const forgedPass = structuredClone(fixture.overall);
+  const forgedPass = fixture.overall;
   forgedPass.claimResults[0]!.contributingGateIds = [];
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
     forgedPass,
