@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { expect, test } from 'bun:test';
 import { stringify as stringifyYaml } from 'yaml';
@@ -122,12 +123,10 @@ async function withLedgerFixture(
   execute: (root: string) => Promise<void>
 ): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-docs-ledgers-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(path.join(root, 'config/external-capabilities'), { recursive: true });
     await execute(root);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, async () => { await rm(root, { recursive: true, force: true }); });
 }
 
 async function writeFixture(root: string, state: FixtureState): Promise<void> {

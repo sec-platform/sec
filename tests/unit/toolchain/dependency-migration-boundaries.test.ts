@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { inspectNoFollowDirectoryChain } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { generatedStatePhysicalIdentity, runtimeDependencySourceGenerationEpoch } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/contract.ts';
 import { migrateLegacyDependencyTransitionUnderLease, readDependencyTransitionMigrationIntents } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/migration.ts';
@@ -14,7 +15,9 @@ import { generatedStateDigest } from "../../../src/execution/generated-state/con
 // ordinary-FS physical and digest/codec boundaries explicitly; it is not FFI proof.
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-migration-boundary-'));
-  try { await run(root); } finally { rmSync(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(() => run(root), async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 }
 const control = () => runtimeDependencyOperationControls({ lockTimeoutMs: 20_000 });
 function legacy(root: string, phase: 'complete' | 'prepared' = 'complete') {
