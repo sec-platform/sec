@@ -568,6 +568,22 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
 
 
 
+async function withReducerFixture<T>(
+  options: Parameters<typeof reducerFixture>[0],
+  use: (fixture: Awaited<ReturnType<typeof reducerFixture>>) => Promise<T>
+): Promise<T> {
+  const fixture = await reducerFixture(options);
+  let fixtureFailure: ResourceSettlementFailure | undefined;
+  try {
+    return await use(fixture);
+  } catch (error) {
+    fixtureFailure = { label: 'session assertions', error };
+    throw error;
+  } finally {
+    settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
+  }
+}
+
 async function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
   return (await resumeHostedVerificationSession({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
@@ -1978,9 +1994,7 @@ describe('qualified exact-repository Session consumers', () => {
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('actual reducer recovers a crash after remote merge without a second merge or publication', async () => {
-  const fixture = (await reducerFixture());
-  let fixtureFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture(undefined, async (fixture) => {
     expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE',
       operationId: fixture.result.authorization.consumptionOperationId });
     // Models process loss after the remote merge but before any local journal
@@ -1992,18 +2006,11 @@ describe('qualified exact-repository Session consumers', () => {
     const observed = fixture.counters.closeoutObserve;
     expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED' });
     expect(fixture.counters.closeoutObserve).toBeGreaterThanOrEqual(observed);
-  } catch (error) {
-    fixtureFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-  }
+  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('durable comment and merge markers reconstruct terminal status without an Actions artifact', async () => {
-  const fixture = (await reducerFixture());
-  let fixtureFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture(undefined, async (fixture) => {
     const publication = durablePublication(fixture);
     const exactOpen = classifyDurableVerificationSessionProjection({
       repository: 'sec-platform/sec', request: fixture.request,
@@ -2030,67 +2037,39 @@ describe('qualified exact-repository Session consumers', () => {
       closeout: { closeoutOperationId: closeoutOperationId as `sha256:${string}`,
         commentId: 700, status: 'completed' }
     })).toMatchObject({ status: 'COMPLETED', closeoutCommentId: 700 });
-  } catch (error) {
-    fixtureFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-  }
+  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('MERGED recovery permits advanced main only when the marker commit remains reachable', async () => {
   const advancedMain = '8'.repeat(40);
-  const reachable = (await reducerFixture({ remoteDefaultSha: advancedMain,
-    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
-  let reachableFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture({ remoteDefaultSha: advancedMain,
+    mergeToDefault: { status: 'ahead', behindBy: 0 } }, async (reachable) => {
     reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
       reachable.artifact.session.sessionRevision);
     expect((await runReducer(reachable))).toMatchObject({ status: 'COMPLETED' });
-  } catch (error) {
-    reachableFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: reachableFailure, cleanup: [{ label: 'session fixture', settle: () => reachable.dispose() }] });
-  }
+  });
 
   for (const comparison of [
     { status: 'diverged', behindBy: 1 },
     { status: 'behind', behindBy: 1 }
   ] satisfies GitHubComparisonObservation[]) {
-    const blocked = (await reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison }));
-    let blockedFailure: ResourceSettlementFailure | undefined;
-    try {
+    await withReducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison }, async (blocked) => {
       blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
         blocked.artifact.session.sessionRevision);
       await expect((async () => (await runReducer(blocked)))()).rejects.toThrow(/ancestor|reachability/i);
-    } catch (error) {
-      blockedFailure = { label: 'session assertions', error };
-      throw error;
-    } finally {
-      settleResources({ primary: blockedFailure, cleanup: [{ label: 'session fixture', settle: () => blocked.dispose() }] });
-    }
+    });
   }
-  const invalidBase = (await reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } }));
-  let invalidBaseFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } }, async (invalidBase) => {
     invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
       invalidBase.artifact.session.sessionRevision);
     await expect((async () => (await runReducer(invalidBase)))()).rejects.toThrow(/old base ancestry/i);
-  } catch (error) {
-    invalidBaseFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: invalidBaseFailure, cleanup: [{ label: 'session fixture', settle: () => invalidBase.dispose() }] });
-  }
+  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('MERGED reachability permits detached old-base only with synchronized post-merge default', async () => {
   const advancedMain = '8'.repeat(40);
-  const fixture = (await reducerFixture({ remoteDefaultSha: advancedMain,
-    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
-  let fixtureFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture({ remoteDefaultSha: advancedMain,
+    mergeToDefault: { status: 'ahead', behindBy: 0 } }, async (fixture) => {
     fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
       fixture.artifact.session.sessionRevision);
     const candidate = fixture.transport.candidate();
@@ -2110,12 +2089,7 @@ describe('qualified exact-repository Session consumers', () => {
       proof: { ...proof, currentBranch: 'feature/foreign' } })))()).rejects.toThrow(/old-base trusted TCB/i);
     await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
       proof: { ...proof, currentHeadSha: HEAD } })))()).rejects.toThrow(/old-base trusted TCB/i);
-  } catch (error) {
-    fixtureFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-  }
+  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('actual reducer rejects OPEN base/head drift before any merge claim or effect', async () => {
@@ -2123,17 +2097,10 @@ describe('qualified exact-repository Session consumers', () => {
     ['baseSha', 'f'.repeat(40)],
     ['headSha', 'e'.repeat(40)]
   ] as const) {
-    const fixture = (await reducerFixture());
-    let fixtureFailure: ResourceSettlementFailure | undefined;
-    try {
+    await withReducerFixture(undefined, async (fixture) => {
       fixture.transport.observation = { ...fixture.transport.observation, [field]: value };
       await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/live .* drifted/i);
-    } catch (error) {
-      fixtureFailure = { label: 'session assertions', error };
-      throw error;
-    } finally {
-      settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-    }
+    });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -2142,16 +2109,9 @@ describe('qualified exact-repository Session consumers', () => {
     { authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' },
     { consumed: true }
   ]) {
-    const fixture = await reducerFixture(options);
-    let fixtureFailure: ResourceSettlementFailure | undefined;
-    try {
+    await withReducerFixture(options, async (fixture) => {
       await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/expired|already consumed/i);
-    } catch (error) {
-      fixtureFailure = { label: 'session assertions', error };
-      throw error;
-    } finally {
-      settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-    }
+    });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -2160,17 +2120,10 @@ describe('qualified exact-repository Session consumers', () => {
     { repository: 'attacker/fork' },
     { prNumber: 99 }
   ]) {
-    const fixture = (await reducerFixture());
-    let fixtureFailure: ResourceSettlementFailure | undefined;
-    try {
+    await withReducerFixture(undefined, async (fixture) => {
       fixture.setAuthorizationResult(substituteAuthorizationLiveIdentity(fixture, identity));
       await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/repository|prNumber/i);
-    } catch (error) {
-      fixtureFailure = { label: 'session assertions', error };
-      throw error;
-    } finally {
-      settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-    }
+    });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -2179,76 +2132,46 @@ describe('qualified exact-repository Session consumers', () => {
     (value: Record<string, any>) => { value.resultDigest = `sha256:${'f'.repeat(64)}`; },
     (value: Record<string, any>) => { value.provenance.sourceRunId = 'forged-run'; }
   ]) {
-    const fixture = (await reducerFixture());
-    let fixtureFailure: ResourceSettlementFailure | undefined;
-    try {
+    await withReducerFixture(undefined, async (fixture) => {
       const value = JSON.parse(encodeVerificationActionData(fixture.result)) as Record<string, any>;
       mutate(value);
       fixture.setAuthorizationResult(JSON.stringify(value));
       await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/digest|provenance|issuer/i);
-    } catch (error) {
-      fixtureFailure = { label: 'session assertions', error };
-      throw error;
-    } finally {
-      settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-    }
+    });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', async () => {
-  const mismatch = (await reducerFixture());
-  let mismatchFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture(undefined, async (mismatch) => {
     mismatch.transport.mergedTreeSha = 'd'.repeat(40);
     expect((await runReducer(mismatch))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
     mismatch.transport.adoptMerged(mismatch.markers, mismatch.result.reviewReceipt,
       mismatch.artifact.session.sessionRevision);
     await expect((async () => (await runReducer(mismatch)))()).rejects.toThrow(/marker-bound candidate\/tree identity/i);
-  } catch (error) {
-    mismatchFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: mismatchFailure, cleanup: [{ label: 'session fixture', settle: () => mismatch.dispose() }] });
-  }
+  });
   for (const terminal of ['blocked', 'residue'] as const) {
-    const fixture = (await reducerFixture({ closeout: terminal }));
-    let fixtureFailure: ResourceSettlementFailure | undefined;
-    try {
+    await withReducerFixture({ closeout: terminal }, async (fixture) => {
       expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
       fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
         fixture.artifact.session.sessionRevision);
       expect((await runReducer(fixture))).toMatchObject({ status: 'BLOCKED', reason: `branch closeout terminal ${terminal}` });
-    } catch (error) {
-      fixtureFailure = { label: 'session assertions', error };
-      throw error;
-    } finally {
-      settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-    }
+    });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('reducer emits one stable integration intent and never executes a physical merge', async () => {
-  const fixture = (await reducerFixture());
-  let fixtureFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture(undefined, async (fixture) => {
     const first = (await runReducer(fixture));
     const replay = (await runReducer(fixture));
     expect(first).toMatchObject({ status: 'READY_TO_INTEGRATE',
       operationId: fixture.result.authorization.consumptionOperationId });
     expect(replay).toMatchObject({ status: 'READY_TO_INTEGRATE', operationId: first.operationId });
-  } catch (error) {
-    fixtureFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: fixtureFailure, cleanup: [{ label: 'session fixture', settle: () => fixture.dispose() }] });
-  }
+  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', async () => {
   const stalePreGateAt = '2026-08-09T14:07:00.000Z';
-  const stalePreGate = (await reducerFixture({ mergeAt: stalePreGateAt }));
-  let stalePreGateFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withReducerFixture({ mergeAt: stalePreGateAt }, async (stalePreGate) => {
     expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
       .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
     expect(stalePreGate.result.authorization).toMatchObject({
@@ -2261,12 +2184,7 @@ describe('qualified exact-repository Session consumers', () => {
       .not.toBe(stalePreGate.artifact.preGateReview.receiptDigest);
     expect(stalePreGate.result.authorization.mainHealthReceiptDigest)
       .not.toBe(stalePreGate.artifact.mainHealth.ledgerDigest);
-  } catch (error) {
-    stalePreGateFailure = { label: 'session assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: stalePreGateFailure, cleanup: [{ label: 'session fixture', settle: () => stalePreGate.dispose() }] });
-  }
+  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 });
