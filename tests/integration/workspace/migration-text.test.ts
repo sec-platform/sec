@@ -10,7 +10,6 @@ test('text-append migration preserves existing content and creates missing paren
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), '- existing note\n', 'utf8');
 
     await applyMigrationEntries(
@@ -40,7 +39,6 @@ test('text-append migration rejects directory targets', async () => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
       applyMigrationEntries(workspaceRoot, manifestRoot, ['docs/upgrade-notes.md'], [textAppend('docs/upgrade-notes.md', '- first note\n')])

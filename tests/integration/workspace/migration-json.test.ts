@@ -59,9 +59,7 @@ test('config-rewrite migration updates and deletes nested and root JSON configur
 });
 
 test('config-rewrite migration rejects missing JSON targets', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await fs.mkdir(workspaceRoot, { recursive: true });
-
+  await withMigrationWorkspace(async ({ apply }) => {
     await expect(
       apply(['app.config.json'], [
         configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }])
@@ -143,8 +141,6 @@ test('json-array-remove migration rejects non-array targets', async () => {
 
 test('json-array-remove migration skips missing JSON targets', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await fs.mkdir(workspaceRoot, { recursive: true });
-
     await apply(['missing.config.json'], [jsonArrayRemove('missing.config.json', ['plugins'], ['auth'])]);
 
     await expect(fs.lstat(path.join(workspaceRoot, 'missing.config.json')))
@@ -260,7 +256,6 @@ test('migration preflight rejects scalar JSON array targets and parents without 
       document: { upgrade: 'legacy-scalar' } }
   ]) {
     await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
-      await fs.mkdir(manifestRoot, { recursive: true });
       const target = 'upgrade.metadata.json';
       const before = Buffer.from(JSON.stringify(scenario.document));
       await fs.writeFile(path.join(workspaceRoot, target), before);

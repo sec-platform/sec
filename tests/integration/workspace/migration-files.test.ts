@@ -105,7 +105,6 @@ test('copy-directory migration rejects file targets before copying', async () =>
 test('create-directory migration creates nested targets and preserves existing directories', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(manifestRoot, { recursive: true });
     const existingTarget = 'generated/reports/existing';
     await fs.mkdir(path.join(workspaceRoot, existingTarget), { recursive: true });
     const retainedFile = path.join(workspaceRoot, existingTarget, 'retained.txt');
@@ -127,7 +126,6 @@ test('create-directory migration rejects file targets', async () => {
     const manifestRoot = path.join(tempRoot, 'manifest');
     const target = 'generated/reports/snapshots';
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, target), 'occupied\n', 'utf8');
 
     await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)])).rejects.toMatchObject({
@@ -142,7 +140,6 @@ test('delete-file migration removes existing file targets', async () => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const target = 'generated/reports/old.json';
     const targetPath = path.join(workspaceRoot, 'generated', 'reports', 'old.json');
@@ -158,8 +155,6 @@ test('delete-file migration rejects missing targets', async () => {
   await withTempWorkspace(async (tempRoot) => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(workspaceRoot, { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const target = 'generated/reports/missing.json';
     await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)])).rejects.toMatchObject({
@@ -173,7 +168,6 @@ test('delete-file migration rejects directory targets', async () => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const target = 'generated/reports';
     await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)])).rejects.toMatchObject({
@@ -187,7 +181,6 @@ test('rename-file migration moves file targets', async () => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/old.json';
     const target = 'generated/reports/archive/old.json';
@@ -206,8 +199,6 @@ test('rename-file migration rejects missing sources', async () => {
   await withTempWorkspace(async (tempRoot) => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(workspaceRoot, { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/missing.json';
     const target = 'generated/reports/archive/missing.json';
@@ -222,7 +213,6 @@ test('rename-file migration rejects directory sources', async () => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports';
     const target = 'generated/archive';
@@ -238,7 +228,6 @@ test('rename-file migration rejects occupied targets', async () => {
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'archive'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/old.json';
     const target = 'generated/archive/old.json';
@@ -262,7 +251,6 @@ test('rename-directory migration moves directory targets', async () => {
     const sourcePath = path.join(workspaceRoot, 'generated', 'reports', 'current');
     const targetPath = path.join(workspaceRoot, 'generated', 'reports', 'archive', 'current');
     await fs.mkdir(sourcePath, { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
     await fs.writeFile(path.join(sourcePath, 'summary.json'), '{"status":"old"}\n', 'utf8');
 
     await applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameDirectory(source, target)]);
@@ -277,7 +265,6 @@ test('rename-directory migration rejects file sources', async () => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/current.json';
     const target = 'generated/reports/archive/current';
