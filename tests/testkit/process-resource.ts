@@ -9,6 +9,7 @@ import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
   runRetainedCommand,
+  retainedCommandFailureTreeClosed,
   type RetainedCommandResult,
   type RunRetainedCommandOptions
 } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
@@ -31,26 +32,37 @@ export async function runRetainedBunTestCommand(
   const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Test executable');
   let cwd: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   let primary: ResourceSettlementFailure | undefined;
+  let effectsSettled = true;
   try {
     cwd = retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(workingDirectory, 'Test working directory'),
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
       'Test working directory'
     );
-    return await runRetainedCommand(issueRetainedCommandBoundary({ executable, workingDirectory: cwd }), [...args], {
+    const boundary = issueRetainedCommandBoundary({ executable, workingDirectory: cwd });
+    const invocationArgs = [...args];
+    effectsSettled = false;
+    const result = await runRetainedCommand(boundary, invocationArgs, {
       ...runOptions,
       timeoutMs: runOptions.timeoutMs ?? 30_000,
       maxStdoutBytes: runOptions.maxStdoutBytes ?? 1024 * 1024,
       maxStderrBytes: runOptions.maxStderrBytes ?? 1024 * 1024
     });
+    effectsSettled = true;
+    return result;
   } catch (error) {
+    if (!effectsSettled) effectsSettled = retainedCommandFailureTreeClosed(error) === true;
     primary = { label: 'Retained Bun test command', error };
     throw error;
   } finally {
-    settleResources({ primary, cleanup: [
-      { label: 'Test working directory', settle: () => cwd?.dispose() },
-      { label: 'Test executable', settle: () => executable.dispose() }
-    ] });
+    // An unknown transport failure cannot retire the still-borrowed inputs.
+    // Keep the original error for callers; never trust its mutable outcome.
+    if (effectsSettled) {
+      settleResources({ primary, cleanup: [
+        { label: 'Test working directory', settle: () => cwd?.dispose() },
+        { label: 'Test executable', settle: () => executable.dispose() }
+      ] });
+    }
   }
 }
 
@@ -69,31 +81,41 @@ export async function runRetainedBunTestProcess(
   );
   let cwd: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   let primary: ResourceSettlementFailure | undefined;
+  let effectsSettled = true;
   try {
     cwd = retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(workingDirectory, 'Test working directory'),
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
       'Test working directory'
     );
-    return await context.session.run(issueRetainedCommandBoundary({
-      executable,
-      workingDirectory: cwd
-    }), [
+    const boundary = issueRetainedCommandBoundary({ executable, workingDirectory: cwd });
+    const invocationArgs = [
       '--no-env-file',
       '--eval',
       options.script ?? "process.stdout.write('verification-action')"
-    ], {
+    ];
+    const maxStderrBytes = options.maxStderrBytes ?? context.maxStderrBytes;
+    const maxStdoutBytes = options.maxStdoutBytes ?? context.maxStdoutBytes;
+    effectsSettled = false;
+    const result = await context.session.run(boundary, invocationArgs, {
       envMode: 'inherit',
-      maxStderrBytes: options.maxStderrBytes ?? context.maxStderrBytes,
-      maxStdoutBytes: options.maxStdoutBytes ?? context.maxStdoutBytes
+      maxStderrBytes,
+      maxStdoutBytes
     });
+    effectsSettled = true;
+    return result;
   } catch (error) {
+    if (!effectsSettled) effectsSettled = retainedCommandFailureTreeClosed(error) === true;
     primary = { label: 'Retained Bun session test process', error };
     throw error;
   } finally {
-    settleResources({ primary, cleanup: [
-      { label: 'Test working directory', settle: () => cwd?.dispose() },
-      { label: 'Test executable', settle: () => executable.dispose() }
-    ] });
+    // An unknown transport failure cannot retire the still-borrowed inputs.
+    // Keep the original error for callers; never trust its mutable outcome.
+    if (effectsSettled) {
+      settleResources({ primary, cleanup: [
+        { label: 'Test working directory', settle: () => cwd?.dispose() },
+        { label: 'Test executable', settle: () => executable.dispose() }
+      ] });
+    }
   }
 }
