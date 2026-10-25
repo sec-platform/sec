@@ -97,43 +97,6 @@ function publicationLock() {
   return buildReviewLock({ passStatus: { verify: 'failed' }, semanticLoweringTasks: [], semanticViews: buildSemanticViewFixture() });
 }
 
-test('Verification artifact publisher bytes round-trip through the canonical reader', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await ensureCanonicalWorkspaceArtifactParents(workspaceRoot);
-    const artifacts = blockedArtifactSet();
-    await publishVerificationArtifactSet({
-      workspaceRoot,
-      lock: publicationLock(),
-      artifacts
-    });
-
-    await expect(fs.access(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport)
-    ).then(() => true)).resolves.toBe(true);
-    expect(readOptionalCanonicalVerificationArtifactSet(workspaceRoot)).toEqual(artifacts);
-  });
-});
-
-test('Verification artifact reader resolves the native canonical inventory without path aliases', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const artifacts = blockedArtifactSet();
-    const publications = [
-      [CI_ARTIFACT_FILES.verificationReport, artifacts.verificationReport],
-      [CI_ARTIFACT_FILES.runtimeReport, artifacts.runtimeReport],
-      [CI_ARTIFACT_FILES.policyReport, artifacts.policyReport],
-      [CI_ARTIFACT_FILES.acceptanceCoverage, artifacts.acceptanceCoverage]
-    ] as const;
-
-    for (const [artifactPath, artifact] of publications) {
-      const filePath = resolveWorkspaceArtifactPath(workspaceRoot, artifactPath);
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
-    }
-
-    expect(readOptionalCanonicalVerificationArtifactSet(workspaceRoot)).toEqual(artifacts);
-  });
-});
-
 test('Verification artifact rejects duplicate, blank and noncanonical fast inventories', () => {
   for (const inventory of [
     ['unit/z.test.ts', 'unit/a.test.ts'],
@@ -187,6 +150,8 @@ test('publication captures one root, nested artifact set and receiver-bound fenc
       const published = await publishVerificationArtifactSet(input);
       assert.ok(input.calls > 1);
       assert.deepEqual(published, expected);
+      // The canonical reader needs only the four artifact leaves, not a Lock.
+      await fs.rm(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock));
       assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), expected);
       await assert.rejects(fs.access(path.join(workspaceRoot, 'retargeted')));
     } finally { process.chdir(previous); }

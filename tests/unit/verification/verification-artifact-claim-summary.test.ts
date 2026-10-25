@@ -309,6 +309,15 @@ test('canonical artifacts require coherent child exit and semantic evidence for 
     .toBe('blocked');
 
   const semantic = mutablePassedArtifact(shadowedPolicyReport());
+  const originalSummary = semantic.verificationReport.summary.claimSummary;
+  semantic.verificationReport.summary.claimSummary = {
+    gates: originalSummary.gates,
+    overall: {
+      claimResults: originalSummary.overall.claimResults,
+      overallReasonCode: originalSummary.overall.overallReasonCode,
+      overallStatus: originalSummary.overall.overallStatus
+    }
+  };
   expect(semantic.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
     .toMatchObject({ status: 'passed', supportedClaims: [PRODUCT_POLICY_CLAIM_ID] });
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(semantic)).toBe('passed');
@@ -513,18 +522,4 @@ test('duplicate identities and forged contribution references remain fail-closed
   forged.verificationReport.summary.claimSummary.overall.claimResults[0]!
     .contributingGateIds.push('forged-gate');
   expectBlocked(forged);
-});
-
-test('object member reordering preserves a semantically identical artifact', () => {
-  const candidate = mutablePassedArtifact();
-  const original = candidate.verificationReport.summary.claimSummary;
-  candidate.verificationReport.summary.claimSummary = {
-    gates: original.gates,
-    overall: {
-      claimResults: original.overall.claimResults,
-      overallReasonCode: original.overall.overallReasonCode,
-      overallStatus: original.overall.overallStatus
-    }
-  };
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('passed');
 });
