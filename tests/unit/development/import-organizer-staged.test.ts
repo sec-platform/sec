@@ -1,4 +1,3 @@
-import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { spawnSync } from 'node:child_process';
 import { access, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -113,24 +112,17 @@ async function copyOrganizerGitBase(prefix: string): Promise<Readonly<{
   }
 }
 
-async function prepareSnapshotCandidate(prefix: string): Promise<Readonly<{
-  repoRoot: string;
-  candidateBase: string;
-}>> {
+async function prepareSnapshotCandidate(
+  prefix: string, operation: (value: Readonly<{ repoRoot: string; candidateBase: string }>) => Promise<void>
+): Promise<void> {
   const { repoRoot, candidateBase } = await copyOrganizerGitBase(prefix);
   const fixturePath = path.join(repoRoot, 'fixture.ts');
-  try {
+  await settleWorkspaceCallback(async () => {
     await writeFile(fixturePath, source('unsorted'));
     git(repoRoot, ['add', 'fixture.ts']);
     await writeFile(fixturePath, `${source('unsorted')}// unstaged owner bytes\n`);
-    return Object.freeze({ repoRoot, candidateBase });
-  } catch (error) {
-    try { await rm(repoRoot, { recursive: true, force: true }); }
-    catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], 'Snapshot candidate preparation and cleanup both failed');
-    }
-    throw error;
-  }
+    await operation(Object.freeze({ repoRoot, candidateBase }));
+  }, async () => { await rm(repoRoot, { recursive: true, force: true }); });
 }
 
 test('staged organizer fast sentinel preserves working bytes while normalizing the index', async () => {
@@ -257,11 +249,10 @@ test.skipIf(process.platform !== 'linux')('candidate snapshot retained capabilit
 });
 
 test('candidate snapshot birth failure preserves the primary error without inventing retirement authority', async () => {
-  const { candidateBase, repoRoot } = await prepareSnapshotCandidate('sec-import-birth-failure-');
-  const primaryError = new Error('candidate birth primary failure');
-  let disposedCalls = 0;
-  let snapshotRelativePath: string | null = null;
-  await settleWorkspaceCallback(async () => {
+  await prepareSnapshotCandidate('sec-import-birth-failure-', async ({ candidateBase, repoRoot }) => {
+    const primaryError = new Error('candidate birth primary failure');
+    let disposedCalls = 0;
+    let snapshotRelativePath: string | null = null;
     let observedError: unknown;
     try {
       await runStagedIndexOnlyImportOrganizer(repoRoot, {
@@ -284,16 +275,13 @@ test('candidate snapshot birth failure preserves the primary error without inven
     expect(disposedCalls).toBe(0);
     expect(snapshotRelativePath).not.toBeNull();
     await access(path.join(repoRoot, ...snapshotRelativePath!.split('/')));
-  }, async () => {
-    await rm(repoRoot, { recursive: true, force: true });
   });
 });
 
 test('candidate snapshot cleanup records its failure after a successful birth without replacing the primary error', async () => {
-  const { candidateBase, repoRoot } = await prepareSnapshotCandidate('sec-import-cleanup-failure-');
-  const primaryError = new Error('candidate materialization primary failure');
-  const cleanupError = new Error('candidate lifecycle cleanup failure');
-  await settleWorkspaceCallback(async () => {
+  await prepareSnapshotCandidate('sec-import-cleanup-failure-', async ({ candidateBase, repoRoot }) => {
+    const primaryError = new Error('candidate materialization primary failure');
+    const cleanupError = new Error('candidate lifecycle cleanup failure');
     let observedError: unknown;
     try {
       await runStagedIndexOnlyImportOrganizer(repoRoot, {
@@ -314,63 +302,48 @@ test('candidate snapshot cleanup records its failure after a successful birth wi
     expect(observedError).toBeInstanceOf(AggregateError);
     const failures = [...(observedError as AggregateError).errors];
     expect(failures).toEqual([primaryError, cleanupError]);
-  }, async () => {
-    await rm(repoRoot, { recursive: true, force: true });
   });
 });
 
-async function prepareSynchronizedCandidate(prefix: string): Promise<Readonly<{
-  repoRoot: string;
-  fixturePath: string;
-  stagedBytes: Buffer;
-}>> {
+async function prepareSynchronizedCandidate(
+  prefix: string, operation: (value: Readonly<{ repoRoot: string; fixturePath: string; stagedBytes: Buffer }>) => Promise<void>
+): Promise<void> {
   const { repoRoot } = await copyOrganizerGitBase(prefix);
   const fixturePath = path.join(repoRoot, 'fixture.ts');
   const stagedBytes = Buffer.from(source('unsorted'));
-  try {
-    await writeFile(fixturePath, stagedBytes);
-    git(repoRoot, ['add', 'fixture.ts']);
-    return Object.freeze({ repoRoot, fixturePath, stagedBytes });
-  } catch (error) {
-    try { await rm(repoRoot, { recursive: true, force: true }); }
-    catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], 'Synchronized candidate preparation and cleanup both failed');
-    }
-    throw error;
-  }
-}
-
-test('synchronized staged apply publishes exact bytes to index and worktree without presenting source', async () => {
-  const { fixturePath, repoRoot } = await prepareSynchronizedCandidate('sec-import-sync-');
-  const largeSentinel = `PRESENTATION_MUST_NOT_CONTAIN_${'x'.repeat(256 * 1024)}`;
-  const stagedBytes = Buffer.from(`${source('unsorted')}// ${largeSentinel}\n`);
-  const messages: string[] = [];
-  const originalLog = console.log;
   await settleWorkspaceCallback(async () => {
     await writeFile(fixturePath, stagedBytes);
     git(repoRoot, ['add', 'fixture.ts']);
-    console.log = (...values: unknown[]) => {
-      messages.push(values.map(String).join(' '));
-    };
-    expect(await runSynchronizedStagedImportOrganizer(repoRoot)).toBe(0);
-    const expected = Buffer.from(`${source('sorted')}// ${largeSentinel}\n`);
-    expect(await readFile(fixturePath)).toEqual(expected);
-    const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
-    expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expected);
-    const presentation = messages.join('\n');
-    expect(presentation).not.toContain(largeSentinel);
-    expect(Buffer.byteLength(presentation, 'utf8')).toBeLessThan(1024);
-  }, async () => {
-    await settleResourcesAsync({ cleanup: [
-      { label: 'import-fixture-console', settle: () => { console.log = originalLog; } },
-      { label: 'import-fixture-root', settle: () => rm(repoRoot, { recursive: true, force: true }) }
-    ] });
+    await operation(Object.freeze({ repoRoot, fixturePath, stagedBytes }));
+  }, async () => { await rm(repoRoot, { recursive: true, force: true }); });
+}
+
+test('synchronized staged apply publishes exact bytes to index and worktree without presenting source', async () => {
+  await prepareSynchronizedCandidate('sec-import-sync-', async ({ fixturePath, repoRoot }) => {
+    const largeSentinel = `PRESENTATION_MUST_NOT_CONTAIN_${'x'.repeat(256 * 1024)}`;
+    const stagedBytes = Buffer.from(`${source('unsorted')}// ${largeSentinel}\n`);
+    const messages: string[] = [];
+    const originalLog = console.log;
+    await settleWorkspaceCallback(async () => {
+      await writeFile(fixturePath, stagedBytes);
+      git(repoRoot, ['add', 'fixture.ts']);
+      console.log = (...values: unknown[]) => {
+        messages.push(values.map(String).join(' '));
+      };
+      expect(await runSynchronizedStagedImportOrganizer(repoRoot)).toBe(0);
+      const expected = Buffer.from(`${source('sorted')}// ${largeSentinel}\n`);
+      expect(await readFile(fixturePath)).toEqual(expected);
+      const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
+      expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expected);
+      const presentation = messages.join('\n');
+      expect(presentation).not.toContain(largeSentinel);
+      expect(Buffer.byteLength(presentation, 'utf8')).toBeLessThan(1024);
+    }, async () => { console.log = originalLog; });
   });
 });
 
 test('synchronized staged apply accepts a target that normalizes back to the candidate base', async () => {
-  const { fixturePath, repoRoot } = await prepareSynchronizedCandidate('sec-import-sync-base-');
-  await settleWorkspaceCallback(async () => {
+  await prepareSynchronizedCandidate('sec-import-sync-base-', async ({ fixturePath, repoRoot }) => {
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
 
     expect(await runSynchronizedStagedImportOrganizer(repoRoot)).toBe(0);
@@ -380,14 +353,11 @@ test('synchronized staged apply accepts a target that normalizes back to the can
     const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
     expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expected);
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('');
-  }, async () => {
-    await rm(repoRoot, { recursive: true, force: true });
   });
 });
 
 test('synchronized staged apply rejects index-worktree drift with zero publication', async () => {
-  const { fixturePath, repoRoot, stagedBytes } = await prepareSynchronizedCandidate('sec-import-sync-drift-');
-  await settleWorkspaceCallback(async () => {
+  await prepareSynchronizedCandidate('sec-import-sync-drift-', async ({ fixturePath, repoRoot, stagedBytes }) => {
     const worktreeBytes = Buffer.concat([stagedBytes, Buffer.from('// unstaged owner bytes\n')]);
     await writeFile(fixturePath, worktreeBytes);
     const indexBefore = git(repoRoot, ['ls-files', '--stage', '-z'], true);
@@ -400,14 +370,11 @@ test('synchronized staged apply rejects index-worktree drift with zero publicati
     expect(observed).toMatchObject({ code: 'IMPORT-STAGED-WORKTREE-DIVERGED' });
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], true)).toEqual(indexBefore);
     expect(await readFile(fixturePath)).toEqual(worktreeBytes);
-  }, async () => {
-    await rm(repoRoot, { recursive: true, force: true });
   });
 });
 
 test('synchronized staged apply rolls back a pre-index failure and exposes durable recovery journals', async () => {
-  const { fixturePath, repoRoot, stagedBytes } = await prepareSynchronizedCandidate('sec-import-sync-rollback-');
-  await settleWorkspaceCallback(async () => {
+  await prepareSynchronizedCandidate('sec-import-sync-rollback-', async ({ fixturePath, repoRoot, stagedBytes }) => {
     const indexBefore = git(repoRoot, ['ls-files', '--stage', '-z'], true);
     let observed: unknown;
     try {
@@ -428,7 +395,5 @@ test('synchronized staged apply rolls back a pre-index failure and exposes durab
     });
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], true)).toEqual(indexBefore);
     expect((await readFile(fixturePath)).equals(stagedBytes)).toBe(true);
-  }, async () => {
-    await rm(repoRoot, { recursive: true, force: true });
   });
 });

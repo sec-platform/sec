@@ -1560,8 +1560,7 @@ test.skipIf(process.platform !== 'win32')('physical residue retry advances immut
 }, 60_000);
 
 test('execute resumes an exact operation tombstone and never deletes a rebuilt original path', async () => {
-  const value = fixture();
-  await settleWorkspaceCallback(async () => {
+  await withCloseoutFixture({}, async (value) => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1580,8 +1579,7 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
     expect(receipt.terminal).toBe('completed');
     expect(existsSync(tombstone.path)).toBe(false);
 
-    const second = fixture();
-    await settleWorkspaceCallback(async () => {
+    await withCloseoutFixture({}, async (second) => {
       const secondAuthorization = await prepareWorktreePhysicalCloseout({
         repositoryRoot: second.repository, targetPath: second.target, expectedBranch: second.branch,
         expectedHeadSha: second.headSha, expectedTreeSha: second.treeSha,
@@ -1600,11 +1598,7 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
       });
       expect(blocked.terminal).toBe('blocked');
       expect(readFileSync(path.join(second.target, 'new-owner.txt'), 'utf8')).toBe('must survive\n');
-    }, async () => {
-      rmSync(second.root, { recursive: true, force: true });
     });
-  }, async () => {
-    rmSync(value.root, { recursive: true, force: true });
   });
 }, 60_000);
 
