@@ -140,6 +140,108 @@ def checked_regressions(value, source_paths):
     return value['checks']
 
 
+def check_scoped_example(root: Path, project_path: Path, project, captured):
+    """Local membership/roots of self-contained finite examples, not a full Schema,
+    production Reader, external binding resolver or type checker.
+
+    Consume the original captured set and the existing scope-pattern grammar.
+    Empty source sets are valid drafts; missing selected roots are not.
+    """
+    from check_design import _scope_pattern_matches
+    sample = project_path.parent
+    scopes = []
+    declarations = project.get('sourceScopes')
+    if not isinstance(declarations, list):
+        raise ValueError('example sourceScopes must be an array')
+    for scope in declarations:
+        if (not isinstance(scope, dict) or not {'root', 'kind', 'editSource'} <= scope.keys()
+                or scope['kind'] not in ('semantic', 'native', 'asset', 'design', 'generated')
+                or not isinstance(scope['editSource'], dict)
+                or scope['editSource'].get('mode') not in ('file', 'projection', 'derived')):
+            raise ValueError('example invalid source scope declaration')
+        scope_root = sample if scope['root'] == '.' else local_path(sample, scope['root'])
+        includes, excludes = scope.get('include', ['**']), scope.get('exclude', [])
+        if not isinstance(includes, list) or not isinstance(excludes, list):
+            raise ValueError('example scope patterns must be arrays')
+        for pattern in includes + excludes:
+            _scope_pattern_matches('validation', pattern)
+        if scope['kind'] == 'semantic':
+            scopes.append((scope_root, includes, excludes))
+    supported = {'gift.author-module/1', 'gift.author-module/2',
+                 'gift.author-module/compact-design-draft', 'gift.author-module/design-converged'}
+    modules = {}
+    for name in sorted(captured):
+        path = root / name
+        matches = 0
+        for scope_root, includes, excludes in scopes:
+            if path.is_relative_to(scope_root):
+                relative = path.relative_to(scope_root).as_posix()
+                if (any(_scope_pattern_matches(relative, p) for p in includes)
+                        and not any(_scope_pattern_matches(relative, p) for p in excludes)):
+                    matches += 1
+        if not matches:
+            continue
+        if matches > 1:
+            raise ValueError('example overlapping semantic scopes: ' + name)
+        if path.suffix != '.json':
+            raise ValueError('example finite module check unsupported source: ' + name)
+        module = decode(source_bytes(root, name, captured), name)
+        if (not isinstance(module, dict) or not isinstance(module.get('schema'), str)
+                or module['schema'] not in supported):
+            raise ValueError('example module schema unsupported: ' + name)
+        module_id = module.get('moduleId')
+        if not isinstance(module_id, str) or not module_id:
+            raise ValueError('example module identity missing: ' + name)
+        if module_id in modules:
+            raise ValueError('example duplicate module identity: ' + module_id)
+        exports = module.get('exports', {})
+        if isinstance(exports, list):
+            if (module['schema'] not in ('gift.author-module/compact-design-draft',
+                                         'gift.author-module/design-converged')
+                    or not all(isinstance(name, str) for name in exports)
+                    or len(exports) != len(set(exports))):
+                raise ValueError('example invalid compact export set: ' + name)
+        elif not isinstance(exports, dict):
+            raise ValueError('example exports must be a map or supported short list: ' + name)
+        modules[module_id] = module
+    targets = project.get('targets', {})
+    if not isinstance(targets, dict):
+        raise ValueError('example targets must be an object')
+    if 'defaultTarget' in project:
+        if not isinstance(project['defaultTarget'], str) or project['defaultTarget'] not in targets:
+            raise ValueError('example default target missing')
+    for target in targets.values():
+        if not isinstance(target, dict) or not isinstance(target.get('outputRoots'), list):
+            raise ValueError('example target requires an outputRoots array')
+        roots, identities = target['outputRoots'], set()
+        for selected in roots:
+            if (not isinstance(selected, dict) or not isinstance(selected.get('moduleId'), str)
+                    or not selected['moduleId']):
+                raise ValueError('example root requires a module identity')
+            if 'export' in selected:
+                value = selected['export']
+                if (not isinstance(value, str)
+                        or any(0xD800 <= ord(c) <= 0xDFFF for c in value)):
+                    raise ValueError('example root export must be a scalar string')
+                # The old project/2 Identifier domain remains exact. This is a
+                # bounded selector check, not validation of the complete schema.
+                if project['schema'] == 'gift.project/2' and not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', value):
+                    raise ValueError('example project/2 root export requires ASCII Identifier')
+            if len(roots) > 1 and 'rootId' not in selected:
+                raise ValueError('example multiple roots require rootId')
+            if 'rootId' in selected:
+                if not isinstance(selected['rootId'], str) or not selected['rootId']:
+                    raise ValueError('example root identity must be nonempty text')
+                if selected['rootId'] in identities:
+                    raise ValueError('example duplicate root identity')
+                identities.add(selected['rootId'])
+            module = modules.get(selected['moduleId'])
+            if module is None:
+                raise ValueError('example root module missing from captured local set (external binding not checked): ' + selected['moduleId'])
+            if 'export' in selected and selected['export'] not in module.get('exports', {}):
+                raise ValueError('example root export missing: ' + repr(selected['export']))
+
+
 def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
     root = root.resolve()
     errors = []
@@ -185,6 +287,12 @@ def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
         sample = project_path.parent
         example_projects += 1
         project = source_json(project_path)
+        if project.get('schema') in ('gift.project/2', 'gift.project/design-converged'):
+            try:
+                check_scoped_example(root, project_path, project, captured)
+            except (ValueError, KeyError, TypeError) as exc:
+                errors.append(str(project_path.relative_to(root)) + ': ' + str(exc))
+            continue
         if project.get('schema') != 'gift.project/1':
             errors.append('example project schema unsupported: ' + str(project_path.relative_to(root)))
             continue
@@ -217,7 +325,10 @@ def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
             q = (p.parent / source).resolve()
             if not inside(q):
                 errors.append('example rule source missing/outside: ' + str(p.relative_to(root)))
-            elif not re.search(r'^#{1,6}\s+' + re.escape(section) + r'\s*$', read(q).decode('utf-8'), re.M):
+            elif (section not in anchor_locations(read(q).decode('utf-8'))
+                  and not any(section in (line.lstrip('#').strip(), plain_heading(line.lstrip('#').strip()))
+                              for _, line in markdown_visible_lines(read(q).decode('utf-8'))
+                              if re.match(r'^#{1,6}\s+', line))):
                 errors.append('example rule section missing: ' + str(p.relative_to(root)) + ':' + section)
     # Check only the current text. There is no historical path resolver.
     anchors = {}

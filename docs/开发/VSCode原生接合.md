@@ -5,9 +5,9 @@
 <a id="vscode-native-author-surface"></a>
 # VS Code 原生开发面：宿主接合、操作与失败边界
 
-本节拟归入现有`docs/开发/编辑审查与客户端.md`及其已有交叉引用，不新建客户端架构。当前任务的产品形态是安装在用户现有VS Code中的Gift扩展。它不发行独立IDE、不维护自己的窗口/文件树/终端/SCM/调试器，也不要求先进入一个Gift网页。此前独立HTML只保留为已结束用途的展示材料，不进入本包的活动产品方案。原规范提到的条件性Code-OSS发行不是本次工作，也不因此另开一条实施路线。
+本章拥有已选VS Code扩展的具体宿主接合；[编辑审查与客户端](编辑审查与客户端.md#human-workbench-product-selection)继续拥有客户端产品选择和共同操作责任。默认产品安装在用户现有VS Code中，复用原窗口、文件树、终端、SCM和调试器。条件性Code-OSS发行仍由原产品选择拥有，不进入本候选的实施包。
 
-当前main的Extension-first、十职责、六工具、统一作者身份、稀疏控制、同源编辑和headless不依赖GUI的决定继续成立。不能把用户本次对“壳子”和冗长JSON的批评解释成取消其他已有开发能力。第一层是常规作者责任边界，不是只剩一个自然语言输入框或一个JSON属性表。
+Extension-first、十职责、六工具、统一作者身份、稀疏控制、同源编辑和headless不依赖GUI的决定继续成立。第一层界面可以省略派生细节，完整开发能力与真实接受条件继续由其原owner承担。
 
 ## 1. 正常使用不是打开另一套工作台
 
@@ -102,6 +102,58 @@ VS Code官方`workspace.applyEdit`对纯文本WorkspaceEdit采用all-or-nothing�
 不要把`onWillSaveTextDocument`当不可绕过的安全门：官方说明某些保存可能不发该事件，监听器也有预算及失效行为。Gift能够治理自己的请求与能力，不能仅凭安装扩展就阻止用户、其他扩展或非协作进程修改文件；这种越界须在真实运行/发布边界重新验证，而非宣传编辑器级绝对强制。[VS Code API: onWillSaveTextDocument](https://code.visualstudio.com/api/references/vscode-api#workspace.onWillSaveTextDocument)。
 
 ## 5. 文本、语义编辑、格式化和撤销
+
+下图分别标明文本修改、保存和后续作用的真实完成边界；能力不足处保留准确缺项。
+
+```mermaid
+flowchart TB
+  buffer["VS Code TextDocument：URI、版本、文本"]
+  capture["workspace捕获缓冲与跨文件基础、编码及字节关系"]
+  plan["semantics：R0—R5与相交读集"]
+  candidate["application：新候选、保持项与差异"]
+  host["宿主adapter：实际前像与写入能力"]
+  edited["文本应用后读回与真实身份对应"]
+  save["明确保存请求：Provider前像、日志与结算"]
+  disk["持久读回与残余"]
+  adopt["另有请求才采用、构建或运行"]
+  candidate -->|内存路径按准确输入分别准入，不要求先保存| adopt
+  buffer -->|被选源层| capture
+  capture -->|准确基础| plan
+  plan -->|同一批次| candidate
+  candidate -->|获准文本修改| host
+  host -->|具备相应条件修改能力| edited
+  edited -->|新版本与原撤销栈| buffer
+  edited -->|保存另行准入| save
+  save -->|实际结果| disk
+  disk -->|分别准入| adopt
+```
+
+异步结果与作用恢复继续由原请求、候选及Operation负责；视图取消不重写现实状态。
+
+```mermaid
+flowchart TB
+  release["只释放本订阅；共享结果是否陈旧仍由基础决定"]
+  reply["异步结果或作用回执"]
+  basis["核原基础、请求代、生产者与真实作用状态"]
+  install["安装相匹配结果；不清别的诊断"]
+  stale["陈旧分析：保留准确历史或丢弃缓存"]
+  rebase["源已改变：保留B/L/U并重算候选"]
+  partial["部分写入或结算未知：保留Operation及前像"]
+  readback["原owner查回、协调、恢复或有权补偿"]
+  settled["分项结算与准确未结责任"]
+  cancel["关闭或取消等待"]
+  reply -->|不凭UI状态判断| basis
+  basis -->|输入和槽仍相容| install
+  basis -->|仅分析结果已过期| stale
+  basis -->|依赖或前像改变| rebase
+  basis -->|可能已产生作用| partial
+  partial -->|原操作身份| readback
+  readback -->|真实读取| settled
+  cancel -->|仅释放自己的订阅| release
+  cancel -->|未结作用仍保留| partial
+```
+
+第一层精确公开名的F2消费[名称修改扩展](../作者/组合/结构编辑与身份保持.md#first-layer-name-edit)，支持Name的准确空名、Unicode及分隔符。原authoring-assist的rename继续其已定义词法域；不能把空名塞入旧Action，或用纯文本删旧键/增新键宣称身份已保留。Role/局部变量仍由其原语言规则处理。
 
 `CodeAction`可以建议补imports、修类型、缩写、固定签名、移动定义或更改控制，但每项动作应准确说明是否为排版、等义表示、实现选择或要求变更；不能让“快速修复”自动删除独立约束。格式化不运行合成、不联网、不升级Schema、不删除显式钉死选择，也不把短源扩成长AST。
 

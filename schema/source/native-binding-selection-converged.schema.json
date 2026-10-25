@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:native-binding-selection-converged",
+  "title": "Candidate first-layer native selectors with exact public names",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "moduleId",
+    "language",
+    "profileRef",
+    "symbols"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.native-binding-selection/design-converged"
+    },
+    "moduleId": {
+      "$ref": "urn:gift:design-schema:native-binding-selection-1#/properties/moduleId"
+    },
+    "language": {
+      "$ref": "urn:gift:design-schema:native-binding-selection-1#/properties/language"
+    },
+    "profileRef": {
+      "$ref": "urn:gift:design-schema:native-binding-selection-1#/properties/profileRef"
+    },
+    "symbols": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourcePath",
+          "nativeExport",
+          "role"
+        ],
+        "properties": {
+          "sourcePath": {
+            "$ref": "urn:gift:design-schema:native-binding-selection-1#/properties/symbols/additionalProperties/properties/sourcePath"
+          },
+          "nativeExport": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name",
+            "description": "Exact native export spelling. The selected language Profile/compiler owns symbol existence and lexical qualification; unsupported exports remain Needs, never renamed implicitly."
+          },
+          "role": {
+            "$ref": "urn:gift:design-schema:native-binding-selection-1#/properties/symbols/additionalProperties/properties/role"
+          }
+        }
+      },
+      "minProperties": 1
+    }
+  }
+}
+

@@ -149,3 +149,125 @@ class ProjectionModes(TestCase):
         self.write('.documentation/documents.json',registry)
         with self.assertRaisesRegex(ValueError, 'example rule source missing/outside:'):
             check_docs.verify(self.root)
+
+    def test_rule_section_accepts_visible_stable_anchor_but_not_fenced_anchor(self):
+        sample = self.example()
+        module = s.load(sample / 'contracts/rules.json')
+        module['definitions']['r:Check']['body']['semantics']['section'] = 'stable'
+        self.write('examples/sample/contracts/rules.json', module)
+        owner = self.root / 'docs/产品/规则.md'
+        owner.write_text('<a id="stable"></a>\n## Behavior\n', encoding='utf-8')
+        check_docs.verify(self.root)
+        owner.write_text('```html\n<a id="stable"></a>\n```\n## Behavior\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'example rule section missing:'):
+            check_docs.verify(self.root)
+
+    def test_rule_section_preserves_original_heading_spelling(self):
+        sample = self.example()
+        module = s.load(sample / 'contracts/rules.json')
+        module['definitions']['r:Check']['body']['semantics']['section'] = '`Behavior`'
+        self.write('examples/sample/contracts/rules.json', module)
+        (self.root / 'docs/产品/规则.md').write_text('## `Behavior`\n', encoding='utf-8')
+        check_docs.verify(self.root)
+
+
+class ScopedExamples(TestCase):
+    def setUp(self):
+        self.temp = TemporaryDirectory(prefix='gift-scoped-examples-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.project_path = self.root / 'examples/sample/gift.project.json'
+        self.project = {'schema': 'gift.project/design-converged', 'sourceScopes': [
+            {'root': 'design', 'kind': 'semantic', 'include': ['**/*.json'],
+             'editSource': {'mode': 'file'}}], 'targets': {'one': {'outputRoots': [
+                {'moduleId': 'module:sample', 'export': ''}]}}}
+        self.module = {'schema': 'gift.author-module/design-converged',
+                       'moduleId': 'module:sample', 'exports': {'': {}, '中文': {}}}
+        self.captured = {}
+        self.put('examples/sample/design/app.json', self.module)
+
+    def put(self, name, value):
+        self.captured[name] = json.dumps(value, ensure_ascii=False).encode('utf-8')
+
+    def verify(self):
+        check_docs.check_scoped_example(self.root, self.project_path, self.project, self.captured)
+
+    def test_captured_scopes_and_exact_empty_export(self):
+        self.verify()  # No disk module or duplicate modules table is required.
+        self.module['exports'].pop('')
+        self.put('examples/sample/design/app.json', self.module)
+        with self.assertRaisesRegex(ValueError, 'root export missing'):
+            self.verify()
+        self.project['targets']['one']['outputRoots'][0].pop('export')
+        self.verify()  # Absence selects the remaining public set, not an empty name.
+
+    def test_duplicates_and_overlapping_owners_rejected(self):
+        self.put('examples/sample/design/other.json', self.module)
+        with self.assertRaisesRegex(ValueError, 'duplicate module identity'):
+            self.verify()
+        self.captured.pop('examples/sample/design/other.json')
+        self.project['sourceScopes'] *= 2
+        with self.assertRaisesRegex(ValueError, 'overlapping semantic scopes'):
+            self.verify()
+
+    def test_missing_root_and_excluded_member_rejected(self):
+        self.project['sourceScopes'][0]['exclude'] = ['app.json']
+        with self.assertRaisesRegex(ValueError, 'root module missing'):
+            self.verify()
+        self.project['targets'] = {}
+        self.verify()  # A captured empty draft is valid.
+
+    def test_empty_target_roots_remain_a_valid_non_generating_draft(self):
+        self.project['targets']['one']['outputRoots'] = []
+        self.verify()
+
+    def test_unknown_schema_and_escape_rejected(self):
+        self.module['schema'] = 'gift.author-module/unknown'
+        self.put('examples/sample/design/app.json', self.module)
+        with self.assertRaisesRegex(ValueError, 'module schema unsupported'):
+            self.verify()
+        self.project['sourceScopes'][0]['root'] = '../outside'
+        with self.assertRaisesRegex(ValueError, 'unsafe relative path'):
+            self.verify()
+
+    def test_multiple_roots_require_distinct_identity(self):
+        roots = self.project['targets']['one']['outputRoots']
+        roots.append({'moduleId': 'module:sample', 'export': '中文'})
+        with self.assertRaisesRegex(ValueError, 'multiple roots require rootId'):
+            self.verify()
+        for item in roots:
+            item['rootId'] = 'same'
+        with self.assertRaisesRegex(ValueError, 'duplicate root identity'):
+            self.verify()
+        roots[1]['rootId'] = 'other'
+        self.verify()
+
+    def test_project2_keeps_its_original_selector_domain(self):
+        self.project['schema'] = 'gift.project/2'
+        for name in ('', '中文', 'X\n'):
+            self.project['targets']['one']['outputRoots'][0]['export'] = name
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'ASCII Identifier'):
+                self.verify()
+        self.module['exports']['X'] = {}
+        self.put('examples/sample/design/app.json', self.module)
+        self.project['targets']['one']['outputRoots'][0]['export'] = 'X'
+        self.verify()
+
+    def test_consumed_shapes_cannot_masquerade_as_empty_or_public(self):
+        import copy
+        original = copy.deepcopy(self.project)
+        for mutation in (lambda p: p.update(targets=[]),
+                         lambda p: p.update(defaultTarget=[]),
+                         lambda p: p['sourceScopes'][0].update(kind='semantc'),
+                         lambda p: p['sourceScopes'][0].pop('editSource'),
+                         lambda p: p['targets']['one'].update(outputRoots=''),
+                         lambda p: p['targets']['one']['outputRoots'][0].update(rootId=[])):
+            self.project = copy.deepcopy(original)
+            mutation(self.project)
+            with self.assertRaises(ValueError):
+                self.verify()
+        self.project = original
+        self.module['exports'] = ''
+        self.put('examples/sample/design/app.json', self.module)
+        with self.assertRaisesRegex(ValueError, 'exports must be a map'):
+            self.verify()

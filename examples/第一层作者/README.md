@@ -1,5 +1,7 @@
 # 实际作者源与设计修订样本
 
+最终新Writer的入口是[名称与根完整工程](names-and-roots/README.md)：同一候选混用短形与完整形，保留中文/空公开名、Goal绑定及第二次跨文件修改。其[完整文法](../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)规定`design-converged`；下列旧画像继续作为准确前像和有限校准，不能由文件名自动迁移。
+
 所有JSON都是实际文件，不是截图或被省略的伪代码；本包没有提供生产Reader、编译器、VS Code扩展或生成目标。`compact-design-draft`明确防止未实现的新拼写被误当现行`/2`。
 
 `compatible/`是最初四个模块及project的完整/2前像。`proposed/`是同一内容和原条款身份的短写候选。两者是独立对照工程，不同时作为一个产品的活动源加载，也不要求作者长期双写。

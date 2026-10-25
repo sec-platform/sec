@@ -4,6 +4,7 @@
 
 | 结构身份 | 本地文件 | 实际范围 |
 |---|---|---|
+| urn:gift:design-schema:first-layer-names | [names.schema.json](names.schema.json) | 名称与三空间SourceRef的终结符；完整递归文法及不升级的词法/身份域由[编码owner](../../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)规定 |
 | urn:gift:design-schema:semantic-convergence | [semantic-convergence.schema.json](semantic-convergence.schema.json) | 专业模型/显式类型/操作语义样本的结构，不代签模型或类型资格 |
 | urn:gift:design-schema:surface-convergence | [surface-convergence.schema.json](surface-convergence.schema.json) | 四个精确局部短例，输入类型和规则由[surface-inputs.json](surface-inputs.json)与语义正文完整定义 |
 | urn:gift:design-schema:convergence-examples | [convergence-examples.schema.json](convergence-examples.schema.json) | 本次convergence与model-contracts模块的闭合校准外壳；**不是全部作者语言的新Schema**，不覆盖所有旧Body |
@@ -20,7 +21,7 @@ requirement旧方言仍由它原来的Body合同负责；本次只给实际校�
 
 专业模型的准确合同经实际Rule/Use绑定进入共同义务，引用者不重复书写模型已经确定的不变量；该条件合同不自动提供现实前提、实现资格或执行权限。来源、实例、条件及独立接受关系继续由[第一层作者](../../../docs/作者/第一层语言.md#inherited-contract-author-delta)和[编译承接](../../../docs/开发/第一层编译承接.md#inherited-contract-elaboration)接到原Requirement/BoundaryView、C0—C6及Claim，专业意义仍由本目录的精确语义拥有。
 
-[语言分层与26项范围](../../../docs/作者/表达范围与专业接合.md)定位编码、专业解释、决定坐标和阶段的区别；[验收](../../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)检查应用差异和下层责任，不增Schema字段、公共Interpret接口或另一套证明模型。上轮阅读接合没有改变供给成员；当前专业边界修订则同步修改下述语义、签名和结构，并重算两份供给摘要。NOT_IMPLEMENTED与有限画像限制保持，不沿用旧摘要或旧分析通过。
+[语言分层与26项范围](../../../docs/作者/表达范围与专业接合.md)定位编码、专业解释、决定坐标和阶段的区别；[验收](../../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)检查应用差异和下层责任。当前专业边界修订同步修改下述语义、签名和结构；名称闭包修订加入Name/SourceRef终结符及完整候选文法接合。两份供给摘要按各自列明成员共同重算，不覆盖正文链接到的全部外部规范，真实Reader仍须固定完整解析闭包。NOT_IMPLEMENTED与有限画像限制保持，不沿用失效摘要或旧分析通过。
 
 
 ## 专业边界修订的实际成员

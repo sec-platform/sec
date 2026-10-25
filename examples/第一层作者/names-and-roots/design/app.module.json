@@ -1,0 +1,65 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:names-app",
+  "imports": {
+    "逻辑/库": {
+      "workspace": "module:names-library"
+    }
+  },
+  "definitions": {
+    "保持结果": {
+      "kind": "intent:goal",
+      "body": {
+        "roles": {
+          "input": {
+            "typeRef": {
+              "space": "import",
+              "alias": "逻辑/库",
+              "export": "布尔"
+            },
+            "cardinality": "one"
+          },
+          "outcome": {
+            "typeRef": {
+              "space": "import",
+              "alias": "逻辑/库",
+              "export": "布尔"
+            },
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "same_result",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": {
+                "space": "import",
+                "alias": "逻辑/库",
+                "export": "一致/关系"
+              },
+              "bindings": {
+                "input": "input",
+                "outcome": "outcome"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "审核/发布": {
+      "import": "逻辑/库",
+      "export": "回传"
+    },
+    "": {
+      "import": "逻辑/库",
+      "export": "回传"
+    },
+    "需求": {
+      "definitionId": "保持结果"
+    }
+  }
+}

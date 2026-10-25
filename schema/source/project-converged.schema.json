@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:project-converged",
+  "title": "gift.project/design-converged — first-layer candidate project",
+  "$comment": "Complete candidate Project shape. Reuses unchanged project/2 contracts by exact locally frozen schema closure. Never selected by filename or by retrying after a /2 decoding failure. Production Reader, Target and source-snapshot qualification remain separate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projectId",
+    "sourceScopes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.project/design-converged"
+    },
+    "projectId": {
+      "$ref": "urn:gift:design-schema:project-2#/properties/projectId"
+    },
+    "sourceScopes": {
+      "$ref": "urn:gift:design-schema:project-2#/properties/sourceScopes"
+    },
+    "targets": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "urn:gift:design-schema:project-2#/properties/targets/propertyNames"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Target"
+      }
+    },
+    "defaultTarget": {
+      "$ref": "urn:gift:design-schema:project-2#/properties/defaultTarget"
+    },
+    "annotations": {
+      "$ref": "urn:gift:design-schema:project-2#/properties/annotations"
+    }
+  },
+  "$defs": {
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileRef",
+        "outputRoots"
+      ],
+      "properties": {
+        "profileRef": {
+          "$ref": "urn:gift:design-schema:project-2#/$defs/Target/properties/profileRef"
+        },
+        "outputRoots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputRoot"
+          },
+          "allOf": [
+            {
+              "if": {
+                "minItems": 2
+              },
+              "then": {
+                "items": {
+                  "required": [
+                    "rootId"
+                  ]
+                }
+              }
+            }
+          ],
+          "description": "Explicit export including empty selects one exact public name; omitted export selects the fixed published set. Duplicate root identity and binding are domain errors."
+        },
+        "parameters": {
+          "$ref": "urn:gift:design-schema:project-2#/$defs/Json"
+        }
+      }
+    },
+    "OutputRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/moduleId"
+        },
+        "rootId": {
+          "$ref": "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/rootId"
+        },
+        "export": {
+          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+        },
+        "contextBindings": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/contextBindings/propertyNames"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/BusinessRoleActual"
+          },
+          "description": "Context role binder names retain their existing domain. SourceRef positions alone use the candidate reference grammar; runtime object identity and Grant qualification remain external."
+        }
+      }
+    },
+    "BusinessRoleActual": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "ref"
+          ],
+          "properties": {
+            "source": {
+              "const": "definition"
+            },
+            "ref": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
+            }
+          }
+        },
+        {
+          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessRoleActual/oneOf/1"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "objectRef",
+            "typeRef",
+            "issuerRef",
+            "scopeRef"
+          ],
+          "properties": {
+            "source": {
+              "const": "object"
+            },
+            "objectRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "typeRef": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
+            },
+            "issuerRef": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
+            },
+            "scopeRef": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "collectionRef",
+            "cardinality"
+          ],
+          "properties": {
+            "source": {
+              "const": "collection"
+            },
+            "collectionRef": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
+            },
+            "cardinality": {
+              "enum": [
+                "set",
+                "bag",
+                "sequence"
+              ]
+            },
+            "completenessRef": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

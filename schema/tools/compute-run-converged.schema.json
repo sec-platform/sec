@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:compute-run-converged",
+  "title": "Negotiated first-layer source entry name profile (design only)",
+  "$comment": "Same operation lifecycle and effects contract as compute-run-1. Negotiate this exact schema and source profile before sending; no silent retry against /1.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ComputeBuild"
+    },
+    {
+      "$ref": "#/$defs/ComputeRun"
+    },
+    {
+      "$ref": "#/$defs/ComputeEval"
+    }
+  ],
+  "$defs": {
+    "ComputeBuild": {
+      "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeBuild"
+    },
+    "ComputeRun": {
+      "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeRun"
+    },
+    "ComputeEval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "kind",
+        "requestId",
+        "candidateRef",
+        "entryRef",
+        "argumentsRef"
+      ],
+      "properties": {
+        "action": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/action"
+        },
+        "kind": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/kind"
+        },
+        "requestId": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/requestId"
+        },
+        "return": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/return"
+        },
+        "candidateRef": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/candidateRef"
+        },
+        "entryRef": {
+          "$ref": "#/$defs/SourceEntryRef"
+        },
+        "argumentsRef": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/argumentsRef"
+        },
+        "target": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/target"
+        }
+      }
+    },
+    "SourceEntryRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "export"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "urn:gift:design-schema:compute-run-1#/$defs/SourceEntryRef/properties/moduleId"
+        },
+        "export": {
+          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+        }
+      }
+    }
+  }
+}
+

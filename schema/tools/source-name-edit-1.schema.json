@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:source-name-edit-1",
+  "title": "Exact source-name edit payload for the existing semantic-change/1 extension branch",
+  "$comment": "Design only, not executable supply. A qualified binding for this schema must implement the existing R0-R5 rename contract in docs/作者/组合/结构编辑与身份保持.md#first-layer-name-edit. The outer semantic-change base supplies the immutable candidate. No new tool, operation writer or permission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "subject",
+    "name"
+  ],
+  "properties": {
+    "subject": {
+      "$ref": "urn:gift:design-schema:semantic-change-1#/$defs/Ref"
+    },
+    "name": {
+      "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+    }
+  }
+}

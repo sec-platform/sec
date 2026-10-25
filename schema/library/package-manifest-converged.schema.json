@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:package-manifest-converged",
+  "title": "Candidate first-layer package selectors; original publication owners retained",
+  "$comment": "Selected only with the design-converged source profile. Old package /1 is unchanged. Export absence selects the public set; empty string selects the actual empty public name. Schema checks no binding, Unicode scalar validity, publication or trust.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projectId",
+    "package",
+    "version",
+    "exports"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.package-manifest/design-converged"
+    },
+    "projectId": {
+      "$ref": "urn:gift:design-schema:package-manifest-1#/properties/projectId"
+    },
+    "package": {
+      "$ref": "urn:gift:design-schema:package-manifest-1#/properties/package"
+    },
+    "version": {
+      "$ref": "urn:gift:design-schema:package-manifest-1#/properties/version"
+    },
+    "exports": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^\\.(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*)?$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moduleId"
+        ],
+        "properties": {
+          "moduleId": {
+            "$ref": "urn:gift:design-schema:package-manifest-1#/properties/exports/additionalProperties/properties/moduleId"
+          },
+          "export": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      }
+    },
+    "requests": {
+      "$ref": "urn:gift:design-schema:package-manifest-1#/properties/requests"
+    },
+    "variants": {
+      "$ref": "urn:gift:design-schema:package-manifest-1#/properties/variants"
+    }
+  }
+}
+

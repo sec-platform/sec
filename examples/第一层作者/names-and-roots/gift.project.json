@@ -1,0 +1,55 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:names-and-roots",
+  "sourceScopes": [
+    {
+      "root": "design",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "*.module.json"
+      ]
+    },
+    {
+      "root": "library",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "*.module.json"
+      ]
+    }
+  ],
+  "targets": {
+    "named": {
+      "profileRef": {
+        "id": "design:ts-esm-exact-export",
+        "revision": "1"
+      },
+      "outputRoots": [
+        {
+          "rootId": "public",
+          "moduleId": "module:names-app",
+          "export": "审核/发布"
+        }
+      ]
+    },
+    "empty": {
+      "profileRef": {
+        "id": "design:ts-esm-exact-export",
+        "revision": "1"
+      },
+      "outputRoots": [
+        {
+          "rootId": "empty",
+          "moduleId": "module:names-app",
+          "export": ""
+        }
+      ]
+    }
+  },
+  "defaultTarget": "named"
+}

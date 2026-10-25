@@ -1,0 +1,84 @@
+{
+  "purpose": "Finite design counterexamples and expected source selections; not runtime observations or a new tool protocol",
+  "moduleId": "module:names-app",
+  "selectors": [
+    {
+      "selector": {
+        "moduleId": "module:names-app",
+        "export": "审核/发布"
+      },
+      "expectedExports": [
+        "审核/发布"
+      ]
+    },
+    {
+      "selector": {
+        "moduleId": "module:names-app",
+        "export": ""
+      },
+      "expectedExports": [
+        ""
+      ]
+    },
+    {
+      "selector": {
+        "moduleId": "module:names-app"
+      },
+      "expectedExports": [
+        "审核/发布",
+        "",
+        "需求"
+      ]
+    },
+    {
+      "selector": {
+        "moduleId": "module:names-app",
+        "export": "不存在"
+      },
+      "expected": "unresolved-public-export"
+    }
+  ],
+  "rename": {
+    "subjectKind": "public-export",
+    "from": "审核/发布",
+    "to": "审核/发布 v2",
+    "preserve": [
+      "moduleId",
+      "Definition identity",
+      "rootId public",
+      "empty export",
+      "Goal clause same_result"
+    ],
+    "update": [
+      "design/app.module.json exports key",
+      "gift.project.json targets.named.outputRoots[0].export"
+    ],
+    "unmappedTextIsNotIdentityProof": true
+  },
+  "nameBoundary": {
+    "validNames": [
+      "",
+      "审核/发布",
+      "a~b",
+      "__proto__",
+      "constructor",
+      "A😀中B"
+    ],
+    "retainedIdentifierRejects": [
+      "",
+      "中文",
+      "a/b"
+    ]
+  },
+  "dataBoundary": {
+    "text": "local:布尔",
+    "json": {
+      "space": "local",
+      "definition": "不是引用",
+      "all": [
+        1,
+        2
+      ]
+    }
+  }
+}

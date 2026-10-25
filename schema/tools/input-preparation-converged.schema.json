@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:input-preparation-converged",
+  "title": "Negotiated passive inputs for the first-layer name profile (design only)",
+  "description": "propose({draft:{kind:'prepare-input'}}) only; no author candidate, no effect, no arbitrary Expr evaluation. A prepared input is a bounded immutable context-bound reference.",
+  "$comment": "Same bounded immutable input service; request, prepared and needs-input subjects use one SourceEntryRef. Rebind recursive record/list values to this candidate grammar. No arbitrary evaluation, implicit effects or wider opaque handles.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "purpose",
+            "subject",
+            "values"
+          ],
+          "properties": {
+            "kind": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/0/properties/draft/properties/kind"
+            },
+            "purpose": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/0/properties/draft/properties/purpose"
+            },
+            "subject": {
+              "$ref": "#/$defs/ArgumentsSubject"
+            },
+            "values": {
+              "$ref": "#/$defs/ArgumentsValues"
+            },
+            "methodRef": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/0/properties/draft/properties/methodRef"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "purpose",
+            "subject",
+            "values"
+          ],
+          "properties": {
+            "kind": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/1/properties/draft/properties/kind"
+            },
+            "purpose": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/1/properties/draft/properties/purpose"
+            },
+            "subject": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/1/properties/draft/properties/subject"
+            },
+            "values": {
+              "$ref": "#/$defs/PassiveExpr"
+            },
+            "methodRef": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/1/properties/draft/properties/methodRef"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "purpose",
+            "subject",
+            "values"
+          ],
+          "properties": {
+            "kind": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/2/properties/draft/properties/kind"
+            },
+            "purpose": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/2/properties/draft/properties/purpose"
+            },
+            "subject": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/2/properties/draft/properties/subject"
+            },
+            "values": {
+              "$ref": "#/$defs/PassiveExpr"
+            },
+            "methodRef": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/oneOf/2/properties/draft/properties/methodRef"
+            }
+          }
+        }
+      }
+    },
+    {
+      "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/ProcessInputPreparation"
+    }
+  ],
+  "$defs": {
+    "Ref": {
+      "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/Ref"
+    },
+    "ArgumentsSubject": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "entryRef"
+          ],
+          "properties": {
+            "candidateRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "entryRef": {
+              "$ref": "urn:gift:design-schema:compute-run-converged#/$defs/SourceEntryRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifactRef",
+            "entryRef"
+          ],
+          "properties": {
+            "artifactRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "entryRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      ]
+    },
+    "ArgumentsValues": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PassiveRecord"
+        },
+        {
+          "$ref": "#/$defs/PassiveList"
+        }
+      ]
+    },
+    "PassiveExpr": {
+      "oneOf": [
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PassiveExpr/oneOf/0"
+        },
+        {
+          "$ref": "#/$defs/PassiveRecord"
+        },
+        {
+          "$ref": "#/$defs/PassiveList"
+        },
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PassiveExpr/oneOf/3"
+        }
+      ],
+      "description": "Only literal/record/list/reference recursive passive expressions. Calls, getters, lambda, let, operators, evaluation, IO and target effects cannot be embedded; fixed immutable reference binding is separately checked."
+    },
+    "PassiveRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "fields"
+      ],
+      "properties": {
+        "tag": {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PassiveRecord/properties/tag"
+        },
+        "key": {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PassiveRecord/properties/key"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              "value": {
+                "$ref": "#/$defs/PassiveExpr"
+              }
+            }
+          }
+        }
+      }
+    },
+    "PassiveList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "items"
+      ],
+      "properties": {
+        "tag": {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PassiveList/properties/tag"
+        },
+        "key": {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PassiveList/properties/key"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PassiveExpr"
+          }
+        },
+        "tail": {
+          "$ref": "#/$defs/PassiveExpr"
+        }
+      }
+    },
+    "PreparedResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "argumentsRef",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PreparedResult/oneOf/0/properties/state"
+            },
+            "purpose": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PreparedResult/oneOf/0/properties/purpose"
+            },
+            "subject": {
+              "$ref": "#/$defs/ArgumentsSubject"
+            },
+            "argumentsRef": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PreparedResult/oneOf/0/properties/argumentsRef"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PreparedResult/oneOf/0/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PreparedResult/oneOf/1"
+        },
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PreparedResult/oneOf/2"
+        },
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/PreparedResult/oneOf/3"
+        }
+      ]
+    },
+    "NeedsInputResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "purpose",
+            "subject",
+            "diagnostics"
+          ],
+          "properties": {
+            "state": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/NeedsInputResult/oneOf/0/properties/state"
+            },
+            "purpose": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/NeedsInputResult/oneOf/0/properties/purpose"
+            },
+            "subject": {
+              "$ref": "#/$defs/ArgumentsSubject"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/NeedsInputResult/oneOf/0/properties/diagnostics"
+            }
+          }
+        },
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/NeedsInputResult/oneOf/1"
+        },
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/NeedsInputResult/oneOf/2"
+        },
+        {
+          "$ref": "urn:gift:design-schema:input-preparation-1#/$defs/NeedsInputResult/oneOf/3"
+        }
+      ]
+    }
+  }
+}
+

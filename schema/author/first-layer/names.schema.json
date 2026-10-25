@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:first-layer-names",
+  "title": "First-layer candidate names and typed source references",
+  "$comment": "Design contract only. UTF-8 decoding, duplicate decoded keys and Unicode scalar validity are checked before JSON Schema. A name is not a path, command, declaration identity, runtime reference or permission. Resolve a SourceRef only in a typed source-reference slot; its expected namespace and declaration role are checked by the linker.",
+  "$defs": {
+    "Name": {
+      "type": "string",
+      "description": "Exact finite Unicode scalar sequence, including the empty string. No normalization or case folding. Invalid scalar sequences are lexical errors, not accepted names."
+    },
+    "LegacyRef": {
+      "type": "string",
+      "pattern": "^(local|[A-Za-z_][A-Za-z0-9_]*):[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+    },
+    "LocalRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "space",
+        "definition"
+      ],
+      "properties": {
+        "space": {
+          "const": "local"
+        },
+        "definition": {
+          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+        }
+      }
+    },
+    "ImportedRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "space",
+        "alias",
+        "export"
+      ],
+      "properties": {
+        "space": {
+          "const": "import"
+        },
+        "alias": {
+          "allOf": [
+            {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+            },
+            {
+              "not": {
+                "enum": [
+                  "local",
+                  "std"
+                ]
+              }
+            }
+          ]
+        },
+        "export": {
+          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+        }
+      }
+    },
+    "DialectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "space",
+        "alias",
+        "consumer"
+      ],
+      "properties": {
+        "space": {
+          "const": "dialect"
+        },
+        "alias": {
+          "allOf": [
+            {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+            },
+            {
+              "not": {
+                "enum": [
+                  "local",
+                  "std"
+                ]
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+        }
+      }
+    },
+    "SourceRef": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LegacyRef"
+        },
+        {
+          "$ref": "#/$defs/LocalRef"
+        },
+        {
+          "$ref": "#/$defs/ImportedRef"
+        },
+        {
+          "$ref": "#/$defs/DialectRef"
+        }
+      ]
+    }
+  }
+}

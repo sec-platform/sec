@@ -1,0 +1,22 @@
+--- a/design/app.module.json
++++ b/design/app.module.json
+@@ -50,7 +50,7 @@
+     }
+   },
+   "exports": {
+-    "审核/发布": {
++    "审核/发布 v2": {
+       "import": "逻辑/库",
+       "export": "回传"
+     },
+--- a/gift.project.json
++++ b/gift.project.json
+@@ -33,7 +33,7 @@
+         {
+           "rootId": "public",
+           "moduleId": "module:names-app",
+-          "export": "审核/发布"
++          "export": "审核/发布 v2"
+         }
+       ]
+     },

@@ -1,0 +1,134 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:names-library",
+  "definitions": {
+    "布尔": {
+      "core:type": "bool"
+    },
+    "回传": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "input",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "var",
+          "name": "input"
+        }
+      }
+    },
+    "相等判定": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "input",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "outcome",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "var",
+            "name": "input"
+          },
+          "then": {
+            "op": "var",
+            "name": "outcome"
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "var",
+              "name": "outcome"
+            },
+            "then": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "value": false
+            },
+            "otherwise": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "value": true
+            }
+          }
+        }
+      }
+    },
+    "一致/关系": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "relation",
+        "parameters": [
+          {
+            "name": "input",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          },
+          {
+            "name": "outcome",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": {
+          "space": "local",
+          "definition": "相等判定"
+        }
+      }
+    }
+  },
+  "exports": [
+    "布尔",
+    "回传",
+    "一致/关系"
+  ]
+}

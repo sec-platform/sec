@@ -21,6 +21,8 @@
 
 选择此方案而不强制 NFC/NFKC 的理由：标准化可以是显式查找或公开命名政策，不能默默改变已有协议字节；结构 Ref 已解决解析歧义，无须牺牲原名。写 UTF-16 的编辑器和写 UTF-8 的内核继续按原版本化坐标转换。
 
+Name与SourceRef的机器终结符见[names.schema.json](names.schema.json)；其标量合法性仍在无损读取层检查。完整模块如何递归提升旧Ref/MemberName、意图Body单列引用槽、哪些Identifier与专业Body保持原义，唯一由[完整候选文法](../../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)规定。新完整Body不得无条件交给只认识旧Ref的Reader；有限专业样本Schema不代替这张完整文法图。工程根、包出口、源码直接运行/输入、原生选择及名称重构分别消费该同一名称域，不仅改模块声明。
+
 <a id="legacy"></a>
 ## 旧需求声明的单源承接
 
