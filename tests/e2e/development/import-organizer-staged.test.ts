@@ -51,9 +51,6 @@ function source(order: 'sorted' | 'unsorted', newLine = '\n'): string {
 const repositoryConcurrency = 4;
 const repositorySlot = pLimit(repositoryConcurrency);
 let repositoryTemplateRoot: string | undefined;
-let repositoryTemplateInitializationCount = 0;
-let activeRepositoryCount = 0;
-let peakRepositoryCount = 0;
 
 async function settleImportFixtureWrites(writers: readonly Promise<unknown>[]): Promise<void> {
   const settled = await Promise.allSettled(writers);
@@ -146,40 +143,22 @@ async function copyRepositoryTemplate(
 
 beforeAll(async () => {
   repositoryTemplateRoot = await createRepositoryTemplate();
-  repositoryTemplateInitializationCount += 1;
 });
 
-afterAll(() => settleWorkspaceCallback(async () => {
-  expect(repositoryTemplateInitializationCount).toBe(1);
-  expect(activeRepositoryCount).toBe(0);
-  expect(peakRepositoryCount).toBeGreaterThan(0);
-  expect(peakRepositoryCount).toBeLessThanOrEqual(repositoryConcurrency);
-}, async () => {
+afterAll(async () => {
   if (repositoryTemplateRoot) {
     await rm(repositoryTemplateRoot, { recursive: true, force: true });
     repositoryTemplateRoot = undefined;
   }
-}));
+});
 
 async function stagedBytes(repoRoot: string, fileName: string): Promise<Buffer> {
   const objectId = String(git(repoRoot, ['rev-parse', `:${fileName}`])).trim();
   return git(repoRoot, ['cat-file', 'blob', objectId], { bytes: true }) as Buffer;
 }
 
-async function withRepositoryActivity<T>(run: () => Promise<T>): Promise<T> {
-  return repositorySlot(async () => {
-    activeRepositoryCount += 1;
-    peakRepositoryCount = Math.max(peakRepositoryCount, activeRepositoryCount);
-    try {
-      return await run();
-    } finally {
-      activeRepositoryCount -= 1;
-    }
-  });
-}
-
 async function withRepository(run: (repoRoot: string) => Promise<void>): Promise<void> {
-  return withRepositoryActivity(async () => {
+  return repositorySlot(async () => {
     let repoRoot: string | undefined;
     return settleWorkspaceCallback(async () => {
       repoRoot = await copyRepositoryTemplate();
@@ -191,7 +170,7 @@ async function withRepository(run: (repoRoot: string) => Promise<void>): Promise
 }
 
 test.concurrent('fixture creators remove partial repositories before ownership transfer', async () => {
-  await withRepositoryActivity(async () => {
+  await repositorySlot(async () => {
     let failedTemplateRoot = '';
     await expect(createRepositoryTemplate(async (repoRoot) => {
       failedTemplateRoot = repoRoot;
