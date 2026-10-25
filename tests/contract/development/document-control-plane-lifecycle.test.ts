@@ -3969,8 +3969,9 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
   let nextSourcePath: string | undefined;
   let swapAttempted = false;
   let swapped = false;
+  let replacementInstalled = false;
   let windowsSwapFailure: NodeJS.ErrnoException | undefined;
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(external);
     await writeFile(externalPointer, 'external sentinel\n', 'utf8');
     const activePointerBefore = await readFile(activePointer);
@@ -4000,6 +4001,7 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
             throw error;
           }
           await symlink(external, workPath, 'junction');
+          replacementInstalled = true;
         }
       });
     } catch (error) {
@@ -4051,7 +4053,10 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
     }
 
     if (swapped) {
-      await rm(workPath, { recursive: true, force: true });
+      if (replacementInstalled) {
+        await rm(workPath, { recursive: true, force: true });
+        replacementInstalled = false;
+      }
       expect(await readFile(externalPointer, 'utf8')).toBe('external sentinel\n');
       await rename(heldWorkPath, workPath);
       swapped = false;
@@ -4065,13 +4070,18 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
     expect(parseActivePointer(await readFile(activePointer, 'utf8')).manifest)
       .toBe(FREEZE_TARGET_PATH);
     expect(await readFile(externalPointer, 'utf8')).toBe('external sentinel\n');
-  } finally {
+  }, async () => {
+    // Restoration is a dependency chain, not independent best-effort cleanup.
     if (swapped) {
-      await rm(workPath, { recursive: true, force: true }).catch(() => undefined);
-      await rename(heldWorkPath, workPath).catch(() => undefined);
+      if (replacementInstalled) {
+        await rm(workPath, { recursive: true, force: true });
+        replacementInstalled = false;
+      }
+      await rename(heldWorkPath, workPath);
+      swapped = false;
     }
     await fixture.dispose();
-  }
+  });
 }, 60_000);
 
 for (const faultAfter of [
@@ -4311,9 +4321,10 @@ for (const createKind of ['directory', 'file'] as const) {
     const externalSentinel = path.join(external, 'sentinel.txt');
     let attempted = false;
     let swapped = false;
+    let replacementInstalled = false;
     let swapFailure: NodeJS.ErrnoException | undefined;
     let targetName: string | undefined;
-    try {
+    await settleWorkspaceCallback(async () => {
       await rm(path.join(fixture.repositoryRoot, '.tmp'), { recursive: true, force: true });
       await mkdir(parentPath, { recursive: true });
       await mkdir(external);
@@ -4337,6 +4348,7 @@ for (const createKind of ['directory', 'file'] as const) {
               renameSync(parentPath, heldParentPath);
               swapped = true;
               symlinkSync(external, parentPath, 'junction');
+              replacementInstalled = true;
             } catch (error) {
               swapFailure = error as NodeJS.ErrnoException;
               throw error;
@@ -4364,7 +4376,10 @@ for (const createKind of ['directory', 'file'] as const) {
       }
 
       if (swapped) {
-        await unlink(parentPath);
+        if (replacementInstalled) {
+          await unlink(parentPath);
+          replacementInstalled = false;
+        }
         await rename(heldParentPath, parentPath);
         swapped = false;
       }
@@ -4374,13 +4389,18 @@ for (const createKind of ['directory', 'file'] as const) {
         reviewedOn: '2026-08-09'
       });
       expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
-    } finally {
+    }, async () => {
+      // Failed restoration preserves the displaced tree instead of deleting the fixture.
       if (swapped) {
-        await unlink(parentPath).catch(() => undefined);
-        await rename(heldParentPath, parentPath).catch(() => undefined);
+        if (replacementInstalled) {
+          await unlink(parentPath);
+          replacementInstalled = false;
+        }
+        await rename(heldParentPath, parentPath);
+        swapped = false;
       }
       await fixture.dispose();
-    }
+    });
   }, 90_000);
 }
 

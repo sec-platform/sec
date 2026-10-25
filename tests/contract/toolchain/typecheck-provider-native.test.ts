@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -32,7 +33,8 @@ async function writeRepositoryProject(root: string, source: string): Promise<str
 
 test.skipIf(process.platform !== 'win32')('provider-issued native checker writes incremental state only inside its action-private auxiliary capability', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-effect-'));
-  try {
+  let boundarySettled = true;
+  await settleWorkspaceCallback(async () => {
     const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
     const projectRoot = await writeRepositoryProject(root, [
       'import { value } from "./provider.js";',
@@ -44,6 +46,7 @@ test.skipIf(process.platform !== 'win32')('provider-issued native checker writes
     ].join('\n'));
     const checker = await selectNativeChecker(nodeModulesPath);
     const diagnosticArguments = ['--listFiles', '--pretty', 'false'];
+    boundarySettled = false;
     const result = await withCheckerExecutionBoundary(
       projectRoot,
       nodeModulesPath,
@@ -56,6 +59,7 @@ test.skipIf(process.platform !== 'win32')('provider-issued native checker writes
       }),
       diagnosticArguments
     );
+    boundarySettled = true;
     expect(result).toMatchObject({ status: 'exited', code: 0 });
     assert.equal(result.status, 'exited');
     assert.equal(result.stderr, '');
@@ -71,14 +75,18 @@ test.skipIf(process.platform !== 'win32')('provider-issued native checker writes
     ))).isFile()).toBe(true);
     await expect(fs.lstat(path.join(projectRoot, 'tsconfig.tsbuildinfo')))
       .rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
+  }, async () => {
+    if (!boundarySettled) {
+      throw new Error(`Checker boundary settlement is unproven; fixture root is preserved: ${root}`);
+    }
     await fs.rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('repository policy rejects each unused binding through the native checker on src and tests', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-unused-policy-'));
-  try {
+  let boundarySettled = true;
+  await settleWorkspaceCallback(async () => {
     const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
     const projectRoot = await writeRepositoryProject(root, [
       'import { value } from "./provider.js";',
@@ -89,6 +97,7 @@ test.skipIf(process.platform !== 'win32')('repository policy rejects each unused
     ].join('\n'));
     const checker = await selectNativeChecker(nodeModulesPath);
     const diagnosticArguments = ['--pretty', 'false'];
+    boundarySettled = false;
     const result = await withCheckerExecutionBoundary(
       projectRoot, nodeModulesPath, checker, 1,
       boundary => executeTypeScriptNativeChecker(checker, {
@@ -98,6 +107,7 @@ test.skipIf(process.platform !== 'win32')('repository policy rejects each unused
       }),
       diagnosticArguments
     );
+    boundarySettled = true;
     assert.equal(result.status, 'exited', 'An unverified provider is not an unused-code rejection');
     assert.notEqual(result.code, 0);
     assert.equal(result.stderr, '');
@@ -116,19 +126,24 @@ test.skipIf(process.platform !== 'win32')('repository policy rejects each unused
       { line: 5, column: 26, code: 6133, binding: 'unused' }
     ].map(diagnostic => ({ file: `${surface}/entry.ts`, ...diagnostic })));
     assert.deepEqual(diagnostics, expected, 'Every intended unused binding, and no other error, must be reported');
-  } finally {
+  }, async () => {
+    if (!boundarySettled) {
+      throw new Error(`Checker boundary settlement is unproven; fixture root is preserved: ${root}`);
+    }
     await fs.rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('expired or cancelled native checker operation creates no incremental state', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-deadline-'));
-  try {
+  let boundarySettled = true;
+  await settleWorkspaceCallback(async () => {
     const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
     const projectRoot = path.join(root, 'project');
     await fs.mkdir(projectRoot);
     await fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({ files: [] }));
     const checker = await selectNativeChecker(nodeModulesPath);
+    boundarySettled = false;
     await withCheckerExecutionBoundary(
       projectRoot,
       nodeModulesPath,
@@ -154,7 +169,11 @@ test.skipIf(process.platform !== 'win32')('expired or cancelled native checker o
         await expect(fs.lstat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
       }
     );
-  } finally {
+    boundarySettled = true;
+  }, async () => {
+    if (!boundarySettled) {
+      throw new Error(`Checker boundary settlement is unproven; fixture root is preserved: ${root}`);
+    }
     await fs.rm(root, { recursive: true, force: true });
-  }
+  });
 });
