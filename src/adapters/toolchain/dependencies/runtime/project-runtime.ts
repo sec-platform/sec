@@ -23,6 +23,7 @@ import { settleResources, withAcquiredResource } from '../../../../execution/res
 import { isFileNotFoundError, readJson } from "../../../filesystem/files.ts";
 import { assertPhysicalGenerationRetirementReceipt, assertPhysicallyDisjointDirectoryChains, assertRetainedNoFollowProvenDirectoryGeneration, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, readNoFollowProvenDirectoryGenerationProof, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, tryRetainExclusiveFileGuard, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { observeWindowsKernelBootBoundary, type WindowsKernelBootBoundary } from '../../../runtime-state/physical/runtime/windows-kernel-boot.ts';
+import { observeLinuxKernelBootBoundary, type LinuxKernelBootBoundary } from '../../../runtime-state/physical/runtime/linux-kernel-boot.ts';
 import { WindowsHostDirectoryAuthorityError } from '../../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
@@ -3509,7 +3510,8 @@ async function settleCompilerDependencyRecoveryUnderLease(
 
 /** Explicit maintenance input, never loaded from workspace recovery state.
  * The caller must preserve the original checkpoint in a trusted external
- * channel on this same Windows host, without storage rollback or cloning. */
+ * channel on this same host/boot domain, without storage rollback, cloning
+ * or migration to another VM/PID namespace. */
 export type CompilerDependencyLockMaintenanceRequest = Readonly<
   { action: 'prepare' } | { action: 'complete'; checkpoint: string }
 >;
@@ -3523,6 +3525,7 @@ type CompilerLockMaintenanceFile = Readonly<{
   inode: string;
   size: number;
 }>;
+type CompilerLockMaintenanceBoot = WindowsKernelBootBoundary | LinuxKernelBootBoundary;
 type CompilerLockMaintenanceCheckpoint = Readonly<{
   schema: 'sec-compiler-lock-external-maintenance-v1';
   ownerRoot: string;
@@ -3530,7 +3533,7 @@ type CompilerLockMaintenanceCheckpoint = Readonly<{
   lockParent: string;
   lockParentPhysical: GeneratedStatePhysicalIdentity;
   mode: 'legacy' | 'current';
-  boot: WindowsKernelBootBoundary;
+  boot: CompilerLockMaintenanceBoot;
   lock: CompilerLockMaintenanceFile | null;
   reclaim: CompilerLockMaintenanceFile | null;
   legacyLock: CompilerLockMaintenanceFile | null;
@@ -3587,13 +3590,44 @@ function observeCompilerLockMaintenanceLocation(ownerRoot: string) {
 type CompilerLockMaintenanceLocation = ReturnType<typeof observeCompilerLockMaintenanceLocation>;
 
 function compilerLockMaintenanceCheckpoint(location: CompilerLockMaintenanceLocation,
-  boot: WindowsKernelBootBoundary): CompilerLockMaintenanceCheckpoint {
+  boot: CompilerLockMaintenanceBoot): CompilerLockMaintenanceCheckpoint {
   return { schema: 'sec-compiler-lock-external-maintenance-v1', ownerRoot: location.owner.path,
     ownerRootPhysical: generatedStatePhysicalIdentity(location.owner), lockParent: location.lockParent.path,
     lockParentPhysical: generatedStatePhysicalIdentity(location.lockParent), mode: location.mode, boot,
     lock: location.lock?.record ?? null, reclaim: location.reclaim?.record ?? null,
     legacyLock: location.legacyLock?.record ?? null, cutover: location.cutover?.record ?? null,
     locator: location.locator?.record ?? null };
+}
+
+function observeCompilerLockMaintenanceBoot(): CompilerLockMaintenanceBoot {
+  return process.platform === 'linux' ? observeLinuxKernelBootBoundary() : observeWindowsKernelBootBoundary();
+}
+
+function isCompilerLockMaintenanceBoot(value: unknown): value is CompilerLockMaintenanceBoot {
+  if (hasExactObjectKeys(value, ['platform', 'bootId', 'initStartTime', 'pidNamespace'])) {
+    return value.platform === 'linux' && typeof value.bootId === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value.bootId) &&
+      typeof value.initStartTime === 'string' && /^(?:0|[1-9][0-9]{0,19})$/u.test(value.initStartTime) &&
+      typeof value.pidNamespace === 'string' && /^pid:\[[1-9][0-9]{0,19}\]$/u.test(value.pidNamespace);
+  }
+  // Preserve the exact existing Windows checkpoint grammar and serialization.
+  return hasExactObjectKeys(value, ['sequence', 'fullBootEventRecordId']) &&
+    typeof value.sequence === 'number' && Number.isSafeInteger(value.sequence) && value.sequence > 0 && value.sequence <= 0xffff_ffff &&
+    typeof value.fullBootEventRecordId === 'string' && /^[1-9][0-9]*$/u.test(value.fullBootEventRecordId) &&
+    value.fullBootEventRecordId.length <= 20 && BigInt(value.fullBootEventRecordId) <= 0xffff_ffff_ffff_ffffn;
+}
+
+function isSubsequentCompilerLockMaintenanceBoot(previous: CompilerLockMaintenanceBoot,
+  current: CompilerLockMaintenanceBoot): boolean {
+  if ('platform' in previous || 'platform' in current) {
+    // A UUID difference is not host identity. The original external checkpoint,
+    // exact owner/coordination bindings and trusted same-host maintenance
+    // premises are independently required. PID1 restart never qualifies.
+    return 'platform' in previous && 'platform' in current &&
+      previous.pidNamespace === current.pidNamespace && previous.bootId !== current.bootId;
+  }
+  return current.sequence > previous.sequence &&
+    BigInt(current.fullBootEventRecordId) > BigInt(previous.fullBootEventRecordId);
 }
 
 function parseCompilerLockMaintenanceCheckpoint(text: string): CompilerLockMaintenanceCheckpoint {
@@ -3611,10 +3645,7 @@ function parseCompilerLockMaintenanceCheckpoint(text: string): CompilerLockMaint
       !isCanonicalGeneratedStatePhysicalIdentity(checkpoint.ownerRootPhysical) ||
       !isCanonicalGeneratedStatePhysicalIdentity(checkpoint.lockParentPhysical) ||
       (checkpoint.mode !== 'legacy' && checkpoint.mode !== 'current') ||
-      !hasExactObjectKeys(checkpoint.boot, ['sequence', 'fullBootEventRecordId']) ||
-      !Number.isSafeInteger(checkpoint.boot.sequence) || checkpoint.boot.sequence <= 0 || checkpoint.boot.sequence > 0xffff_ffff ||
-      typeof checkpoint.boot.fullBootEventRecordId !== 'string' || !/^[1-9][0-9]*$/u.test(checkpoint.boot.fullBootEventRecordId) ||
-      checkpoint.boot.fullBootEventRecordId.length > 20 || BigInt(checkpoint.boot.fullBootEventRecordId) > 0xffff_ffff_ffff_ffffn) {
+      !isCompilerLockMaintenanceBoot(checkpoint.boot)) {
     throw compilerLockMaintenanceFailure('external checkpoint binding is invalid');
   }
   for (const file of [checkpoint.lock, checkpoint.reclaim, checkpoint.legacyLock, checkpoint.cutover, checkpoint.locator]) {
@@ -3648,25 +3679,25 @@ function assertCompilerLockMaintenanceLocation(checkpoint: CompilerLockMaintenan
 }
 
 async function withCompilerLockMaintenanceGuards<Value>(location: CompilerLockMaintenanceLocation,
-  use: () => Promise<Value>): Promise<Value> {
-  const guards: Array<NonNullable<ReturnType<typeof tryRetainExclusiveFileGuard>>> = [];
+  use: (guards: ReadonlyMap<string, NonNullable<ReturnType<typeof tryRetainExclusiveFileGuard>>>) => Promise<Value>): Promise<Value> {
+  const guards = new Map<string, NonNullable<ReturnType<typeof tryRetainExclusiveFileGuard>>>();
   let result: { value: Value } | undefined;
   let primary: { label: string; error: unknown } | undefined;
   try {
-    // Each retained anchor proves the existing local NTFS/ReFS volume, exact
+    // Each retained anchor proves a volume admitted by the native guard, exact
     // bytes and one-link identity. It does not prove old installer closure.
     // Current coordination also retains its permanent legacy owner anchor.
     for (const file of [location.legacyLock, location.lock, location.reclaim]) {
       if (file === null) continue;
       const guard = tryRetainExclusiveFileGuard(file.observation.parent, file.observation.name,
-        file.observation, Buffer.from(file.record.bytes, 'base64'));
+        file.observation, Buffer.from(file.record.bytes, 'base64'), file.observation.name);
       if (guard === null) throw compilerLockMaintenanceFailure('another maintenance operation holds an anchor');
-      guards.push(guard);
+      guards.set(path.join(file.observation.parent.path, file.observation.name), guard);
     }
-    result = { value: await use() };
+    result = { value: await use(guards) };
   } catch (error) { primary = { label: 'Compiler lock maintenance', error }; }
   settleResources({ ...(primary === undefined ? {} : { primary }),
-    cleanup: guards.reverse().map(guard => ({ label: 'Compiler lock maintenance native guard', settle: () => guard.dispose() })) });
+    cleanup: [...guards.values()].reverse().map(guard => ({ label: 'Compiler lock maintenance native guard', settle: () => guard.dispose() })) });
   return result!.value;
 }
 
@@ -3674,7 +3705,7 @@ async function maintainCompilerDependencyLock(ownerRoot: string, options: Runtim
   maintenance: CompilerDependencyLockMaintenanceRequest): Promise<CompilerDependencyLockMaintenanceResult> {
   // No caller-supplied boot provider, PID/TTL inference or on-disk checkpoint.
   runtimeDependencyOperationRemainingMs(options, 'Compiler lock explicit maintenance admission');
-  const boot = observeWindowsKernelBootBoundary();
+  const boot = observeCompilerLockMaintenanceBoot();
   const location = observeCompilerLockMaintenanceLocation(ownerRoot);
   if (maintenance.action === 'prepare') {
     if (location.lock === null && location.reclaim === null) throw compilerLockMaintenanceFailure('no existing compiler lock or reclaim marker was selected');
@@ -3696,19 +3727,19 @@ async function maintainCompilerDependencyLock(ownerRoot: string, options: Runtim
     return withCompilerLockMaintenanceGuards(location, async () => {
       runtimeDependencyOperationRemainingMs(options, 'Compiler lock maintenance checkpoint readback');
       assertCompilerLockMaintenanceLocation(checkpoint, observeCompilerLockMaintenanceLocation(ownerRoot), false);
-      if (!canonicalEquals(boot, observeWindowsKernelBootBoundary())) throw compilerLockMaintenanceFailure('boot changed during checkpoint capture');
+      if (!canonicalEquals(boot, observeCompilerLockMaintenanceBoot())) throw compilerLockMaintenanceFailure('boot changed during checkpoint capture');
       return { state: 'requires-host-restart' as const, checkpoint: formatJsonFile(canonicalJson(checkpoint)) };
     });
   }
   const checkpoint = parseCompilerLockMaintenanceCheckpoint(maintenance.checkpoint);
   if (checkpoint.ownerRoot !== ownerRoot) throw compilerLockMaintenanceFailure('external checkpoint belongs to another owner');
-  if (boot.sequence <= checkpoint.boot.sequence || BigInt(boot.fullBootEventRecordId) <= BigInt(checkpoint.boot.fullBootEventRecordId)) {
+  if (!isSubsequentCompilerLockMaintenanceBoot(checkpoint.boot, boot)) {
     throw compilerLockMaintenanceFailure('a subsequent complete host boot is required');
   }
   assertCompilerLockMaintenanceLocation(checkpoint, location, true);
-  await withCompilerLockMaintenanceGuards(location, async () => {
+  await withCompilerLockMaintenanceGuards(location, async guards => {
     await runtimeDependencyOperationEffectFence(options, 'Compiler lock explicit maintenance');
-    if (!canonicalEquals(boot, observeWindowsKernelBootBoundary())) throw compilerLockMaintenanceFailure('boot changed during maintenance');
+    if (!canonicalEquals(boot, observeCompilerLockMaintenanceBoot())) throw compilerLockMaintenanceFailure('boot changed during maintenance');
     // Preflight the entire selected set before the first mutation. On resume,
     // only absence of an original subject is accepted, never a new identity.
     assertCompilerLockMaintenanceLocation(checkpoint, observeCompilerLockMaintenanceLocation(ownerRoot), true);
@@ -3717,10 +3748,13 @@ async function maintainCompilerDependencyLock(ownerRoot: string, options: Runtim
       assertCompilerLockMaintenanceLocation(checkpoint, current, true);
       const file = current[key];
       if (file === null) continue;
+      const resourceGuard = guards.get(path.join(file.observation.parent.path, file.observation.name));
+      if (resourceGuard === undefined) throw compilerLockMaintenanceFailure('selected subject appeared after guard admission');
       runtimeDependencyOperationRemainingMs(options, 'Compiler lock maintenance exact deletion');
       deleteRetainedNoFollowEntry({ root: file.observation.parent, relativePath: file.observation.name,
         kind: 'file', device: file.observation.device, inode: file.observation.inode,
-        expectedFileBytes: Buffer.from(file.record.bytes, 'base64'), ancestorDirectories: [] });
+        expectedFileBytes: Buffer.from(file.record.bytes, 'base64'), ancestorDirectories: [],
+        resourceGuard });
       if (observeNoFollowOwnedFile(path.join(file.observation.parent.path, file.observation.name), 'Compiler lock maintenance deletion readback') !== null) {
         throw compilerLockMaintenanceFailure(`${key} deletion did not establish absence`);
       }

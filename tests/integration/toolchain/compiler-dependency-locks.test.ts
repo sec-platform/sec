@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createDependencyOperation } from '../../../src/bootstrap/toolchain/dependency-operation.ts';
 import type { PhysicalDirectoryIdentity } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertExclusiveFileGuardRetirement } from '../../../src/adapters/runtime-state/physical/runtime/physical-exclusive-guard.ts';
 import type { ProcessResourceSession } from '../../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import { compilerDependencyStoragePaths } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts';
 import { compilerInstallProcessSettlementUnproven, withCompilerInstallResources } from '../../../src/adapters/toolchain/dependencies/runtime/install-resource-scope.ts';
@@ -467,11 +469,7 @@ describe('compiler dependency installation', () => {
       });
     }));
 
-  effectfulTest(test.skipIf(process.platform !== 'win32' || process.arch !== 'x64'),
-    'exports exact external maintenance checkpoints before the old lease and rejects same-boot recovery', {
-      operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
-    }, (effectfulContext) =>
+  const checkExternalMaintenanceCheckpoint = (effectfulContext: Parameters<typeof withCompilerTestWorkspace>[0]) =>
     withCompilerTestWorkspace(effectfulContext, 'engineering-compiler-lock-maintenance-', async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
       const maintenance = createDependencyOperation({ workspaceRoot: tempRoot });
@@ -493,8 +491,15 @@ describe('compiler dependency installation', () => {
             expect(checkpoint).toMatchObject({ ownerRoot: tempRoot, mode,
               lock: { bytes: Buffer.from(lockBytes).toString('base64'), device: before.device, inode: before.inode, size: before.size },
               reclaim: { device: markerBefore.device, inode: markerBefore.inode, size: markerBefore.size } });
-            expect(checkpoint.boot.sequence).toBeGreaterThan(0);
-            expect(BigInt(checkpoint.boot.fullBootEventRecordId)).toBeGreaterThan(0n);
+            if (process.platform === 'linux') {
+              expect(checkpoint.boot.platform).toBe('linux');
+              expect(checkpoint.boot.bootId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+              expect(checkpoint.boot.initStartTime).toMatch(/^(?:0|[1-9][0-9]{0,19})$/u);
+              expect(checkpoint.boot.pidNamespace).toMatch(/^pid:\[[1-9][0-9]{0,19}\]$/u);
+            } else {
+              expect(checkpoint.boot.sequence).toBeGreaterThan(0);
+              expect(BigInt(checkpoint.boot.fullBootEventRecordId)).toBeGreaterThan(0n);
+            }
             const unrelated = createDependencyOperation({ workspaceRoot: path.dirname(lockPath) });
             await expect(unrelated.migrateDependencyTransitionJournal(tempRoot, request, {
               action: 'complete', checkpoint: prepared.checkpoint
@@ -517,9 +522,60 @@ describe('compiler dependency installation', () => {
         return { code: 0, stdout: 'ok', stderr: '' };
       } }, tempRoot);
       await check(compilerCoordinationLockPath(tempRoot), 'current');
+      if (process.platform === 'linux') {
+        // Exercise the actual native post-unlink owner without forging a boot
+        // checkpoint. This guard is not authority over a replacement name.
+        const selectedPath = path.join(tempRoot, 'maintenance-native-retirement.lock');
+        await withInjectedFile(selectedPath, lockBytes, async () => {
+          const original = observeNoFollowOwnedFile(selectedPath, 'Native maintenance retirement')!;
+          const guard = physicalNoFollow.tryRetainExclusiveFileGuard(original.parent, original.name,
+            original, Buffer.from(lockBytes), original.name);
+          if (guard === null) throw new Error('Native maintenance retirement guard is busy.');
+          await settleWorkspaceCallback(async () => {
+            expect(() => assertExclusiveFileGuardRetirement(guard, original.parent, original.name)).toThrow();
+            expect(() => guard.assertCurrent()).not.toThrow();
+            physicalNoFollow.deleteRetainedNoFollowEntry({ root: original.parent, relativePath: original.name,
+              kind: 'file', device: original.device, inode: original.inode, expectedFileBytes: Buffer.from(lockBytes),
+              resourceGuard: guard, ancestorDirectories: [] });
+            expect(observeNoFollowOwnedFile(selectedPath, 'Native maintenance terminal absence')).toBeNull();
+            expect(() => assertExclusiveFileGuardRetirement(guard, original.parent, original.name)).not.toThrow();
+            expect(() => assertExclusiveFileGuardRetirement({ ...guard }, original.parent, original.name)).toThrow();
+            expect(() => guard.assertCurrent()).toThrow();
+            await withInjectedFile(selectedPath, lockBytes, async () => {
+              const replacement = observeNoFollowOwnedFile(selectedPath, 'Native maintenance replacement')!;
+              expect([replacement.device, replacement.inode]).not.toEqual([original.device, original.inode]);
+              expect(() => guard.assertCurrent()).toThrow();
+              expect(() => assertExclusiveFileGuardRetirement(guard, original.parent, original.name)).toThrow();
+              expect(() => physicalNoFollow.deleteRetainedNoFollowEntry({ root: replacement.parent,
+                relativePath: replacement.name, kind: 'file', device: replacement.device, inode: replacement.inode,
+                expectedFileBytes: Buffer.from(lockBytes), resourceGuard: guard, ancestorDirectories: [] })).toThrow();
+              expect(observeNoFollowOwnedFile(selectedPath, 'Native maintenance preserved replacement')).toEqual(replacement);
+              expect(readNoFollowOwnedFileBytes(replacement, 'Native maintenance replacement bytes').toString('utf8')).toBe(lockBytes);
+            });
+          }, async () => { guard.dispose(); });
+        });
+      }
       // No boot observer is replaced and no artificial older checkpoint is
       // submitted. A successful cross-boot run needs a real maintenance host.
-    }));
+    });
+
+  effectfulTest(test.skipIf(process.platform !== 'win32' || process.arch !== 'x64'),
+    'exports exact external maintenance checkpoints before the old lease and rejects same-boot recovery', {
+      operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
+    }, checkExternalMaintenanceCheckpoint);
+
+  // Host selection is independent of the SUT observer: a failing native proof
+  // on a selected system-manager host fails the test rather than becoming skip.
+  const linuxSystemManagerHost = (() => {
+    if (process.platform !== 'linux' || (process.arch !== 'x64' && process.arch !== 'arm64')) return false;
+    try { return readFileSync('/proc/1/comm', 'utf8') === 'systemd\n'; } catch { return false; }
+  })();
+  effectfulTest(test.skipIf(!linuxSystemManagerHost),
+    'exports Linux kernel-bound external maintenance checkpoints and rejects same-kernel recovery', {
+      operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
+    }, checkExternalMaintenanceCheckpoint);
 
   effectfulTest(test, 'preserves dead compiler owners and reclaim markers without effect-closure evidence', {
     operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
