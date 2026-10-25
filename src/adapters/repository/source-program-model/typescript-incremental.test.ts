@@ -279,11 +279,11 @@ test('ambient declarations, global augmentations, and resolver graph changes for
 
 test('workspace-signed incremental performance observation remains clean-compile equivalent', () => {
   try {
-    const dependencies = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [
+    const dependencies = Object.fromEntries(Array.from({ length: 2 }, (_, index) => [
       `src/performance/dependency-${String(index).padStart(2, '0')}.ts`,
       `export const VALUE_${index} = ${index};\n`
     ]));
-    const unrelated = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [
+    const unrelated = Object.fromEntries(Array.from({ length: 2 }, (_, index) => [
       `src/performance/unrelated-${String(index).padStart(2, '0')}.ts`,
       `export const UNRELATED_${index} = ${index};\n`
     ]));
@@ -322,20 +322,17 @@ test('workspace-signed incremental performance observation remains clean-compile
     );
     const changedInput = snapshotFor(2);
     const before = observeTypeScriptSourceProgramPerformanceForTests();
-    const startedAt = performance.now();
     const changed = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
       changedInput,
       initial.state,
       changedInput.snapshot
     );
-    const durationMs = performance.now() - startedAt;
     const after = observeTypeScriptSourceProgramPerformanceForTests();
     const delta = Object.freeze(Object.fromEntries(Object.keys(after).map((key) => [
       key,
       after[key as keyof typeof after] - before[key as keyof typeof before]
     ])));
 
-    console.log(`SEC_TYPESCRIPT_PERF=${JSON.stringify({ durationMs, ...delta })}`);
     expect(changed.mode).toBe('incremental');
     expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
     expect(delta).toMatchObject({

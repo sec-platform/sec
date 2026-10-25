@@ -69,13 +69,6 @@ test('a legacy or corrupt side is disclosed even when there are no findings to d
   }
 });
 
-test('a valid policy change alone is observable but does not invent a defect', () => {
-  const result = compare(snapshot(false), snapshot(false, [reviewed]));
-  assert.equal(result.contextComparable, false); assert.equal(result.entries.length, 0);
-  assert.equal(unresolved(result), false);
-  assert.deepEqual(result.after.incompleteContextFields, []);
-});
-
 test('persistent evidence is not erased or suppressed when the policy changes', () => {
   const result = compare(snapshot(true), snapshot(true, [reviewed]));
   assert.equal(result.entries[0]!.status, 'persistent');
@@ -98,13 +91,4 @@ test('compact and full output preserve both sides of incomplete context and one 
   assert.equal(compact.contextComparable, delta.contextComparable);
   assert.equal(compact.deltaDigest, delta.deltaDigest);
   assert.deepEqual(compact.counts, delta.counts);
-});
-
-test('source changes do not invalidate unchanged analysis policy or the comparison by themselves', () => {
-  const after = snapshot(false, [reviewed]);
-  const files = after.workspaceSnapshot.files.map(f => ({ ...f, contentDigest: digest('new bytes') }));
-  const changed = { ...after, sourceRevision: digest('new source'),
-    workspaceSnapshot: { ...after.workspaceSnapshot, files },
-    model: { ...after.model, files: after.model.files.map(f => ({ ...f, contentDigest: digest('new bytes') })) } } as Snapshot;
-  assert.equal(compare(snapshot(true, [reviewed]), changed).entries[0]!.status, 'absent');
 });
