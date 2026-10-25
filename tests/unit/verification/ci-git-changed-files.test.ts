@@ -7,14 +7,12 @@ function utf8(value: string): Uint8Array {
 }
 
 test('Git changed-file commands disable quotePath for tracked and untracked paths', () => {
+  const readOnlyPathArguments = [
+    '--no-pager', '-c', 'core.quotepath=false',
+    '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'
+  ];
   expect(gitChangedFileDiffArgs('main')).toEqual([
-    '--no-pager',
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'core.untrackedCache=false',
+    ...readOnlyPathArguments,
     'diff',
     '--no-ext-diff',
     '--no-textconv',
@@ -27,13 +25,7 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     'HEAD'
   ]);
   expect(gitChangedFileDiffArgs()).toEqual([
-    '--no-pager',
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'core.untrackedCache=false',
+    ...readOnlyPathArguments,
     'diff',
     '--no-ext-diff',
     '--no-textconv',
@@ -45,13 +37,7 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     'HEAD'
   ]);
   expect(gitIndexChangedFileDiffArgs('main')).toEqual([
-    '--no-pager',
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'core.untrackedCache=false',
+    ...readOnlyPathArguments,
     'diff-index',
     '--cached',
     '--name-status',
@@ -62,13 +48,7 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     'main'
   ]);
   expect(gitWorktreeChangedFileDiffArgs()).toEqual([
-    '--no-pager',
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'core.untrackedCache=false',
+    ...readOnlyPathArguments,
     'diff-files',
     '--name-status',
     '-z',
@@ -77,26 +57,14 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     '--diff-filter=ACDMRTUXB'
   ]);
   expect(gitUntrackedFileArgs()).toEqual([
-    '--no-pager',
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'core.untrackedCache=false',
+    ...readOnlyPathArguments,
     'ls-files',
     '--others',
     '--exclude-standard',
     '-z'
   ]);
   expect(gitWorkingTreeStatusArgs()).toEqual([
-    '--no-pager',
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'core.untrackedCache=false',
+    ...readOnlyPathArguments,
     'status',
     '--porcelain=v1',
     '-z',

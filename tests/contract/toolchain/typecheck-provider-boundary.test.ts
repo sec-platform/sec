@@ -226,11 +226,6 @@ test('native checker selection fails closed without falling back to the programm
   await withNativeCheckerWorkspace('sec-native-typecheck-unavailable-', async root => {
     expect(await selectInstalledTypeScriptNativeChecker(path.join(root, 'node_modules')))
       .toMatchObject({ status: 'unavailable', reason: 'package-not-installed' });
-  });
-});
-
-test('native checker selection consumes the caller operation deadline and cancellation', async () => {
-  await withNativeCheckerWorkspace('sec-native-typecheck-selection-budget-', async root => {
     const nodeModulesPath = path.join(root, 'node_modules');
     expect(await selectInstalledTypeScriptNativeChecker(nodeModulesPath, {
       deadlineAtUnixMs: Date.now() - 1
@@ -499,12 +494,19 @@ test('typecheck terminal consumer requires one strict physically-clean subordina
 
 test('checker diagnostic arguments are canonical and cannot override checking semantics', async () => {
   await withNativeCheckerWorkspace('sec-native-typecheck-args-', async root => {
-    const provider = (await selectNativeChecker(
-      await writeNativeCheckerFixture(root)
-    )).provider;
+    const nodeModulesPath = await writeNativeCheckerFixture(root);
+    const installed = await selectNativeChecker(nodeModulesPath);
+    const provider = installed.provider;
     expect(canonicalTypeScriptDiagnosticArguments([
       '--traceResolution', '--pretty', 'false', '--locale', 'en'
     ])).toEqual(['--locale', 'en', '--pretty', 'false', '--traceResolution']);
+    await expect(runTypecheckWithProvider({
+      nodeModulesPath,
+      manifestHash: 'fixture-manifest',
+      requiresFreshProcess: false,
+      source: 'existing',
+      transitionDigest: DEPENDENCY_TRANSITION_DIGEST,
+    } as never, installed, ['--project', 'other.json'])).rejects.toThrow('provider-owned');
     const buildInfoFile = path.join(root, 'cache', 'tsconfig.tsbuildinfo');
     expect(typeScriptCheckerArguments(provider, buildInfoFile)).toEqual([
       '--noEmit', '-p', 'tsconfig.json', '--incremental', '--tsBuildInfoFile', path.resolve(buildInfoFile)
@@ -532,6 +534,16 @@ test('native checker capability rejects structural substitutions at the effect b
       projectConfigPath: installed.provider.projectConfig
     })).toThrow('not issued by the native provider resolver');
     expect(() => assertTypeScriptNativeChecker(installed)).not.toThrow();
+    await expect(runTypecheckWithProjectGenerationEvidence({
+      nodeModulesPath: path.join(root, 'node_modules'),
+      manifestHash: 'fixture-manifest',
+      requiresFreshProcess: false,
+      source: 'existing',
+      transitionDigest: DEPENDENCY_TRANSITION_DIGEST
+    } as never, installed, {
+      generationDigest: sha256('forged-generation'),
+      projectInput: projectInputFixture()
+    } as never)).rejects.toThrow('was not issued by the Source Program owner');
   });
 });
 
@@ -628,20 +640,6 @@ test.skipIf(process.platform !== 'win32')('issued checker rejects package or exe
   });
 });
 
-test('unsupported checker arguments fail before cache or process effects', async () => {
-  await withNativeCheckerWorkspace('sec-native-typecheck-pre-effect-', async root => {
-    const nodeModulesPath = await writeNativeCheckerFixture(root);
-    const installed = await selectNativeChecker(nodeModulesPath);
-    await expect(runTypecheckWithProvider({
-      nodeModulesPath,
-      manifestHash: 'fixture-manifest',
-      requiresFreshProcess: false,
-      source: 'existing',
-      transitionDigest: DEPENDENCY_TRANSITION_DIGEST,
-    } as never, installed, ['--project', 'other.json'])).rejects.toThrow('provider-owned');
-  });
-});
-
 test('typecheck action admission rejects a structural dependency result before terminal lookup', async () => {
   await expect(runTypecheckWithDependencyAuthority({
     executionGenerationAuthority: { generationDigest: DEPENDENCY_GENERATION_DIGEST },
@@ -651,21 +649,4 @@ test('typecheck action admission rejects a structural dependency result before t
     source: 'existing',
     transitionDigest: DEPENDENCY_TRANSITION_DIGEST
   } as never)).rejects.toThrow('was not materialized by this process');
-});
-
-test('typecheck runner rejects caller-constructed Source Program generation evidence before effects', async () => {
-  await withNativeCheckerWorkspace('sec-native-typecheck-generation-origin-', async root => {
-    const nodeModulesPath = await writeNativeCheckerFixture(root);
-    const installed = await selectNativeChecker(nodeModulesPath);
-    await expect(runTypecheckWithProjectGenerationEvidence({
-      nodeModulesPath,
-      manifestHash: 'fixture-manifest',
-      requiresFreshProcess: false,
-      source: 'existing',
-      transitionDigest: DEPENDENCY_TRANSITION_DIGEST
-    } as never, installed, {
-      generationDigest: sha256('forged-generation'),
-      projectInput: projectInputFixture()
-    } as never)).rejects.toThrow('was not issued by the Source Program owner');
-  });
 });
