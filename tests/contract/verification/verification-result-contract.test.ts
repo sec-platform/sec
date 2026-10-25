@@ -595,7 +595,7 @@ test('trusted claims and serialized passes cannot close vacuously', () => {
     aggregateInput(fixture)
   )).toThrow(/passed status requires non-empty contributingGateIds/);
 
-  const callbackCannotCreateCoverage = CodexDevelopmentAggregateVerificationClaims({
+  const missingInput = {
     claims: [{
       claimId: 'claim-1',
       requiredGateIds: ['missing-gate'],
@@ -603,12 +603,31 @@ test('trusted claims and serialized passes cannot close vacuously', () => {
     }],
     gateResults: [],
     isCoverageComplete: () => true
-  });
+  };
+  const callbackCannotCreateCoverage = CodexDevelopmentAggregateVerificationClaims(missingInput);
   expect(callbackCannotCreateCoverage.claimResults[0]).toMatchObject({
     status: 'not-run',
     coverageComplete: false,
     contributingGateIds: []
   });
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    callbackCannotCreateCoverage, missingInput
+  )).not.toThrow();
+
+  const emptyInput = { claims: [], gateResults: [] };
+  const empty = CodexDevelopmentAggregateVerificationClaims(emptyInput);
+  expect(empty).toEqual({
+    overallStatus: 'invalidated', overallReasonCode: 'selection-unresolved', claimResults: []
+  });
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(empty, emptyInput)).not.toThrow();
+
+  const incompleteInput = { ...aggregateInput(fixture), isCoverageComplete: () => false };
+  const incomplete = CodexDevelopmentAggregateVerificationClaims(incompleteInput);
+  expect(incomplete).toMatchObject({
+    overallStatus: 'invalidated', overallReasonCode: 'selection-unresolved',
+    claimResults: [{ status: 'invalidated', reasonCode: 'selection-unresolved', coverageComplete: false }]
+  });
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(incomplete, incompleteInput)).not.toThrow();
 });
 
 test('aggregate assertion validates the trusted claim plan identities and exact shape', () => {

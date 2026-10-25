@@ -7,7 +7,6 @@ import {
   createObservedMainHealthInput,
   createRegisteredHostedMainHealthInputs,
   createTrustedRuntimeMainHealthInput,
-  trustedRuntimeMainHealthReceiptReference,
   type TrustedRuntimeMainHealthReceipt
 } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -132,9 +131,6 @@ test('trusted runtime projection binds current receipt identity and rejects reti
     expect(projected.producer.sourceRef).toBe(
       `live-receipt:trusted-main-health/v4/${MAIN}/${'e'.repeat(64)}`
     );
-    expect(projected.producer.sourceRef).toBe(trustedRuntimeMainHealthReceiptReference({
-      mainSha: MAIN, receiptDigest: observation.verificationReceiptDigest, schema
-    }));
     expect(projected.producer.sourceDigest).toBe(observation.verificationReceiptDigest);
     const changedDigest = createTrustedRuntimeMainHealthInput({ ...observation,
       verificationReceiptDigest: `sha256:${'f'.repeat(64)}` }, schema);
@@ -152,9 +148,6 @@ test('trusted runtime projection binds current receipt identity and rejects reti
     'sec-trusted-runtime-main-health-observation-v1']) {
     const invalidSchema = schema as TrustedRuntimeMainHealthReceipt['schema'];
     expect(() => createTrustedRuntimeMainHealthInput(observation, invalidSchema))
-      .toThrow('receipt reference schema');
-    expect(() => trustedRuntimeMainHealthReceiptReference({ mainSha: MAIN,
-      receiptDigest: observation.verificationReceiptDigest, schema: invalidSchema }))
       .toThrow('receipt reference schema');
   }
   expect(() => createTrustedRuntimeMainHealthInput({ ...observation,

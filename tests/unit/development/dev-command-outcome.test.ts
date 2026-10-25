@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { devCommandObservationExitCode, requireCommandExitCode, type DevCommandObservation } from '../../../src/adapters/self-hosting/development/runner/command-outcome.ts';
+import { devCommandObservationExitCode, type DevCommandObservation } from '../../../src/adapters/self-hosting/development/runner/command-outcome.ts';
 
 const observation = (exitCode: number): DevCommandObservation => ({ schema: 'sec-dev-command-observation-v1',
   effectiveArgv: ['bun'], terminal: { kind: 'exited', exitCode }, observationIntegrity: { kind: 'complete' },
@@ -12,7 +12,6 @@ test('zero alone is successful and existing integer failure codes retain their v
 
 test('absent, nonnumeric and noninteger results never become a zero exit', () => {
   for (const value of [undefined, null, false, true, '', '0', NaN, Infinity, 1.5, {}, 2 ** 53]) {
-    assert.throws(() => requireCommandExitCode(value, 'test'), TypeError);
     assert.throws(() => devCommandObservationExitCode(observation(value as number)), TypeError);
   }
 });

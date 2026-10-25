@@ -47,26 +47,6 @@ test('canonical UTF-8 text tails retain only complete code points within the byt
   expect(() => boundedUtf8TextTail('anything', -1)).toThrow('non-negative safe integer');
 });
 
-test('canonical Bun execution binds the compiler root and supplied environment value', async () => {
-  const stdoutWrites: Uint8Array[] = [];
-  process.stdout.write = ((chunk: Uint8Array) => {
-    stdoutWrites.push(Buffer.from(chunk));
-    return true;
-  }) as typeof process.stdout.write;
-
-  const code = await runDevCommand('bun', [
-    '--no-env-file',
-    '--eval',
-    "process.stdout.write(JSON.stringify({cwd: process.cwd(), marker: process.env.SEC_DEV_COMMAND_MARKER}))"
-  ], { SEC_DEV_COMMAND_MARKER: 'owner-bound' });
-
-  expect(code).toBe(0);
-  expect(JSON.parse(Buffer.concat(stdoutWrites).toString('utf8'))).toEqual({
-    cwd: compilerRoot,
-    marker: 'owner-bound'
-  });
-});
-
 test('canonical Bun execution retains an owner-admitted cwd and script input', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-command-cwd-'));
   return settleWorkspaceCallback(async () => {
@@ -94,21 +74,37 @@ test('canonical Bun execution retains an owner-admitted cwd and script input', a
   }, () => rm(root, { recursive: true, force: true }));
 });
 
-test('canonical Bun execution delivers stdin and rejects oversized input or an exhausted deadline', async () => {
+test('canonical Bun execution binds cwd and environment, delivers stdin, and rejects invalid admission', async () => {
   const input = Buffer.from('fresh-process-standard-input', 'utf8');
   const stdoutWrites: Uint8Array[] = [];
+  const stderrWrites: Uint8Array[] = [];
   process.stdout.write = ((chunk: Uint8Array) => {
     stdoutWrites.push(Buffer.from(chunk));
     return true;
   }) as typeof process.stdout.write;
 
-  const code = await runDevCommand('bun', [
+  process.stderr.write = ((chunk: Uint8Array) => {
+    stderrWrites.push(Buffer.from(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+
+  const observation = await runDevCommand('bun', [
     '--no-env-file',
     '--eval',
-    'process.stdout.write(await Bun.stdin.text())'
-  ], {}, { input });
+    'process.stdout.write(await Bun.stdin.text());'
+      + 'process.stderr.write(JSON.stringify({cwd: process.cwd(), marker: process.env.SEC_DEV_COMMAND_MARKER}));'
+  ], { SEC_DEV_COMMAND_MARKER: 'owner-bound' }, { input, observe: true });
 
-  expect(code).toBe(0);
+  expect(observation).toMatchObject({
+    schema: 'sec-dev-command-observation-v1',
+    terminal: { kind: 'exited', exitCode: 0 },
+    observationIntegrity: { kind: 'complete' }
+  });
+  expect(devCommandObservationExitCode(observation)).toBe(0);
+  expect(JSON.parse(Buffer.concat(stderrWrites).toString('utf8'))).toEqual({
+    cwd: compilerRoot,
+    marker: 'owner-bound'
+  });
   expect(Buffer.concat(stdoutWrites)).toEqual(input);
 
   expect(() => runDevCommand('bun', ['--version'], {}, {
@@ -119,7 +115,7 @@ test('canonical Bun execution delivers stdin and rejects oversized input or an e
   })).toThrow('parent deadline is exhausted');
 });
 
-test('observed execution forwards live output and retains bounded UTF-8 tails', async () => {
+test('observed execution forwards bounded UTF-8 tails and preserves a nonzero exit', async () => {
   const stdoutWrites: Uint8Array[] = [];
   const stderrWrites: Uint8Array[] = [];
   process.stdout.write = ((chunk: Uint8Array) => {
@@ -136,31 +132,16 @@ test('observed execution forwards live output and retains bounded UTF-8 tails', 
     '--eval',
     `process.stdout.write('a'.repeat(${DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES + 5}));`
       + `process.stderr.write('b'.repeat(${DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES + 7}));`
+      + 'process.exitCode = 9;'
   ], {}, { observe: true });
 
-  expect(observation).toMatchObject({
-    schema: 'sec-dev-command-observation-v1',
-    terminal: { kind: 'exited', exitCode: 0 },
-    observationIntegrity: { kind: 'complete' }
-  });
+  expect(observation.schema).toBe('sec-dev-command-observation-v1');
+  expect(observation.terminal).toEqual({ kind: 'exited', exitCode: 9 });
+  expect(observation.observationIntegrity).toEqual({ kind: 'complete' });
   expect(Buffer.byteLength(observation.stdoutTail)).toBe(DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES);
   expect(Buffer.byteLength(observation.stderrTail)).toBe(DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES);
   expect(Buffer.concat(stdoutWrites).byteLength).toBe(DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES + 5);
   expect(Buffer.concat(stderrWrites).byteLength).toBe(DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES + 7);
-  expect(devCommandObservationExitCode(observation)).toBe(0);
-});
-
-test('nonzero Bun exit remains a structured owner observation', async () => {
-  process.stdout.write = (() => true) as typeof process.stdout.write;
-  process.stderr.write = (() => true) as typeof process.stderr.write;
-  const observation = await runDevCommand('bun', [
-    '--no-env-file',
-    '--eval',
-    'process.exitCode = 9'
-  ], {}, { observe: true });
-
-  expect(observation.terminal).toEqual({ kind: 'exited', exitCode: 9 });
-  expect(observation.observationIntegrity).toEqual({ kind: 'complete' });
   expect(devCommandObservationExitCode(observation)).toBe(9);
 });
 
