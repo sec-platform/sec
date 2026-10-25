@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { expectRecord } from '../../helpers/assertion-helpers.ts';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
@@ -8,19 +9,6 @@ import { formatPolicyReport } from '../../../src/entry/cli/policy-report-inspect
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import { expectCliJson, expectCliSuccess, runCliInProcess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-
-// Compare complete semantic fields and list members, not prose spacing or
-// substrings shared by a different key, record, or evidence field.
-function recordFields(line: string | undefined): string[] {
-  expect(line).toBeDefined();
-  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
-}
-
-function expectRecord(line: string | undefined, fields: readonly string[]): void {
-  expect(recordFields(line).sort()).toEqual(
-    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
-  );
-}
 
 test('policy inspection routes retained report through application summary projection and entry rendering while preserving JSON', async () => {
   // Keep the independently fixed non-CLI state projections formerly registered in tests/unit/policy-report-inspection-presentation.test.ts.

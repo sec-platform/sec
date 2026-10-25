@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { expectRecord } from '../../helpers/assertion-helpers.ts';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
@@ -7,19 +8,6 @@ import { buildE2eMatrix } from '../../../src/assurance/verification/review/matri
 import { buildReviewSummaryFromInputs } from '../../helpers/review-fixtures.ts';
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-
-// Compare complete semantic fields and list members, not prose spacing or
-// substrings shared by a different key, record, or evidence field.
-function recordFields(line: string | undefined): string[] {
-  expect(line).toBeDefined();
-  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
-}
-
-function expectRecord(line: string | undefined, fields: readonly string[]): void {
-  expect(recordFields(line).sort()).toEqual(
-    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
-  );
-}
 
 test('review matrix routes adapter result through application and entry while preserving JSON shape', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

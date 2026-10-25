@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { expectRecord, recordFields } from '../../helpers/assertion-helpers.ts';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
@@ -9,19 +10,6 @@ import {
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-
-// Compare complete semantic fields and list members, not prose spacing or
-// substrings shared by a different key, record, or evidence field.
-function recordFields(line: string | undefined): string[] {
-  expect(line).toBeDefined();
-  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
-}
-
-function expectRecord(line: string | undefined, fields: readonly string[]): void {
-  expect(recordFields(line).sort()).toEqual(
-    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
-  );
-}
 
 test('acceptance inspection routes retained coverage through application and entry while preserving JSON', async () => {
   // Direct projection checks own input isolation; CLI checks below own rendered values.

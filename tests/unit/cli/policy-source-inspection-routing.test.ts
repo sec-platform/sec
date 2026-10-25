@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { expectRecord, recordFields } from '../../helpers/assertion-helpers.ts';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
@@ -6,19 +7,6 @@ import { projectPolicySources } from '../../../src/application/policy-source-ins
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-
-// Compare complete semantic fields and list members, not prose spacing or
-// substrings shared by a different key, record, or evidence field.
-function recordFields(line: string | undefined): string[] {
-  expect(line).toBeDefined();
-  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
-}
-
-function expectRecord(line: string | undefined, fields: readonly string[]): void {
-  expect(recordFields(line).sort()).toEqual(
-    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
-  );
-}
 
 // Fixed semantic oracle for both the direct projection and real CLI JSON.
 // Never compute a route's expected result with its own production projection.

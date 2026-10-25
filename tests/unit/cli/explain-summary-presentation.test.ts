@@ -1,4 +1,5 @@
 import { beforeAll, expect, test } from 'bun:test';
+import { expectRecord } from '../../helpers/assertion-helpers.ts';
 
 import { projectExplainSummary } from '../../../src/application/explain-summary.ts';
 import { emptyCiArtifactManifest } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -7,19 +8,6 @@ import { formatExplainSummary } from '../../../src/entry/cli/explain-summary.ts'
 import type { ExplainGraph } from '../../../src/semantics/projection/explain.ts';
 import { buildReviewSummaryInTempWorkspace } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
-
-// Compare complete semantic fields and list members, not prose spacing or
-// substrings shared by a different key, record, or evidence field.
-function recordFields(line: string | undefined): string[] {
-  expect(line).toBeDefined();
-  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
-}
-
-function expectRecord(line: string | undefined, fields: readonly string[]): void {
-  expect(recordFields(line).sort()).toEqual(
-    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
-  );
-}
 
 // Perform the real artifact/Review readback once. Cases only project a deep
 // clone, so their mutations, registrations and timeout windows stay separate.

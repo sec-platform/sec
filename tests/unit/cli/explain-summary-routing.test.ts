@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { expectRecord } from '../../helpers/assertion-helpers.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,19 +8,6 @@ import { buildE2eMatrix } from '../../../src/assurance/verification/review/matri
 import { buildReviewSummaryFromInputs } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
 import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
-
-// Compare complete semantic fields and list members, not prose spacing or
-// substrings shared by a different key, record, or evidence field.
-function recordFields(line: string | undefined): string[] {
-  expect(line).toBeDefined();
-  return line!.split(';').map(field => field.trim().replace(/\s*,\s*/gu, ','));
-}
-
-function expectRecord(line: string | undefined, fields: readonly string[]): void {
-  expect(recordFields(line).sort()).toEqual(
-    fields.map(field => field.trim().replace(/\s*,\s*/gu, ',')).sort()
-  );
-}
 
 // Domain effects are replaced only inside a separate process. The real command
 // registration, argument parsing, application projection and renderer execute.
