@@ -160,62 +160,40 @@ tests:
 `, 'utf8');
 }
 
-test('hosted PRE is canonical and binds request, provider, and full manifest scope', () => {
-  const first = createAgentOperationActivationPreparation(preparationInput());
+test('hosted PRE and FINAL bind canonical scope, exact provider, distinct request and immutable receipt', () => {
+  const input = preparationInput();
+  const preparation = createAgentOperationActivationPreparation(input);
   const second = createAgentOperationActivationPreparation({
-    ...preparationInput(),
-    authorizedPaths: [...preparationInput().authorizedPaths].reverse(),
-    proposalChangedPaths: [...preparationInput().proposalChangedPaths].reverse()
+    ...input,
+    authorizedPaths: [...input.authorizedPaths].reverse(),
+    proposalChangedPaths: [...input.proposalChangedPaths].reverse()
   });
-  expect(second).toEqual(first);
+  expect(second).toEqual(preparation);
   expect(parseAgentOperationActivationPreparation(
-    JSON.parse(JSON.stringify(first))
-  )).toEqual(first);
+    JSON.parse(JSON.stringify(preparation))
+  )).toEqual(preparation);
   expect(() => createAgentOperationActivationPreparation({
-    ...preparationInput(),
+    ...input,
     proposalChangedPaths: ['source/forbidden.ts']
   })).toThrow(/scope is inconsistent/u);
   expect(() => createAgentOperationActivationPreparation({
-    ...preparationInput(),
+    ...input,
     provider: provider('11', sha('e'))
   })).toThrow(/scope is inconsistent/u);
-});
 
-test('hosted PRE requires every stale default-branch Work Package to be deleted', () => {
-  const selectedPath = 'config/repository/work-packages/selected-v1.md';
-  const predecessorPath = 'config/repository/work-packages/predecessor-v1.md';
-  const selectedBytes = workPackageManifest('selected-v1', 'issue-999');
-  const predecessorBytes = workPackageManifest('predecessor-v1', 'issue-998');
-  expect(assertAgentOperationActivationWorkPackageCensus({
-    selectedManifestPath: selectedPath,
-    candidateEntries: [{ path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null }],
-    defaultPackagePaths: [predecessorPath]
-  })).toEqual([predecessorPath]);
-  expect(() => assertAgentOperationActivationWorkPackageCensus({
-    selectedManifestPath: selectedPath,
-    candidateEntries: [
-      { path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null },
-      { path: predecessorPath, candidateBytes: predecessorBytes, defaultBytes: predecessorBytes }
-    ],
-    defaultPackagePaths: [predecessorPath]
-  })).toThrow(/not activatable/u);
-  for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20']) {
-    expect(() => assertAgentOperationActivationWorkPackageCensus({
-      selectedManifestPath: selectedPath,
-      candidateEntries: [{
-        path: selectedPath,
-        candidateBytes: Buffer.from(selectedBytes.toString('utf8').replace(
-          'ci-verification-v19', historicalOrFuture
-        ), 'utf8'),
-        defaultBytes: null
-      }],
-      defaultPackagePaths: []
-    })).toThrow(/current CI verification revision/u);
-  }
-});
+  const { schema: _providerSchema, providerDigest: _providerDigest, ...providerInput } = preparation.provider;
+  expect(() => createAgentOperationActivationProvider({
+    ...providerInput,
+    workflowPath: '.github/workflows/candidate.yml',
+    workflowRef: `.github/workflows/candidate.yml@${sha('a')}`
+  } as never)).toThrow(/provider workflow/u);
+  const { schema: _requestSchema, requestOperationId: _requestOperationId, ...requestInput } = preparation.request;
+  expect(() => createAgentOperationActivationRequest({
+    ...requestInput,
+    phase: 'finalize',
+    preparationCommentId: null
+  })).toThrow(/finalize requires/u);
 
-test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE scope', () => {
-  const preparation = createAgentOperationActivationPreparation(preparationInput());
   const request = createAgentOperationActivationRequest({
     phase: 'finalize',
     pullRequestNumber: preparation.proposal.number,
@@ -256,6 +234,39 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
   })).toThrow(/exact PRE authority/u);
 });
 
+test('hosted PRE requires every stale default-branch Work Package to be deleted', () => {
+  const selectedPath = 'config/repository/work-packages/selected-v1.md';
+  const predecessorPath = 'config/repository/work-packages/predecessor-v1.md';
+  const selectedBytes = workPackageManifest('selected-v1', 'issue-999');
+  const predecessorBytes = workPackageManifest('predecessor-v1', 'issue-998');
+  expect(assertAgentOperationActivationWorkPackageCensus({
+    selectedManifestPath: selectedPath,
+    candidateEntries: [{ path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null }],
+    defaultPackagePaths: [predecessorPath]
+  })).toEqual([predecessorPath]);
+  expect(() => assertAgentOperationActivationWorkPackageCensus({
+    selectedManifestPath: selectedPath,
+    candidateEntries: [
+      { path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null },
+      { path: predecessorPath, candidateBytes: predecessorBytes, defaultBytes: predecessorBytes }
+    ],
+    defaultPackagePaths: [predecessorPath]
+  })).toThrow(/not activatable/u);
+  for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20']) {
+    expect(() => assertAgentOperationActivationWorkPackageCensus({
+      selectedManifestPath: selectedPath,
+      candidateEntries: [{
+        path: selectedPath,
+        candidateBytes: Buffer.from(selectedBytes.toString('utf8').replace(
+          'ci-verification-v19', historicalOrFuture
+        ), 'utf8'),
+        defaultBytes: null
+      }],
+      defaultPackagePaths: []
+    })).toThrow(/current CI verification revision/u);
+  }
+});
+
 test('App comment is only a canonical immutable-artifact locator', () => {
   const request = prepareRequest();
   const publication = createAgentOperationActivationPublication({
@@ -277,21 +288,6 @@ test('App comment is only a canonical immutable-artifact locator', () => {
     ...publicationInput,
     artifactName: 'candidate-local-ref'
   })).toThrow(/artifact name/u);
-});
-
-test('candidate-local objects cannot satisfy the hosted provider schema', () => {
-  const { schema: _providerSchema, providerDigest: _providerDigest, ...providerInput } = provider('11');
-  expect(() => createAgentOperationActivationProvider({
-    ...providerInput,
-    workflowPath: '.github/workflows/candidate.yml',
-    workflowRef: `.github/workflows/candidate.yml@${sha('a')}`
-  } as never)).toThrow(/provider workflow/u);
-  const { schema: _requestSchema, requestOperationId: _requestOperationId, ...requestInput } = prepareRequest();
-  expect(() => createAgentOperationActivationRequest({
-    ...requestInput,
-    phase: 'finalize',
-    preparationCommentId: null
-  })).toThrow(/finalize requires/u);
 });
 
 test.skipIf(process.platform !== 'win32')('Windows activation fails closed before fake PATH Git or GitHub children and ambient CLI state', async () => {
