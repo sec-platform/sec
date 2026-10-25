@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { jsonOpts } from '../../../src/entry/cli/command-options.ts';
 import { commandValue } from '../../../src/entry/cli/command-value.ts';
 import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progress.ts';
@@ -64,12 +66,19 @@ for (const phase of ['decode', 'execute-sync', 'execute-async', 'view-sync', 'vi
 test('workspace capture happens before decoder code can change process cwd', async () => {
   const root = program(), original = process.cwd(); let observed = '';
   const other = mkdtempSync(path.join(tmpdir(), 'sec-action-cwd-'));
-  registerWorkspaceAction(root.command('sample'), {
-    decode: () => { process.chdir(other); return { request: undefined, output: jsonOpts({}) }; },
-    execute: async (workspaceRoot) => { observed = workspaceRoot; return 1; }, view: (value) => commandValue(value, String)
+  await settleWorkspaceCallback(async () => {
+    registerWorkspaceAction(root.command('sample'), {
+      decode: () => { process.chdir(other); return { request: undefined, output: jsonOpts({}) }; },
+      execute: async (workspaceRoot) => { observed = workspaceRoot; return 1; }, view: (value) => commandValue(value, String)
+    });
+    await capture(() => root.parseAsync(['sample'], { from: 'user' }));
+    assert.equal(observed, original);
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'restore-cwd', settle: () => process.chdir(original) },
+      { label: 'action-workspace', settle: () => rmSync(other, { recursive: true, force: true }) }
+    ] });
   });
-  try { await capture(() => root.parseAsync(['sample'], { from: 'user' })); assert.equal(observed, original); }
-  finally { process.chdir(original); rmSync(other, { recursive: true, force: true }); }
 });
 
 test('decoder owns the immutable request snapshot; execution never receives raw Commander input', async () => {

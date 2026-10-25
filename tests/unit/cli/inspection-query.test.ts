@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../../src/entry/cli/inspection-query.ts';
 
 function program() {
@@ -80,23 +82,28 @@ for (const phase of ['read-sync', 'read-async', 'view-sync', 'view-async', 'form
 test('data selection receives the same captured context as presentation after an await', async () => {
   const initial = process.cwd();
   const other = await mkdtemp(path.join(tmpdir(), 'sec-query-context-'));
-  const root = program();
-  let observed: InspectionContext | undefined;
-  const command = registerInspectionQuery(root.command('sample'), {
-    read: async (context) => {
-      observed = context;
-      assert.equal(Object.isFrozen(context), true);
-      assert.equal(Object.isFrozen(context.output), true);
-      await Promise.resolve();
-      process.chdir(other); root.name('changed'); command.setOptionValue('json', false);
-      return { value: 42 };
-    },
-    view: (value, context) => {
-      assert.deepEqual(context, observed); assert.equal(context.workspaceRoot, initial);
-      assert.equal(context.rootCommand, 'sec'); assert.equal(context.output.json, true);
-      return inspectionValue(value, () => assert.fail('JSON chosen before read'));
-    } });
-  try {
+  await settleWorkspaceCallback(async () => {
+    const root = program();
+    let observed: InspectionContext | undefined;
+    const command = registerInspectionQuery(root.command('sample'), {
+      read: async (context) => {
+        observed = context;
+        assert.equal(Object.isFrozen(context), true);
+        assert.equal(Object.isFrozen(context.output), true);
+        await Promise.resolve();
+        process.chdir(other); root.name('changed'); command.setOptionValue('json', false);
+        return { value: 42 };
+      },
+      view: (value, context) => {
+        assert.deepEqual(context, observed); assert.equal(context.workspaceRoot, initial);
+        assert.equal(context.rootCommand, 'sec'); assert.equal(context.output.json, true);
+        return inspectionValue(value, () => assert.fail('JSON chosen before read'));
+      } });
     assert.deepEqual(await capture(() => root.parseAsync(['sample', '--json'], { from: 'user' })), [[JSON.stringify({ value: 42 }, null, 2)]]);
-  } finally { process.chdir(initial); await rm(other, { recursive: true, force: true }); }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'restore-cwd', settle: () => process.chdir(initial) },
+      { label: 'query-workspace', settle: () => rm(other, { recursive: true, force: true }) }
+    ] });
+  });
 });

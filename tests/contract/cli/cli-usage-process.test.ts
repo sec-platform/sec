@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import packageMetadata from '../../../package.json' with { type: 'json' };
+import { settleResourcesAsync, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
 
 const entry = fileURLToPath(new URL('../../../src/bootstrap/cli/cli.ts', import.meta.url));
@@ -11,32 +12,66 @@ const entry = fileURLToPath(new URL('../../../src/bootstrap/cli/cli.ts', import.
 // This observes the production composition and actual process streams, not the
 // in-process fixture's separate Commander registration and failure handler.
 async function invoke(args: readonly string[], fixtureSource?: string) {
-  const cwd = await mkdtemp(path.join(tmpdir(), 'sec-cli-usage-'));
-  try {
-    const fixtureEntry = path.join(cwd, 'entry.ts');
-    if (fixtureSource !== undefined) await writeFile(fixtureEntry, fixtureSource);
-    const executable = createRawTestExecutableFixture();
-    try {
-      const child = Bun.spawn([executable.command, 'run', '--no-env-file', fixtureSource === undefined ? entry : fixtureEntry, ...args], {
-        cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, FORCE_COLOR: '1' },
-        timeout: 5_000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024
+  let childStarted = false;
+  let childExited = false;
+  let stdoutSettled = true;
+  let stderrSettled = true;
+  return withAcquiredResource({
+    operationLabel: 'cli-usage', resourceLabel: 'cli-workspace',
+    acquire: () => mkdtemp(path.join(tmpdir(), 'sec-cli-usage-')),
+    use: async cwd => {
+      const fixtureEntry = path.join(cwd, 'entry.ts');
+      if (fixtureSource !== undefined) await writeFile(fixtureEntry, fixtureSource);
+      return withAcquiredResource({
+        operationLabel: 'cli-usage', resourceLabel: 'cli-executable',
+        acquire: createRawTestExecutableFixture,
+        use: async executable => {
+          let stdout: Promise<string> | undefined;
+          let stderr: Promise<string> | undefined;
+          return withAcquiredResource({
+            operationLabel: 'cli-output', resourceLabel: 'cli-child',
+            acquire: () => {
+              const child = Bun.spawn([executable.command, 'run', '--no-env-file', fixtureSource === undefined ? entry : fixtureEntry, ...args], {
+                cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, FORCE_COLOR: '1' },
+                timeout: 5_000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024
+              });
+              childStarted = true;
+              return child;
+            },
+            use: async child => {
+              stdout = new Response(child.stdout).text();
+              stdoutSettled = false;
+              stderr = new Response(child.stderr).text();
+              stderrSettled = false;
+              const [code, out, err] = await Promise.all([child.exited, stdout, stderr]);
+              return { code, stdout: out, stderr: err };
+            },
+            release: async child => {
+              await settleResourcesAsync({ cleanup: [
+                { label: 'child-kill', settle: () => { if (child.exitCode === null) child.kill('SIGKILL'); } },
+                { label: 'child-exit', settle: async () => { await child.exited; childExited = true; } },
+                { label: 'child-stdout', settle: async () => { try { await stdout; } finally { stdoutSettled = true; } } },
+                { label: 'child-stderr', settle: async () => { try { await stderr; } finally { stderrSettled = true; } } }
+              ] });
+            }
+          });
+        },
+        release: executable => {
+          // Attempting cleanup does not prove the child released its dependencies.
+          if (childStarted && (!childExited || !stdoutSettled || !stderrSettled)) {
+            throw new Error(`CLI usage cleanup retained executable ${executable.command}: child exit or stream settlement was not confirmed.`);
+          }
+          return executable.dispose();
+        }
       });
-      const stdout = new Response(child.stdout).text();
-      const stderr = new Response(child.stderr).text();
-      try {
-        const [code, out, err] = await Promise.all([child.exited, stdout, stderr]);
-        return { code, stdout: out, stderr: err };
-      } finally {
-        if (child.exitCode === null) child.kill('SIGKILL');
-        await child.exited;
-        await Promise.allSettled([stdout, stderr]);
+    },
+    release: cwd => {
+      if (childStarted && (!childExited || !stdoutSettled || !stderrSettled)) {
+        throw new Error(`CLI usage cleanup retained workspace ${cwd}: child exit or stream settlement was not confirmed.`);
       }
-    } finally {
-      executable.dispose();
+      return rm(cwd, { recursive: true, force: true });
     }
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
+  });
 }
 
 const transportEntry = fileURLToPath(new URL('../../../src/entry/cli/cli.ts', import.meta.url));
