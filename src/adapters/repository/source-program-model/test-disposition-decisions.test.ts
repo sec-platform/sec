@@ -25,7 +25,7 @@ import {
   type SourceProgramTestAuthorDecision,
   type SourceProgramTestAuthorDecisionPayload
 } from './test-disposition-decisions.ts';
-import { compileSupersessionSnapshot } from './test/supersession-fixture.ts';
+import { compileSupersessionFixture, compileSupersessionSnapshot } from './test/supersession-fixture.ts';
 
 function testAuthorPayload(
   baseline: ReturnType<typeof compileSupersessionSnapshot>,
@@ -307,8 +307,9 @@ test('authored relocation rejects ambiguous identical registrations rather than 
 test('authored relocation cannot retain a changed oracle under the same title', () => {
   const testPath = 'src/example/behavior.test.ts';
   const production = { 'src/example/operation.ts': "export function execute() { return 'ok'; }\n" };
-  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\ntest('same', () => expect(execute()).toBe('ok'));\n";
-  const baseline = compileSupersessionSnapshot({ ...production, [testPath]: source });
+  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\ntest.each([111])('same', () => expect(execute()).toBe('ok'));\n";
+  const fixture = compileSupersessionFixture({ ...production, [testPath]: source });
+  const baseline = fixture.evidence;
   const current = compileSupersessionSnapshot({ ...production,
     [testPath]: '\n' + source.replace("toBe('ok')", "toBe('changed')") });
   expect(baseline.tests[0]!.registrationContentDigest).not.toBe(current.tests[0]!.registrationContentDigest);
@@ -319,4 +320,37 @@ test('authored relocation cannot retain a changed oracle under the same title', 
     reason: 'A title is only a locator and cannot authorize a changed oracle.'
   }]);
   expect(() => assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths: [testPath] })).toThrow();
+
+  // Same-length literal replacement preserves the occurrence ID, not its
+  // definition. Known expansion growth cannot hide behind that unchanged ID.
+  const expandedFixture = compileSupersessionFixture({ ...production,
+    [testPath]: source.replace('[111]', '[1,2]') });
+  const expanded = expandedFixture.evidence;
+  expect(fixture.full.tests.records[0]!.potentialExpansion).toEqual({ status: 'known', count: 1 });
+  expect(expandedFixture.full.tests.records[0]!.potentialExpansion).toEqual({ status: 'known', count: 2 });
+  const testId = baseline.tests[0]!.testId;
+  expect(expanded.tests[0]!.testId).toBe(testId);
+  expect(expanded.tests[0]!.registrationContentDigest).not.toBe(baseline.tests[0]!.registrationContentDigest);
+  const unapproved = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations',
+    baseline, current: expanded, changedPaths: [testPath] });
+  expect(unapproved.status).toBe('owner-decision-required');
+  expect(unapproved.findings).toContainEqual(expect.objectContaining({
+    code: 'required-test-boundary-missing', baselineId: testId
+  }));
+  const retained = testAuthorPayload(baseline, expanded, [{ ...payload.decisions[0]!,
+    currentTestIds: [testId] }]);
+  expect(() => assessSourceProgramTestAuthorDecision({ payload: retained,
+    baseline, current: expanded, changedPaths: [testPath] }))
+    .toThrow('unassessed retention cannot rewrite');
+  const responsibility = constantResultResponsibility(testId, 'example');
+  const rewrite = testAuthorPayload(baseline, expanded, [{ ...retained.decisions[0]!,
+    disposition: 'rewrite', baselineResponsibilities: [{ testId, responsibility }],
+    currentResponsibilities: [{ testId, responsibility }],
+    reason: 'The exact changed definition requires an explicit responsibility judgment, not automatic count acceptance.' }]);
+  const assessed = assessSourceProgramTestAuthorDecision({ payload: rewrite,
+    baseline, current: expanded, changedPaths: [testPath] });
+  const conditional = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations',
+    baseline, current: expanded, changedPaths: [testPath], authorAssessment: assessed });
+  expect(conditional.status).toBe('author-decision-conditional');
+  expect(conditional.findings).toEqual([]);
 });

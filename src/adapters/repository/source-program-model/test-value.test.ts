@@ -169,7 +169,9 @@ test('test-value blocks production-derived oracles while retaining fixed indepen
 
 test('test-value compilation blocks missing modules and implementation-shape mirrors', () => {
   const missing = 'tests/unit/deleted.test.ts';
+  const empty = 'tests/unit/empty.test.ts';
   const result = compile({
+    [empty]: 'export {};\n',
     'src/example/index.ts': 'export const FORMAT = Object.freeze({ formatVersion: "1" });\n',
     'tests/helpers/fixture.ts': 'export const fixture = true;\n',
     'tests/unit/arity-mirror.test.ts': [
@@ -193,8 +195,9 @@ test('test-value compilation blocks missing modules and implementation-shape mir
       "  expect(FORMAT.formatVersion).toBe('1');",
       '});'
     ].join('\n')
-  }, [missing]);
+  }, [missing], { baselineTestPaths: [missing] });
 
+  expect(result.records.some(({ path }) => path === empty)).toBe(false);
   expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([
     {
       code: 'test-mirrors-imported-function-arity',
@@ -207,6 +210,10 @@ test('test-value compilation blocks missing modules and implementation-shape mir
     {
       code: 'test-module-missing-from-worktree',
       path: missing
+    },
+    {
+      code: 'test-module-without-registration',
+      path: empty
     },
     {
       code: 'test-reads-production-source-text',
