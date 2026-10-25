@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../../src/assurance/verification/contract/types.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../../src/assurance/verification/semantic-mutation/execution-ref.ts';
-import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
+import { buildEngineeringIR } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildFactDelta } from '../../../src/compiler/ir/build-fact-delta.ts';
 import { factAssertionId } from '../../../src/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
@@ -32,78 +32,13 @@ import {
   semanticMutationRequiredVerificationDigest
 } from '../../../src/compiler/semantic-mutation/verification-policy.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
-import type { LoadedSemanticContract } from '../../../src/semantics/definitions/types.ts';
 import type { FactDeltaEndpointContext } from '../../../src/semantics/engineering-ir/delta-types.ts';
 import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest, type VerificationRequirement } from '../../../src/semantics/mutation/types.ts';
+import { semanticMutationEngineeringInput } from '../../helpers/semantic-mutation-recovery-fixture.ts';
 import { semanticMutationVerificationReportFixture } from '../../helpers/semantic-mutation-verification-report.ts';
 
-function contract(withTransition: boolean): LoadedSemanticContract {
-  return {
-    blockId: 'item/basic',
-    contractPath: 'model/item.yaml',
-    contract: {
-      formatVersion: '1',
-      id: 'item-core',
-      namespace: 'item',
-      entities: [{ id: 'Item', fields: [{ id: 'status', type: 'ItemStatus', mutable: true }] }],
-      states: [{
-        id: 'item-status',
-        entity: 'Item',
-        field: 'status',
-        owner: 'ItemStateMachine',
-        values: ['closed', 'open'],
-        transitions: withTransition ? [{ from: 'open', to: 'closed', by: 'closeItem' }] : []
-      }],
-      responsibilities: [{
-        id: 'ItemStateMachine',
-        role: 'Own item status',
-        owns: ['Item.status'],
-        implements: ['closeItem'],
-        dependsOn: []
-      }],
-      operations: [{
-        id: 'closeItem',
-        responsibility: 'ItemStateMachine',
-        inputs: ['Item'],
-        output: 'Item',
-        reads: ['Item.status'],
-        writes: [],
-        mutates: ['Item.status'],
-        requiresPolicies: [],
-        requiresPermissions: [],
-        performsEffects: [],
-        emits: [],
-        invokes: [],
-        awaits: []
-      }],
-      events: [],
-      policies: [],
-      permissions: [],
-      effects: [],
-      scenarios: []
-    }
-  };
-}
-
-function buildInput(withTransition: boolean, appName = 'Mutation App'): BuildEngineeringIRInput {
-  return {
-    app: { id: 'mutation-app', name: appName },
-    resolvedBlocks: [{
-      id: 'item/basic',
-      version: '0.1.0',
-      kind: 'capability',
-      installOrder: 1,
-      manifestPath: 'model/block.manifest.yaml',
-      registrySourceId: 'workspace',
-      registryKind: 'private',
-      registryLocation: 'workspace',
-      registryPath: 'source/model'
-    }],
-    manifests: [],
-    acceptanceIds: [],
-    policyDeclarations: [],
-    semanticContracts: [contract(withTransition)]
-  };
+function buildInput(withTransition: boolean, appName = 'Mutation App') {
+  return semanticMutationEngineeringInput(withTransition, { sourceRoot: 'model', appName });
 }
 
 function endpoint(

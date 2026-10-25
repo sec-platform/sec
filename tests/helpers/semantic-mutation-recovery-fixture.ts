@@ -22,10 +22,10 @@ export function digest(value: unknown): string {
   return sha256(value);
 }
 
-function contract(withTransition: boolean): LoadedSemanticContract {
+function contract(withTransition: boolean, sourceRoot: string): LoadedSemanticContract {
   return {
     blockId: 'item/basic',
-    contractPath: 'source/model/item.yaml',
+    contractPath: `${sourceRoot}/item.yaml`,
     contract: {
       formatVersion: '1',
       id: 'item-core',
@@ -70,15 +70,18 @@ function contract(withTransition: boolean): LoadedSemanticContract {
   };
 }
 
-function buildInput(withTransition: boolean): BuildEngineeringIRInput {
+export function semanticMutationEngineeringInput(
+  withTransition: boolean,
+  { sourceRoot = 'source/model', appName = 'Mutation App' } = {}
+): BuildEngineeringIRInput {
   return {
-    app: { id: 'mutation-app', name: 'Mutation App' },
+    app: { id: 'mutation-app', name: appName },
     resolvedBlocks: [{
       id: 'item/basic',
       version: '0.1.0',
       kind: 'capability',
       installOrder: 1,
-      manifestPath: 'source/model/block.manifest.yaml',
+      manifestPath: `${sourceRoot}/block.manifest.yaml`,
       registrySourceId: 'workspace',
       registryKind: 'private',
       registryLocation: 'workspace',
@@ -87,7 +90,7 @@ function buildInput(withTransition: boolean): BuildEngineeringIRInput {
     manifests: [],
     acceptanceIds: [],
     policyDeclarations: [],
-    semanticContracts: [contract(withTransition)]
+    semanticContracts: [contract(withTransition, sourceRoot)]
   };
 }
 
@@ -119,8 +122,8 @@ function authorization(): SemanticMutationAuthorizationContext {
 }
 
 export function readyTransactionFixture(requestId = 'request:add-transition') {
-  const before = buildValidatedEngineeringIR(buildInput(false));
-  const after = buildValidatedEngineeringIR(buildInput(true));
+  const before = buildValidatedEngineeringIR(semanticMutationEngineeringInput(false));
+  const after = buildValidatedEngineeringIR(semanticMutationEngineeringInput(true));
   const base = endpoint(before, 'tx:base');
   const staged = endpoint(after, 'tx:staged');
   const delta = buildFactDelta(base, staged);
