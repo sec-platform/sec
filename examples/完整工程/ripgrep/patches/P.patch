@@ -1,0 +1,36 @@
+diff --git a/crates/ignore/src/lib.rs b/crates/ignore/src/lib.rs
+--- a/crates/ignore/src/lib.rs
++++ b/crates/ignore/src/lib.rs
+@@ -65,6 +65,8 @@
+ mod default_types;
+ mod dir;
++#[cfg(unix)]
++mod gift_path_policy;
+ pub mod gitignore;
+ mod incremental;
+ pub mod overrides;
+ mod pathutil;
+diff --git a/crates/ignore/src/pathutil.rs b/crates/ignore/src/pathutil.rs
+--- a/crates/ignore/src/pathutil.rs
++++ b/crates/ignore/src/pathutil.rs
+@@ -146,18 +146,6 @@
+     fn imp(path: &Path) -> Option<&OsStr> {
+         use std::os::unix::ffi::OsStrExt;
+-
++
+-        use memchr::memrchr;
+-
+         let path = path.as_os_str().as_bytes();
+-        if path.is_empty() {
+-            return None;
+-        } else if path.len() == 1 && path[0] == b'.' {
+-            return None;
+-        } else if path.last() == Some(&b'.') {
+-            return None;
+-        } else if path.len() >= 2 && &path[path.len() - 2..] == &b".."[..] {
+-            return None;
+-        }
+-        let last_slash = memrchr(b'/', path).map(|i| i + 1).unwrap_or(0);
+-        Some(OsStr::from_bytes(&path[last_slash..]))
++        crate::gift_path_policy::file_name(path).map(OsStr::from_bytes)
+     }

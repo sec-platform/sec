@@ -1,0 +1,57 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:ripgrep-whole-engineering",
+  "sourceScopes": [
+    {
+      "root": "design",
+      "kind": "semantic",
+      "editSource": { "mode": "file" },
+      "include": ["*.module.json"]
+    },
+    {
+      "root": "native",
+      "kind": "native",
+      "editSource": { "mode": "file" },
+      "include": ["*.rs", "**/*.rs"],
+      "exclude": [".git/**", "target/**", "**/target/**"]
+    },
+    {
+      "root": "native",
+      "kind": "design",
+      "editSource": { "mode": "file" },
+      "include": ["*.toml", "**/*.toml", "Cargo.lock", "**/Cargo.lock"],
+      "exclude": [".git/**", "target/**", "**/target/**"]
+    },
+    {
+      "root": "native",
+      "kind": "asset",
+      "editSource": { "mode": "file" },
+      "include": ["**"],
+      "exclude": ["*.rs", "**/*.rs", "*.toml", "**/*.toml", "Cargo.lock", "**/Cargo.lock", ".git/**", "target/**", "**/target/**"]
+    },
+    {
+      "root": ".",
+      "kind": "design",
+      "editSource": { "mode": "file" },
+      "include": ["PROFILES.md", "EQUIVALENCE.md"]
+    }
+  ],
+  "targets": {
+    "all": {
+      "profileRef": { "id": "example:ripgrep-cargo-rust", "revision": "1" },
+      "outputRoots": [
+        { "rootId": "rg", "moduleId": "module:ripgrep:bin:rg" },
+        { "rootId": "globset", "moduleId": "module:ripgrep:lib:globset" },
+        { "rootId": "grep", "moduleId": "module:ripgrep:lib:grep" },
+        { "rootId": "grep_cli", "moduleId": "module:ripgrep:lib:grep_cli" },
+        { "rootId": "grep_matcher", "moduleId": "module:ripgrep:lib:grep_matcher" },
+        { "rootId": "grep_pcre2", "moduleId": "module:ripgrep:lib:grep_pcre2" },
+        { "rootId": "grep_printer", "moduleId": "module:ripgrep:lib:grep_printer" },
+        { "rootId": "grep_regex", "moduleId": "module:ripgrep:lib:grep_regex" },
+        { "rootId": "grep_searcher", "moduleId": "module:ripgrep:lib:grep_searcher" },
+        { "rootId": "ignore", "moduleId": "module:ripgrep:lib:ignore" }
+      ]
+    }
+  },
+  "defaultTarget": "all"
+}

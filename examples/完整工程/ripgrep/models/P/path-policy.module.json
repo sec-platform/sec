@@ -1,0 +1,919 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:unix_path_policy",
+  "definitions": {
+    "ByteSequence": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "sequence",
+          "item": {
+            "tag": "scalar",
+            "name": "int"
+          },
+          "ordered": true
+        }
+      }
+    },
+    "ByteUncons": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "option",
+          "inner": {
+              "tag": "record",
+              "fields": {
+                "head": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  }
+                },
+                "tail": {
+                  "type": {
+                    "tag": "sequence",
+                    "item": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "ordered": true
+                  }
+                }
+              },
+              "open": false
+          }
+        }
+      }
+    },
+    "FileNameResult": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "option",
+          "inner": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+          }
+        }
+      }
+    },
+    "Uncons": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "xs",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ByteUncons"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "std:SeqUncons"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "xs"
+            }
+          ]
+        }
+      }
+    },
+    "IsEmpty": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "xs",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Uncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "xs"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "cell_unit",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "cell",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            }
+          ]
+        }
+      }
+    },
+    "StartsWithDot": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "xs",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Uncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "xs"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "cell_unit",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "cell",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "std:IntEq"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "cell"
+                    },
+                    "name": "head"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "46"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "EndsWithDot": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "xs",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Uncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "xs"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "cell_unit",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "cell",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:IsEmpty"
+                  },
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "cell"
+                      },
+                      "name": "tail"
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "std:IntEq"
+                  },
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "cell"
+                      },
+                      "name": "head"
+                    },
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "int"
+                      },
+                      "value": "46"
+                    }
+                  ]
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:EndsWithDot"
+                  },
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "cell"
+                      },
+                      "name": "tail"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsDotOrDotDot": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "xs",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Uncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "xs"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "first_unit",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "first",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "std:IntEq"
+                  },
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "first"
+                      },
+                      "name": "head"
+                    },
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "int"
+                      },
+                      "value": "46"
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "match",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:Uncons"
+                    },
+                    "arguments": [
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "first"
+                        },
+                        "name": "tail"
+                      }
+                    ]
+                  },
+                  "cases": [
+                    {
+                      "constructor": "None",
+                      "binding": "second_unit",
+                      "body": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "bool"
+                        },
+                        "value": true
+                      }
+                    },
+                    {
+                      "constructor": "Some",
+                      "binding": "second",
+                      "body": {
+                        "op": "if",
+                        "condition": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "std:IntEq"
+                          },
+                          "arguments": [
+                            {
+                              "op": "field",
+                              "record": {
+                                "op": "var",
+                                "name": "second"
+                              },
+                              "name": "head"
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "int"
+                              },
+                              "value": "46"
+                            }
+                          ]
+                        },
+                        "then": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "local:IsEmpty"
+                          },
+                          "arguments": [
+                            {
+                              "op": "field",
+                              "record": {
+                                "op": "var",
+                                "name": "second"
+                              },
+                              "name": "tail"
+                            }
+                          ]
+                        },
+                        "otherwise": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "bool"
+                          },
+                          "value": false
+                        }
+                      }
+                    }
+                  ]
+                },
+                "otherwise": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  },
+                  "value": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ScanFinalComponent": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "remaining",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          },
+          {
+            "name": "candidate",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "scalar",
+            "name": "int"
+          },
+          "ordered": true
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Uncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "remaining"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "cell_unit",
+              "body": {
+                "op": "var",
+                "name": "candidate"
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "cell",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ScanFinalComponent"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "cell"
+                    },
+                    "name": "tail"
+                  },
+                  {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "std:IntEq"
+                      },
+                      "arguments": [
+                        {
+                          "op": "field",
+                          "record": {
+                            "op": "var",
+                            "name": "cell"
+                          },
+                          "name": "head"
+                        },
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "int"
+                          },
+                          "value": "47"
+                        }
+                      ]
+                    },
+                    "then": {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "cell"
+                      },
+                      "name": "tail"
+                    },
+                    "otherwise": {
+                      "op": "var",
+                      "name": "candidate"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FinalComponent": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "scalar",
+            "name": "int"
+          },
+          "ordered": true
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "local:ScanFinalComponent"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "path"
+            },
+            {
+              "op": "var",
+              "name": "path"
+            }
+          ]
+        }
+      }
+    },
+    "FileName": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:FileNameResult"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:IsEmpty"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "path"
+              }
+            ]
+          },
+          "then": {
+            "op": "variant",
+            "constructor": "None",
+            "payload": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "value": null
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "local:EndsWithDot"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                }
+              ]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "None",
+              "payload": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "value": null
+              }
+            },
+            "otherwise": {
+              "op": "variant",
+              "constructor": "Some",
+              "payload": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:FinalComponent"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "path"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "IsHiddenPathOnly": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:FileName"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "path"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "name_unit",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "name",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:StartsWithDot"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "name"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": {
+    "ByteSequence": {
+      "definitionId": "ByteSequence"
+    },
+    "FileNameResult": {
+      "definitionId": "FileNameResult"
+    },
+    "FileName": {
+      "definitionId": "FileName"
+    },
+    "IsHiddenPathOnly": {
+      "definitionId": "IsHiddenPathOnly"
+    }
+  }
+}
