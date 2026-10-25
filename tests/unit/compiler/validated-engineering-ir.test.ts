@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { expect, test } from 'bun:test';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
@@ -33,14 +34,7 @@ function clone<Value>(value: Value): Value {
 }
 
 function expectCodedFailure(run: () => unknown, code: string): void {
-  try {
-    run();
-  } catch (error) {
-    expect(error).toBeInstanceOf(CodedFailure);
-    expect((error as CodedFailure).code).toBe(code);
-    return;
-  }
-  throw new Error(`Expected CodedFailure ${code}`);
+  assert.throws(run, error => error instanceof CodedFailure && error.code === code);
 }
 
 test('validated snapshots are produced only after the full boundary and are deeply frozen', () => {

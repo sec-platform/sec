@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
@@ -23,14 +24,7 @@ function factInput(overrides: Partial<FactInput> = {}): FactInput {
 }
 
 function expectCodedFailure(run: () => unknown, code: string): void {
-  try {
-    run();
-  } catch (error) {
-    expect(error).toBeInstanceOf(CodedFailure);
-    expect((error as CodedFailure).code).toBe(code);
-    return;
-  }
-  throw new Error(`Expected CodedFailure ${code}`);
+  assert.throws(run, error => error instanceof CodedFailure && error.code === code);
 }
 
 function withRevision(fact: SemanticFact, revision: string): SemanticFact {

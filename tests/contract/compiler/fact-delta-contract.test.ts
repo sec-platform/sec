@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 import { expect, test } from 'bun:test';
@@ -87,14 +88,7 @@ function expectedFactSetDigest(snapshot: ValidatedEngineeringIRSnapshot): string
 }
 
 function expectCodedFailure(run: () => unknown, code: string): void {
-  try {
-    run();
-  } catch (error) {
-    expect(error).toBeInstanceOf(CodedFailure);
-    expect((error as CodedFailure).code).toBe(code);
-    return;
-  }
-  throw new Error(`Expected CodedFailure ${code}`);
+  assert.throws(run, error => error instanceof CodedFailure && error.code === code);
 }
 
 test('public Fact Delta v1 schema and deterministic digest contract stay frozen', () => {
