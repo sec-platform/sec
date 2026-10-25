@@ -14,23 +14,39 @@ import { rawSha256 } from '../../../src/contracts/canonical.ts';
 import { ZIP_VECTORS } from './github-api-artifact-fixtures.ts';
 
 const roots: string[] = [];
+const unsettledCompilerRoots = new Set<string>();
 afterAll(async () => {
   await settleResourcesAsync({ cleanup: roots.map(root => ({
-    label: root, settle: () => rm(root, { recursive: true, force: true })
+    label: root, settle: async () => {
+      if (unsettledCompilerRoots.has(root)) {
+        throw new Error(`HTTP credential fixture compiler settlement is unproven; retaining root: ${root}`);
+      }
+      await rm(root, { recursive: true, force: true });
+    }
   })) });
 });
 let binaryRoot: string | undefined;
 async function fixture() {
   if (binaryRoot === undefined) {
-    binaryRoot = await mkdtemp(path.join(os.tmpdir(),'sec-http-credential-bin-')); roots.push(binaryRoot);
-    const source = path.join(binaryRoot,'credential.ts');
+    const preparingRoot = await mkdtemp(path.join(os.tmpdir(),'sec-http-credential-bin-')); roots.push(preparingRoot);
+    const source = path.join(preparingRoot,'credential.ts');
     await writeFile(source, `import {writeFileSync,realpathSync} from 'node:fs';
 if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1);
 writeFileSync('credential-observation.json',JSON.stringify({config:process.env.GH_CONFIG_DIR ?? null,home:process.env.HOME ?? null,
  token:process.env.GH_TOKEN !== undefined,proxy:process.env.HTTPS_PROXY !== undefined,directory:realpathSync('/proc/self/fd/4')}));
 process.stdout.write('ghp_synthetic_credential_000000000000');`);
-    const build = Bun.spawn([process.execPath,'build','--compile',source,'--outfile',path.join(binaryRoot,'gh')],{stdout:'pipe',stderr:'pipe'});
-    if (await build.exited !== 0) throw new Error(await new Response(build.stderr).text());
+    const build = Bun.spawn([process.execPath,'build','--compile',source,'--outfile',path.join(preparingRoot,'gh')],{stdout:'pipe',stderr:'pipe'});
+    unsettledCompilerRoots.add(preparingRoot);
+    const [exit, stdout, stderr] = await Promise.allSettled([
+      build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()
+    ]);
+    if (exit.status !== 'fulfilled' || stdout.status !== 'fulfilled' || stderr.status !== 'fulfilled') {
+      throw new AggregateError([exit, stdout, stderr].flatMap(result =>
+        result.status === 'rejected' ? [result.reason] : []), 'HTTP credential compiler or output settlement failed');
+    }
+    unsettledCompilerRoots.delete(preparingRoot);
+    if (exit.value !== 0) throw new Error(stderr.value);
+    binaryRoot = preparingRoot;
   }
   const root = await mkdtemp(path.join(os.tmpdir(),'sec-http-verification-')); roots.push(root);
   const repository = path.join(root,'repository'), store = path.join(root,'store');

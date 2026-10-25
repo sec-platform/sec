@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { afterAll, afterEach, expect, test } from 'bun:test';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
@@ -29,21 +29,57 @@ if (import.meta.main && process.argv.slice(-4).join('\0') === 'auth\0token\0--ho
 }
 
 const roots: string[] = [];
+const unsettledCompilerRoots = new Set<string>();
+let preparedBinary: Promise<Readonly<{ bytes: Buffer; mode: number }>> | undefined;
+afterAll(() => { preparedBinary = undefined; });
 
 afterEach(async () => {
-  await settleWorkspaceCleanups(roots.splice(0).map((root) =>
-    () => rm(root, { recursive: true, force: true })));
+  await settleWorkspaceCleanups(roots.splice(0).map(root => async () => {
+    if (unsettledCompilerRoots.has(root)) {
+      throw new Error(`Credential fixture compiler settlement is unproven; retaining root: ${root}`);
+    }
+    await rm(root, { recursive: true, force: true });
+  }));
 });
 
-async function fixture(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-github-credential-'));
-  roots.push(root);
+// The private bytes have no dependency on the first fixture's directory.
+// Every consumer retains its original executable locator, cwd and mutable state.
+async function compileFixtureBinary(root: string): Promise<Readonly<{ bytes: Buffer; mode: number }>> {
   const executable = path.join(root, GH_EXECUTABLE_NAME);
   const build = Bun.spawn([
     process.execPath, 'build', '--compile', import.meta.filename, '--outfile', executable
   ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-  if (await build.exited !== 0) {
-    throw new Error(`GitHub credential fixture build failed: ${await new Response(build.stderr).text()}`);
+  unsettledCompilerRoots.add(root);
+  const [exit, stdout, stderr] = await Promise.allSettled([
+    build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()
+  ]);
+  if (exit.status !== 'fulfilled' || stdout.status !== 'fulfilled' || stderr.status !== 'fulfilled') {
+    throw new AggregateError([exit, stdout, stderr].flatMap(result =>
+      result.status === 'rejected' ? [result.reason] : []), 'Credential fixture compiler or output settlement failed');
+  }
+  unsettledCompilerRoots.delete(root);
+  if (exit.value !== 0) {
+    throw new Error(`GitHub credential fixture build failed: ${stderr.value}`);
+  }
+  const bytes = await readFile(executable);
+  return Object.freeze({ bytes, mode: (await stat(executable)).mode & 0o777 });
+}
+
+async function fixture(): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-github-credential-'));
+  roots.push(root);
+  if (preparedBinary === undefined) {
+    const preparation = compileFixtureBinary(root).catch(error => {
+      if (preparedBinary === preparation) preparedBinary = undefined;
+      throw error;
+    });
+    preparedBinary = preparation;
+    await preparation;
+  } else {
+    const { bytes, mode } = await preparedBinary;
+    const executable = path.join(root, GH_EXECUTABLE_NAME);
+    await writeFile(executable, bytes, { mode });
+    await chmod(executable, mode);
   }
   return root;
 }
