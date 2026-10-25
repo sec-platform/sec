@@ -135,14 +135,6 @@ test('context rejects foreign requirements and ceiling widening while identity f
       resourceCeilings: [{ resource: 'duration-ms', maximum: 10_000 }]
     })
   )).toThrow('already been consumed');
-  const narrowerOperation = operation('typescript-native-provider');
-  const narrower = consumeOperationRequirementBindingContext(
-    issueOperationRequirementBindingContext({
-      operation: narrowerOperation,
-      requirementId: 'typescript.project-check',
-      resourceCeilings: [{ resource: 'duration-ms', maximum: 5_000 }]
-    })
-  );
   const nextAttempt = consumeOperationRequirementBindingContext(
     issueOperationRequirementBindingContext({
       operation: operation('typescript-native-provider'),
@@ -151,7 +143,18 @@ test('context rejects foreign requirements and ceiling widening while identity f
     })
   );
 
-  expect(narrow.resourceCeilingIdentityDigest).not.toBe(narrower.resourceCeilingIdentityDigest);
+  // Independent canonical preimage: only the admitted 10_000 ceiling is valid
+  // for this exact attempt. A fresh nonce cannot mask omission of that ceiling.
+  expect(narrow.resourceCeilingIdentityDigest).toBe(digest(JSON.stringify({
+    absoluteDeadlineAtUnixMs: first.plan.attempt.deadlineAtUnixMs,
+    boundAttemptDigest: first.boundAttemptDigest,
+    domain: 'sec.operation.requirement-resource-ceiling',
+    executionPlanDigest: first.plan.execution.executionPlanDigest,
+    operationIdentityDigest: first.plan.identity.identityDigest,
+    providerBindingDigest: first.bindings[0]!.bindingDigest,
+    requirementId: 'typescript.project-check',
+    resourceCeilings: [{ maximum: 10_000, resource: 'duration-ms' }]
+  })));
   expect(narrow.operationIdentityDigest).toBe(nextAttempt.operationIdentityDigest);
   expect(narrow.executionPlanDigest).toBe(nextAttempt.executionPlanDigest);
   expect(narrow.boundAttemptDigest).not.toBe(nextAttempt.boundAttemptDigest);
