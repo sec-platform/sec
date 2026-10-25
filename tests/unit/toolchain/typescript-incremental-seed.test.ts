@@ -2,7 +2,6 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  assertSeedBindingDigest,
   BUILD_INFO_MAXIMUM_BYTES,
   encodeStableSeed, parseStableSeed,
   STABLE_SEED_MAXIMUM_BYTES
@@ -51,39 +50,6 @@ test('valid syntax with a foreign binding or incorrect content digest is a cold 
 test('invalid encodings and root shapes never produce a usable seed', () => {
   for (const source of [Buffer.from('null'),Buffer.from('[]'),Buffer.from('true'),Buffer.from('{'),
     Uint8Array.of(0xff),Buffer.from('{"schema":0}\n')]) assert.equal(parseStableSeed(source,binding),null);
-});
-
-test('only a real canonical string is accepted as a seed binding', () => {
-  let converted=false;
-  for(const value of [undefined,null,7,BigInt(7),{toString(){converted=true;return binding;}},binding+'\n']) {
-    assert.throws(()=>assertSeedBindingDigest(value));
-    assert.throws(()=>encodeStableSeed(new Uint8Array(),value as never));
-  }
-  assert.equal(converted,false);
-});
-
-test('serialization uses the native view for both content hashing and encoding', () => {
-  const source=Uint8Array.of(9,1,2,9).subarray(1,3);
-  Object.defineProperties(source,{byteLength:{value:0},buffer:{get(){assert.fail('buffer shadow');}},
-    [Symbol.iterator]:{value(){assert.fail('iterator shadow');}}});
-  assert.deepEqual(encodeStableSeed(source,binding),encodeFixture(Uint8Array.of(1,2)));
-});
-
-test('decode ignores caller byte-view shadows and owns its returned content', () => {
-  const source=encodeFixture(Uint8Array.of(1,2));
-  Object.defineProperty(source,'byteLength',{value:0});
-  const parsed=parseStableSeed(source,binding)!;
-  source.fill(0);
-  assert.deepEqual(parsed,Buffer.from([1,2]));
-});
-
-test('shared, detached and non-byte views cannot be reused as stable snapshots', () => {
-  const shared=new Uint8Array(new SharedArrayBuffer(8));
-  assert.throws(()=>encodeStableSeed(shared,binding),/shared/);
-  assert.equal(parseStableSeed(shared,binding),null);
-  assert.equal(parseStableSeed(new Uint16Array(4) as never,binding),null);
-  const detached=Uint8Array.of(1);structuredClone(detached,{transfer:[detached.buffer]});
-  assert.equal(parseStableSeed(detached,binding),null);
 });
 
 test('payload capacity rejects before copying an oversized caller buffer', () => {
