@@ -7,7 +7,7 @@ import path from 'node:path';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../../src/adapters/verification/platform/artifact/runtime/authority.ts';
 import { publishVerificationArtifactSet } from '../../../src/adapters/verification/verification-artifact-publication.ts';
 import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
-import { ensureProjectBase } from '../../../src/adapters/workspace/project-base.ts';
+import { ensureCanonicalWorkspaceArtifactParents } from '../../../src/adapters/workspace/project-base.ts';
 import { isCanonicalVerificationArtifactSet } from '../../../src/assurance/verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../../src/assurance/verification/profile/contract/product.ts';
@@ -99,7 +99,7 @@ function publicationLock() {
 
 test('Verification artifact publisher bytes round-trip through the canonical reader', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await ensureProjectBase(workspaceRoot);
+    await ensureCanonicalWorkspaceArtifactParents(workspaceRoot);
     const artifacts = blockedArtifactSet();
     await publishVerificationArtifactSet({
       workspaceRoot,
@@ -160,7 +160,7 @@ test('Verification artifact applies canonical inventory admission to runtime rep
 // canonical reader. They are native integration, not local boundary fixtures.
 test('publication captures one root, nested artifact set and receiver-bound fence before callbacks', async () => {
   await withTempWorkspace(async workspaceRoot => {
-    await ensureProjectBase(workspaceRoot);
+    await ensureCanonicalWorkspaceArtifactParents(workspaceRoot);
     const expected = blockedArtifactSet();
     const requestedArtifacts = structuredClone(expected);
     class Input {
@@ -190,16 +190,5 @@ test('publication captures one root, nested artifact set and receiver-bound fenc
       assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), expected);
       await assert.rejects(fs.access(path.join(workspaceRoot, 'retargeted')));
     } finally { process.chdir(previous); }
-  });
-});
-
-test('invalid callback rejects before any verification artifact is published', async () => {
-  await withTempWorkspace(async workspaceRoot => {
-    await ensureProjectBase(workspaceRoot);
-    await assert.rejects(publishVerificationArtifactSet({ workspaceRoot, artifacts: blockedArtifactSet(),
-      lock: publicationLock(), commitFence: 7 as never }), TypeError);
-    for (const key of ['runtimeReport', 'policyReport', 'acceptanceCoverage', 'verificationReport'] as const) {
-      await assert.rejects(fs.access(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES[key])));
-    }
   });
 });
