@@ -87,7 +87,7 @@ async function runOwnedBunTestCommand(
   }
 }
 
-type RetainedBunTestWorkspaceRun = (
+export type RetainedBunTestWorkspaceRun = (
   args: readonly string[],
   options?: BunTestCommandOptions
 ) => Promise<RetainedCommandResult>;
@@ -101,6 +101,20 @@ export async function withRetainedBunTestWorkspace<T>(
   callback: (root: string, run: RetainedBunTestWorkspaceRun) => Promise<T>
 ): Promise<T> {
   const root = await mkdtemp(workspaceTemporaryPrefix(tmpdir(), prefix));
+  return withRetainedBunTestCommands(root, run => callback(root, run),
+    () => rm(root, { recursive: true, force: true }));
+}
+
+/** Gate an existing fixture's entire cleanup on all managed child outcomes.
+ * Root supplies the default command cwd and retention diagnostic, not deletion
+ * authority: only the fixture's cleanup decides which resources to release.
+ * The callback must not launch unmanaged work.
+ */
+export async function withRetainedBunTestCommands<T>(
+  root: string,
+  callback: (run: RetainedBunTestWorkspaceRun) => Promise<T>,
+  cleanup: () => Promise<void>
+): Promise<T> {
   const calls: Array<{
     effects: CommandEffects;
     outcome: Promise<{ failed: false } | { failed: true; error: unknown }>;
@@ -122,7 +136,7 @@ export async function withRetainedBunTestWorkspace<T>(
     const failures: ResourceSettlementFailure[] = [];
     let result: T | undefined;
     try {
-      result = await callback(root, run);
+      result = await callback(run);
     } catch (error) {
       failures.push({ label: 'Workspace callback rejection', error });
     } finally {
@@ -144,7 +158,7 @@ export async function withRetainedBunTestWorkspace<T>(
     if (calls.some(({ effects }) => !effects.settled || !effects.inputsReleased)) {
       throw new Error(`Retained Bun test workspace ${root}: command tree or retained input settlement was not confirmed.`);
     }
-    await rm(root, { recursive: true, force: true });
+    await cleanup();
   });
 }
 

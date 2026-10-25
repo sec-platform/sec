@@ -6,8 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { buildE2eMatrix } from '../../../src/assurance/verification/review/matrix.ts';
 import { buildReviewSummaryFromInputs } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 // Compare complete semantic fields and list members, not prose spacing or
 // substrings shared by a different key, record, or evidence field.
@@ -25,7 +24,7 @@ function expectRecord(line: string | undefined, fields: readonly string[]): void
 // Domain effects are replaced only inside a separate process. The real command
 // registration, argument parsing, application projection and renderer execute.
 test('live explain routing preserves nonempty graph semantics and raw JSON', async () => {
-  await withTempWorkspace(async (root) => {
+  await withRetainedBunTestWorkspace('engineering-compiler-test-', async (root, run) => {
     const reviewSummary = await buildReviewSummaryFromInputs(root);
     const graph = {
       semanticViews: buildSemanticViewFixture(),
@@ -55,7 +54,7 @@ test('live explain routing preserves nonempty graph semantics and raw JSON', asy
       await program.parseAsync(process.argv.slice(2), { from: 'user' });
     `);
     const invoke = async (args: string[]) => {
-      const { stdout, stderr, code } = await runRetainedBunTestCommand([scriptPath, 'explain', ...args], { cwd: root });
+      const { stdout, stderr, code } = await run([scriptPath, 'explain', ...args], { cwd: root });
       expect(code, stderr).toBe(0);
       return stdout;
     };
