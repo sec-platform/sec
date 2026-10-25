@@ -511,7 +511,7 @@ test('actual activation Git consumer rejects cancellation after acquisition befo
 // literal-pathspec ls-tree census. Fixture bytes and expected identities are
 // authored independently; no live Work/activation/publication is granted.
 test('actual activation control reader accepts the full census argv and rejects a missing declared test', async () => {
-  for (const missingTest of [false, true]) await inGitProtocolRepository(async (root, git) => {
+  await inGitProtocolRepository(async (root, git) => {
     writeFileSync(path.join(root, 'base.txt'), 'base\n');
     gitProtocolSuccess(git(['add', '.']));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'control base']));
@@ -557,41 +557,48 @@ matchingDefaultBlob: none
 ### 2. next-two
 `,
       [tests[0]!]: 'export {};\n',
-      ...(missingTest ? {} : { [tests[1]!]: 'export {};\n' })
+      [tests[1]!]: 'export {};\n'
     };
     for (const [name, bytes] of Object.entries(files)) {
       mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
       writeFileSync(path.join(root, name), bytes);
     }
     gitProtocolSuccess(git(['add', '.']));
-    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'control candidate']));
-    const head = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
-    let failure: unknown;
-    let control: Awaited<ReturnType<typeof observeAgentOperationActivationCandidateControl>> | undefined;
-    await withGitCandidateCheckout({ sourceRoot: root, baseSha: base, headSha: head,
-      purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
-      try {
-        control = await observeAgentOperationActivationCandidateControl(checkout.candidateRoot, head,
-          { repository: 'sec-platform/sec', exactMain: base, exactMainTree: baseTree }, checkout);
-      } catch (error) { failure = error; }
-    });
-    if (missingTest) {
-      expect(control).toBeUndefined();
-      expect(failure).toBeInstanceOf(AgentOperationActivationUnavailableError);
-      const unavailable = failure as AgentOperationActivationUnavailableError;
-      expect(unavailable.reasonCode).toBe('activation-stale');
-      // The adapter intentionally exposes a digest, not raw owner diagnostics.
-      // Author the missing path independently instead of calling its census.
-      const detail = 'work-package-test-blobs-missing:["tests/unit/行为 [literal].test.ts"]';
-      expect(unavailable.blockerDigest).toBe(`sha256:${createHash('sha256').update(detail).digest('hex')}`);
-    } else {
-      expect(failure).toBeUndefined();
-      expect(control).toBeDefined();
-      if (control === undefined) throw new Error('Actual control reader produced no successful observation.');
-      expect(control.manifestPath).toBe(manifestPath);
-      expect(control.manifestDigest).toBe(manifestDigest);
-      expect(control.manifest.tests).toEqual(tests);
-      expect(Buffer.from(control.manifestBytes).toString('utf8')).toBe(manifest);
+    // Each exact candidate still owns a separate retained checkout and full
+    // observation deadline. Only the unchanged base/control preparation is shared.
+    for (const missingTest of [false, true]) {
+      if (missingTest) {
+        gitProtocolSuccess(git(['--literal-pathspecs', 'rm', '--quiet', '--', tests[1]!]));
+      }
+      gitProtocolSuccess(git(['commit', '--quiet', '-m', missingTest ? 'missing declared test' : 'control candidate']));
+      const head = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+      let failure: unknown;
+      let control: Awaited<ReturnType<typeof observeAgentOperationActivationCandidateControl>> | undefined;
+      await withGitCandidateCheckout({ sourceRoot: root, baseSha: base, headSha: head,
+        purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+        try {
+          control = await observeAgentOperationActivationCandidateControl(checkout.candidateRoot, head,
+            { repository: 'sec-platform/sec', exactMain: base, exactMainTree: baseTree }, checkout);
+        } catch (error) { failure = error; }
+      });
+      if (missingTest) {
+        expect(control).toBeUndefined();
+        expect(failure).toBeInstanceOf(AgentOperationActivationUnavailableError);
+        const unavailable = failure as AgentOperationActivationUnavailableError;
+        expect(unavailable.reasonCode).toBe('activation-stale');
+        // The adapter intentionally exposes a digest, not raw owner diagnostics.
+        // Author the missing path independently instead of calling its census.
+        const detail = 'work-package-test-blobs-missing:["tests/unit/行为 [literal].test.ts"]';
+        expect(unavailable.blockerDigest).toBe(`sha256:${createHash('sha256').update(detail).digest('hex')}`);
+      } else {
+        expect(failure).toBeUndefined();
+        expect(control).toBeDefined();
+        if (control === undefined) throw new Error('Actual control reader produced no successful observation.');
+        expect(control.manifestPath).toBe(manifestPath);
+        expect(control.manifestDigest).toBe(manifestDigest);
+        expect(control.manifest.tests).toEqual(tests);
+        expect(Buffer.from(control.manifestBytes).toString('utf8')).toBe(manifest);
+      }
     }
   });
 });

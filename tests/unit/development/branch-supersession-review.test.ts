@@ -335,12 +335,25 @@ test('read capability observes a closed PR and maintainer v2 comment before issu
 });
 
 test('review issuance rejects a local repository bound to another GitHub origin', async () => {
-  const fixture = createRepositoryFixture();
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-supersession-foreign-origin-'));
   try {
-    git(fixture.root, ['remote', 'set-url', 'origin', 'https://github.com/other/repository.git']);
-    await expect(observe({ fixture, source: reviewSource(fixture) })).rejects.toThrow();
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['remote', 'add', 'origin', 'https://github.com/other/repository.git']);
+    // Origin admission precedes object and delta reads, so this rejection does
+    // not need a second committed review history. The exact reason below must
+    // still come from the real retained Git repository binding.
+    const fixture: RepositoryFixture = {
+      root,
+      headSha: '1'.repeat(40),
+      headTreeSha: '2'.repeat(40),
+      currentMainSha: '3'.repeat(40),
+      currentMainTreeSha: '4'.repeat(40)
+    };
+    await expect(observe({ fixture, source: reviewSource(fixture) })).rejects.toThrow(
+      'Local origin remote differs from the authenticated GitHub repository'
+    );
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

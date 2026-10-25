@@ -18,11 +18,9 @@ test('tracked hooks bind deterministic staged normalization and candidate freeze
   const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
   const prePush = await readFile(path.join(repoRoot, '.githooks', 'pre-push'), 'utf8');
   const postCheckout = await readFile(path.join(repoRoot, '.githooks', 'post-checkout'), 'utf8');
-  const postMerge = await readFile(path.join(repoRoot, '.githooks', 'post-merge'), 'utf8');
-  const postRewrite = await readFile(path.join(repoRoot, '.githooks', 'post-rewrite'), 'utf8');
   const attributes = await readFile(path.join(repoRoot, '.gitattributes'), 'utf8');
 
-  for (const hook of [preCommit, prePush, postCheckout, postMerge, postRewrite]) {
+  for (const hook of [preCommit, prePush]) {
     expect(hook).toContain('export SEC_GIT_HOOK_ACTIVE=1');
   }
   const observationRoot = await mkdtemp(path.join(tmpdir(), 'sec-hook-command-'));
@@ -76,9 +74,11 @@ console.log(JSON.stringify({ args: process.argv.slice(2), active: process.env.SE
       ...process.env,
       PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}`
     };
-    // This fixture is a different package from the managed test runner.
+    // The child is a different package and must observe the hook's own marker,
+    // never inherit a successful value from an outer hook invocation.
     for (const name of Object.keys(childEnvironment)) {
-      if (name.toUpperCase() === 'NPM_PACKAGE_JSON') delete childEnvironment[name];
+      if (name.toUpperCase() === 'NPM_PACKAGE_JSON'
+          || name.toUpperCase() === 'SEC_GIT_HOOK_ACTIVE') delete childEnvironment[name];
     }
     for (const event of ['post-checkout', 'post-merge', 'post-rewrite']) {
       const executed = spawnSync('sh', [path.join(repoRoot, '.githooks', event), 'first argument', '0'], {
