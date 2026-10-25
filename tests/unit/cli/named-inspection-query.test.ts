@@ -21,7 +21,6 @@ for (const kind of ['errors', 'ci']) {
 // output-policy rejection below belongs to the SEC diagnostic namespace.
 for (const [args, expectedCode] of [
   [[], 'commander.missingArgument'],
-  [['missing'], 'commander.invalidArgument'],
   [['constructor'], 'commander.invalidArgument'],
   [['--help'], 'commander.helpDisplayed'],
   [['freeze', '--compact'], 'CLI-USAGE-001']

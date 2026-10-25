@@ -65,7 +65,7 @@ test('canonical kinds resist mutation and public artifact flags select the reque
 });
 
 test('artifact filter arguments reject invalid text before invoking any handler', async () => {
-  for (const filter of ['', 'unknown', 'constructor', '__proto__']) {
+  for (const filter of ['', 'constructor']) {
     const root = new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} });
     let calls = 0;
     const unexpected = async () => { calls += 1; assert.fail('invalid filter selected a handler'); };

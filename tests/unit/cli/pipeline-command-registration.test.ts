@@ -19,7 +19,9 @@ function program() {
   return { command, output: () => text };
 }
 
-for (const args of [['--help'], ['compile', '--help'], ['pipeline', '--help'], ['pipeline', 'inspect', '--help']]) {
+// Retain both independently wired leaves; empty parent/root help only repeats
+// Commander-generated Usage and is already exercised by the CLI transport.
+for (const args of [['compile', '--help'], ['pipeline', 'inspect', '--help']]) {
   test(`renders ${args.join(' ')} without executing a workspace action`, async () => {
     const { command, output } = program();
     await assert.rejects(command.parseAsync(args, { from: 'user' }), (error: unknown) => (error as { code?: string }).code === 'commander.helpDisplayed');

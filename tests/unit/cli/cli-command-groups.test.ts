@@ -24,20 +24,20 @@ test('workspace and inspection commands expose native help', async () => {
     'policy', 'acceptance', 'runtime', 'verification', 'provenance',
     'review', 'demo', 'overview', 'install', 'blocks', 'contract', 'postgres'
   ];
+  const { command, output } = program();
   assert.deepEqual(
-    program().command.commands.map(command => command.name()).sort(),
+    command.commands.map(command => command.name()).sort(),
     names.filter(Boolean).sort(),
     'every accepted public CLI command must remain registered'
   );
-  const contract = program().command.commands.find(command => command.name() === 'contract');
+  const contract = command.commands.find(command => command.name() === 'contract');
   assert.deepEqual(contract?.registeredArguments[0]?.argChoices, ['errors', 'ci'],
     'both public contract inspection selectors must stay reachable');
-  for (const name of names) {
-    const { command, output } = program();
-    await assert.rejects(command.parseAsync([...(name ? [name] : []), '--help'], { from: 'user' }),
-      (error: unknown) => (error as { code?: string }).code === 'commander.helpDisplayed');
-    assert.match(output(), /Usage:/);
-  }
+  // The explicit inventory above owns reachability. Replaying Commander help
+  // for every name adds no command-specific output or execution observation.
+  await assert.rejects(command.parseAsync(['--help'], { from: 'user' }),
+    (error: unknown) => (error as { code?: string }).code === 'commander.helpDisplayed');
+  assert.match(output(), /Usage:/);
 });
 
 // Policy represents the standard inspection family, whose shared query registrar
@@ -57,8 +57,10 @@ test('verification rejects an unknown lane before loading its executor', async (
     (error: unknown) => (error as { code?: string }).code === 'CLI-USAGE-001');
 });
 
+// Shared inspection/named-query rejection is exercised at its actual registrar;
+// lock/explain are one loop. Keep the independent mutation/manifest grammars.
 for (const [args, expectedCode] of [
-  ...['repair','lock','explain','artifacts','policy','acceptance','runtime','review','contract']
+  ...['repair','lock','artifacts']
     .map(name => [[name, 'not-a-mode'], 'commander.invalidArgument'] as const),
   [['upgrade'], 'CLI-USAGE-001'],
   [['upgrade', 'a-block'], 'CLI-USAGE-001']

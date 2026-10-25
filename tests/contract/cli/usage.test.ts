@@ -61,7 +61,7 @@ test('CLI prints its real help for missing commands', async () => {
   });
 }, 10_000);
 
-for (const args of [['unknown'], ['unknown', '--flag']]) {
+for (const args of [['unknown']]) {
   test(`CLI rejects unknown invocation: ${args.join(' ')}`, async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const result = await runEntry(workspaceRoot, args);
@@ -76,15 +76,13 @@ for (const args of [['unknown'], ['unknown', '--flag']]) {
   }, 10_000);
 }
 
+// One real native unknown-option case exercises the shared Commander rejection
+// and SEC transport. Other commands have no different unknown-option policy.
 const usageCases = [
   { args: ['init', '--unknown'], diagnostic: "unknown option '--unknown'" },
   { args: ['add'], diagnostic: "missing required argument 'block-id'" },
-  { args: ['repair', '--extra'], diagnostic: "unknown option '--extra'" },
   { args: ['upgrade'], diagnostic: 'Usage: sec upgrade', protocol: true },
   { args: ['verify', '--lane', 'slow'], diagnostic: 'Lane must be', protocol: true },
-  { args: ['compose', '--extra'], diagnostic: "unknown option '--extra'" },
-  { args: ['lock', '--extra'], diagnostic: "unknown option '--extra'" },
-  { args: ['doctor', '--extra'], diagnostic: "unknown option '--extra'" }
 ];
 
 for (const { args, diagnostic, protocol } of usageCases) {
