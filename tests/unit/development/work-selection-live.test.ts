@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -476,7 +477,7 @@ describe('work-selection live contract', () => {
   test.serial('live provider replay binds the exact terminal PR and rejects unavailable or path-drifted heads', async () => {
     const fixtureParent = mkdtempSync(path.join(tmpdir(), 'sec-terminal-provider-replay-'));
     const root = path.join(fixtureParent, 'repository');
-    try {
+    await settleWorkspaceCallback(async () => {
       // The live reader consumes the exact control files and refs built below,
       // not this repository's unrelated source tree or prior commit history.
       mkdirSync(root);
@@ -896,9 +897,9 @@ describe('work-selection live contract', () => {
         reasonCode: 'terminal-compaction-candidate-invalid',
         candidate: null
       });
-    } finally {
+    }, async () => {
       rmSync(fixtureParent, { recursive: true, force: true });
-    }
+    });
   }, 30_000);
 
   test('exact repository package census validates current selection without a transient Issue constant', () => {

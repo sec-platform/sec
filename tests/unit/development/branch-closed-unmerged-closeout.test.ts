@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -420,13 +421,20 @@ describe('closed-unmerged branch lifecycle operation', () => {
     before.repository.commonDir = path.join(repositoryRoot, '.git');
     before.worktrees[0]!.path = repositoryRoot;
     const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-absorption-'));
+    let primary: ResourceSettlementFailure | undefined;
     try {
       expect(() => createMainAbsorptionRecovery({
         inventory: before, branch: BRANCH, expectedSha: HEAD_SHA,
         mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
       })).toThrow('Retired source is not an ancestor of absorbing main.');
+    } catch (error) {
+      primary = { label: 'development-fixture-subject', error };
+      throw error;
     } finally {
-      rmSync(recoveryRoot, { recursive: true, force: true });
+      settleResources({ primary, cleanup: [{
+        label: 'development-fixture-cleanup',
+        settle: () => { rmSync(recoveryRoot, { recursive: true, force: true }); }
+      }] });
     }
   });
 
@@ -440,6 +448,7 @@ describe('closed-unmerged branch lifecycle operation', () => {
     before.repository.commonDir = path.join(repositoryRoot, '.git');
     before.worktrees[0]!.path = repositoryRoot;
     const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-identical-absorption-'));
+    let primary: ResourceSettlementFailure | undefined;
     try {
       const { recovery } = createMainAbsorptionRecovery({
         inventory: before, branch: BRANCH, expectedSha: equivalentSha,
@@ -448,8 +457,14 @@ describe('closed-unmerged branch lifecycle operation', () => {
       expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('success');
       writeFileSync(recovery.path, 'altered proof\n', 'utf8');
       expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('failed');
+    } catch (error) {
+      primary = { label: 'development-fixture-subject', error };
+      throw error;
     } finally {
-      rmSync(recoveryRoot, { recursive: true, force: true });
+      settleResources({ primary, cleanup: [{
+        label: 'development-fixture-cleanup',
+        settle: () => { rmSync(recoveryRoot, { recursive: true, force: true }); }
+      }] });
     }
   });
 

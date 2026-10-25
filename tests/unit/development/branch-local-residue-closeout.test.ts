@@ -665,7 +665,7 @@ test('terminal retirement keeps its last receipt when a retired bundle reappears
 
 test('merged orphan receipt retirement rejects bytes substituted during preservation observation', async () => {
   const fixture = createEffectFixture('merged-orphan-substituted-receipt');
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run,
       faults: { afterReceipt: () => { throw new Error('merged-orphan-ready'); } }
@@ -687,7 +687,9 @@ test('merged orphan receipt retirement rejects bytes substituted during preserva
     })).rejects.toThrow('Branch recovery file changed before retirement');
     expect(replaced).toBeTrue();
     expect(readFileSync(receiptPath, 'utf8')).toBe('foreign receipt bytes\n');
-  } finally { fixture.dispose(); }
+  }, async () => {
+    fixture.dispose();
+  });
 }, 45_000);
 
 
@@ -1086,7 +1088,7 @@ test(`terminal settlement resumes duplicate family retirement after ${cut}`, asy
   let duplicateName = '';
   let journalRemovals = 0;
   let receiptRemovals = 0;
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
@@ -1191,9 +1193,9 @@ test(`terminal settlement resumes duplicate family retirement after ${cut}`, asy
     expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
     expect(result.retiredRecoveryFiles.some((file) => file.includes('sec-branch-closeout-fix-example')))
       .toBeTrue();
-  } finally {
+  }, async () => {
     fixture.dispose();
-  }
+  });
 }, 30_000);
 }
 
@@ -1381,7 +1383,7 @@ test('malformed duplicate terminal filenames cannot authorize recovery retiremen
 
 test('orphan completion receipt is retained when its local branch is recreated at the effect boundary', async () => {
   const fixture = createEffectFixture('orphan-recreated-ref');
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
@@ -1411,9 +1413,9 @@ test('orphan completion receipt is retained when its local branch is recreated a
     })).rejects.toThrow('followed by ref recreation');
     expect(recreated).toBeTrue();
     expect(existsSync(path.join(fixture.recoveryRoot, receiptName))).toBeTrue();
-  } finally {
+  }, async () => {
     fixture.dispose();
-  }
+  });
 }, 30_000);
 
 test('default recovery root is not left behind after terminal settlement', async () => {

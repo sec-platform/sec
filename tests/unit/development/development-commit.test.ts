@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -44,9 +45,11 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
   'carrier-retained', 'carrier-rejected'] as const) {
   test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
     const { root } = await fixture();
-    const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
-    const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
-    try {
+    let harnessRoot: string | undefined;
+    await settleWorkspaceCallback(async () => {
+      const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
+      harnessRoot = harness;
+      const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
       git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
       const originalBase = git(root, ['rev-parse', 'HEAD']);
       const baseTree = git(root, ['rev-parse', 'HEAD^{tree}']);
@@ -210,10 +213,13 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
       `);
       const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8', windowsHide: true });
       expect(result.status, result.stderr).toBe(0);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-      await rm(harness, { recursive: true, force: true });
-    }
+    }, async () => {
+      await settleResourcesAsync({ cleanup: [
+          { label: 'commit-fixture-root', settle: () => rm(root, { recursive: true, force: true }) },
+          { label: 'commit-fixture-harness', settle: () => harnessRoot === undefined
+            ? undefined : rm(harnessRoot, { recursive: true, force: true }) },
+      ] });
+    });
   }, 30_000);
 }
 
@@ -355,9 +361,11 @@ test('development.commit consumes one exact staged admission before publishing i
 // resources still perform their transitions. No parent cwd or module state changes.
 async function commitCommandCase(mode: 'short-write' | 'zero-write' | 'write-error' | 'journal-drift' | 'not-applied' | 'unknown' | 'repeated'): Promise<void> {
   const { root } = await fixture('sec-development-commit-结果-');
-  const harness = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-command-'));
-  const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
-  try {
+  let harnessRoot: string | undefined;
+  await settleWorkspaceCallback(async () => {
+    const harness = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-command-'));
+    harnessRoot = harness;
+    const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
     const script = path.join(harness, 'case.ts');
     const report = path.join(harness, 'output.json');
     await writeFile(script, `
@@ -532,10 +540,13 @@ async function commitCommandCase(mode: 'short-write' | 'zero-write' | 'write-err
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toBe(JSON.parse(await readFile(report, 'utf8')) as string);
-  } finally {
-    await rm(harness, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+        { label: 'commit-fixture-harness', settle: () => harnessRoot === undefined
+          ? undefined : rm(harnessRoot, { recursive: true, force: true }) },
+        { label: 'commit-fixture-root', settle: () => rm(root, { recursive: true, force: true }) },
+    ] });
+  });
 }
 
 for (const mode of ['short-write', 'zero-write', 'write-error', 'journal-drift', 'not-applied', 'unknown', 'repeated'] as const) {

@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -50,10 +51,17 @@ function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'ful
   };
 
   const service = ts.createLanguageService(host);
+  let primary: ResourceSettlementFailure | undefined;
   try {
     return organizeImportsInSource(service, fileName, source);
+  } catch (error) {
+    primary = { label: 'development-fixture-subject', error };
+    throw error;
   } finally {
-    service.dispose();
+    settleResources({ primary, cleanup: [{
+      label: 'development-fixture-cleanup',
+      settle: () => { service.dispose(); }
+    }] });
   }
 }
 

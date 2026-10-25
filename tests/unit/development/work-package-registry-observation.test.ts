@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -127,7 +128,7 @@ test('a native branch change after tree observation cannot mix a previous tree i
     const result = git(args); assert.equal(result.status, 0, result.stderr.toString('utf8'));
     return result.stdout.toString('utf8').trim();
   }
-  try {
+  await settleWorkspaceCallback(async () => {
     command(['init', '-b', 'main']);
     command(['config', 'core.autocrlf', 'false']);
     mkdirSync(path.dirname(path.join(root, defaultPath)), { recursive: true });
@@ -154,7 +155,9 @@ test('a native branch change after tree observation cannot mix a previous tree i
     assert.equal(projection.defaultTreeSha, firstTree);
     assert.equal(projection.entries[0]!.manifestDigest, rawDigest('first\r\n'));
     assert.equal(command(['rev-parse', 'HEAD']), second);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 });
 
 function inventoryReader(files: ReadonlyArray<{ path: string; bytes: Buffer }>, events: string[][],

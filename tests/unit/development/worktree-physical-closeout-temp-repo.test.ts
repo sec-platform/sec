@@ -1,3 +1,4 @@
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -1710,8 +1711,9 @@ test('locked worktree and target-root replacement fail closed before unregister'
   });
 
   const replaced = fixture();
-  const outside = mkdtempSync(path.join(tmpdir(), 'sec-worktree-outside-sentinel-'));
-  try {
+  let outside: string | undefined;
+  await settleWorkspaceCallback(async () => {
+    outside = mkdtempSync(path.join(tmpdir(), 'sec-worktree-outside-sentinel-'));
     const sentinel = path.join(outside, 'sentinel.txt');
     writeFileSync(sentinel, 'preserve-me\n', 'utf8');
     const authorization = await prepareWorktreePhysicalCloseout({
@@ -1736,8 +1738,12 @@ test('locked worktree and target-root replacement fail closed before unregister'
     expect(receipt.terminal).toBe('blocked');
     expect(receipt.readback.registryPresent).toBe(true);
     expect(readFileSync(sentinel, 'utf8')).toBe('preserve-me\n');
-  } finally {
-    rmSync(replaced.root, { recursive: true, force: true });
-    rmSync(outside, { recursive: true, force: true });
-  }
+  }, async () => {
+    settleResources({ cleanup: [
+      { label: 'worktree-replacement-fixture', settle: () => rmSync(replaced.root, { recursive: true, force: true }) },
+      { label: 'worktree-outside-fixture', settle: () => {
+        if (outside !== undefined) rmSync(outside, { recursive: true, force: true });
+      } }
+    ] });
+  });
 }, 60_000);

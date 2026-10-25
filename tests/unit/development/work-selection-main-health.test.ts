@@ -1,3 +1,5 @@
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, setSystemTime, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,10 +29,10 @@ const TEST_TOKEN = 'test-token-0123456789';
 
 test('repair observations ignore receipt refresh but retain provider changes', async () => {
   const stateHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-refresh-state-'));
-  const cacheHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-refresh-cache-'));
+  let cacheHome: string | undefined;
+  let environmentChanged = false;
   const previous = { stateHome: process.env.SEC_STATE_HOME, cacheHome: process.env.SEC_CACHE_HOME };
-  process.env.SEC_STATE_HOME = stateHome;
-  process.env.SEC_CACHE_HOME = cacheHome;
+  let clockChanged = false;
   let runId = 123;
   let conclusion = 'failure';
   const policy = GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY;
@@ -60,7 +62,12 @@ test('repair observations ignore receipt refresh but retain provider changes', a
       mainSha: MAIN, mainTreeSha: TREE, capability
     })
   });
-  try {
+  await settleWorkspaceCallback(async () => {
+    cacheHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-refresh-cache-'));
+    environmentChanged = true;
+    process.env.SEC_STATE_HOME = stateHome;
+    process.env.SEC_CACHE_HOME = cacheHome;
+    clockChanged = true;
     setSystemTime(new Date('2026-10-13T00:00:00.000Z'));
     const first = await observe();
     setSystemTime(new Date('2026-10-13T00:01:00.000Z'));
@@ -82,15 +89,25 @@ test('repair observations ignore receipt refresh but retain provider changes', a
     const healthy = await observe();
     expect(healthy.repairDecision.routingState).toBe('ordinary-only');
     expect(healthy.stableDigest).not.toBe(changedProvider.stableDigest);
-  } finally {
-    setSystemTime();
-    if (previous.stateHome === undefined) delete process.env.SEC_STATE_HOME;
-    else process.env.SEC_STATE_HOME = previous.stateHome;
-    if (previous.cacheHome === undefined) delete process.env.SEC_CACHE_HOME;
-    else process.env.SEC_CACHE_HOME = previous.cacheHome;
-    rmSync(stateHome, { recursive: true, force: true });
-    rmSync(cacheHome, { recursive: true, force: true });
-  }
+  }, async () => {
+    settleResources({ cleanup: [
+      { label: 'MainHealth-fixture-clock', settle: () => { if (clockChanged) setSystemTime(); } },
+      { label: 'MainHealth-fixture-state-env', settle: () => {
+        if (!environmentChanged) return;
+        if (previous.stateHome === undefined) delete process.env.SEC_STATE_HOME;
+        else process.env.SEC_STATE_HOME = previous.stateHome;
+      } },
+      { label: 'MainHealth-fixture-cache-env', settle: () => {
+        if (!environmentChanged) return;
+        if (previous.cacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+        else process.env.SEC_CACHE_HOME = previous.cacheHome;
+      } },
+      { label: 'MainHealth-fixture-state-root', settle: () => rmSync(stateHome, { recursive: true, force: true }) },
+      { label: 'MainHealth-fixture-cache-root', settle: () => {
+        if (cacheHome !== undefined) rmSync(cacheHome, { recursive: true, force: true });
+      } }
+    ] });
+  });
 });
 
 test('unrelated Actions checks do not require MainHealth workflow provenance', () => {
@@ -470,14 +487,17 @@ test('nested MainHealth sessions still reuse a live outer budget without replaci
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('historical files and constructed receipts cannot replace live production qualification', async () => {
   const repositoryRoot = process.cwd();
   const stateHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-state-'));
-  const cacheHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-cache-'));
+  let cacheHome: string | undefined;
+  let environmentChanged = false;
   const previous = Object.freeze({
     stateHome: process.env.SEC_STATE_HOME,
     cacheHome: process.env.SEC_CACHE_HOME
   });
-  process.env.SEC_STATE_HOME = stateHome;
-  process.env.SEC_CACHE_HOME = cacheHome;
-  try {
+  await settleWorkspaceCallback(async () => {
+    cacheHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-cache-'));
+    environmentChanged = true;
+    process.env.SEC_STATE_HOME = stateHome;
+    process.env.SEC_CACHE_HOME = cacheHome;
     const layout = resolveSecRuntimeStateForRepository({
       repository: 'sec-platform/sec',
       repositoryRoot
@@ -552,12 +572,22 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('histo
     for (const filePath of historicalPaths) {
       expect(readFileSync(filePath, 'utf8')).toBe(historicalBytes);
     }
-  } finally {
-    if (previous.stateHome === undefined) delete process.env.SEC_STATE_HOME;
-    else process.env.SEC_STATE_HOME = previous.stateHome;
-    if (previous.cacheHome === undefined) delete process.env.SEC_CACHE_HOME;
-    else process.env.SEC_CACHE_HOME = previous.cacheHome;
-    rmSync(stateHome, { recursive: true, force: true });
-    rmSync(cacheHome, { recursive: true, force: true });
-  }
+  }, async () => {
+    settleResources({ cleanup: [
+      { label: 'MainHealth-fixture-state-env', settle: () => {
+        if (!environmentChanged) return;
+        if (previous.stateHome === undefined) delete process.env.SEC_STATE_HOME;
+        else process.env.SEC_STATE_HOME = previous.stateHome;
+      } },
+      { label: 'MainHealth-fixture-cache-env', settle: () => {
+        if (!environmentChanged) return;
+        if (previous.cacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+        else process.env.SEC_CACHE_HOME = previous.cacheHome;
+      } },
+      { label: 'MainHealth-fixture-state-root', settle: () => rmSync(stateHome, { recursive: true, force: true }) },
+      { label: 'MainHealth-fixture-cache-root', settle: () => {
+        if (cacheHome !== undefined) rmSync(cacheHome, { recursive: true, force: true });
+      } }
+    ] });
+  });
 });

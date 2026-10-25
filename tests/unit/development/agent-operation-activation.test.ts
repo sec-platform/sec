@@ -1,3 +1,4 @@
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -302,10 +303,9 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
       ''
     ].join('\r\n'), 'utf8');
   };
-  installFake('git', gitExecutionSentinel);
-  installFake('gh', ghExecutionSentinel);
-
   await settleWorkspaceCallback(async () => {
+    installFake('git', gitExecutionSentinel);
+    installFake('gh', ghExecutionSentinel);
     const runner = path.resolve(import.meta.dir, '../../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts');
     const result = await runRetainedBunTestCommand([
       runner,
@@ -633,22 +633,29 @@ test.skipIf(process.platform === 'win32')('actual activation ports retain the ac
     const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
     const bin = mkdtempSync(path.join(tmpdir(), 'sec-activation-hostile-path-'));
     const marker = path.join(bin, 'alternate-git-executed');
-    writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nprintf called > '${marker}'\nexit 1\n`);
-    chmodSync(path.join(bin, 'git'), 0o755);
     const originalPath = process.env.PATH;
-    try {
+    let pathChanged = false;
+    await settleWorkspaceCallback(async () => {
+      writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nprintf called > '${marker}'\nexit 1\n`);
+      chmodSync(path.join(bin, 'git'), 0o755);
       await withGitCandidateCheckout({ sourceRoot: root, baseSha: revision, headSha: revision,
         purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
         const ports = createAgentOperationActivationHostedStagePorts(checkout);
+        pathChanged = true;
         process.env.PATH = bin;
         expect(await ports.repositoryRoot(checkout.candidateRoot)).toBe(checkout.candidateRoot);
         await ports.assertCleanExactRoot(root, revision);
         expect(existsSync(marker)).toBe(false);
       });
-    } finally {
-      if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
-      rmSync(bin, { recursive: true, force: true });
-    }
+    }, async () => {
+      settleResources({ cleanup: [
+        { label: 'activation-fixture-PATH', settle: () => {
+          if (!pathChanged) return;
+          if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+        } },
+        { label: 'activation-fixture-bin', settle: () => rmSync(bin, { recursive: true, force: true }) }
+      ] });
+    });
   });
 });
 
@@ -659,14 +666,16 @@ test.skipIf(process.platform === 'win32')('actual activation port rejects replac
     const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
     const bin = mkdtempSync(path.join(tmpdir(), 'sec-activation-retained-git-'));
     const executable = path.join(bin, 'git');
-    const originalExecutable = Bun.which('git');
-    expect(originalExecutable).not.toBeNull();
-    copyFileSync(realpathSync(originalExecutable!), executable);
-    chmodSync(executable, 0o755);
     const originalPath = process.env.PATH;
+    let pathChanged = false;
     const marker = path.join(bin, 'replacement-executed');
     let generation = '', portRejected = false, scopeRejected = false;
-    try {
+    await settleWorkspaceCallback(async () => {
+      const originalExecutable = Bun.which('git');
+      expect(originalExecutable).not.toBeNull();
+      copyFileSync(realpathSync(originalExecutable!), executable);
+      chmodSync(executable, 0o755);
+      pathChanged = true;
       process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
       try {
         await withGitCandidateCheckout({ sourceRoot: root, baseSha: revision, headSha: revision,
@@ -684,11 +693,20 @@ test.skipIf(process.platform === 'win32')('actual activation port rejects replac
       expect(portRejected).toBe(true);
       expect(scopeRejected).toBe(true);
       expect(existsSync(marker)).toBe(false);
-    } finally {
-      if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
-      if (generation !== '') rmSync(generation, { recursive: true, force: true });
-      rmSync(bin, { recursive: true, force: true });
-    }
+    }, async () => {
+      settleResources({ cleanup: [
+        { label: 'activation-fixture-PATH', settle: () => {
+          if (!pathChanged) return;
+          if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+        } },
+        { label: 'activation-fixture-generation-and-bin', settle: () => {
+          // Keep the original dependent cleanup gate: failed generation
+          // retirement does not authorize deleting its executable directory.
+          if (generation !== '') rmSync(generation, { recursive: true, force: true });
+          rmSync(bin, { recursive: true, force: true });
+        } }
+      ] });
+    });
   });
 });
 

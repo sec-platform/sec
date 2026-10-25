@@ -1948,7 +1948,7 @@ async function expectFreezeTransactionRetired(repositoryRoot: string): Promise<v
 
 bunTest.skipIf(process.platform !== 'linux')('production recovery preserves observed source and freeze state on refusal then resumes its exact journal operation', async () => {
   const { fixture, proposalPath, proposalFile, proposalJournalPath } = await createProposalFreezeFixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
       reviewedOn: '2026-08-09', proposalOnly: true, faultAfter: 'after-pointer-publish' }))
       .rejects.toThrow('Injected document control freeze fault: after-pointer-publish.');
@@ -1972,7 +1972,7 @@ bunTest.skipIf(process.platform !== 'linux')('production recovery preserves obse
     expect(recovered.candidateTreeSha).toBe(journal.candidateTreeSha);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  } finally { await fixture.dispose(); }
+  }, async () => { await fixture.dispose(); });
 }, 90_000);
 
 bunTest('production first and revised proposals publish exact state and retire their terminal transactions', async () => {

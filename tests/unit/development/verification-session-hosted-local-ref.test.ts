@@ -22,8 +22,8 @@ function git(cwd: string, args: readonly string[]): string {
 test('hosted local ref consumer admits the native Git delete transaction', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-local-ref-'));
   const repositoryRoot = path.join(root, 'repository');
-  mkdirSync(repositoryRoot);
   await settleWorkspaceCallback(async () => {
+    mkdirSync(repositoryRoot);
     git(repositoryRoot, ['init', '-b', 'main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
     git(repositoryRoot, ['config', 'user.email', 'sec@example.invalid']);
