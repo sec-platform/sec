@@ -18,22 +18,6 @@ import { moduleMembership, sourceInput } from './test/typescript-model-input.ts'
 
 test('incremental source facts invalidate the reverse consumer closure and remain byte-equivalent to full compilation', () => {
   try {
-    const moduleMembership = Object.freeze({
-      descriptors: Object.freeze([]),
-      graphRoots: Object.freeze([]),
-      moduleRoots: Object.freeze([]),
-      moduleForPath: () => null
-    });
-    const sourceInput = (sources: Readonly<Record<string, string>>) => {
-      const files = Object.entries(sources)
-        .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
-        .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
-      return Object.freeze({
-        sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-        files,
-        moduleMembership
-      });
-    };
     const initialInput = sourceInput({
       'src/example/contract.ts': 'export const VALUE = 1;\n',
       'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
@@ -48,10 +32,17 @@ test('incremental source facts invalidate the reverse consumer closure and remai
         ? Object.freeze({ ...file, source: 'export const VALUE = 3;\n' })
         : file))
     });
+    const beforeChangedBytes = observeTypeScriptSourceProgramPerformanceForTests();
     const changedBytes = compileTypeScriptSourceProgramModelIncremental(
       changedBytesWithStaleDeclaredDigest,
       initial.state
     );
+    const afterChangedBytes = observeTypeScriptSourceProgramPerformanceForTests();
+    expect(afterChangedBytes.rawSourceHashOperations - beforeChangedBytes.rawSourceHashOperations)
+      .toBe(initialInput.files.length);
+    expect(changedBytes.state.factShards.find(({ path }) => path === 'src/example/contract.ts')?.rawFileDigest)
+      .not.toBe(initial.state.factShards.find(({ path }) => path === 'src/example/contract.ts')?.rawFileDigest);
+    expect(changedBytes.model.modelDigest).not.toBe(initial.model.modelDigest);
     expect(changedBytes.mode).toBe('incremental');
     expect(changedBytes.invalidatedPaths).toEqual([
       'src/example/consumer.ts',
@@ -64,7 +55,8 @@ test('incremental source facts invalidate the reverse consumer closure and remai
     const exact = compileTypeScriptSourceProgramModelIncremental(initialInput, initial.state);
     expect(exact.mode).toBe('exact');
     expect(exact.invalidatedPaths).toEqual([]);
-    expect(exact.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+    const cleanInitial = compileTypeScriptSourceProgramModel(initialInput);
+    expect(exact.model).toEqual(cleanInitial);
 
     const foreignProviderState = Object.freeze({
       ...exact.state,
@@ -80,7 +72,7 @@ test('incremental source facts invalidate the reverse consumer closure and remai
       'src/example/contract.ts',
       'src/example/leaf.ts'
     ]);
-    expect(providerChanged.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+    expect(providerChanged.model).toEqual(cleanInitial);
 
     const leafInput = sourceInput({
       'src/example/contract.ts': 'export const VALUE = 1;\n',
@@ -280,38 +272,6 @@ test('ambient declarations, global augmentations, and resolver graph changes for
       'src/example/first.ts': 'export const VALUE = 1;\n',
       'src/example/second.ts': 'export const VALUE = 2;\n'
     });
-  } finally {
-    releaseTypeScriptSourceProgramWorkspace();
-  }
-});
-
-test('TypeScript root digest binds raw bytes even when a caller reuses a declared content digest', () => {
-  try {
-    const initialInput = sourceInput({
-      'src/example/value.ts': 'export const VALUE = 1;\n'
-    });
-    const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
-    const staleDigestInput = Object.freeze({
-      ...initialInput,
-      sourceFileIdentities: new Map([['src/example/value.ts', Object.freeze({
-        file: initialInput.files[0],
-        moduleDigest: sha256(null),
-        rawFileDigest: initial.state.fileDigests['src/example/value.ts']
-      })]]),
-      files: Object.freeze(initialInput.files.map((file) => Object.freeze({
-        ...file,
-        source: 'export const VALUE = 2;\n'
-      })))
-    });
-    const before = observeTypeScriptSourceProgramPerformanceForTests();
-    const changed = compileTypeScriptSourceProgramModelIncremental(staleDigestInput, initial.state);
-    const after = observeTypeScriptSourceProgramPerformanceForTests();
-
-    expect(after.rawSourceHashOperations - before.rawSourceHashOperations).toBe(1);
-    expect(changed.state.factShards[0]?.rawFileDigest)
-      .not.toBe(initial.state.factShards[0]?.rawFileDigest);
-    expect(changed.model.modelDigest).not.toBe(initial.model.modelDigest);
-    expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(staleDigestInput));
   } finally {
     releaseTypeScriptSourceProgramWorkspace();
   }

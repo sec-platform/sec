@@ -88,8 +88,10 @@ function virtualSnapshotSubject(identity: string): WorkspaceSourceSnapshotSubjec
 
 test('one owner-issued virtual snapshot compiles one graph for every Source Program projection', () => {
   const input = fixture(1);
+  const mutableFile = { ...input.files[0]! };
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
+    files: [mutableFile, ...input.files.slice(1)],
     subject: virtualSnapshotSubject('virtual-observation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
   const receipt = compileVirtualRepositorySourceProgramCompilation({
@@ -112,6 +114,23 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
     .toBe(receipt.workspaceSnapshotIdentityDigest);
   expect(receipt.model.sourceRevision).toBe(workspaceSnapshot.sourceRevision);
   expect(receipt.receiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
+  expect(() => assertWorkspaceSourceSnapshot(workspaceSnapshot)).not.toThrow();
+
+  const forged = Object.freeze({ ...workspaceSnapshot }) as WorkspaceSourceSnapshot;
+  expect(() => assertWorkspaceSourceSnapshot(forged))
+    .toThrow('was not issued by the Source Program owner');
+
+  const admitted = workspaceSnapshot.file(mutableFile.path);
+  expect(admitted).not.toBeNull();
+  expect(admitted?.source).toBe(mutableFile.source);
+  expect(admitted?.path.startsWith('/')).toBeFalse();
+  expect(Object.isFrozen(workspaceSnapshot.files)).toBeTrue();
+  expect(Object.isFrozen(admitted)).toBeTrue();
+
+  mutableFile.source = 'export const replacement = true;\n';
+  expect(workspaceSnapshot.file(admitted!.path)?.source).toBe(admitted!.source);
+  expect(workspaceSnapshot.files.some((file) => 'bytesBase64' in file || 'physicalPath' in file)).toBeFalse();
 });
 
 test('repository compilation contexts reject fact mixing and keep virtual mutation explicit', () => {
@@ -160,34 +179,6 @@ test('repository compilation contexts reject fact mixing and keep virtual mutati
     typescriptModel: rightModel,
     testObservations: leftObservations
   }, rightContext)).toThrow('cannot mix test facts');
-});
-
-test('workspace source snapshot owns immutable repository-relative source bytes', () => {
-  const input = fixture(1);
-  const mutableFile = {
-    ...input.files[0]!
-  };
-  const issued = compileVirtualWorkspaceSourceSnapshot({
-    ...input,
-    files: [mutableFile, ...input.files.slice(1)],
-    subject: virtualSnapshotSubject('immutable-snapshot') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
-  });
-  expect(() => assertWorkspaceSourceSnapshot(issued)).not.toThrow();
-
-  const forged = Object.freeze({ ...issued }) as WorkspaceSourceSnapshot;
-  expect(() => assertWorkspaceSourceSnapshot(forged))
-    .toThrow('was not issued by the Source Program owner');
-
-  const admitted = issued.file(mutableFile.path);
-  expect(admitted).not.toBeNull();
-  expect(admitted?.source).toBe(mutableFile.source);
-  expect(admitted?.path.startsWith('/')).toBeFalse();
-  expect(Object.isFrozen(issued.files)).toBeTrue();
-  expect(Object.isFrozen(admitted)).toBeTrue();
-
-  mutableFile.source = 'export const replacement = true;\n';
-  expect(issued.file(admitted!.path)?.source).toBe(admitted!.source);
-  expect(issued.files.some((file) => 'bytesBase64' in file || 'physicalPath' in file)).toBeFalse();
 });
 
 test('cache absence and open, read, or publish failure preserve the cold semantic generation', () => {

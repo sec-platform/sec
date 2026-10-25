@@ -420,7 +420,7 @@ function storeGeneration(
   });
 }
 
-test.serial('one immutable generation rebinds current semantic projections and aliased exports', () => {
+test.serial('immutable generations rebind semantic projections, aliased exports and snapshot identity', () => {
   const source = "export { value, value as renamedValue, value as 'quoted-value' } from './operation.ts';\n";
   const value = fixture(1, [Object.freeze({
     path: 'src/example/reexport.ts', source, contentDigest: rawSha256(source)
@@ -446,6 +446,18 @@ test.serial('one immutable generation rebinds current semantic projections and a
   ));
   expect(reexportDeclarations.map(({ name }) => name).sort()).toEqual(['quoted-value', 'renamedValue']);
   expect(reexportDeclarations.every(({ kind, exported }) => kind === 'ExportSpecifier' && exported)).toBe(true);
+
+  const otherRevision = sha256('another caller provenance');
+  const second = compileVirtualRepositorySourceProgramCompilation(compilationInput(
+    value,
+    value.files,
+    otherRevision
+  ));
+
+  expect(second.typeScriptCompilation.mode).toBe('exact');
+  expect(second.sourceRevision).toBe(cold.sourceRevision);
+  expect(cold.projectGeneration.generationDigest).not.toBe(second.projectGeneration.generationDigest);
+  expect(generationCount(value.cacheRoot)).toBe(2);
 });
 
 test.serial('a completed TypeScript generation remains reusable when a later repository projection is interrupted', () => {
@@ -621,23 +633,6 @@ test.serial('a published project generation is strictly revalidated by a fresh p
     .not.toBe(reader.result.generation.generationDigest);
   expect(generationCount(value.cacheRoot)).toBe(2);
 }, 30_000);
-
-test.serial('a different workspace snapshot identity creates a different project generation', () => {
-  const value = fixture();
-  const first = compileVirtualRepositorySourceProgramCompilation(value.input);
-  const otherRevision = sha256('another caller provenance');
-  const second = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value,
-    value.files,
-    otherRevision
-  ));
-
-  expect(first.typeScriptCompilation.mode).toBe('full');
-  expect(second.typeScriptCompilation.mode).toBe('exact');
-  expect(second.sourceRevision).toBe(first.sourceRevision);
-  expect(first.projectGeneration.generationDigest).not.toBe(second.projectGeneration.generationDigest);
-  expect(generationCount(value.cacheRoot)).toBe(2);
-});
 
 test.serial('one validated predecessor enables bounded incremental reuse and remains clean-compile equivalent', () => {
   const value = fixture();
