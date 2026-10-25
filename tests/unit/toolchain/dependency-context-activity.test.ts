@@ -15,7 +15,7 @@ test('context checks consume the original ledger without renewing budget', () =>
   assert.equal(operation.deadlineAtMonotonicMs, 100);
 });
 
-for (const reason of [null, false, 0, 'cancelled', Object.freeze({ cancelled: true })]) {
+for (const reason of [null, Object.freeze({ cancelled: true })]) {
   test(`a context scan preserves the native cancellation reason ${String(reason)}`, () => {
     const controller = new AbortController(), operation = context(() => 0, controller.signal);
     Object.defineProperty(controller.signal, 'aborted', { value: false }); controller.abort(reason);

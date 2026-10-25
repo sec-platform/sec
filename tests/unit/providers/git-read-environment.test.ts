@@ -111,65 +111,17 @@ function issueTestGitReadOperation(input: Readonly<{
  */
 const GIT_NULL_CONFIG_GLOBAL_SINK = process.platform === 'win32' ? 'NUL' : devNull;
 
-const AMBIENT_AUTHORITY = {
-  PATH: '/bin',
-  HOME: '/home/test',
-  GH_PROMPT_DISABLED: '0',
-  GIT_DIR: '/tmp/redirected.git',
-  GIT_WORK_TREE: '/tmp/redirected-worktree',
-  GIT_INDEX_FILE: '/tmp/index',
-  GIT_OBJECT_DIRECTORY: '/tmp/objects',
-  GIT_CONFIG: '/tmp/config-only',
-  GIT_CONFIG_COUNT: '1',
-  GIT_CONFIG_KEY_0: 'core.hooksPath',
-  GIT_CONFIG_VALUE_0: '/tmp/hooks',
-  GIT_CONFIG_GLOBAL: '/tmp/global',
-  GIT_CONFIG_SYSTEM: '/tmp/system',
-  GIT_CONFIG_PARAMETERS: "'core.hooksPath=/tmp/hooks'",
-  GIT_ASKPASS: '/tmp/askpass',
-  GIT_SSH_COMMAND: 'ssh -F /tmp/config',
-  GIT_TERMINAL_PROMPT: '1',
-  SSH_ASKPASS: '/tmp/ssh-askpass'
-} as NodeJS.ProcessEnv;
-
-const SCRUBBED_KEYS = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_CONFIG',
-  'GIT_CONFIG_COUNT',
-  'GIT_CONFIG_KEY_0',
-  'GIT_CONFIG_VALUE_0',
-  'GIT_CONFIG_SYSTEM',
-  'GIT_CONFIG_PARAMETERS',
-  'GIT_ASKPASS',
-  'GIT_SSH_COMMAND',
-  'SSH_ASKPASS'
-] as const;
-
 function environmentKeys(env: NodeJS.ProcessEnv, key: string): string[] {
   const canonicalKey = key.toUpperCase();
   return Object.keys(env).filter((name) => name.toUpperCase() === canonicalKey);
 }
 
-function expectIsolated(env: NodeJS.ProcessEnv): void {
+test('Git child environment is the same mechanical isolation owner', () => {
+  // The environment owner tests the complete policy; this adapter owns source routing.
+  const env = isolatedGitChildEnvironment({ PATH: '/bin', HOME: '/home/test', GIT_DIR: '/ambient' });
   expect(env.PATH).toBe('/bin');
   expect(env.HOME).toBe('/home/test');
-  for (const key of SCRUBBED_KEYS) expect(env[key]).toBeUndefined();
-  expect(env.GH_PROMPT_DISABLED).toBe('1');
-  expect(env.GIT_TERMINAL_PROMPT).toBe('0');
-  expect(env.GIT_NO_REPLACE_OBJECTS).toBe('1');
-  expect(env.GIT_NO_LAZY_FETCH).toBe('1');
-  expect(env.GIT_OPTIONAL_LOCKS).toBe('0');
-  expect(env.GIT_LITERAL_PATHSPECS).toBe('1');
-  expect(env.GIT_CONFIG_GLOBAL).toBe(GIT_NULL_CONFIG_GLOBAL_SINK);
-  expect(env.GIT_CONFIG_GLOBAL).not.toBe(AMBIENT_AUTHORITY.GIT_CONFIG_GLOBAL);
-  expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
-}
-
-test('Git child environment is the same mechanical isolation owner', () => {
-  expectIsolated(isolatedGitChildEnvironment(AMBIENT_AUTHORITY));
+  expect(env.GIT_DIR).toBeUndefined();
 });
 
 test('Git read environment permits subject/locale overrides but cannot weaken mandatory isolation', () => {
