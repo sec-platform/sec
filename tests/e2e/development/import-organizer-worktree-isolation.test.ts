@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 
@@ -86,25 +87,22 @@ beforeAll(async () => {
   repoRoot = path.join(baseRoot, 'repo');
   worktreeA = path.join(baseRoot, 'wt-a');
   worktreeB = path.join(baseRoot, 'wt-b');
-  await writeFile(path.join(baseRoot, 'placeholder'), 'seed\n', 'utf8');
   git(baseRoot, ['init', '--quiet', '--separate-git-dir', path.join(baseRoot, 'common.git'), repoRoot]);
   git(repoRoot, ['config', 'user.email', 'tests@example.com']);
   git(repoRoot, ['config', 'user.name', 'SEC Tests']);
   git(repoRoot, ['config', 'core.autocrlf', 'false']);
-  await Promise.all([
-    writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
-      compilerOptions: {
-        allowImportingTsExtensions: true,
-        module: 'ESNext',
-        moduleResolution: 'Bundler',
-        noEmit: true,
-        target: 'ES2022'
-      },
-      include: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts']
-    }, null, 2)}\n`, 'utf8'),
-    writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
-    writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8')
-  ]);
+  await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
+    compilerOptions: {
+      allowImportingTsExtensions: true,
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+      noEmit: true,
+      target: 'ES2022'
+    },
+    include: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts']
+  }, null, 2)}\n`, 'utf8');
+  await writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8');
+  await writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8');
   git(repoRoot, ['add', '--all']);
   git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
   const head = git(repoRoot, ['rev-parse', 'HEAD']).trim();
@@ -115,16 +113,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  try {
+  await settleWorkspaceCallback(async () => {
     if (repoRoot) {
       git(repoRoot, ['worktree', 'remove', '--force', worktreeA!]);
       git(repoRoot, ['worktree', 'remove', '--force', worktreeB!]);
     }
-  } finally {
-    if (baseRoot) {
-      await rm(baseRoot, { recursive: true, force: true });
-    }
-  }
+  }, async () => {
+    if (baseRoot) await rm(baseRoot, { recursive: true, force: true });
+  });
 });
 
 test('WT-A freeze/check/apply leave the WT-B index and worktree byte-identical', async () => {

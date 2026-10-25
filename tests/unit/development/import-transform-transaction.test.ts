@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, rmdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import {
   publishImportTransformTransaction,
@@ -10,7 +11,7 @@ import {
 
 async function withWorkspace(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-transaction-'));
-  try { await run(root); } finally { await rm(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(() => run(root), () => rm(root, { recursive: true, force: true }));
 }
 
 function terminalJournalEntry(source: string): Record<string, unknown> {
@@ -110,7 +111,7 @@ test('interrupted terminal deletion is outside active recovery and resumes witho
 
 test('journal faults preserve physical rollback priority and ancestor aliases publish zero outside bytes', async () => {
   const outside = await mkdtemp(path.join(tmpdir(), 'sec-import-outside-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     await writeFile(path.join(outside, 'a.ts'), 'outside\n');
     await withWorkspace(async (root) => {
       const link = path.join(root, 'link');
@@ -120,14 +121,15 @@ test('journal faults preserve physical rollback priority and ancestor aliases pu
       }])).rejects.toThrow();
       expect(await readFile(path.join(outside, 'a.ts'), 'utf8')).toBe('outside\n');
     });
-  } finally { await rm(outside, { recursive: true, force: true }); }
+  }, () => rm(outside, { recursive: true, force: true }));
 
   const runRollback = async (hooks: Parameters<typeof publishImportTransformTransaction>[2]) => {
     let outcome: Awaited<ReturnType<typeof publishImportTransformTransaction>>;
     let first = '';
     await withWorkspace(async (root) => {
       const a = path.join(root, 'a.ts');
-      await Promise.all([writeFile(a, 'a0\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
+      await writeFile(a, 'a0\n');
+      await writeFile(path.join(root, 'b.ts'), 'b0\n');
       outcome = await publishImportTransformTransaction(root, [
         { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') },
         { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
@@ -157,12 +159,13 @@ test('journal faults preserve physical rollback priority and ancestor aliases pu
 
 test('ancestor replacement after publication becomes a rollback conflict before any outside write', async () => {
   const outside = await mkdtemp(path.join(tmpdir(), 'sec-import-ancestor-outside-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     await writeFile(path.join(outside, 'a.ts'), 'outside\n');
     await withWorkspace(async (root) => {
       const link = path.join(root, 'link');
       await mkdir(link);
-      await Promise.all([writeFile(path.join(link, 'a.ts'), 'a0\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
+      await writeFile(path.join(link, 'a.ts'), 'a0\n');
+      await writeFile(path.join(root, 'b.ts'), 'b0\n');
       const outcome = await publishImportTransformTransaction(root, [
         { relativePath: 'link/a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') },
         { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
@@ -176,42 +179,39 @@ test('ancestor replacement after publication becomes a rollback conflict before 
       expect(outcome).toMatchObject({ status: 'recovery-required', reasonCode: 'rollback-conflict' });
       expect(await readFile(path.join(outside, 'a.ts'), 'utf8')).toBe('outside\n');
     });
-  } finally {
-    await rm(outside, { recursive: true, force: true });
-  }
+  }, () => rm(outside, { recursive: true, force: true }));
 });
 
 test('a legacy journal is read-only evidence and blocks a new transaction until migration', async () => {
   await withWorkspace(async (root) => {
     const transactionRoot = path.join(root, '.sec', 'import-transform-transactions', 'crash-before-progress');
     await mkdir(transactionRoot, { recursive: true });
-    await Promise.all([writeFile(path.join(root, 'a.ts'), 'a1\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
+    await writeFile(path.join(root, 'a.ts'), 'a1\n');
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
     const expected = Buffer.from('a0\n');
     const replacement = Buffer.from('a1\n');
     const { digest } = await import('../../../src/contracts/canonical.ts');
     const stem = digest('a.ts');
     await chmod(path.join(root, 'a.ts'), 0o644);
     const targetMode = (await stat(path.join(root, 'a.ts'))).mode & 0o777;
-    await Promise.all([
-      writeFile(path.join(transactionRoot, `${stem}.preimage`), expected),
-      writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement),
-      writeFile(path.join(transactionRoot, 'binding.json'), `${JSON.stringify({
-        formatVersion: 'sec-import-transform-transaction-v2', transactionId: 'crash-before-progress', workspaceRoot: root,
-        writes: [{ relativePath: 'a.ts',
-          preimageCandidateRelativePath: 'a.ts.imports-transform-crash-before-progress.preimage.candidate',
-          replacementCandidateRelativePath: 'a.ts.imports-transform-crash-before-progress.replacement.candidate',
-          expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
-      })}\n`),
-      writeFile(path.join(transactionRoot, 'journal.jsonl'), `${JSON.stringify({
-        formatVersion: 'sec-import-transform-journal-entry-v2', transactionId: 'crash-before-progress', state: 'prepared',
-        files: [{ relativePath: 'a.ts', expectedDigest: digest(expected), replacementDigest: digest(replacement) }],
-        published: [], outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
-      })}\n${JSON.stringify({
-        formatVersion: 'sec-import-transform-journal-entry-v2', transactionId: 'crash-before-progress', state: 'publishing',
-        files: [{ relativePath: 'a.ts', expectedDigest: digest(expected), replacementDigest: digest(replacement) }],
-        published: [], outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
-      })}\n`)
-    ]);
+    await writeFile(path.join(transactionRoot, `${stem}.preimage`), expected);
+    await writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement);
+    await writeFile(path.join(transactionRoot, 'binding.json'), `${JSON.stringify({
+      formatVersion: 'sec-import-transform-transaction-v2', transactionId: 'crash-before-progress', workspaceRoot: root,
+      writes: [{ relativePath: 'a.ts',
+        preimageCandidateRelativePath: 'a.ts.imports-transform-crash-before-progress.preimage.candidate',
+        replacementCandidateRelativePath: 'a.ts.imports-transform-crash-before-progress.replacement.candidate',
+        expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
+    })}\n`);
+    await writeFile(path.join(transactionRoot, 'journal.jsonl'), `${JSON.stringify({
+      formatVersion: 'sec-import-transform-journal-entry-v2', transactionId: 'crash-before-progress', state: 'prepared',
+      files: [{ relativePath: 'a.ts', expectedDigest: digest(expected), replacementDigest: digest(replacement) }],
+      published: [], outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
+    })}\n${JSON.stringify({
+      formatVersion: 'sec-import-transform-journal-entry-v2', transactionId: 'crash-before-progress', state: 'publishing',
+      files: [{ relativePath: 'a.ts', expectedDigest: digest(expected), replacementDigest: digest(replacement) }],
+      published: [], outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
+    })}\n`);
     const legacyJournal = await readFile(path.join(transactionRoot, 'journal.jsonl'), 'utf8');
     const outcome = await publishImportTransformTransaction(root, [
       { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
@@ -233,11 +233,9 @@ test('a terminal legacy journal is strictly validated and physically retired bef
     const { digest } = await import('../../../src/contracts/canonical.ts');
     const stem = digest('a.ts');
     await mkdir(transactionRoot, { recursive: true });
-    await Promise.all([
-      writeFile(target, replacement),
-      writeFile(path.join(root, 'b.ts'), 'b0\n'),
-      writeFile(path.join(root, 'c.ts'), 'c0\n')
-    ]);
+    await writeFile(target, replacement);
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
+    await writeFile(path.join(root, 'c.ts'), 'c0\n');
     await chmod(target, 0o644);
     const targetMode = (await stat(target)).mode & 0o777;
     const fileIdentity = Object.freeze({
@@ -248,19 +246,17 @@ test('a terminal legacy journal is strictly validated and physically retired bef
       files: [fileIdentity], published, outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
     });
     const journalPath = path.join(transactionRoot, 'journal.jsonl');
-    await Promise.all([
-      writeFile(path.join(transactionRoot, `${stem}.preimage`), expected),
-      writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement),
-      writeFile(path.join(transactionRoot, 'binding.json'), `${JSON.stringify({
-        formatVersion: 'sec-import-transform-transaction-v2', transactionId, workspaceRoot: root,
-        writes: [{ relativePath: 'a.ts',
-          preimageCandidateRelativePath: `a.ts.imports-transform-${transactionId}.preimage.candidate`,
-          replacementCandidateRelativePath: `a.ts.imports-transform-${transactionId}.replacement.candidate`,
-          expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
-      })}\n`),
-      writeFile(journalPath, `${entry('prepared', [])}\n${entry('publishing', [])}\n`
-        + `${entry('publishing', ['a.ts'])}\n${entry('accepted', ['a.ts'])}\n`)
-    ]);
+    await writeFile(path.join(transactionRoot, `${stem}.preimage`), expected);
+    await writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement);
+    await writeFile(path.join(transactionRoot, 'binding.json'), `${JSON.stringify({
+      formatVersion: 'sec-import-transform-transaction-v2', transactionId, workspaceRoot: root,
+      writes: [{ relativePath: 'a.ts',
+        preimageCandidateRelativePath: `a.ts.imports-transform-${transactionId}.preimage.candidate`,
+        replacementCandidateRelativePath: `a.ts.imports-transform-${transactionId}.replacement.candidate`,
+        expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
+    })}\n`);
+    await writeFile(journalPath, `${entry('prepared', [])}\n${entry('publishing', [])}\n`
+      + `${entry('publishing', ['a.ts'])}\n${entry('accepted', ['a.ts'])}\n`);
 
     const accepted = await publishImportTransformTransaction(root, [{
       relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n')
@@ -286,12 +282,11 @@ test('only an exact binding-owned candidate residue is removed during recovery',
       const { digest } = await import('../../../src/contracts/canonical.ts');
       const stem = digest('a.ts');
       await mkdir(transactionRoot, { recursive: true });
-      await Promise.all([
-        writeFile(target, expected),
-        writeFile(path.join(root, 'b.ts'), 'b0\n'),
-        writeFile(candidate, candidateBytes)
-      ]);
-      await Promise.all([chmod(target, 0o644), chmod(candidate, 0o644)]);
+      await writeFile(target, expected);
+      await writeFile(path.join(root, 'b.ts'), 'b0\n');
+      await writeFile(candidate, candidateBytes);
+      await chmod(target, 0o644);
+      await chmod(candidate, 0o644);
       const targetMode = (await stat(target)).mode & 0o777;
       const bindingSource = `${JSON.stringify({
         formatVersion: 'sec-import-transform-transaction-v2', transactionId, workspaceRoot: root,
@@ -300,16 +295,14 @@ test('only an exact binding-owned candidate residue is removed during recovery',
           replacementCandidateRelativePath: `a.ts.imports-transform-${transactionId}.replacement.candidate`,
           expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
       })}\n`;
-      await Promise.all([
-        writeFile(path.join(transactionRoot, `${stem}.preimage`), expected),
-        writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement),
-        writeFile(path.join(transactionRoot, 'binding.json'), bindingSource),
-        writeFile(path.join(transactionRoot, 'journal.jsonl'), `${JSON.stringify({
-          formatVersion: 'sec-import-transform-journal-entry-v3', transactionId,
-          bindingDigest: digest(bindingSource), state: 'prepared', publishedCount: 0, outstandingCount: 0,
-          publicationReasonCode: null, recoveryReasonCode: null
-        })}\n`)
-      ]);
+      await writeFile(path.join(transactionRoot, `${stem}.preimage`), expected);
+      await writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement);
+      await writeFile(path.join(transactionRoot, 'binding.json'), bindingSource);
+      await writeFile(path.join(transactionRoot, 'journal.jsonl'), `${JSON.stringify({
+        formatVersion: 'sec-import-transform-journal-entry-v3', transactionId,
+        bindingDigest: digest(bindingSource), state: 'prepared', publishedCount: 0, outstandingCount: 0,
+        publicationReasonCode: null, recoveryReasonCode: null
+      })}\n`);
       result = await publishImportTransformTransaction(root, [{
         relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n')
       }]);
@@ -390,7 +383,8 @@ test('complete import write set preserves target mode and hardlink aliases under
     const executable = path.join(root, 'a.ts');
     const linked = path.join(root, 'b.ts');
     const alias = path.join(root, 'alias.ts');
-    await Promise.all([writeFile(executable, 'a0\n'), writeFile(linked, 'b0\n')]);
+    await writeFile(executable, 'a0\n');
+    await writeFile(linked, 'b0\n');
     await chmod(executable, 0o755);
     const originalMode = (await stat(executable)).mode & 0o777;
     await link(linked, alias);
@@ -420,11 +414,9 @@ test('complete import write set preserves target mode and hardlink aliases under
 
 test('recovery derives one in-flight publication from durable progress', async () => {
   await withWorkspace(async (root) => {
-    await Promise.all([
-      writeFile(path.join(root, 'a.ts'), 'a0\n'),
-      writeFile(path.join(root, 'b.ts'), 'b0\n'),
-      writeFile(path.join(root, 'c.ts'), 'c0\n')
-    ]);
+    await writeFile(path.join(root, 'a.ts'), 'a0\n');
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
+    await writeFile(path.join(root, 'c.ts'), 'c0\n');
     const first = await publishImportTransformTransaction(root, [{
       relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n')
     }, {
@@ -494,7 +486,8 @@ test('orphaned terminal evidence cannot bypass a missing durable journal', async
     }]);
     expect(accepted.status).toBe('accepted');
     const acceptedRoot = path.dirname(accepted.journalPath);
-    await Promise.all([rm(path.join(acceptedRoot, 'binding.json')), rm(accepted.journalPath)]);
+    await rm(path.join(acceptedRoot, 'binding.json'));
+    await rm(accepted.journalPath);
 
     await rm(retiredTarget);
     await writeFile(path.join(root, 'current.ts'), 'current-before\n');
@@ -551,7 +544,8 @@ test('unknown transaction residue blocks recovery instead of acting as terminal 
 
 test('concurrent preimage drift rolls back every already-published file', async () => {
   await withWorkspace(async (root) => {
-    await Promise.all([writeFile(path.join(root, 'a.ts'), 'a0\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
+    await writeFile(path.join(root, 'a.ts'), 'a0\n');
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
     const outcome = await publishImportTransformTransaction(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') },
       { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
@@ -591,7 +585,8 @@ test('mode drift is a preimage conflict before a transform can restore a stale m
 
 test('rollback conflict preserves recovery material and returns recovery-required', async () => {
   await withWorkspace(async (root) => {
-    await Promise.all([writeFile(path.join(root, 'a.ts'), 'a0\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
+    await writeFile(path.join(root, 'a.ts'), 'a0\n');
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
     const outcome = await publishImportTransformTransaction(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') },
       { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
@@ -640,7 +635,8 @@ test('rollback preserves a concurrent mode change even when replacement bytes st
 
 test('final write-set drift cannot be accepted after every target was published', async () => {
   await withWorkspace(async (root) => {
-    await Promise.all([writeFile(path.join(root, 'a.ts'), 'a0\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
+    await writeFile(path.join(root, 'a.ts'), 'a0\n');
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
     const outcome = await publishImportTransformTransaction(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') },
       { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }

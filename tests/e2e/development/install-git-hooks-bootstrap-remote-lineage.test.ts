@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, managedHookNames, managedHookSource, withCanonicalRemoteRepository } from './fixtures/install-git-hooks.ts';
 test('primary bootstrap pins its admitted local lineage while remote state advances independently', async () => {
@@ -34,7 +35,7 @@ test('repository-common hook generation runs when an older worktree creates the 
   const repoRoot = path.join(root, 'main');
   const olderRoot = path.join(root, 'older');
   const linkedRoot = path.join(root, 'linked');
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(repoRoot);
     git(repoRoot, ['init', '--quiet', '-b', 'main']);
     git(repoRoot, ['config', 'user.email', 'tests@example.com']);
@@ -51,7 +52,7 @@ test('repository-common hook generation runs when an older worktree creates the 
 
     await mkdir(path.join(repoRoot, '.githooks'));
     await writeFile(path.join(repoRoot, '.gitattributes'), '/.githooks/* text eol=lf\n', 'utf8');
-    await Promise.all(managedHookNames.map(async (hook) => {
+    for (const hook of managedHookNames) {
       const hookPath = path.join(repoRoot, '.githooks', hook);
       await writeFile(
         hookPath,
@@ -63,7 +64,7 @@ test('repository-common hook generation runs when an older worktree creates the 
         'utf8'
       );
       await chmod(hookPath, 0o755);
-    }));
+    }
     // One native staging operation sets each managed hook's executable index
     // bit. Keep unrelated tracked documents non-executable.
     git(repoRoot, ['add', '.gitattributes', 'README.md']);
@@ -86,7 +87,5 @@ test('repository-common hook generation runs when an older worktree creates the 
     expect(linkedGeneration).not.toBe(configured);
     expect(path.resolve(git(linkedRoot, ['config', '--get', 'core.hooksPath']))).toBe(linkedGeneration);
     await expectManagedHooksMirror(linkedRoot, linkedGeneration);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });

@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { expect, test } from 'bun:test';
 
@@ -33,27 +34,25 @@ function source(order: 'sorted' | 'unsorted'): string {
 
 test('staged check is pure while another Git owner retains the index lock', async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-check-lock-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     git(repoRoot, ['init', '--quiet']);
     git(repoRoot, ['config', 'user.email', 'tests@example.com']);
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     git(repoRoot, ['config', 'core.autocrlf', 'false']);
     await mkdir(path.join(repoRoot, 'src'));
-    await Promise.all([
-      writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
-        compilerOptions: {
-          allowImportingTsExtensions: true,
-          module: 'ESNext',
-          moduleResolution: 'Bundler',
-          noEmit: true,
-          target: 'ES2022'
-        },
-        include: ['**/*.ts']
-      }, null, 2)}\n`, 'utf8'),
-      writeFile(path.join(repoRoot, 'src', 'alpha.ts'), 'export const alpha = 1; export const unused = 0;\n', 'utf8'),
-      writeFile(path.join(repoRoot, 'src', 'beta.ts'), 'export const beta = 2;\n', 'utf8'),
-      writeFile(path.join(repoRoot, 'src', 'fixture.ts'), source('sorted'), 'utf8')
-    ]);
+    await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        noEmit: true,
+        target: 'ES2022'
+      },
+      include: ['**/*.ts']
+    }, null, 2)}\n`, 'utf8');
+    await writeFile(path.join(repoRoot, 'src', 'alpha.ts'), 'export const alpha = 1; export const unused = 0;\n', 'utf8');
+    await writeFile(path.join(repoRoot, 'src', 'beta.ts'), 'export const beta = 2;\n', 'utf8');
+    await writeFile(path.join(repoRoot, 'src', 'fixture.ts'), source('sorted'), 'utf8');
     git(repoRoot, ['add', '--all']);
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
     git(repoRoot, ['branch', '-M', 'main']);
@@ -81,7 +80,5 @@ test('staged check is pure while another Git owner retains the index lock', asyn
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], true)).toEqual(beforeIndex);
     expect(await readFile(fixturePath)).toEqual(beforeWorking);
     expect(await readFile(lockPath, 'utf8')).toBe('retained-by-git-owner');
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true });
-  }
+  }, () => rm(repoRoot, { recursive: true, force: true }));
 });

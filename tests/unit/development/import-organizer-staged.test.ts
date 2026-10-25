@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { access, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { afterAll, expect, test } from 'bun:test';
 
@@ -133,7 +134,7 @@ async function prepareSnapshotCandidate(prefix: string): Promise<Readonly<{
 
 test('staged organizer fast sentinel preserves working bytes while normalizing the index', async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-fast-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     git(repoRoot, ['init', '--quiet']);
     git(repoRoot, ['config', 'user.email', 'tests@example.com']);
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
@@ -145,21 +146,19 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
       workPackageDirectory,
       `default-branch-health-repair-${'a'.repeat(120)}-${'b'.repeat(64)}.md`
     );
-    await Promise.all([
-      writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
-        compilerOptions: {
-          allowImportingTsExtensions: true,
-          module: 'ESNext',
-          moduleResolution: 'Bundler',
-          noEmit: true,
-          target: 'ES2022'
-        },
-        include: ['**/*.ts']
-      }, null, 2)}\n`, 'utf8'),
-      writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
-      writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8'),
-      writeFile(longCanonicalOwner, 'canonical owner fixture\n', 'utf8')
-    ]);
+    await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        noEmit: true,
+        target: 'ES2022'
+      },
+      include: ['**/*.ts']
+    }, null, 2)}\n`, 'utf8');
+    await writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8');
+    await writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8');
+    await writeFile(longCanonicalOwner, 'canonical owner fixture\n', 'utf8');
     git(repoRoot, ['-c', 'core.longpaths=true', 'add', '--all']);
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
     const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
@@ -200,9 +199,7 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
     expect(lifecycle).toHaveLength(2);
     expect(lifecycle[1]).toBe(lifecycle[0]!.replace('born:', 'disposed:'));
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true });
-  }
+  }, () => rm(repoRoot, { recursive: true, force: true }));
 });
 
 test.skipIf(process.platform !== 'linux')('candidate snapshot retained capability rejects ancestor substitution without writing foreign bytes', async () => {

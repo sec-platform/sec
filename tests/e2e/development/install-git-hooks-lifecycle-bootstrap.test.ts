@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { installGitHooksMain } from '../../../src/adapters/self-hosting/development/hooks/install.ts';
 
 import { configuredBootstrapHooksPath, configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, managedHookNames, managedHookSource, withRepository } from './fixtures/install-git-hooks.ts';
@@ -20,7 +21,7 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
   const root = await mkdtemp(path.join(tmpdir(), 'sec-hooks-linked-'));
   const repoRoot = path.join(root, 'main');
   const linkedRoot = path.join(root, 'linked');
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(repoRoot);
     git(repoRoot, ['init', '--quiet', '-b', 'main']);
     git(repoRoot, ['config', 'user.email', 'tests@example.com']);
@@ -28,11 +29,11 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
     await mkdir(path.join(repoRoot, '.githooks'));
     await writeFile(path.join(repoRoot, '.gitattributes'), '/.githooks/* text eol=lf\n', 'utf8');
     await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
-    await Promise.all(managedHookNames.map(async (hook) => {
+    for (const hook of managedHookNames) {
       const hookPath = path.join(repoRoot, '.githooks', hook);
       await writeFile(hookPath, managedHookSource(hook), 'utf8');
       await chmod(hookPath, 0o755);
-    }));
+    }
     // One native staging operation sets each managed hook's executable index
     // bit. Keep unrelated tracked documents non-executable.
     git(repoRoot, ['add', '.gitattributes', 'README.md']);
@@ -56,9 +57,7 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
     await expectManagedHooksMirror(repoRoot, bootstrapGeneration);
     expect(await readFile(path.join(linkedGeneration, 'post-merge'), 'utf8')).toContain('# linked-branch-hook');
     expect(await readFile(path.join(bootstrapGeneration, 'post-merge'), 'utf8')).not.toContain('# linked-branch-hook');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('hook installer refuses a non-default primary as linked bootstrap', async () => {
