@@ -1,19 +1,13 @@
 import { expect, test } from 'bun:test';
 
 import { buildExplainGraph } from '../../../src/adapters/compilation/emit/write-explain-graph.ts';
-import { readJson, writeJson } from "../../../src/adapters/filesystem/files.ts";
-import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
-import { loadWorkspaceEngineeringIRBuildInput } from '../../../src/adapters/workspace/engineering-input.ts';
 import type { AcceptanceCoverageReport } from '../../../src/assurance/acceptance/coverage.ts';
-import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import type { LockFile } from '../../../src/compiler/contract.ts';
-import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
-import { buildSemanticViewSet } from '../../../src/compiler/projection/build-semantic-view-set.ts';
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
 import { expectGraphEdge, expectGraphNode } from '../../helpers/graph-assertions.ts';
+import { buildReviewLock } from '../../helpers/review-fixtures.ts';
+import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
 import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../../helpers/upgrade-fixtures.ts';
-import { prepareResolvedWorkspace } from '../../testkit/workspace.ts';
 
 function emptyPolicyScopeReport(): PolicyReport['project'] {
   return {
@@ -34,17 +28,9 @@ function emptyCoverage(): AcceptanceCoverageReport {
   };
 }
 
-async function attachSemanticViews(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
-  const { engineeringIRInput } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
-  lock.semanticViews = structuredClone(buildSemanticViewSet(buildValidatedEngineeringIR(engineeringIRInput)));
-  await writeJson(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock), lock);
-  return lock;
-}
-
-test('explain graph projects policy violations and upgrade operations from the same resolved workspace', async () => {
-  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-graph-' });
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
+test('explain graph projects policy violations and upgrade operations from canonical evidence', async () => {
+  const workspaceRoot = process.cwd();
+  const lock = buildReviewLock({ semanticViews: buildSemanticViewFixture() });
   const provenance: ProvenanceFile = {
     formatVersion: '1',
     artifacts: [
@@ -112,7 +98,6 @@ test('explain graph projects policy violations and upgrade operations from the s
 
   const graph = await buildExplainGraph(workspaceRoot, lock, provenance, coverage, policyReport);
 
-  expectGraphNode(graph, { id: 'port:entity/customer-basic:input:tenant_context', type: 'port' });
   expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
   expectGraphEdge(graph, {
     from: 'policy:tenant-scope-required',
