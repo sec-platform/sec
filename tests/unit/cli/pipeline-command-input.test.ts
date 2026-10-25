@@ -28,10 +28,6 @@ test('compile forwards invalid stage admission for both bounds', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', through: '' }), code('PIPELINE-USAGE-001'));
 });
 
-test('compile rejects compact output without JSON', () => {
-  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);
-});
-
 test('returned values are frozen, detached from caller mutation and cannot change invocation source', () => {
   const input = { lane: 'all', from: 'resolve', json: true, source: 'api' };
   const result = parsePipelineCompileOptions(input);

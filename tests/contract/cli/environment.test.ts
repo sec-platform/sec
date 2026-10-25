@@ -93,8 +93,9 @@ test('dependency maintenance CLI routes through one explicit command domain with
       expect(line).toMatch(/\bphysical\b.*\b1 B\b.*\b1 top-level entries\b/u);
     }
 
-    const json = await runCli(workspaceRoot, ['deps', 'status', '--json'], cli);
+    const json = await runCli(workspaceRoot, ['deps', 'status', '--json', '--compact'], cli);
     expect(json.code).toBe(0);
+    expect(json.stdout.trim()).not.toContain('\n');
     const observed = JSON.parse(json.stdout) as Record<string, unknown>;
     expect(observed).toMatchObject({
       manifestHash: status.manifestHash,
@@ -108,17 +109,11 @@ test('dependency maintenance CLI routes through one explicit command domain with
     });
     expect(Object.hasOwn(observed, 'sharedNodeModules')).toBe(false);
 
-    const compact = await runCli(workspaceRoot, ['deps', 'status', '--json', '--compact'], cli);
-    expect(compact.code).toBe(0);
-    expect(compact.stdout.trim()).not.toContain('\n');
-    expect(JSON.parse(compact.stdout)).toMatchObject({ mode: status.mode });
-
     expect((await runCli(workspaceRoot, ['deps', 'warmup', '--json'], cli)).code).toBe(0);
     expect((await runCli(workspaceRoot, ['deps', 'relink', '--json'], cli)).code).toBe(0);
     expect((await runCli(workspaceRoot, ['deps', 'clean', '--project'], cli)).code).toBe(0);
 
     expect(calls).toEqual([
-      { method: 'status', workspaceRoot },
       { method: 'status', workspaceRoot },
       { method: 'status', workspaceRoot },
       { method: 'warmup', workspaceRoot },
@@ -136,6 +131,6 @@ test('dependency maintenance CLI routes through one explicit command domain with
       expect(invalid.code).toBe(1);
       expect(errorCode(invalid)).toBe('CLI-USAGE-001');
     }
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(5);
   });
 });

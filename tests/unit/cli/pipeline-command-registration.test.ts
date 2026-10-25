@@ -36,6 +36,10 @@ for (const [args, code] of [
 ] as const) {
   test(`rejects ${args.join(' ')} before loading the requested executor`, async () => {
     const { command } = program();
-    await assert.rejects(command.parseAsync([...args], { from: 'user' }), (error: unknown) => error instanceof CodedFailure && error.code === code);
+    await assert.rejects(command.parseAsync([...args], { from: 'user' }), (error: unknown) => {
+      if (!(error instanceof CodedFailure) || error.code !== code) return false;
+      if (code === 'PIPELINE-USAGE-003') assert.match(error.message, /--compact requires --json/);
+      return true;
+    });
   });
 }
