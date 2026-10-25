@@ -1,19 +1,17 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLockFile, saveLock } from '../../../src/adapters/workspace/lock.ts';
 import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { buildCurrentVerificationLock, writeCurrentVerificationFixture } from '../../helpers/current-verification-fixture.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 // Failure injection is confined to an isolated process. The real repair entry,
 // artifact reader, plan builder and physical lease lifecycle still execute.
 test('repair preserves its first publication failure when failure-state persistence also rejects', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-repair-settlement-'));
-  const repo = fileURLToPath(new URL('../../../', import.meta.url));
-  try {
+  await runRetainedBunTestWorkspace('sec-repair-settlement-', async root => {
+    const repo = fileURLToPath(new URL('../../../', import.meta.url));
     await initWorkspace(root);
     const lock = buildCurrentVerificationLock(readLockFile(root)); lock.passStatus.verify = 'succeeded';
     await saveLock(root, lock);
@@ -41,7 +39,8 @@ test('repair preserves its first publication failure when failure-state persiste
       if (publications !== 1 || settlements !== 1) throw new Error('operation was retried or omitted');
       console.log('both failures retained');
     `);
-    const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
-    expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('both failures retained');
-  } finally { await rm(root, { recursive: true, force: true }); }
+    return { args: [script], options: { cwd: process.cwd() }, observe: ({ code, stdout, stderr }) => {
+      expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('both failures retained');
+    } };
+  });
 });

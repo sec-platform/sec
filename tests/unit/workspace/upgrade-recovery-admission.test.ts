@@ -1,18 +1,15 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 // Each child keeps its narrow admission-boundary interleaving local. The
 // inventory, file writes, fresh observations and reverse CAS are real providers.
 for (const changed of ['live', 'original'] as const) {
   test(`recovery refuses ${changed} bytes changed between census and retained observation`, async () => {
-    const temporary = await mkdtemp(path.join(os.tmpdir(), 'sec-upgrade-admission-case-'));
-    const repo = fileURLToPath(new URL('../../../', import.meta.url));
-    const script = path.join(temporary, 'case.ts');
-    try {
+    await runRetainedBunTestWorkspace('sec-upgrade-admission-case-', async temporary => {
+      const repo = fileURLToPath(new URL('../../../', import.meta.url));
+      const script = path.join(temporary, 'case.ts');
       await Bun.write(
         script,
         `
@@ -62,21 +59,19 @@ for (const changed of ['live', 'original'] as const) {
         }
       `
       );
-      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
-      expect(code, stderr).toBe(0);
-      expect(stdout.trim()).toBe('unadmitted bytes preserved');
-    } finally {
-      await rm(temporary, { recursive: true, force: true });
-    }
+      return { args: [script], options: { cwd: process.cwd() }, observe: ({ code, stdout, stderr }) => {
+        expect(code, stderr).toBe(0);
+        expect(stdout.trim()).toBe('unadmitted bytes preserved');
+      } };
+    });
   });
 }
 
 for (const changed of ['foreign-member', 'preimage-replacement', 'record-replacement'] as const) {
   test(`backup retirement refuses ${changed} introduced after its earlier ownership checks`, async () => {
-    const temporary = await mkdtemp(path.join(os.tmpdir(), 'sec-upgrade-retirement-case-'));
-    const repo = fileURLToPath(new URL('../../../', import.meta.url));
-    const script = path.join(temporary, 'case.ts');
-    try {
+    await runRetainedBunTestWorkspace('sec-upgrade-retirement-case-', async temporary => {
+      const repo = fileURLToPath(new URL('../../../', import.meta.url));
+      const script = path.join(temporary, 'case.ts');
       await Bun.write(script, `
         import { mock } from 'bun:test';
         import assert from 'node:assert/strict';
@@ -134,11 +129,10 @@ for (const changed of ['foreign-member', 'preimage-replacement', 'record-replace
           fs.rmSync(root, { recursive: true, force: true });
         }
       `);
-      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
-      expect(code, stderr).toBe(0);
-      expect(stdout.trim()).toBe('foreign backup state preserved');
-    } finally {
-      await rm(temporary, { recursive: true, force: true });
-    }
+      return { args: [script], options: { cwd: process.cwd() }, observe: ({ code, stdout, stderr }) => {
+        expect(code, stderr).toBe(0);
+        expect(stdout.trim()).toBe('foreign backup state preserved');
+      } };
+    });
   });
 }

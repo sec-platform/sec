@@ -1,3 +1,4 @@
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { CodedFailure } from '../../../src/contracts/failure.ts';
 
 test('template file reads stay inside the root and observe current bytes', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-template-engine-'));
-  try {
+  settleWorkspaceCallbackSync(() => {
     const templatePath = path.join(root, 'sample.template');
     writeFileSync(templatePath, 'first __value__', 'utf8');
     expect(TemplateEngine.render('sample.template', { value: 1 }, root)).toBe('first 1');
@@ -30,7 +31,5 @@ test('template file reads stay inside the root and observe current bytes', () =>
       });
       return true;
     });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  }, () => rmSync(root, { recursive: true, force: true }));
 });

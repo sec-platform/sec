@@ -1,21 +1,18 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 // Replace only the final effectful engine in an isolated process. Real request
 // binding, lease acquisition, semantic prelude and failure settlement still run.
 for (const operation of ['verify', 'compose'] as const) {
   test(`${operation} captures inherited request decisions before own-property replacement and retains the live signal`, async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-option-capture-'));
-    const repo = fileURLToPath(new URL('../../../', import.meta.url));
-    const script = path.join(root, 'case.ts');
-    const module = operation === 'verify'
-      ? 'src/application/product-verification.ts'
-      : 'src/application/project-composition.ts';
-    try {
+    await runRetainedBunTestWorkspace('sec-option-capture-', async root => {
+      const repo = fileURLToPath(new URL('../../../', import.meta.url));
+      const script = path.join(root, 'case.ts');
+      const module = operation === 'verify'
+        ? 'src/application/product-verification.ts'
+        : 'src/application/project-composition.ts';
       await Bun.write(script, `
         import { mock } from 'bun:test';
         const operation = ${JSON.stringify(operation)};
@@ -76,9 +73,10 @@ for (const operation of ['verify', 'compose'] as const) {
           throw new Error('live cancellation was detached');
         console.log('captured once, original cancellation remains live');
       `);
-      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
-      expect(code, stderr).toBe(0);
-      expect(stdout.trim()).toBe('captured once, original cancellation remains live');
-    } finally { await rm(root, { recursive: true, force: true }); }
+      return { args: [script], options: { cwd: process.cwd() }, observe: ({ code, stdout, stderr }) => {
+        expect(code, stderr).toBe(0);
+        expect(stdout.trim()).toBe('captured once, original cancellation remains live');
+      } };
+    });
   });
 }

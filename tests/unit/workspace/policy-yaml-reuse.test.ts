@@ -1,4 +1,4 @@
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,17 +16,12 @@ import type { PolicyRule, PolicySourceScope } from '../../../src/semantics/polic
 // official policy root is only read; each fixture owns its project policy root.
 function fixture(run: (f: { root: string; write(name: string, source: string | Uint8Array): void }) => void) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-policy-yaml-'));
-  let failure: { error: unknown } | undefined;
-  try {
+  settleWorkspaceCallbackSync(() => {
     const policies = getWorkspacePaths(root).policiesRoot;
     mkdirSync(policies, { recursive: true });
     const write = (name: string, source: string | Uint8Array) => writeFileSync(path.join(policies, name), source);
     run({ root, write });
-  } catch (error) { failure = { error }; }
-  settleResources({
-    ...(failure === undefined ? {} : { primary: { label: 'policy fixture callback', error: failure.error } }),
-    cleanup: [{ label: 'policy fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }]
-  });
+  }, () => rmSync(root, { recursive: true, force: true }));
 }
 const row = () => ({ id: 'policy-reuse-fixture', severity: 'warn' as const, appliesTo: ['block/a'], rule: POLICY_RULE_IDS[0] });
 

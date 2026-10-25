@@ -1,14 +1,13 @@
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatOutputFiles } from '../../../src/adapters/compilation/compose/format-output-files.ts';
 import { generateRuntimeLibraryScaffold } from '../../../src/adapters/compilation/compose/generate-runtime-library.ts';
 import type { LockFile } from '../../../src/compiler/contract.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 function deferred() {
   let resolve!: () => void;
@@ -77,16 +76,15 @@ test('cancelled scaffold admission performs neither source rendering nor writes'
 // work before native cancellation, and module replacements cannot leak to peers.
 for (const stage of ['lower', 'runtime', 'baseline', 'saved'] as const) {
   test(`composition observes cancellation after ${stage} without inventing Lock state`, async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'sec-compose-stage-'));
-    const repo = fileURLToPath(new URL('../../../', import.meta.url));
-    const source = {
-      lower: ['src/adapters/targets/typescript/semantic-lowering.ts', 'lowerSemanticTasks'],
-      runtime: ['src/adapters/compilation/compose/generate-runtime-library.ts', 'generateRuntimeLibraryScaffold'],
-      baseline: ['src/adapters/workspace/project-baseline.ts', 'writeProjectBaseline'],
-      saved: ['src/adapters/workspace/lock.ts', 'saveLock']
-    }[stage];
-    const script = path.join(root, 'case.ts');
-    try {
+    await runRetainedBunTestWorkspace('sec-compose-stage-', async root => {
+      const repo = fileURLToPath(new URL('../../../', import.meta.url));
+      const source = {
+        lower: ['src/adapters/targets/typescript/semantic-lowering.ts', 'lowerSemanticTasks'],
+        runtime: ['src/adapters/compilation/compose/generate-runtime-library.ts', 'generateRuntimeLibraryScaffold'],
+        baseline: ['src/adapters/workspace/project-baseline.ts', 'writeProjectBaseline'],
+        saved: ['src/adapters/workspace/lock.ts', 'saveLock']
+      }[stage];
+      const script = path.join(root, 'case.ts');
       writeFileSync(script, `
         import assert from 'node:assert/strict';
         import { existsSync } from 'node:fs';
@@ -145,12 +143,14 @@ for (const stage of ['lower', 'runtime', 'baseline', 'saved'] as const) {
         }
         console.log('joined real stage; observed original cancellation and durable outcome');
       `);
-      const { code, stdout, stderr } = await runRetainedBunTestCommand([script], {
+      return { args: [script], options: {
+        cwd: process.cwd(),
         env: { ...process.env, SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
         timeoutMs: 15_000, maxStdoutBytes: 64 * 1024, maxStderrBytes: 64 * 1024
-      });
-      assert.equal(code, 0, stderr);
-      assert.equal(stdout.trim(), 'joined real stage; observed original cancellation and durable outcome');
-    } finally { rmSync(root, { recursive: true, force: true }); }
+      }, observe: ({ code, stdout, stderr }) => {
+        assert.equal(code, 0, stderr);
+        assert.equal(stdout.trim(), 'joined real stage; observed original cancellation and durable outcome');
+      } };
+    });
   }, 30_000);
 }
