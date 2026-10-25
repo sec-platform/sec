@@ -292,16 +292,30 @@ let privateGhProxySuiteRoot = '';
 
 function privateGhProxyRoot(): string {
   if (privateGhProxySuiteRoot !== '') return privateGhProxySuiteRoot;
-  privateGhProxySuiteRoot = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-token-'));
-  const source = path.join(privateGhProxySuiteRoot, 'credential.ts');
-  const output = path.join(privateGhProxySuiteRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
-  writeFileSync(source, `if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1); process.stdout.write('ghp_private_fixture_token_000000000000');`, 'utf8');
-  const runtime = createRawTestExecutableFixture();
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-token-'));
   try {
-    const compiled = spawnSync(runtime.command, ['build','--compile',`--compile-executable-path=${runtime.command}`,source,'--outfile',output],
-      {cwd:privateGhProxySuiteRoot,encoding:'utf8',windowsHide:true,timeout:30_000});
-    if (compiled.status !== 0) throw new Error('Private credential fixture compilation failed');
-  } finally { runtime.dispose(); }
+    const source = path.join(root, 'credential.ts');
+    const output = path.join(root, process.platform === 'win32' ? 'gh.exe' : 'gh');
+    writeFileSync(source, `if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1); process.stdout.write('ghp_private_fixture_token_000000000000');`, 'utf8');
+    const runtime = createRawTestExecutableFixture();
+    let primary;
+    try {
+      const compiled = spawnSync(runtime.command, ['build','--compile',`--compile-executable-path=${runtime.command}`,source,'--outfile',output],
+        {cwd:root,encoding:'utf8',windowsHide:true,timeout:30_000});
+      if (compiled.status !== 0) throw new Error('Private credential fixture compilation failed');
+    } catch (error) {
+      primary = { label: 'private-credential-compilation', error };
+    } finally {
+      settleResources({ primary,
+        cleanup: [{ label: 'private-credential-runtime', settle: () => runtime.dispose() }] });
+    }
+  } catch (error) {
+    settleResources({ primary: { label: 'private-credential-fixture-construction', error },
+      cleanup: [{ label: 'private-credential-fixture-root',
+        settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
+  privateGhProxySuiteRoot = root;
   return privateGhProxySuiteRoot;
 }
 
@@ -309,10 +323,11 @@ async function withPrivateGitHubHttp<T>(
   respond: (url: URL, init: RequestInit | undefined) => unknown,
   operation: (root: string) => Promise<T>
 ): Promise<T> {
+  const proxyRoot = privateGhProxyRoot();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-private-github-http-'));
   const previousPath = process.env.PATH;
   const previousFetch = globalThis.fetch;
-  process.env.PATH = `${privateGhProxyRoot()}${path.delimiter}${previousPath ?? ''}`;
+  process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
   globalThis.fetch = (async (target: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof target === 'string' || target instanceof URL ? target : target.url);
     if (url.origin !== 'https://api.github.com') throw new Error('Fixture received a foreign host');

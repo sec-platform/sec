@@ -1,5 +1,4 @@
 import { officialRegistryRelativePath, privateRegistryRelativePath } from "../../src/adapters/workspace-context.ts";
-import { loadAllManifests } from '../../src/adapters/workspace/sources/load-manifest.ts';
 import type {
   ManifestEntry,
   PlanFile
@@ -37,9 +36,8 @@ export function buildPrivatePlanRegistrySource(): PlanFile['registry']['sources'
 
 export async function buildManifestValidationPlan(
   entry: ManifestEntry,
-  allManifests?: ManifestEntry[]
+  manifests: ManifestEntry[]
 ): Promise<PlanFile> {
-  const manifests = allManifests ?? (await loadAllManifests());
   const manifestMap = new Map<string, ManifestEntry>();
   for (const m of manifests) {
     manifestMap.set(m.manifest.id, m);

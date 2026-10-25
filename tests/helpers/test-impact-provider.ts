@@ -44,6 +44,7 @@ import {
   type CodexDevelopmentTestImpactTransitionObservation
 } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
+import { settleResources, withAcquiredResource } from '../../src/execution/resource-settlement.ts';
 import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -323,7 +324,8 @@ export async function createRemovedDocumentationTestImpactFixture(
     });
     return Object.freeze({ provider, transition: binding.transition, dispose });
   } catch (error) {
-    dispose();
+    settleResources({ primary: { label: 'test-impact-fixture-construction', error },
+      cleanup: [{ label: 'test-impact-fixture-root', settle: dispose }] });
     throw error;
   }
 }
@@ -434,7 +436,8 @@ export async function createExactGitTreeTestRunnerFixture(
     });
     return fixture;
   } catch (error) {
-    dispose();
+    settleResources({ primary: { label: 'test-impact-fixture-construction', error },
+      cleanup: [{ label: 'test-impact-fixture-root', settle: dispose }] });
     throw error;
   }
 }
@@ -506,36 +509,39 @@ async function createExactRepositoryTestImpactProviderFixture(
         'Exact repository TestImpact fixture requires one admitted compiler dependency generation.'
       );
     }
-    const retainedDependency = await runtime.retainCompilerDependencyReadGeneration(
-      dependencyAuthority,
-      { deadlineAtUnixMs: operationDeadlineAtUnixMs }
-    );
-    let compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
-    try {
-      observeFixturePhase(options, deadlineAtUnixMs, 'project-input');
-      const projectInput = compileWorkspaceTypeScriptProjectInput(
-        workspaceSnapshot,
-        tsconfigRelativePath,
-        {
-          dependencyGeneration: retainedDependency.physicalGeneration,
-          dependencyGenerationDigest: retainedDependency.generationDigest
-        }
-      );
-      observeFixturePhase(options, deadlineAtUnixMs, 'cache-open');
-      observeFixturePhase(options, deadlineAtUnixMs, 'compile');
-      compilation = compileRepositorySourceProgramWithCache({
-        workspaceSnapshot,
-        operation: createSourceProgramCompilationOperation({
-          deadlineAtUnixMs: operationDeadlineAtUnixMs
-        }),
-        projectInput,
-        cacheAccess: 'read-only',
-        repositoryRoot: normalizedSourceRoot
-      });
-      observeFixturePhase(options, deadlineAtUnixMs, 'settlement');
-    } finally {
-      await retainedDependency.retire();
-    }
+    const compilation = await withAcquiredResource({
+      operationLabel: 'test-impact-fixture-compilation',
+      resourceLabel: 'test-impact-fixture-dependency-retirement',
+      acquire: () => runtime.retainCompilerDependencyReadGeneration(
+        dependencyAuthority,
+        { deadlineAtUnixMs: operationDeadlineAtUnixMs }
+      ),
+      use: (retainedDependency) => {
+        observeFixturePhase(options, deadlineAtUnixMs, 'project-input');
+        const projectInput = compileWorkspaceTypeScriptProjectInput(
+          workspaceSnapshot,
+          tsconfigRelativePath,
+          {
+            dependencyGeneration: retainedDependency.physicalGeneration,
+            dependencyGenerationDigest: retainedDependency.generationDigest
+          }
+        );
+        observeFixturePhase(options, deadlineAtUnixMs, 'cache-open');
+        observeFixturePhase(options, deadlineAtUnixMs, 'compile');
+        const compilation = compileRepositorySourceProgramWithCache({
+          workspaceSnapshot,
+          operation: createSourceProgramCompilationOperation({
+            deadlineAtUnixMs: operationDeadlineAtUnixMs
+          }),
+          projectInput,
+          cacheAccess: 'read-only',
+          repositoryRoot: normalizedSourceRoot
+        });
+        observeFixturePhase(options, deadlineAtUnixMs, 'settlement');
+        return compilation;
+      },
+      release: async (retainedDependency) => { await retainedDependency.retire(); }
+    });
     const diagnostics = repositoryCompilationDiagnosticsForTests(workspaceSnapshot);
     const provider = createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
@@ -560,7 +566,8 @@ async function createExactRepositoryTestImpactProviderFixture(
     observeFixturePhase(options, deadlineAtUnixMs, 'complete');
     return fixture;
   } catch (error) {
-    dispose();
+    settleResources({ primary: { label: 'test-impact-fixture-construction', error },
+      cleanup: [{ label: 'test-impact-fixture-root', settle: dispose }] });
     throw error;
   }
 }
@@ -595,7 +602,7 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
     sharedExactRepositoryFixtures.set(fixtureKey, state);
   }
   state.references += 1;
-  let fixture: ExactRepositoryTestImpactProviderFixture;
+  let fixture: ExactRepositoryTestImpactProviderFixture | undefined;
   try {
     fixture = await state.fixture;
     if (!createsFixture) observeFixturePhase(options, leaseDeadlineAtUnixMs, 'complete');
@@ -603,12 +610,17 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
     state.references -= 1;
     if (state.references === 0 && sharedExactRepositoryFixtures.get(fixtureKey) === state) {
       sharedExactRepositoryFixtures.delete(fixtureKey);
+      if (fixture !== undefined) {
+        settleResources({ primary: { label: 'test-impact-fixture-lease-admission', error },
+          cleanup: [{ label: 'test-impact-fixture-root', settle: fixture.dispose }] });
+      }
     }
     throw error;
   }
+  const acquiredFixture = fixture;
   let released = false;
   return Object.freeze({
-    ...fixture,
+    ...acquiredFixture,
     dispose: () => {
       if (released) return;
       released = true;
@@ -619,7 +631,7 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
       current.references -= 1;
       if (current.references === 0) {
         sharedExactRepositoryFixtures.delete(fixtureKey);
-        fixture.dispose();
+        acquiredFixture.dispose();
       }
     }
   });
