@@ -106,16 +106,15 @@ function input(full = false): CompileWholeSourceProgramAuditOperationInput {
   return { ...facts, ...syntheticTestFindingComparison(facts) };
 }
 
-test('actual source projection joins mechanism findings to the exact file identities', () => {
-  const value = input().sourceProgram;
+test('compact and full audit output preserve exact source identities and bounded wire diagnostics without altering admission', () => {
+  const fullFacts = input(true);
+  const compactFacts = input(false);
+  const value = compactFacts.sourceProgram;
   assert.equal(value.mechanismReview?.counts['module-initialization-effect'], 1);
   assert.equal(value.mechanismReview?.sourceRevision, value.sourceRevision);
-  assert.equal(value.mechanismReview?.findings[0]!.sites[0]!.contentDigest, model().files[0]!.contentDigest);
-});
-
-test('compact and full audit output share the review digest without altering admission', () => {
-  const full = compileSourceProgramAuditOperationInput(input(true));
-  const compact = compileSourceProgramAuditOperationInput(input(false));
+  assert.equal(value.mechanismReview?.findings[0]!.sites[0]!.contentDigest, rawSha256('work()'));
+  const full = compileSourceProgramAuditOperationInput(fullFacts);
+  const compact = compileSourceProgramAuditOperationInput(compactFacts);
   const fullReview = full.projection.mechanisms as Record<string, unknown>;
   const compactReview = compact.projection.mechanisms as Record<string, unknown>;
   assert.equal(fullReview.reviewDigest, compactReview.reviewDigest);
@@ -125,19 +124,15 @@ test('compact and full audit output share the review digest without altering adm
   assert.deepEqual(compact.blockingReasons, []);
   assert.equal(compileSourceProgramAuditOperation(full).exitCode, 0);
   assert.equal(compileSourceProgramAuditOperation(compact).exitCode, 0);
-});
-
-for (const full of [false, true]) {
-  test(`${full ? 'full' : 'compact'} mechanism diagnostics survive the existing bounded wire round trip`, () => {
-    const request = compileSourceProgramAuditOperationInput(input(full));
+  for (const request of [compact, full]) {
     const bytes = encodeSourceProgramAuditOperationInput(request);
     const parsed = parseSourceProgramAuditOperationInput(bytes, bytes.byteLength);
     const result = compileSourceProgramAuditOperation(parsed);
     const output = encodeSourceProgramAuditOperationResult(result);
     assert.deepEqual(parseSourceProgramAuditOperationResult(output, output.byteLength), result);
     assert.deepEqual(parsed.projection.mechanisms, request.projection.mechanisms);
-  });
-}
+  }
+});
 
 test('mechanism diagnostics cannot suppress existing audit blockers', () => {
   const base = input();

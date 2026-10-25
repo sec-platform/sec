@@ -470,7 +470,8 @@ function sourceProgramWithOneUnknown(
 
 describe('Source Program audit domain operation', () => {
   test('canonical wire codecs reject unknown input fields and changed result bytes', () => {
-    const canonical = compileSourceProgramAuditOperationInput(input());
+    const facts = input();
+    const canonical = compileSourceProgramAuditOperationInput(facts);
     const encodedInput = encodeSourceProgramAuditOperationInput(canonical);
     const parsedInput = parseSourceProgramAuditOperationInput(
       encodedInput,
@@ -498,8 +499,8 @@ describe('Source Program audit domain operation', () => {
       changedResult.byteLength
     ));
     assert.throws(() => compileSourceProgramAuditOperationInput({
-      ...input(),
-      options: { ...input().options, blockingDetailsDomain: 'foreign' }
+      ...facts,
+      options: { ...facts.options, blockingDetailsDomain: 'foreign' }
     } as unknown as CompileSourceProgramAuditOperationInput), /Unsupported Repository Audit blocking-detail domain/u);
   });
 
@@ -1270,7 +1271,8 @@ describe('test-obligations scoped audit facts', () => {
   });
 
   test('rejects anchor drift, missing comparison and mixed scope or fact versions', () => {
-    const facts = scopedTestFacts();
+    const legacy = legacyTestFacts();
+    const facts = scopedTestFacts(legacy);
     const invalid: unknown[] = [
       { ...facts, baselineCompilation: undefined },
       { ...facts, baselineCompilation: { ...facts.baselineCompilation, sourceRevision: digest('foreign') } },
@@ -1285,15 +1287,16 @@ describe('test-obligations scoped audit facts', () => {
       { ...facts, reconciliation: { status: 'resolved', changes: [] } },
       { ...facts, architectureEvolution: undefined },
       { ...facts, implementationDominance: { status: 'not-requested', reason: 'outside-test-obligations', findings: [] } },
-      { ...legacyTestFacts(), implementationDominance: facts.implementationDominance },
-      { ...legacyTestFacts(), baselineCompilation: facts.baselineCompilation }
+      { ...legacy, implementationDominance: facts.implementationDominance },
+      { ...legacy, baselineCompilation: facts.baselineCompilation }
     ];
     for (const candidate of invalid) assert.throws(() =>
       compileSourceProgramAuditOperationInput(candidate as CompileSourceProgramAuditOperationInput));
   });
 
   test('retains scoped facts identity through the canonical request and result payload', () => {
-    const facts = scopedTestFacts();
+    const legacyFacts = legacyTestFacts();
+    const facts = scopedTestFacts(legacyFacts);
     const operation = compileSourceProgramAuditOperationInput(facts);
     const wire = encodeSourceProgramAuditOperationInput(operation);
     const parsed = parseSourceProgramAuditOperationInput(wire, 1_000_000);
@@ -1304,13 +1307,14 @@ describe('test-obligations scoped audit facts', () => {
     assert.deepEqual(parseSourceProgramAuditOperationResult(encodeSourceProgramAuditOperationResult(result), 1_000_000), result);
     assert.throws(() => encodeSourceProgramAuditOperationResult({ ...result,
       projection: { ...result.projection, factsSchema: 'other' } }), Error);
-    const legacy = compileSourceProgramAuditOperationInput(legacyTestFacts());
+    const legacy = compileSourceProgramAuditOperationInput(legacyFacts);
     assert.equal(Object.hasOwn(legacy.projection, 'factsSchema'), false);
     assert.equal(Object.hasOwn(legacy.projection, 'baselineCompilation'), false);
   });
 
   test('replays historical v1 and scoped v2 without converting history into live authority', () => {
-    for (const facts of [legacyTestFacts(), scopedTestFacts()]) {
+    const legacy = legacyTestFacts();
+    for (const facts of [legacy, scopedTestFacts(legacy)]) {
       const assessment = createSourceProgramTransitionAssessment(historicalTransition(facts));
       assert.equal(assessment.schema, isTestObligationsAuditFacts(facts)
         ? 'source-program-transition-assessment-v2' : 'source-program-transition-assessment-v1');
@@ -1328,7 +1332,8 @@ describe('test-obligations scoped audit facts', () => {
   });
 
   test('binds scoped compared evidence and added or deleted shared-input paths before replay', () => {
-    const original = historicalTransition(scopedTestFacts());
+    const facts = scopedTestFacts();
+    const original = historicalTransition(facts);
     for (const changedPaths of [['test-preload.ts'], ['deleted-test-config.ts']]) {
       const context = { compilerIdentityDigest: digest('compiler'), inputs: [], unresolved: [],
         readEnvelopes: [{ root: '.', descendants: true }], runtimeIsolation: 'unassessed' as const,
@@ -1339,8 +1344,8 @@ describe('test-obligations scoped audit facts', () => {
         baseline: { ...fields, evidenceDigest: digest(fields) } }), /shared test-input delta/);
     }
     assert.throws(() => createSourceProgramTransitionAssessment({ ...original,
-      auditFacts: { ...scopedTestFacts(), baselineCompilation: {
-        ...scopedTestFacts().baselineCompilation, sourceRevision: digest('wrong-baseline')
+      auditFacts: { ...facts, baselineCompilation: {
+        ...facts.baselineCompilation, sourceRevision: digest('wrong-baseline')
       } } }), /compared source evidence/);
   });
 });
