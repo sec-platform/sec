@@ -41,7 +41,6 @@ test('RepairPlan writer preserves preimages through failure and publishes its ca
     const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
     const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
-    await fs.mkdir(path.dirname(lockPath), { recursive: true });
     await fs.mkdir(path.dirname(provenancePath), { recursive: true });
     await writeJson(lockPath, repairLock);
     const before = await fs.readFile(lockPath, 'utf8');

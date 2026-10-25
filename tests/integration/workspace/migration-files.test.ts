@@ -338,7 +338,6 @@ test('migration entry loading rejects paths outside the manifest root', async ()
 
 test('migration entry loading rejects metadata mismatches', async () => {
   await withMigrationWorkspace(async ({ manifestRoot }) => {
-    await fs.mkdir(path.join(manifestRoot, 'migrations'), { recursive: true });
     await writeJson(path.join(manifestRoot, 'migrations/mismatched-entry.json'), {
       id: 'mig-actual-entry', kind: 'text-replace', reason: 'Use mismatched metadata.',
       target: 'generated/reports/notes.md', search: 'pending', replacement: 'applied'

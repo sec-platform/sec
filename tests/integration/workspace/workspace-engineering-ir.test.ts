@@ -25,7 +25,6 @@ test('workspace builds one deterministic canonical Engineering IR independent of
     const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
     const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
     const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
-    await fs.mkdir(paths.policiesRoot, { recursive: true });
     await writeYaml(path.join(paths.policiesRoot, 'canonical-policy.yaml'), {
       policies: [{
         id: 'canonical-source-policy',

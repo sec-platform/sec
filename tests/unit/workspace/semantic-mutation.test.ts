@@ -245,7 +245,7 @@ function fixture() {
     staged,
     rollbackManifestDigest: sha256('rollback')
   };
-  return { before, after, base, staged, delta, request, auth, preflight, impact, requiredVerification, verificationPlanning, preparation };
+  return { before, base, staged, request, auth, preflight, impact, requiredVerification, verificationPlanning, preparation };
 }
 
 function expectDeepFrozen(value: unknown): void {

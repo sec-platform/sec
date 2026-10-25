@@ -19,7 +19,6 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
     const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
     await fs.mkdir(path.join(blockRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
     await fs.mkdir(path.join(versionRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
-    await fs.mkdir(path.join(versionRoot, 'migrations'), { recursive: true });
     await fs.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
     await fs.mkdir(path.join(projectRoot, 'generated', 'reports', 'current'), { recursive: true });
     await fs.writeFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), 'status: pending\n', 'utf8');

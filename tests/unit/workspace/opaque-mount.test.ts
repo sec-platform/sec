@@ -25,7 +25,6 @@ describe('installOpaqueModules', () => {
       await writeJson(packageJsonPath, { dependencies: {} });
 
       const moduleDir = path.join(srcRoot, 'opaque', 'test-mod');
-      await fs.mkdir(moduleDir, { recursive: true });
       await writeYaml(path.join(moduleDir, 'module.yaml'), { id: 'test-mod' });
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";', 'utf8');
 
@@ -44,7 +43,6 @@ describe('installOpaqueModules', () => {
       await writeJson(packageJsonPath, { dependencies: {} });
 
       const moduleDir = path.join(srcRoot, 'opaque', 'test-mod');
-      await fs.mkdir(moduleDir, { recursive: true });
       await writeYaml(path.join(moduleDir, 'module.yaml'), { id: 'test-mod' });
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";', 'utf8');
 
@@ -76,7 +74,6 @@ describe('installOpaqueModules', () => {
       await writeJson(packageJsonPath, { dependencies: {} });
 
       const moduleDir = path.join(srcRoot, 'opaque', 'test-mod');
-      await fs.mkdir(moduleDir, { recursive: true });
       await writeYaml(path.join(moduleDir, 'module.yaml'), { id: 'test-mod' });
       await fs.writeFile(path.join(moduleDir, 'index.ts'), 'export const hello = "world";\n', 'utf8');
 
@@ -100,7 +97,6 @@ describe('installOpaqueModules', () => {
       // establish a completion-order observation, so no timing ballast is needed.
       for (const [directory, id] of [['z-source', 'a-first'], ['a-source', 'z-second']] as const) {
         const moduleDir = path.join(srcRoot, 'opaque', directory);
-        await fs.mkdir(moduleDir, { recursive: true });
         await writeYaml(path.join(moduleDir, 'module.yaml'), { id });
         await fs.writeFile(path.join(moduleDir, 'index.ts'), `export const value = '${id}';\n`, 'utf8');
       }
@@ -146,7 +142,6 @@ describe('installOpaqueModules', () => {
       const { packageJsonPath, srcRoot } = getWorkspacePaths(workspaceRoot);
       await writeJson(packageJsonPath, { dependencies: { stable: '1.0.0' } });
       const moduleDir = path.join(srcRoot, 'opaque', 'bad');
-      await fs.mkdir(moduleDir, { recursive: true });
       await writeYaml(path.join(moduleDir, 'module.yaml'), {
         id: 'bad',
         entry: 'ghost-entry.ts'
@@ -165,7 +160,6 @@ describe('installOpaqueModules', () => {
       await writeJson(packageJsonPath, { dependencies: {} });
       for (const directory of ['first', 'second']) {
         const moduleDir = path.join(srcRoot, 'opaque', directory);
-        await fs.mkdir(moduleDir, { recursive: true });
         await writeYaml(path.join(moduleDir, 'module.yaml'), { id: 'same-module' });
       }
 
@@ -186,7 +180,6 @@ test('opaque failure closes the queue, joins admitted work and fences late write
     const modules = Array.from({ length: 12 }, (_, index) => `module-${String(index).padStart(2, '0')}`);
     for (const id of modules) {
       const root = path.join(srcRoot, 'opaque', id);
-      await fs.mkdir(root, { recursive: true });
       await writeYaml(path.join(root, 'module.yaml'), { id });
     }
     const nodeModules = path.join(workspaceRoot, 'node_modules');

@@ -216,7 +216,6 @@ test('JSON object merge treats inherited Object.prototype names as absent own JS
 
 test('migration entry loading rejects invalid JSON mutations before planning', async () => {
   await withMigrationWorkspace(async ({ manifestRoot }) => {
-    await fs.mkdir(path.join(manifestRoot, 'migrations'), { recursive: true });
     for (const scenario of [
       {
         entry: configRewrite('package.json', [{ path: [], value: 'invalid' }]),
