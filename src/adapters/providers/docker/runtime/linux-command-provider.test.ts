@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { lstat, chmod, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -96,10 +97,13 @@ async function providerFixture(options: Readonly<{ endpointHost?: string; daemon
 }
 
 linuxTest('Linux private config is exclusive, descriptor-addressed and retired after exact readback', async () => {
-  const first = openLinuxDockerRuntimeState();
-  const second = openLinuxDockerRuntimeState();
-  const root = path.dirname(await readlink(first.environment.HOME!));
-  try {
+  const cleanup: { label: string; settle(): void }[] = [];
+  await settleWorkspaceCallback(async () => {
+    const first = openLinuxDockerRuntimeState();
+    cleanup.push({ label: 'first private runtime', settle: () => first.close() });
+    const second = openLinuxDockerRuntimeState();
+    cleanup.push({ label: 'second private runtime', settle: () => second.close() });
+    const root = path.dirname(await readlink(first.environment.HOME!));
     expect(first.identityDigest).not.toBe(second.identityDigest);
     expect(() => assertLinuxDockerRuntimeState({ ...first })).toThrow('not owner-issued');
     for (const key of ['HOME', 'DOCKER_CONFIG', 'TMPDIR']) {
@@ -114,17 +118,14 @@ linuxTest('Linux private config is exclusive, descriptor-addressed and retired a
     first.close();
     first.close();
     await expect(lstat(root)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    first.close();
-    second.close();
-  }
+  }, async () => { await settleResourcesAsync({ cleanup }); });
 });
 
 linuxTest('Linux private config rejects lexical symlink replacement and permission drift', async () => {
   const state = openLinuxDockerRuntimeState();
-  const config = await readlink(state.environment.DOCKER_CONFIG!);
-  const displaced = `${config}-displaced`;
-  try {
+  await settleWorkspaceCallback(async () => {
+    const config = await readlink(state.environment.DOCKER_CONFIG!);
+    const displaced = `${config}-displaced`;
     await chmod(config, 0o750);
     expect(() => state.assertCurrent()).toThrow('not private');
     await chmod(config, 0o700);
@@ -133,9 +134,7 @@ linuxTest('Linux private config rejects lexical symlink replacement and permissi
     expect(() => state.assertCurrent()).toThrow();
     await rm(config);
     await rename(displaced, config);
-  } finally {
-    state.close();
-  }
+  }, async () => { state.close(); });
 });
 
 linuxTest('Linux session refuses an unretained endpoint before executing a probe and retires owned state', async () => {

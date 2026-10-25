@@ -66,11 +66,28 @@ test('an owned Git session retains its process count after the real child and se
 }, 'sec-git-closed-count-'), DEFAULT_TEST_TIMEOUT_MS);
 
 test('borrowed physical provider rejects ledger, environment and cwd transplants without disposal', () => withTempWorkspace(async root => {
-  const owner = parent(root), other = parent(root);
-  const initial = createAuthorityGitReadSession({ cwd: root, operation: owner.operation, processSession: owner.session, budget: {} });
-  assert.equal(initial.status, 'ready');
-  if (initial.status !== 'ready') throw new Error('Native Git admission is required');
-  const physical = retainGitReadPhysicalProviderInternal(initial.session);
+  let owner: ReturnType<typeof parent>;
+  let other: ReturnType<typeof parent>;
+  let initial: Extract<ReturnType<typeof createAuthorityGitReadSession>, { status: 'ready' }>;
+  let physical: ReturnType<typeof retainGitReadPhysicalProviderInternal>;
+  const constructionCleanup: { label: string; settle(): void | Promise<void> }[] = [];
+  try {
+    owner = parent(root);
+    constructionCleanup.unshift({ label: 'owner process session', settle: () => { owner.session.close(); } });
+    other = parent(root);
+    constructionCleanup.unshift({ label: 'other process session', settle: () => { other.session.close(); } });
+    const resolution = createAuthorityGitReadSession({ cwd: root, operation: owner.operation, processSession: owner.session, budget: {} });
+    if (resolution.status === 'ready') {
+      constructionCleanup.unshift({ label: 'initial Git phase', settle: async () => { await resolution.session.close!(); } });
+    }
+    assert.equal(resolution.status, 'ready');
+    if (resolution.status !== 'ready') throw new Error('Native Git admission is required');
+    initial = resolution;
+    physical = retainGitReadPhysicalProviderInternal(initial.session);
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'borrowed provider construction', error }, cleanup: constructionCleanup });
+    throw error;
+  }
   try {
     await initial.session.close!();
     for (const changed of [

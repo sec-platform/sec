@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { rmSync, writeFileSync } from 'node:fs';
@@ -36,12 +37,19 @@ describe('Git candidate bundle native scale', () => {
       purpose: 'action-materialization', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
       await materializeGitCandidateCheckoutTransport(checkout);
       const source = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(checkout.candidateRoot)), 'candidate.bundle');
-      const projected = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.join(checkout.candidateRoot, '.sec-trusted-input')), 'candidate.bundle');
+      const cleanup: { label: string; settle(): void }[] = [
+        { label: 'source bundle', settle: () => source.dispose() }
+      ];
+      let primary: ResourceSettlementFailure | undefined;
       try {
+        const projected = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.join(checkout.candidateRoot, '.sec-trusted-input')), 'candidate.bundle');
+        cleanup.unshift({ label: 'projected bundle', settle: () => projected.dispose() });
         expect(source.digest().size).toBeGreaterThan(16 * 1024 * 1024);
         expect(projected.digest()).toEqual(source.digest());
         source.assertCurrent(); projected.assertCurrent();
-      } finally { projected.dispose(); source.dispose(); }
+      } catch (error) {
+        primary = { label: 'native bundle comparison', error };
+      } finally { settleResources({ primary, cleanup }); }
       const restored = temporaryRoot('restored-history');
       git(restored, ['init', '--quiet']);
       git(restored, ['fetch', '--quiet', path.join(checkout.candidateRoot, '.sec-trusted-input/candidate.bundle'), 'refs/sec/head']);

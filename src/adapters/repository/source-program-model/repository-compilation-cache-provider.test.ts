@@ -1,3 +1,4 @@
+import { settleResources } from '../../../execution/resource-settlement.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -68,55 +69,68 @@ async function runGenerationChild(
   mode: 'load' | 'publish'
 ): Promise<Readonly<{ pid: number; result: ReturnType<RepositoryCompilationCacheHint['loadExact']> }>> {
   const workerPath = fileURLToPath(new URL('../../../../tests/fixtures/repository-compilation-cache-worker.ts', import.meta.url));
-  const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'cache worker executable');
-  const workingDirectory = retainNoFollowDirectoryForChildProcess(
-    inspectNoFollowDirectoryChain(process.cwd(), 'cache worker cwd'),
-    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-    'cache worker cwd'
-  );
-  const [worker] = retainCommandAuxiliaryOrdinaryFiles([{
-    expectedParent: inspectNoFollowDirectoryChain(path.dirname(workerPath), 'cache worker parent'),
-    name: path.basename(workerPath),
-    label: 'cache worker'
-  }]);
-  const requirementId = 'brownfield.repository-compilation-cache.test-process';
-  const contractDigest = sha256({ requirementId }) as OperationDigest;
-  const operation = bindSemanticOperation(compileSemanticOperationPlan({
-    operation: 'brownfield.repository-compilation-cache.test-process',
-    intentDigest: sha256({ payloadPath, mode, workerDigest: worker.digest().byteDigest }) as OperationDigest,
-    decisionDigest: contractDigest,
-    deadlineAtUnixMs: Date.now() + 30_000,
-    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 30_000 },
-      { resource: 'input-bytes', maximum: 0 },
-      { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
-      { resource: 'processes', maximum: 1 }
-    ],
-    requirements: [{
-      id: requirementId,
-      contractDigest,
-      effectKinds: ['process'],
-      failureKinds: ['process.failed']
-    }]
-  }), [compileCapabilityBinding({
-    requirementId,
-    contractDigest,
-    providerIdentityDigest: sha256({ executable: executable.digest(), worker: worker.digest() }) as OperationDigest
-  })]);
-  const session = openProcessResourceSession({
-    operation,
-    requirementBindingContext: issueOperationRequirementBindingContext({
-      operation,
-      requirementId,
-      resourceCeilings: [
+  let executable: ReturnType<typeof retainCurrentProcessExecutable>;
+  let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess>;
+  let worker: ReturnType<typeof retainCommandAuxiliaryOrdinaryFiles>[number];
+  let session: ReturnType<typeof openProcessResourceSession>;
+  const cleanup: { label: string; settle(): void }[] = [];
+  try {
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'cache worker executable');
+    cleanup.unshift({ label: 'worker executable', settle: () => executable.dispose() });
+    workingDirectory = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(process.cwd(), 'cache worker cwd'),
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'cache worker cwd'
+    );
+    cleanup.unshift({ label: 'worker cwd', settle: () => workingDirectory.dispose() });
+    [worker] = retainCommandAuxiliaryOrdinaryFiles([{
+      expectedParent: inspectNoFollowDirectoryChain(path.dirname(workerPath), 'cache worker parent'),
+      name: path.basename(workerPath),
+      label: 'cache worker'
+    }]);
+    cleanup.unshift({ label: 'worker source', settle: () => worker.dispose() });
+    const requirementId = 'brownfield.repository-compilation-cache.test-process';
+    const contractDigest = sha256({ requirementId }) as OperationDigest;
+    const operation = bindSemanticOperation(compileSemanticOperationPlan({
+      operation: 'brownfield.repository-compilation-cache.test-process',
+      intentDigest: sha256({ payloadPath, mode, workerDigest: worker.digest().byteDigest }) as OperationDigest,
+      decisionDigest: contractDigest,
+      deadlineAtUnixMs: Date.now() + 30_000,
+      attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+      aggregateBudgets: [
         { resource: 'duration-ms', maximum: 30_000 },
         { resource: 'input-bytes', maximum: 0 },
         { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
         { resource: 'processes', maximum: 1 }
-      ]
-    })
-  });
+      ],
+      requirements: [{
+        id: requirementId,
+        contractDigest,
+        effectKinds: ['process'],
+        failureKinds: ['process.failed']
+      }]
+    }), [compileCapabilityBinding({
+      requirementId,
+      contractDigest,
+      providerIdentityDigest: sha256({ executable: executable.digest(), worker: worker.digest() }) as OperationDigest
+    })]);
+    session = openProcessResourceSession({
+      operation,
+      requirementBindingContext: issueOperationRequirementBindingContext({
+        operation,
+        requirementId,
+        resourceCeilings: [
+          { resource: 'duration-ms', maximum: 30_000 },
+          { resource: 'input-bytes', maximum: 0 },
+          { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
+          { resource: 'processes', maximum: 1 }
+        ]
+      })
+    });
+  } catch (error) {
+    settleResources({ primary: { label: 'cache worker construction', error }, cleanup });
+    throw error;
+  }
   try {
     const result = await session.run(issueRetainedCommandBoundary({
       executable,
