@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -51,14 +52,20 @@ async function withIssuedResidueReceipt<T>(
 ): Promise<T> {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'docker-runtime-receipt-'));
   const parentPath = path.join(rootPath, 'arbitrary-owner');
-  await mkdir(parentPath);
   const endpointPath = path.join(parentPath, 'unlisted.endpoint');
-  await writeFile(endpointPath, 'endpoint-preimage');
-  const retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-    childDescriptor: 58,
-    mode: 'open-existing',
-    root: inspectNoFollowDirectoryChain(rootPath, 'Docker typed residue test root')
-  });
+  let retained: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot>;
+  try {
+    await mkdir(parentPath);
+    await writeFile(endpointPath, 'endpoint-preimage');
+    retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
+      childDescriptor: 58,
+      mode: 'open-existing',
+      root: inspectNoFollowDirectoryChain(rootPath, 'Docker typed residue test root')
+    });
+  } catch (error) {
+    return settleWorkspaceCallback(async () => { throw error; },
+      () => rm(rootPath, { recursive: true, force: true }));
+  }
   try {
     return await operation({
       endpointPath,

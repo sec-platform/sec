@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import crypto from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -569,7 +570,9 @@ test.serial('coordination migration preserves a foreign locator and its terminal
 test('coordination cutover preserves active legacy consumers while unioning existing Runtime State records', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-preexisting-state-'));
   const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
-  const externalGeneration = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-external-generation-'));
+  const externalGeneration = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-external-generation-')).catch(error =>
+    settleWorkspaceCallback(async () => { throw error; },
+      () => rm(root, { recursive: true, force: true })));
   try {
     const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
     const runtimeConsumers = path.join(

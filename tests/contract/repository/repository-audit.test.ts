@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import {
@@ -538,16 +539,21 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
 
 async function createTempRepo(prefix: string): Promise<{ root: string; headSha: string }> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
-  git(root, ['init', '--quiet', '--initial-branch=main']);
-  git(root, ['config', 'user.name', 'SEC Test']);
-  git(root, ['config', 'user.email', 'sec-test@example.invalid']);
-  git(root, ['config', 'core.autocrlf', 'false']);
-  await writeFile(path.join(root, 'README.md'), '# Fixture\n', 'utf8');
-  await writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{}}\n', 'utf8');
-  git(root, ['add', 'README.md', 'tsconfig.json']);
-  git(root, ['commit', '--quiet', '-m', 'initial']);
-  const headSha = git(root, ['rev-parse', 'HEAD']);
-  return { root, headSha };
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['config', 'user.name', 'SEC Test']);
+    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
+    git(root, ['config', 'core.autocrlf', 'false']);
+    await writeFile(path.join(root, 'README.md'), '# Fixture\n', 'utf8');
+    await writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{}}\n', 'utf8');
+    git(root, ['add', 'README.md', 'tsconfig.json']);
+    git(root, ['commit', '--quiet', '-m', 'initial']);
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    return { root, headSha };
+  } catch (error) {
+    return settleWorkspaceCallback(async () => { throw error; },
+      () => rm(root, { recursive: true, force: true }));
+  }
 }
 
 test.serial('explicit exact SHA default-ref overrides env without a remote-tracking ref', async () => {

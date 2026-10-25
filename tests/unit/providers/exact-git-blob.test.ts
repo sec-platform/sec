@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 
 import {
   listExactGitTreeEntries,
@@ -36,11 +37,19 @@ function git(
 
 function initializeRepository(): string {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-exact-git-blob-'));
-  git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-  git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-  git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
-  git(repositoryRoot, ['config', 'core.autocrlf', 'true']);
-  return repositoryRoot;
+  try {
+    git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
+    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
+    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
+    git(repositoryRoot, ['config', 'core.autocrlf', 'true']);
+    return repositoryRoot;
+  } catch (error) {
+    settleResources({
+      primary: { label: 'exact-blob-fixture-construction', error },
+      cleanup: [{ label: 'exact-blob-fixture-root', settle: () => rmSync(repositoryRoot, { recursive: true, force: true }) }]
+    });
+    throw error;
+  }
 }
 
 test('exact Git batch reader preserves absence and rejects invalid, nonordinary, or oversized requests', () => {

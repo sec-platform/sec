@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { settleResourcesAsync, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import {
@@ -164,9 +165,9 @@ installedProfileTest.serial('installed adopter rejects manifest-authenticated by
   const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-control-cli-loader-'));
   const gitRoot = path.win32.join(root, 'Git');
   const ghRoot = path.win32.join(root, 'GitHub CLI');
-  await copyBinding('git', gitRoot);
-  await copyBinding('gh', ghRoot);
-  try {
+  return settleWorkspaceCallback(async () => {
+    await copyBinding('git', gitRoot);
+    await copyBinding('gh', ghRoot);
     const ghPath = path.win32.join(ghRoot, 'gh.exe');
     const bytes = await readFile(ghPath);
     bytes[0] = 0;
@@ -194,9 +195,7 @@ installedProfileTest.serial('installed adopter rejects manifest-authenticated by
         LOCALAPPDATA: path.win32.join(root, 'local-app-data-none')
       }
     })).toThrow('installed-loader-closure-unproven');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test.skipIf(process.platform !== 'win32' || process.arch !== 'x64' ||

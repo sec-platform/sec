@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import fs, { mkdtemp, rm } from 'node:fs/promises';
@@ -57,7 +58,7 @@ async function initRepository(repositoryRoot: string): Promise<void> {
   git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
 }
 
-async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
+async function initMinimalBunRepository(repositoryRoot: string, entrypointSource: string): Promise<void> {
   await initRepository(repositoryRoot);
   await fs.writeFile(path.join(repositoryRoot, '.gitignore'), 'node_modules/\n');
   await fs.writeFile(path.join(repositoryRoot, '.bun-version'), `${Bun.version}\n`);
@@ -68,7 +69,7 @@ async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
   await fs.mkdir(path.dirname(sourcePath), { recursive: true });
   await fs.writeFile(
     sourcePath,
-    'console.log("fixture");\n'
+    entrypointSource
   );
   await fs.mkdir(path.join(repositoryRoot, 'vendor', 'fixture-dependency'), { recursive: true });
   await fs.writeFile(path.join(repositoryRoot, 'vendor', 'fixture-dependency', 'package.json'), `${JSON.stringify({
@@ -154,16 +155,11 @@ test('release builder identity mismatch blocks before an artifact process can pu
 
 test('Bun-target release bundle rejects a non-Bun source interpreter directive before build', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bad-shebang-'));
-  const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bad-shebang-artifact-'));
+  const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bad-shebang-artifact-')).catch(error =>
+    settleWorkspaceCallback(async () => { throw error; },
+      () => rm(repositoryRoot, { recursive: true, force: true })));
   try {
-    await initMinimalBunRepository(repositoryRoot);
-    await fs.writeFile(
-      path.join(repositoryRoot, 'src', 'entry', 'cli', 'cli.ts'),
-      '#!/usr/bin/env node\nconsole.log("fixture");\n',
-      'utf8'
-    );
-    git(repositoryRoot, ['add', '--all']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'non-bun-shebang']);
+    await initMinimalBunRepository(repositoryRoot, '#!/usr/bin/env node\nconsole.log("fixture");\n');
     const frozen = await prepareFrozenReleaseSource(repositoryRoot);
     try {
       await expect(buildFrozenReleaseBundle(frozen, artifactRoot))
@@ -181,9 +177,11 @@ test('Bun-target release bundle rejects a non-Bun source interpreter directive b
 
 test('Bun-target release bundle consumes the exact frozen source and rejects later tracked drift', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-bin-'));
-  const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-artifact-'));
+  const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-artifact-')).catch(error =>
+    settleWorkspaceCallback(async () => { throw error; },
+      () => rm(repositoryRoot, { recursive: true, force: true })));
   try {
-    await initMinimalBunRepository(repositoryRoot);
+    await initMinimalBunRepository(repositoryRoot, 'console.log("fixture");\n');
     const expectedCommit = git(repositoryRoot, ['rev-parse', 'HEAD']);
     const expectedTree = git(repositoryRoot, ['rev-parse', `${expectedCommit}^{tree}`]);
     await fs.writeFile(path.join(repositoryRoot, 'local-note.txt'), 'untracked-noise\n');

@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -34,7 +35,9 @@ async function write(root: string, relative: string, content: string) {
 
 test('release set is self-contained, relocatable and documentation-exact', async () => {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-release-set-fixture-'));
-  const publicationParent = await fs.mkdtemp(path.join(tmpdir(), 'sec-release-set-publication-'));
+  const publicationParent = await fs.mkdtemp(path.join(tmpdir(), 'sec-release-set-publication-')).catch(error =>
+    settleWorkspaceCallback(async () => { throw error; },
+      () => fs.rm(root, { recursive: true, force: true })));
   const destination = path.join(publicationParent, 'release-set');
   try {
     command(root, 'git', ['init', '--quiet']);
