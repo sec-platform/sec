@@ -1,4 +1,4 @@
-import { OPERATION_READ_PLAN_INPUT_SCHEMA, type OperationReadPlanInput } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
+import type { OperationReadPlanInput } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import type { TaskCapsulePlanningContext } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 // Fresh, authority-free fixture inputs. Compilation and expected results stay
@@ -35,7 +35,7 @@ export function agentReadPlanInput(
   overrides: Partial<Omit<OperationReadPlanInput, 'taskCapsule'>> = {}
 ): OperationReadPlanInput {
   return {
-    schema: OPERATION_READ_PLAN_INPUT_SCHEMA, taskCapsule,
+    schema: 'sec-operation-read-plan-input-v2', taskCapsule,
     requiredRefs: [{
       id: 'development-governance', ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
       owner: 'development-governance-owner', revision: 'owner-revision-v1',
