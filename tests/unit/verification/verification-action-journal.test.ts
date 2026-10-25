@@ -38,16 +38,7 @@ function digest(value: unknown): `sha256:${string}` {
 }
 
 function terminal(actionKey: `sha256:${string}`): VerificationActionTerminal {
-  const unsigned = {
-    actionKey,
-    executionKind: 'non-process' as const,
-    status: 'passed' as const,
-    reasonCode: 'executed-success' as const,
-    boundAttemptDigest: DIGEST_A,
-    ownerTerminalReceiptDigest: DIGEST_A,
-    diagnosticObjects: []
-  };
-  return createVerificationActionTerminal({ ...unsigned, resultDigest: digest(unsigned) });
+  return terminalForAttempt(actionKey, DIGEST_A, DIGEST_A);
 }
 
 function terminalForAttempt(
@@ -602,35 +593,22 @@ test('machine cutover rejects malformed and foreign auxiliary-only static eviden
       const originalPointerBytes = readFileSync(auxiliary.pointerPath);
       const originalClosureBytes = readFileSync(auxiliary.closurePath);
       const attemptCutover = (): unknown => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot));
-      if (candidate === 'malformed-pointer') {
-        let failure: unknown;
-        try { attemptCutover(); } catch (error) { failure = error; }
-        expect(failure).toBeInstanceOf(VerificationActionJournalError);
-        expect((failure as VerificationActionJournalError).kind).toBe('corrupt-journal');
-        expect((failure as Error).message).toBe('VerificationAction journal legacy static pointer digest mismatch.');
-        expect(readFileSync(auxiliary.pointerPath)).toEqual(originalPointerBytes);
-        expect(readFileSync(auxiliary.closurePath)).toEqual(originalClosureBytes);
-        const receiptPath = path.join(stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE);
-        const receiptParent = inspectNoFollowDirectoryChain(path.dirname(receiptPath), 'Rejected cutover control readback').target;
-        const leaseName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
-        const control = observePhysicalJournalMutationEntry(receiptParent, leaseName);
-        expect(control).toBeNull();
-        expect(readdirSync(receiptParent.path)).toEqual([]);
-      } else {
-        let failure: unknown;
-        try { attemptCutover(); } catch (error) { failure = error; }
-        expect(failure).toBeInstanceOf(VerificationActionJournalError);
-        expect((failure as VerificationActionJournalError).kind).toBe('corrupt-journal');
-        expect((failure as Error).message).toBe('VerificationAction journal legacy static closure schema is unknown.');
-        expect(readFileSync(auxiliary.pointerPath)).toEqual(originalPointerBytes);
-        expect(readFileSync(auxiliary.closurePath)).toEqual(originalClosureBytes);
-        const receiptPath = path.join(stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE);
-        const receiptParent = inspectNoFollowDirectoryChain(path.dirname(receiptPath), 'Rejected foreign closure control readback').target;
-        const leaseName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
-        const control = observePhysicalJournalMutationEntry(receiptParent, leaseName);
-        expect(control).toBeNull();
-        expect(readdirSync(receiptParent.path)).toEqual([]);
-      }
+      let failure: unknown;
+      try { attemptCutover(); } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(VerificationActionJournalError);
+      expect((failure as VerificationActionJournalError).kind).toBe('corrupt-journal');
+      expect((failure as Error).message).toBe(candidate === 'malformed-pointer'
+        ? 'VerificationAction journal legacy static pointer digest mismatch.'
+        : 'VerificationAction journal legacy static closure schema is unknown.');
+      expect(readFileSync(auxiliary.pointerPath)).toEqual(originalPointerBytes);
+      expect(readFileSync(auxiliary.closurePath)).toEqual(originalClosureBytes);
+      const receiptPath = path.join(stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE);
+      const receiptParent = inspectNoFollowDirectoryChain(path.dirname(receiptPath), candidate === 'malformed-pointer'
+        ? 'Rejected cutover control readback' : 'Rejected foreign closure control readback').target;
+      const leaseName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
+      const control = observePhysicalJournalMutationEntry(receiptParent, leaseName);
+      expect(control).toBeNull();
+      expect(readdirSync(receiptParent.path)).toEqual([]);
       expect(lstatSync(path.join(
         stateRoot,
         VERIFICATION_ACTION_JOURNAL_DIRECTORY,

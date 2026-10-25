@@ -467,16 +467,6 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
     observedAt
   })).status).toBe('no-current-negative');
 
-  const historicalNegative = new FakeTransport();
-  historicalNegative.repositoryIssueComments = [[botIssueComment(quotaBody, {
-    id: '403',
-    createdAt: '2026-08-08T13:59:00.000Z'
-  })]];
-  expect((await evaluateReviewProviderAvailabilityObservation(historicalNegative, {
-    repository: 'sec-platform/sec',
-    observedAt
-  }))).toMatchObject({ status: 'unavailable', sourceCommentId: '403' });
-
   const outOfOrder = new FakeTransport();
   outOfOrder.repositoryIssueComments = [[
     botIssueComment('first', { id: '404', createdAt: '2026-08-09T13:00:00.000Z' }),

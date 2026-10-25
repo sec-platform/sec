@@ -150,13 +150,6 @@ function planFor(action: ReturnType<typeof createVerificationActionKey>) {
 test('ActionKey canonicalizes set-like closure and excludes scheduler lane identity', () => {
   const first = createVerificationActionKey(actionInput());
   const second = createVerificationActionKey(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_B,
-      workingDirectory: '.',
-      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    },
     inputClosure: [
       { path: 'scripts/codex/example.ts', digest: DIGEST_B },
       { path: 'config/repository/work-packages/example-v1.md', digest: DIGEST_A }
@@ -326,13 +319,6 @@ test('strict ordinary-data boundary rejects getters, proxies, symbols, custom pr
 test('cheap preflight topology is exact, caller state is never accepted, and lane is derived', () => {
   const dependency = createVerificationActionKey(actionInput({
     actionKind: 'identity-preflight',
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_B,
-      workingDirectory: '.',
-      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    },
     requiredCheapPreflightActionKeys: [],
     upstreamActionKeys: []
   }));
