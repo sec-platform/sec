@@ -9,6 +9,13 @@ import {
 } from '../../../src/adapters/providers/git-read/runtime/budget.ts';
 import { captureGitReadArguments, gitReadCommandIsObservation } from '../../../src/adapters/providers/git-read/runtime/read-command.ts';
 
+const head = 'a'.repeat(40);
+const pathCommands = [
+  ['status', '--short'], ['diff', '--name-only', head], ['diff-files', '--name-only'],
+  ['diff-index', '--name-only', head], ['ls-files', '-z'], ['ls-tree', '--name-only', head],
+  ['rev-list', '--first-parent', '--full-history', '--show-pulls', '--count', `${head}..${head}`]
+];
+
 // Expected command forms and forbidden mutations are independent protocol
 // vectors, not generated from the implementation's sets or regular expressions.
 const accepted = [
@@ -26,7 +33,29 @@ const accepted = [
   ['for-each-ref', '--format=%(refname)', 'refs/heads/'], ['ls-remote', '--exit-code', 'origin', 'refs/heads/main'],
   ['status', '--porcelain=v1', '-z'], ['ls-files', '--stage', '-z'],
   ['ls-tree', '-r', '-z', 'HEAD'], ['rev-parse', '--verify', 'HEAD'],
-  ['diff', '--no-ext-diff', '--name-only', 'HEAD'], ['remote', 'get-url', 'origin'], ['rev-list', '--count', 'HEAD']
+  ['diff', '--no-ext-diff', '--name-only', 'HEAD'], ['remote', 'get-url', 'origin'], ['rev-list', '--count', 'HEAD'],
+  // Remaining positional/global and exact-ref obligations share this owner.
+  ...[
+    ['branch', '--show-current'], ['config', '--get', 'core.hooksPath'],
+    ['show', 'HEAD:package.json'], ['worktree', 'list', '--porcelain'],
+    ['symbolic-ref', '--short', 'HEAD'], ['var', 'GIT_AUTHOR_IDENT']
+  ].map(command => ['--git-dir', command[0]!, ...command]),
+  ['--git-dir', 'show', '--work-tree', 'show', '--no-pager', 'show', 'HEAD:file'],
+  ['-c', 'core.fsmonitor=false', '--git-dir', 'branch', '--literal-pathspecs', 'branch', '--show-current'],
+  ['ls-remote', '--exit-code', 'origin', 'refs/pull/573/head'],
+  ['ls-remote', 'origin', 'refs/heads/main'],
+  ...[
+    [], ['--no-pager'], ['-c', 'core.fsmonitor=false']
+  ].map(prefix => [...prefix, 'for-each-ref', '--count=2', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example']),
+  // Keep the full option/data grammar available without an installed Git.
+  ...pathCommands.flatMap(prefix => (prefix[0] === 'ls-files'
+    ? ['--textconv', '--ext-diff', '--cached', '--exec', '--filter=blob:none', '--upload-pack=x', '-odd', '--']
+    : ['--textconv']).map(name => [...prefix, '--', name])),
+  ['diff-files', '--', '--cached'],
+  ...['--textconv', '--recurse-submodules', '--upload-pack=x', '-e', '--']
+    .map(pattern => ['grep', '-F', '-l', '-z', '-e', pattern, head, '--', '.']),
+  ['cat-file', '--batch-check'],
+  ['rev-parse', '--revs-only', '--end-of-options', `${head}^{tree}`, `${head}:manifest.md`]
 ];
 const forbidden = [
   [], ['reset', '--hard'], ['checkout', 'main'], ['clean', '-fd'], ['branch', '-D', 'main'],
@@ -34,7 +63,46 @@ const forbidden = [
   ['remote', 'add', 'other', '/other'], ['symbolic-ref', 'HEAD', 'refs/heads/other'],
   ['-c', 'core.hooksPath=/other', 'status'], ['diff', '--ext-diff'], ['show', '--textconv'],
   ['ls-remote', '--upload-pack=other', 'origin', 'refs/heads/main'],
-  ['cat-file', '--filters', 'HEAD:source'], ['grep', '--recurse-submodules', 'x'], ['commit', '-m', 'unrequested']
+  ['cat-file', '--filters', 'HEAD:source'], ['grep', '--recurse-submodules', 'x'], ['commit', '-m', 'unrequested'],
+  ['--git-dir', 'branch', 'branch', '-D', 'main'],
+  ['--work-tree', 'config', 'config', 'core.hooksPath', '/other'],
+  ['--git-dir', 'status', 'reset', '--hard'],
+  ['--git-dir', 'worktree', 'worktree', 'remove', '/other'],
+  ['--work-tree', 'show', 'show', '--textconv'],
+  ['--git-dir'], ['--work-tree'], ['-c'], ['--git-dir', 'branch'],
+  ['--unknown', 'branch', '--show-current'], ['--version', 'status'],
+  ...['refs/pull/0/head', 'refs/pull/01/head', 'refs/pull/573/merge',
+    'refs/pull/*/head', 'refs/pull/573/head*', 'refs/pull/573/head/other', 'refs/tags/main']
+    .map(ref => ['ls-remote', '--exit-code', 'origin', ref]),
+  ['ls-remote', '--exit-code', 'origin', 'refs/pull/573/head', 'refs/heads/main'],
+  ...['', '0', '-1', '1', '3', '02', '+2', '2.0', '2 ', 'NaN', 'Infinity', '9007199254740992']
+    .map(count => ['for-each-ref', `--count=${count}`, '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example']),
+  ['for-each-ref', '--count', '2', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example'],
+  ['for-each-ref', '--count=2', '--count=2', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example'],
+  ['for-each-ref', '--format=%(refname)%00%(objectname)', '--count=2', 'refs/heads/fix/example'],
+  ['for-each-ref', '--count=2', 'refs/heads/fix/example'],
+  ['for-each-ref', '--count=2', '--format=%(refname)%00%(objectname)'],
+  ['for-each-ref', '--count=2', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example', '--sort=refname'],
+  ['for-each-ref', '--count=2', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example', 'refs/heads/other'],
+  ['for-each-ref', '--count=2', '--shell', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example'],
+  ['for-each-ref', '--count=2', '--exec', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example'],
+  ['--git-dir', 'for-each-ref', 'update-ref', 'refs/heads/fix/example', '1'.repeat(40)],
+  ['-c', 'core.hooksPath=/other', 'for-each-ref', '--count=2', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example'],
+  ...pathCommands.flatMap(prefix => (prefix[0] === 'ls-files'
+    ? ['--textconv', '--ext-diff', '--exec', '--exec=unsafe', '--filter=blob:none', '--upload-pack=x']
+    : ['--textconv']).map(option => [...prefix, option, '--', 'file'])),
+  ['rev-list', '--first-parent', '--exec=unsafe', `${head}..${head}`, '--', 'file'],
+  ['diff-files', '--cached', '--', 'file'],
+  ['grep', '--textconv', '-e', 'literal', head, '--', '.'],
+  ['grep', '--recurse-submodules', '-e', 'literal', head, '--', '.'],
+  ['grep', '-e', '', head, '--', '.'], ['grep', '-e', 'literal', 'HEAD', '--', '.'],
+  ['grep', '-e', 'literal', head, '--', 'other'], ['grep', '-e', 'literal', head, '--', '.', '--'],
+  ['reset', '--', 'file'], ['checkout', '--', 'file'], ['update-index', '--', 'file'],
+  ['config', '--get', 'key', '--', 'other'], ['-c', 'core.hooksPath=other', 'status', '--', 'file'],
+  ['branch', '--', '--show-current'],
+  ['cat-file', '--batch-check', '--textconv'], ['cat-file', '--batch-check', '--filters'],
+  ['cat-file', '--batch-check=%(objectname)'], ['cat-file', '--batch-command'],
+  ['rev-parse', '--revs-only', '--exec=unsafe'], ['rev-parse', '--revs-only', '--upload-pack=unsafe']
 ];
 
 test('normal budgets preserve existing defaults, exact-tree duration and selected overrides', () => {
