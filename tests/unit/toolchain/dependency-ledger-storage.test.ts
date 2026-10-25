@@ -13,10 +13,11 @@ import {
 } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { runtimeDependencyOperationContext, runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { generatedStateDigest } from "../../../src/execution/generated-state/contract.ts";
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ledger-storage-'));
-  try { await run(root); } finally { rmSync(root, { recursive: true, force: true }); }
+  return settleWorkspaceCallback(() => run(root), async () => rmSync(root, { recursive: true, force: true }));
 }
 const controls = () => runtimeDependencyOperationControls({ lockTimeoutMs: 20_000 });
 function record(root: string, previous: DependencyTransitionJournal | null = null, nonce = 'record'): DependencyTransitionJournal {

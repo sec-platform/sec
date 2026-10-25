@@ -9,9 +9,13 @@ import { runtimeDependencyOperationControls } from '../../../src/adapters/toolch
 import { canonicalJson } from '../../../src/contracts/canonical.ts';
 import { formatJsonFile } from "../../../src/contracts/json-text.ts";
 import { createRolloverFixture } from '../../helpers/rollover-fixture.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 type Fixture = ReturnType<typeof createRolloverFixture>;
-async function using(run: (f: Fixture) => Promise<void>) { const f = createRolloverFixture(); try { await run(f); } finally { f.cleanup(); } }
+async function using(run: (f: Fixture) => Promise<void>) {
+  const f = createRolloverFixture();
+  return settleWorkspaceCallback(() => run(f), async () => f.cleanup());
+}
 async function assertComplete(f: Fixture) {
   const result = await inspectActiveDependencyTransitionRollover(f.root, f.options);
   assert.equal(result?.active, null); assert.equal(result?.latestComplete?.phase, 'complete');
@@ -173,16 +177,13 @@ test('a complete historical epoch cannot silently have its physical checkpoint c
   await assert.rejects(inspectActiveDependencyTransitionRollover(f.root, f.options), /continuity/);
 }));
 
-test('a ledger below the canonical rollover threshold performs no namespace or publication effects', async () => {
-  const f = createRolloverFixture();
-  try {
-    fs.unlinkSync(f.receiptPath('prepared'));
-    fs.mkdirSync(f.paths.backupRoot, { recursive: true });
-    const ledger = { namespace: inspectDependencyTransitionNamespace(f.root)!, records: f.records,
-      ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal };
-    await assert.rejects(rolloverDependencyTransitionLedger(f.root, ledger, f.terminal,
-      { ...f.options, beforeCommit() { assert.fail('premature namespace effect'); } }), /predecessor receipt/);
-    assert.deepEqual(fs.readdirSync(f.paths.rolloversRoot), []);
-    assert.equal(fs.readdirSync(f.paths.recordsRoot).length, f.records.size);
-  } finally { f.cleanup(); }
-});
+test('a ledger below the canonical rollover threshold performs no namespace or publication effects', async () => using(async f => {
+  fs.unlinkSync(f.receiptPath('prepared'));
+  fs.mkdirSync(f.paths.backupRoot, { recursive: true });
+  const ledger = { namespace: inspectDependencyTransitionNamespace(f.root)!, records: f.records,
+    ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal };
+  await assert.rejects(rolloverDependencyTransitionLedger(f.root, ledger, f.terminal,
+    { ...f.options, beforeCommit() { assert.fail('premature namespace effect'); } }), /predecessor receipt/);
+  assert.deepEqual(fs.readdirSync(f.paths.rolloversRoot), []);
+  assert.equal(fs.readdirSync(f.paths.recordsRoot).length, f.records.size);
+}));
