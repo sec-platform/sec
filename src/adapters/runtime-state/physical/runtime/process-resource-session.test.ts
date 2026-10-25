@@ -409,6 +409,7 @@ test('process sessions require one process Effect and complete bound resource ce
       input: firstInput
     })).toThrow(/invocation differs/u);
     const transplantedBoundary = retainTestBoundary();
+    let fixtureFailure1: ResourceSettlementFailure | undefined;
     try {
       expect(() => assertProcessResourceRunResult(first, receipt, {
         ...expectedRunBinding,
@@ -417,8 +418,13 @@ test('process sessions require one process Effect and complete bound resource ce
         env: firstEnvironment,
         input: firstInput
       })).toThrow(/invocation differs/u);
+    } catch (error) {
+      fixtureFailure1 = { label: 'fixture operation', error };
     } finally {
-      transplantedBoundary.dispose();
+      settleResources({
+        primary: fixtureFailure1,
+        cleanup: [{ label: 'fixture cleanup', settle: () => { transplantedBoundary.dispose(); } }]
+      });
     }
 
     first.result.stdout[0] = 9;

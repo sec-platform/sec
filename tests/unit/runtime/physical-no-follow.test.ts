@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -57,17 +58,26 @@ function expectPhysicalCode(action: () => unknown, code: PhysicalNoFollowError['
 
 test.skipIf(process.platform !== 'linux')('Linux no-follow reader preserves a literal-backslash leaf name', () => {
   const root = fixtureRoot();
+  let fixtureFailure29: ResourceSettlementFailure | undefined;
   try {
     writeFileSync(path.join(root, 'a\\b'), 'literal backslash');
     const parent = inspectNoFollowDirectoryChain(root).target;
     expect(Buffer.from(readNoFollowOrdinaryFile(parent, 'a\\b')!)).toEqual(Buffer.from('literal backslash'));
     expect(scanNoFollowDirectoryTreeInventory(parent).some(entry => entry.relativePath === 'a\\b')).toBeTrue();
     expectPhysicalCode(() => readNoFollowOrdinaryFile(parent, '../escape'), 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure29 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure29,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
+  }
 });
 
 test('no-follow directory inspection returns an ordered physical chain and only ENOENT means absent', () => {
   const root = fixtureRoot();
+  let fixtureFailure28: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'ordinary', 'target');
     mkdirSync(target, { recursive: true });
@@ -76,13 +86,19 @@ test('no-follow directory inspection returns an ordered physical chain and only 
     expect(observed.ancestors.at(-1)).toEqual(observed.target);
     expect(observed.ancestors.length).toBeGreaterThan(1);
     expect(inspectExactNoFollowDirectoryPresence(path.join(root, 'missing'))).toEqual({ state: 'absent' });
+  } catch (error) {
+    fixtureFailure28 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure28,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('no-follow inspection rejects a symlink/junction target and a symlink/junction ancestor', () => {
   const root = fixtureRoot();
+  let fixtureFailure27: ResourceSettlementFailure | undefined;
   try {
     const ordinary = path.join(root, 'ordinary');
     const external = path.join(root, 'external');
@@ -107,8 +123,13 @@ test('no-follow inspection rejects a symlink/junction target and a symlink/junct
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
     );
     expect(inspectNoFollowDirectoryChain(ordinary).target.path).toBe(path.resolve(ordinary));
+  } catch (error) {
+    fixtureFailure27 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure27,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -142,6 +163,7 @@ test.skipIf(process.platform !== 'win32')(
 
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retained child inspection is create-free and exclusive creation never adopts a collision', () => {
   const root = fixtureRoot();
+  let fixtureFailure26: ResourceSettlementFailure | undefined;
   try {
     const parentPath = path.join(root, 'parent');
     const displacedParent = path.join(root, 'parent-displaced');
@@ -165,8 +187,13 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retai
     );
     expect(lstatSync(path.join(parentPath, 'replacement-child'), { throwIfNoEntry: false })).toBeUndefined();
     expect(existsSync(path.join(displacedParent, 'child'))).toBe(true);
+  } catch (error) {
+    fixtureFailure26 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure26,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -174,6 +201,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows relative directory leaf inspection proves hidden absence and rejects reparse children',
   () => {
     const root = fixtureRoot();
+    let fixtureFailure25: ResourceSettlementFailure | undefined;
     try {
       const parentPath = path.join(root, 'parent');
       const externalPath = path.join(root, 'external');
@@ -199,14 +227,20 @@ test.skipIf(process.platform !== 'win32')(
         () => inspectNoFollowDirectoryLeaf(parent, '..'),
         'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
       );
+    } catch (error) {
+      fixtureFailure25 = { label: 'fixture operation', error };
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      settleResources({
+        primary: fixtureFailure25,
+        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+      });
     }
   }
 );
 
 test.skipIf(process.platform !== 'linux')('Linux directory-create transaction rejects parent, ancestor, and child replacement races', () => {
   const root = fixtureRoot();
+  let fixtureFailure24: ResourceSettlementFailure | undefined;
   try {
     const expectRaceRejected = (
       point: LinuxNoFollowDirectoryCreateRacePoint,
@@ -310,25 +344,37 @@ test.skipIf(process.platform !== 'linux')('Linux directory-create transaction re
     expect(lstatSync(ancestorChainDisplaced).isDirectory()).toBe(true);
     expect(lstatSync(path.join(ancestorChainScope, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
     expect(lstatSync(path.join(ancestorChainDisplaced, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
+  } catch (error) {
+    fixtureFailure24 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure24,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('operation directory creation is retained-parent relative and returns exact created identities', () => {
   const root = fixtureRoot();
+  let fixtureFailure23: ResourceSettlementFailure | undefined;
   try {
     const retained = inspectNoFollowDirectoryChain(root, 'directory creation root').target;
     const created = createNoFollowDirectoryChain(retained, ['operation-root', 'generation-one']);
     expect(created.path).toBe(path.join(root, 'operation-root', 'generation-one'));
     expect(inspectNoFollowDirectoryChain(created.path, 'created directory').target.inode).toBe(created.inode);
+  } catch (error) {
+    fixtureFailure23 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure23,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced retained parent', () => {
   const root = fixtureRoot();
+  let fixtureFailure22: ResourceSettlementFailure | undefined;
   try {
     const parentPath = path.join(root, 'parent');
     mkdirSync(parentPath);
@@ -349,13 +395,19 @@ test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced r
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
     expect(readFileSync(path.join(moved, 'ordinary.json'), 'utf8')).toBe('{"safe":true}\n');
+  } catch (error) {
+    fixtureFailure22 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure22,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('retained child-process directory reads the authorized inode after lexical replacement', () => {
   const root = fixtureRoot();
+  let fixtureFailure21: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     const displaced = path.join(root, 'target-displaced');
@@ -398,8 +450,13 @@ test('retained child-process directory reads the authorized inode after lexical 
     } finally {
       capability.dispose();
     }
+  } catch (error) {
+    fixtureFailure21 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure21,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -515,6 +572,7 @@ test.skipIf(process.platform !== 'win32')(
 
 test.skipIf(process.platform !== 'win32')('Windows retained child-process boundary blocks relocation above its pinned parent', () => {
   const root = fixtureRoot();
+  let fixtureFailure20: ResourceSettlementFailure | undefined;
   try {
     const ancestor = path.join(root, 'ancestor');
     const parent = path.join(ancestor, 'parent');
@@ -532,13 +590,19 @@ test.skipIf(process.platform !== 'win32')('Windows retained child-process bounda
     } finally {
       capability.dispose();
     }
+  } catch (error) {
+    fixtureFailure20 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure20,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('retained child-process file reads the observed inode after leaf replacement', () => {
   const root = fixtureRoot();
+  let fixtureFailure19: ResourceSettlementFailure | undefined;
   try {
     const filePath = path.join(root, 'index');
     const displaced = path.join(root, 'index-displaced');
@@ -591,8 +655,13 @@ test('retained child-process file reads the observed inode after leaf replacemen
     } finally {
       capability.dispose();
     }
+  } catch (error) {
+    fixtureFailure19 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure19,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -602,6 +671,7 @@ test('native Git write-tree uses a cold private index beneath its retained paren
 
 test('exact ordinary leaf observation bounds only the selected leaf without scanning unrelated entries', () => {
   const root = fixtureRoot();
+  let fixtureFailure18: ResourceSettlementFailure | undefined;
   try {
     writeFileSync(path.join(root, 'fence.json'), '{"safe":true}\n', 'utf8');
     writeFileSync(path.join(root, 'unrelated-large.bin'), Buffer.alloc(65 * 1024 * 1024));
@@ -622,13 +692,19 @@ test('exact ordinary leaf observation bounds only the selected leaf without scan
       () => inspectNoFollowOrdinaryFileEntry(parent, 'unrelated-large.bin'),
       'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED'
     );
+  } catch (error) {
+    fixtureFailure18 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure18,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('exact ordinary leaf identity follows the retained physical file rather than its name or bytes', () => {
   const root = fixtureRoot();
+  let fixtureFailure17: ResourceSettlementFailure | undefined;
   try {
     const originalPath = path.join(root, 'original.json');
     const aliasPath = path.join(root, 'alias.json');
@@ -647,8 +723,13 @@ test('exact ordinary leaf identity follows the retained physical file rather tha
     const replacement = inspectNoFollowOrdinaryFileEntry(parent, 'alias.json');
     expect(`${replacement?.device}:${replacement?.inode}`).not.toBe(`${original?.device}:${original?.inode}`);
     expect(Buffer.from(replacement?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
+  } catch (error) {
+    fixtureFailure17 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure17,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -695,6 +776,7 @@ test.skipIf(process.platform !== 'linux')('Linux exact ordinary leaf rejects a F
 
 test('retained directory relocation preserves its identity and rejects a rebuilt original path', () => {
   const root = fixtureRoot();
+  let fixtureFailure16: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     mkdirSync(target);
@@ -710,13 +792,19 @@ test('retained directory relocation preserves its identity and rejects a rebuilt
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
     expect(existsSync(target)).toBe(true);
+  } catch (error) {
+    fixtureFailure16 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure16,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('tree scan records a child link as an unsafe leaf and never traverses it', () => {
   const root = fixtureRoot();
+  let fixtureFailure15: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     const external = path.join(root, 'external');
@@ -727,8 +815,13 @@ test('tree scan records a child link as an unsafe leaf and never traverses it', 
     const entries = scanNoFollowDirectoryTree(inspectNoFollowDirectoryChain(target, 'scan target').target);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ relativePath: 'child-link', kind: 'link' });
+  } catch (error) {
+    fixtureFailure15 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure15,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -793,6 +886,7 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
 
 test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact retained-link targets', () => {
   const root = fixtureRoot();
+  let fixtureFailure14: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     mkdirSync(target);
@@ -807,8 +901,13 @@ test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact re
     expect(entries.get('absolute-link')).toMatchObject({
       kind: 'link', linkTarget: path.join(root, 'missing-target')
     });
+  } catch (error) {
+    fixtureFailure14 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure14,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -877,6 +976,7 @@ test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or pro
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('permission-mode inventory is opt-in and Windows projects an explicit unavailable value', () => {
   const root = fixtureRoot();
+  let fixtureFailure13: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     mkdirSync(target);
@@ -893,8 +993,13 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('permi
     } else {
       expect(projectedEntry.permissionMode).toBe(statSync(path.join(target, 'ordinary.txt')).mode & 0o7777);
     }
+  } catch (error) {
+    fixtureFailure13 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure13,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -1068,6 +1173,7 @@ test.skipIf(process.platform !== 'linux' || process.geteuid?.() === 0)(
 
 test('streaming tree inventory preserves the canonical digest domain beyond the bounded byte reader', () => {
   const root = fixtureRoot();
+  let fixtureFailure12: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     mkdirSync(target);
@@ -1130,13 +1236,19 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
       kind: 'file', size: largeSize,
       contentDigest: expectedContentDigest, byteDigest: expectedByteDigest
     });
+  } catch (error) {
+    fixtureFailure12 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure12,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained ordinary-file capability binds raw digest, size, and leaf identity to one handle', () => {
   const root = fixtureRoot();
+  let fixtureFailure11: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     const filePath = path.join(target, 'executable.bin');
@@ -1183,13 +1295,19 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
     } finally {
       capability.dispose();
     }
+  } catch (error) {
+    fixtureFailure11 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure11,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test.skipIf(process.platform !== 'linux')('retained ordinary-file digest rejects a same-size in-place rewrite', () => {
   const root = fixtureRoot();
+  let fixtureFailure10: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     const filePath = path.join(target, 'executable.bin');
@@ -1222,8 +1340,13 @@ test.skipIf(process.platform !== 'linux')('retained ordinary-file digest rejects
     } finally {
       capability.dispose();
     }
+  } catch (error) {
+    fixtureFailure10 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure10,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -1289,6 +1412,7 @@ test.skipIf(process.platform !== 'win32')(
 
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => {
   const root = fixtureRoot();
+  let fixtureFailure9: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     mkdirSync(target);
@@ -1323,8 +1447,13 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('metad
       }),
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
     );
+  } catch (error) {
+    fixtureFailure9 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure9,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -1452,6 +1581,7 @@ test.skipIf(process.platform !== 'linux')(
 
 test('durable canonical replacement uses retained-parent publication and exact final readback', () => {
   const root = fixtureRoot();
+  let fixtureFailure8: ResourceSettlementFailure | undefined;
   try {
     const parentPath = path.join(root, 'replacement');
     mkdirSync(parentPath);
@@ -1464,8 +1594,13 @@ test('durable canonical replacement uses retained-parent publication and exact f
     replaceDurableCanonicalFile({ parent, name: 'latest.json', bytes: first, validate });
     const replaced = replaceDurableCanonicalFile({ parent, name: 'latest.json', bytes: second, validate });
     expect(readFileSync(replaced.path)).toEqual(second);
+  } catch (error) {
+    fixtureFailure8 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure8,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -1520,6 +1655,7 @@ test.skipIf(process.platform !== 'win32')('Windows durable identity and byte-pre
     { point: 'after-candidate-publication' as const, status: 'completed' as const, expected: 'new\n' }
   ].flatMap(scenario => [false, true].map(bytePreimage => ({ ...scenario, bytePreimage })))) {
     const root = fixtureRoot();
+    let fixtureFailure7: ResourceSettlementFailure | undefined;
     try {
       const parentPath = path.join(root, 'cas');
       mkdirSync(parentPath);
@@ -1555,8 +1691,13 @@ test.skipIf(process.platform !== 'win32')('Windows durable identity and byte-pre
       expect(readFileSync(finalPath, 'utf8')).toBe(scenario.expected);
       expect(recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }).status).toBe('none');
       expect(readdirSync(parentPath).filter(name => name.startsWith('.sec-cas-'))).toEqual([]);
+    } catch (error) {
+      fixtureFailure7 = { label: 'fixture operation', error };
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      settleResources({
+        primary: fixtureFailure7,
+        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+      });
     }
   }
 });
@@ -1647,6 +1788,7 @@ test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage rec
 
 test.skipIf(process.platform !== 'win32')('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
   const root = fixtureRoot();
+  let fixtureFailure6: ResourceSettlementFailure | undefined;
   try {
     const parentPath = path.join(root, 'cas');
     mkdirSync(parentPath);
@@ -1672,8 +1814,13 @@ test.skipIf(process.platform !== 'win32')('Windows durable CAS rejects a same-by
     );
     expect(readFileSync(finalPath, 'utf8')).toBe('new\n');
     expect(readdirSync(parentPath).some(name => name.endsWith('.txn'))).toBe(true);
+  } catch (error) {
+    fixtureFailure6 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure6,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -1756,6 +1903,7 @@ test.skipIf(process.platform !== 'win32')('Windows retained-handle deletion remo
 
 test.skipIf(process.platform !== 'linux')('Linux retained openat leaf deletion covers an ordinary file directory and dangling link', () => {
   const root = fixtureRoot();
+  let fixtureFailure5: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     mkdirSync(target);
@@ -1776,13 +1924,19 @@ test.skipIf(process.platform !== 'linux')('Linux retained openat leaf deletion c
       });
       expect(lstatSync(path.join(target, name), { throwIfNoEntry: false })).toBeUndefined();
     }
+  } catch (error) {
+    fixtureFailure5 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure5,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('retained deletion rejects a replaced inventoried ancestor before touching a hard-linked leaf', () => {
   const root = fixtureRoot();
+  let fixtureFailure4: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     const parent = path.join(target, 'parent');
@@ -1806,13 +1960,19 @@ test('retained deletion rejects a replaced inventoried ancestor before touching 
     }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
     expect(readFileSync(path.join(retainedParent, 'leaf.txt'), 'utf8')).toBe('authorized inode\n');
     expect(readFileSync(path.join(parent, 'leaf.txt'), 'utf8')).toBe('authorized inode\n');
+  } catch (error) {
+    fixtureFailure4 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure4,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test.skipIf(process.platform !== 'linux')('Linux retained deletion accepts selected-name absence when another hard link survives', () => {
   const root = fixtureRoot();
+  let fixtureFailure3: ResourceSettlementFailure | undefined;
   try {
     const target = path.join(root, 'target');
     mkdirSync(target);
@@ -1830,8 +1990,13 @@ test.skipIf(process.platform !== 'linux')('Linux retained deletion accepts selec
     });
     expect(lstatSync(path.join(target, 'selected.txt'), { throwIfNoEntry: false })).toBeUndefined();
     expect(readFileSync(path.join(root, 'surviving-link.txt'), 'utf8')).toBe('shared inode\n');
+  } catch (error) {
+    fixtureFailure3 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure3,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -1840,6 +2005,7 @@ test.skipIf(process.platform !== 'linux')(
   'durable publication applies an authenticated ordinary POSIX creation mode',
   () => {
     const root = fixtureRoot();
+    let fixtureFailure2: ResourceSettlementFailure | undefined;
     try {
       const target = path.join(root, 'target');
       mkdirSync(target);
@@ -1854,8 +2020,13 @@ test.skipIf(process.platform !== 'linux')(
       });
       expect(receipt.created).toBe(true);
       expect(statSync(path.join(target, 'tool.sh')).mode & 0o777).toBe(0o755);
+    } catch (error) {
+      fixtureFailure2 = { label: 'fixture operation', error };
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      settleResources({
+        primary: fixtureFailure2,
+        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+      });
     }
   }
 );
@@ -1901,6 +2072,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
 
 test('no-follow tree observation prunes canonical excluded subtrees before traversal', () => {
   const root = fixtureRoot();
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     mkdirSync(path.join(root, 'excluded', 'deep'), { recursive: true });
     for (let index = 0; index < 8; index += 1) {
@@ -1923,7 +2095,12 @@ test('no-follow tree observation prunes canonical excluded subtrees before trave
       }),
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
     );
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });

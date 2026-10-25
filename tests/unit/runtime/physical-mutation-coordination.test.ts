@@ -1,3 +1,4 @@
+import { type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -51,6 +52,7 @@ function ready(parent: ReturnType<typeof fixture>['parent']) {
 
 test('coordination first birth is durable and two real processes exclude without journal authority', () => {
   const { root, parent } = fixture();
+  let fixtureFailure6: ResourceSettlementFailure | undefined;
   try {
     const resource = preparePhysicalMutationCoordinationResource(parent, name, namespace);
     expect(readdirSync(root)).not.toContain(namespace);
@@ -65,11 +67,19 @@ test('coordination first birth is durable and two real processes exclude without
     lease.release();
     expect(() => assertPhysicalMutationLeaseOwned(lease)).toThrow();
     expect(() => ensurePhysicalMutationCoordinationNamespace(lease)).toThrow('no longer held');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure6 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure6,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
+  }
 });
 
 test('controller exit permits same guarded lineage recovery, failure restores and readback permits acknowledgement', () => {
   const { root, parent } = fixture();
+  let fixtureFailure5: ResourceSettlementFailure | undefined;
   try {
     const original = ready(parent);
     const abandoned = JSON.parse(child(root, `const resource=owner.readPhysicalMutationCoordinationResource(parent,name,namespace);
@@ -90,11 +100,19 @@ test('controller exit permits same guarded lineage recovery, failure restores an
     expect(resumed.recoveryPending).toBe(false);
     resumed.release();
     expect(JSON.parse(readFileSync(path.join(root, name), 'utf8')).activeOwner).toBeNull();
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure5 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure5,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
+  }
 });
 
 test('reclaimed initializing owner failure preserves committed namespace pin and recovery lineage', () => {
   const { root, parent } = fixture();
+  let fixtureFailure4: ResourceSettlementFailure | undefined;
   try {
     preparePhysicalMutationCoordinationResource(parent, name, namespace);
     const abandoned = JSON.parse(child(root, `const resource=owner.readPhysicalMutationCoordinationResource(parent,name,namespace);
@@ -119,11 +137,19 @@ test('reclaimed initializing owner failure preserves committed namespace pin and
     resumed.acknowledgeReclaimedRecovery();
     resumed.release();
     expect(JSON.parse(readFileSync(path.join(root, name), 'utf8')).activeOwner).toBeNull();
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure4 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure4,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
+  }
 });
 
 test('fake resource, foreign parent and replaced anchor cannot issue a coordination lease', () => {
   const one = fixture(), two = fixture();
+  let fixtureFailure3: ResourceSettlementFailure | undefined;
   try {
     ready(one.parent);
     const resource = readPhysicalMutationCoordinationResource(one.parent, name, namespace)!;
@@ -135,11 +161,22 @@ test('fake resource, foreign parent and replaced anchor cannot issue a coordinat
     writeFileSync(path.join(one.root, anchorName), bytes);
     expect(() => readPhysicalMutationCoordinationResource(one.parent, name, namespace)).toThrow('anchor identity');
     expect(readFileSync(path.join(one.root, 'original-anchor')).equals(bytes)).toBe(true);
-  } finally { rmSync(one.root, { recursive: true, force: true }); rmSync(two.root, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure3 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure3,
+      cleanup: [
+        { label: 'first fixture root', settle: () => rmSync(one.root, { recursive: true, force: true }) },
+        { label: 'second fixture root', settle: () => rmSync(two.root, { recursive: true, force: true }) }
+      ]
+    });
+  }
 });
 
 test('ready namespace replacement cannot be adopted and its coordination predecessor is preserved', () => {
   const { root, parent } = fixture();
+  let fixtureFailure2: ResourceSettlementFailure | undefined;
   try {
     ready(parent);
     const resource = readPhysicalMutationCoordinationResource(parent, name, namespace)!;
@@ -148,11 +185,19 @@ test('ready namespace replacement cannot be adopted and its coordination predece
     mkdirSync(path.join(root, namespace));
     expect(() => acquirePhysicalMutationLease(parent, name, { coordinationResource: resource })).toThrow('physical identity changed');
     expect(readFileSync(path.join(root, name)).equals(before)).toBe(true);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure2 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure2,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
+  }
 });
 
 test('directory birth before durable pin interruption remains UNKNOWN instead of adopting present bytes', () => {
   const { root, parent } = fixture();
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     preparePhysicalMutationCoordinationResource(parent, name, namespace);
     child(root, `const resource=owner.readPhysicalMutationCoordinationResource(parent,name,namespace);
@@ -163,5 +208,12 @@ test('directory birth before durable pin interruption remains UNKNOWN instead of
     expect(() => acquirePhysicalMutationLease(parent, name, { coordinationResource: readPhysicalMutationCoordinationResource(parent, name, namespace)! })).toThrow('no durable physical pin');
     expect(readFileSync(path.join(root, name)).equals(before)).toBe(true);
     expect(inspectNoFollowDirectoryChain(path.join(root, namespace)).target.objectId).toBeTruthy();
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
+  }
 });

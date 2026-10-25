@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import { expect, jest, test } from 'bun:test';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,7 @@ import { acquireSecRuntimeCachePhysicalAuthority, acquireSecRuntimeStatePhysical
 
 test('runtime cache authority materializes one no-follow tree physically outside the repository', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-cache-authority-'));
+  let fixtureFailure2: ResourceSettlementFailure | undefined;
   try {
     const repositoryRoot = path.join(root, 'repository');
     const cacheRoot = path.join(root, 'cache');
@@ -34,13 +36,19 @@ test('runtime cache authority materializes one no-follow tree physically outside
       expect(lstatSync(cacheRoot).mode & 0o077).toBe(0);
       expect(lstatSync(snapshots).mode & 0o077).toBe(0);
     }
+  } catch (error) {
+    fixtureFailure2 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure2,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('runtime cache authority rejects a symlink or junction ancestor before creating descendants', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-cache-reparse-'));
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     const repositoryRoot = path.join(root, 'repository');
     const cacheRoot = path.join(root, 'cache-link');
@@ -56,8 +64,13 @@ test('runtime cache authority rejects a symlink or junction ancestor before crea
       })
     ).toThrow();
     expect(existsSync(path.join(repositoryRoot, 'docs-doctor'))).toBe(false);
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 

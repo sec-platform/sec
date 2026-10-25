@@ -1,3 +1,4 @@
+import { type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -76,6 +77,7 @@ function expectBlocked(action: () => unknown, status: 'legacy-unproven' | 'unkno
 
 test('strict read and prepare preserve a dead local legacy record and its existing namespace', () => {
   const { root, parent, writeLegacy } = fixture({ namespace: true });
+  let fixtureFailure3: ResourceSettlementFailure | undefined;
   try {
     const legacy = legacyOwner();
     const legacyBytes = writeLegacy(legacy);
@@ -92,13 +94,19 @@ test('strict read and prepare preserve a dead local legacy record and its existi
     expect(readFileSync(path.join(root, NAMESPACE_LEAF, 'sentinel'), 'utf8')).toBe('original namespace payload');
     expect(readdirSync(namespaceIdentity.path)).toEqual(['sentinel']);
     expect(inspectNoFollowOrdinaryFileEntry(namespaceIdentity, 'sentinel')).toEqual(payloadIdentity);
+  } catch (error) {
+    fixtureFailure3 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure3,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('a legacy record without a namespace cannot authorize a namespace or anchor birth', () => {
   const { root, parent, writeLegacy } = fixture();
+  let fixtureFailure2: ResourceSettlementFailure | undefined;
   try {
     const legacy = legacyOwner();
     const bytes = writeLegacy(legacy);
@@ -107,13 +115,19 @@ test('a legacy record without a namespace cannot authorize a namespace or anchor
     expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(bytes);
     expect(inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME)).toEqual(identity);
     expect(readdirSync(root)).toEqual([LEASE_NAME]);
+  } catch (error) {
+    fixtureFailure2 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure2,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('a present legacy-shaped anchor cannot authorize an unproven legacy record', () => {
   const { root, parent, writeLegacy } = fixture({ namespace: true });
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     const legacyBytes = writeLegacy(legacyOwner());
     const material = {
@@ -139,8 +153,13 @@ test('a present legacy-shaped anchor cannot authorize an unproven legacy record'
     expect(inspectNoFollowOrdinaryFileEntry(parent, ANCHOR_NAME)).toEqual(anchorIdentity);
     expect(inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target).toEqual(namespaceIdentity);
     expect(readdirSync(root).sort()).toEqual([LEASE_NAME, NAMESPACE_LEAF, ANCHOR_NAME].sort());
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 

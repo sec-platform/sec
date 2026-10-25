@@ -1,3 +1,4 @@
+import { type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { expect, spyOn, test } from 'bun:test';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -59,6 +60,7 @@ test.skipIf(process.platform !== 'linux')(`Linux byte retirement resumes after a
 
 test.skipIf(process.platform !== 'linux')('Linux strict retirement preserves byte drift, unknown entries and replacement identities before any deletion', () => {
   const item = fixture();
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     const file = path.join(item.rootPath, 'nested/a.json');
     writeFileSync(file, 'changed bytes\n');
@@ -81,7 +83,14 @@ test.skipIf(process.platform !== 'linux')('Linux strict retirement preserves byt
     expect(item.retire).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' }));
     expect(readFileSync(path.join(displacedRoot, 'nested/a.json'), 'utf8')).toBe('second original\n');
     expect(readFileSync(path.join(item.rootPath, 'replacement.json'), 'utf8')).toBe('new root\n');
-  } finally { rmSync(item.parentPath, { recursive: true, force: true }); }
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(item.parentPath, { recursive: true, force: true }); } }]
+    });
+  }
 });
 
 test.skipIf(process.platform !== 'linux')('Linux byte retirement rejects an independently held directory flock, then succeeds after real release', () => {

@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { beforeEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -112,14 +113,20 @@ test('OperationKey address is shared across runs and an active attempt cannot be
   const first = boundOperation('first run');
   const second = boundOperation('second run');
   const identity = durableExecutionJournalIdentity(first);
+  let fixtureFailure11: ResourceSettlementFailure | undefined;
   try {
     expect(identity).toEqual(durableExecutionJournalIdentity(second));
     value.store.createIntent(first);
     value.store.appendInitialAttemptStart(first, digest('55'));
     expect(() => value.store.appendInitialAttemptStart(second, digest('56'))).toThrow('active');
     expect(fdJournalCount(value.journalRoot)).toBe(1);
+  } catch (error) {
+    fixtureFailure11 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure11,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -136,6 +143,7 @@ test('journal lineage derives from a foundation-compiled operation and rejects a
   const value = fixture();
   const operation = boundOperation('owner-issued run');
   const identity = durableExecutionJournalIdentity(operation);
+  let fixtureFailure10: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(operation);
     const observation = value.store.appendInitialAttemptStart(operation, digest('57'));
@@ -156,8 +164,13 @@ test('journal lineage derives from a foundation-compiled operation and rejects a
       ...operation,
       plan: { ...operation.plan }
     } as BoundSemanticOperation, digest('58'))).toThrow('foundation-compiled operation plan');
+  } catch (error) {
+    fixtureFailure10 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure10,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -169,6 +182,7 @@ test('provider and domain observations require their exact issuer receipts', () 
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: digest('87')
   });
+  let fixtureFailure9: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(operation);
     const started = value.store.appendInitialAttemptStart(operation, digest('92'));
@@ -197,14 +211,20 @@ test('provider and domain observations require their exact issuer receipts', () 
       ...readback,
       readbackReferenceDigest: digest('998')
     })).toThrow('projection digest is invalid');
+  } catch (error) {
+    fixtureFailure9 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure9,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('owner terminal resolution references only an exact owner-issued join receipt', () => {
   const value = fixture();
   const operation = boundOperation('owner terminal join');
+  let fixtureFailure8: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(operation);
     const started = value.store.appendInitialAttemptStart(operation, digest('92'));
@@ -232,14 +252,20 @@ test('owner terminal resolution references only an exact owner-issued join recei
       ...join,
       ownerTerminalReferenceDigest: digest('997')
     })).toThrow('projection digest is invalid');
+  } catch (error) {
+    fixtureFailure8 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure8,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('store construction, expired admission and absent reads do not create the journal directory', () => {
   const value = fixture();
   const identity = { operationKeyDigest: digest('58') } as const;
+  let fixtureFailure7: ResourceSettlementFailure | undefined;
   try {
     expect(existsSync(value.journalRoot)).toBe(false);
     expect(() => createDurableExecutionStore({
@@ -250,8 +276,13 @@ test('store construction, expired admission and absent reads do not create the j
     expect(existsSync(value.journalRoot)).toBe(false);
     expect(value.reader.read(identity)).toBeNull();
     expect(existsSync(value.journalRoot)).toBe(false);
+  } catch (error) {
+    fixtureFailure7 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure7,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -259,6 +290,7 @@ test('lost handle requires recovered readback and consumed owner admission befor
   const value = fixture();
   const first = boundOperation('recoverable run');
   const recovery = recoveryOperation('recoverable readback run');
+  let fixtureFailure6: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(first);
     const started = value.store.appendInitialAttemptStart(first, digest('59'));
@@ -300,8 +332,13 @@ test('lost handle requires recovered readback and consumed owner admission befor
       recoveredReadback.currentPhysicalEpochDigest
     )).toThrow('already consumed');
     expect(Object.keys(admitted)).not.toContain('effectAuthority');
+  } catch (error) {
+    fixtureFailure6 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure6,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -309,6 +346,7 @@ test('a restarted writer recovers from durable predecessor coordinates without r
   const value = fixture();
   const first = boundOperation('process-before-crash');
   const identity = durableExecutionJournalIdentity(first);
+  let fixtureFailure5: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(first);
     value.store.appendInitialAttemptStart(first, digest('160'));
@@ -347,8 +385,13 @@ test('a restarted writer recovers from durable predecessor coordinates without r
       ownerTerminalReferenceDigest: digest('166')
     });
     expect(restartedWriter.appendOwnerTerminalResolution(recovery, terminal).state).toBe('settled');
+  } catch (error) {
+    fixtureFailure5 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure5,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -362,6 +405,7 @@ test('attempt boundary plus one is rejected before CAS and preserves exact journ
   const recovery = recoveryOperation('bounded recovery run');
   const identity = durableExecutionJournalIdentity(first);
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  let fixtureFailure4: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(first);
     const started = value.store.appendInitialAttemptStart(first, digest('70'));
@@ -385,8 +429,13 @@ test('attempt boundary plus one is rejected before CAS and preserves exact journ
     ))
       .toThrow('complete bounded attempt-settlement closure');
     expect(readFileSync(filePath)).toEqual(before);
+  } catch (error) {
+    fixtureFailure4 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure4,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -400,14 +449,20 @@ test('attempt start reserves its worst settlement closure before changing bytes'
   const operation = boundOperation('oversize reservation');
   const identity = durableExecutionJournalIdentity(operation);
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  let fixtureFailure3: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(operation);
     const before = readFileSync(filePath);
     expect(() => value.store.appendInitialAttemptStart(operation, digest('77')))
       .toThrow('complete bounded attempt-settlement closure');
     expect(readFileSync(filePath)).toEqual(before);
+  } catch (error) {
+    fixtureFailure3 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure3,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -415,13 +470,19 @@ test('retained reader rejects an existing oversized journal and preserves its si
   const value = fixture({ maximumStateBytes: 1_024 });
   const identity = { operationKeyDigest: digest('78') } as const;
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  let fixtureFailure2: ResourceSettlementFailure | undefined;
   try {
     mkdirSync(value.journalRoot, { recursive: true });
     writeFileSync(filePath, 'x'.repeat(1_025), 'utf8');
     expect(() => value.reader.read(identity)).toThrow('exceeds maximumBytes 1024');
     expect(readFileSync(filePath).byteLength).toBe(1_025);
+  } catch (error) {
+    fixtureFailure2 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure2,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -430,6 +491,7 @@ test('failed CAS append is conflict-only and leaves the preimage byte-exact', ()
   const operation = boundOperation('cas conflict');
   const identity = durableExecutionJournalIdentity(operation);
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     value.store.createIntent(operation);
     const before = readFileSync(filePath);
@@ -444,7 +506,12 @@ test('failed CAS append is conflict-only and leaves the preimage byte-exact', ()
     expect(() => conflicting.appendInitialAttemptStart(operation, digest('80')))
       .toThrow(expect.objectContaining({ kind: 'conflict' }));
     expect(readFileSync(filePath)).toEqual(before);
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
   }
 });

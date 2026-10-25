@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../execution/resource-settlement.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
@@ -47,14 +48,20 @@ test('incremental hash is independent of binary chunk boundaries and source offs
   assert.equal(rawSha256(bytes), expected);
   for (const size of [1, 7, 63, 64, 65, 1023, 1024, 1025, 4096]) {
     const hash = createSha256Hasher();
+    let fixtureFailure1: ResourceSettlementFailure | undefined;
     try {
       hash.update(new Uint8Array());
       for (let offset = 0; offset < bytes.length; offset += size) {
         hash.update(bytes.subarray(offset, Math.min(offset + size, bytes.length)));
       }
       assert.equal(hash.finish(), expected);
+    } catch (error) {
+      fixtureFailure1 = { label: 'fixture operation', error };
     } finally {
-      hash.dispose();
+      settleResources({
+        primary: fixtureFailure1,
+        cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
+      });
     }
   }
 });

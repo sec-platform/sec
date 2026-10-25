@@ -49,11 +49,19 @@ test.skipIf(process.platform !== 'linux')('append rejects a parent replacement a
 test.skipIf(process.platform !== 'linux')('native append is relative to the retained parent even after its pathname is replaced', () => fixture(root => {
   const parent = path.join(root, 'parent'); mkdirSync(parent); writeFileSync(path.join(parent, 'output'), 'owned');
   const retained = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(parent), 3);
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     renameSync(parent, path.join(root, 'original')); mkdirSync(parent); writeFileSync(path.join(parent, 'output'), 'replacement');
     const fd = linuxOpenAppendLeafAt(retained.stdioSourceDescriptor!, 'output', 'append fixture');
     try { writeSync(fd, Buffer.from('+append')); } finally { closeSync(fd); }
     expect(readFileSync(path.join(root, 'original/output'), 'utf8')).toBe('owned+append');
     expect(readFileSync(path.join(parent, 'output'), 'utf8')).toBe('replacement');
-  } finally { retained.dispose(); }
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { retained.dispose(); } }]
+    });
+  }
 }));

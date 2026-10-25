@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../execution/resource-settlement.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -41,13 +42,21 @@ test('streaming is invariant around compression and tree-chunk boundaries', () =
     const bytes = input(inputBytes);
     for (const chunkSize of [1, 7, 63, 64, 65, 1023, 1024, 1025, 4096]) {
       const hash = createContentHasher();
+      let fixtureFailure1: ResourceSettlementFailure | undefined;
       try {
         hash.update(new Uint8Array());
         for (let offset = 0; offset < bytes.length; offset += chunkSize) {
           hash.update(bytes.subarray(offset, offset + chunkSize));
         }
         assert.equal(hash.finish(), `blake3:${hex}`);
-      } finally { hash.dispose(); }
+      } catch (error) {
+        fixtureFailure1 = { label: 'fixture operation', error };
+      } finally {
+        settleResources({
+          primary: fixtureFailure1,
+          cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
+        });
+      }
       // Larger sizes in this ascending list repeat the same single-update sequence.
       if (chunkSize >= bytes.length) break;
     }
