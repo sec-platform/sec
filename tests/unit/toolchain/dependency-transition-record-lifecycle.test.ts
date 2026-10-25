@@ -11,17 +11,25 @@ import {
 import { dependencyTransitionNamespacePaths } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { runtimeDependencySourceGeneration } from '../../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 
 // Repository execution uses actual source compilation and retained state owners.
 // Local replay explicitly replaces physical/namespace/migration/rollover/digest
 // boundaries and is NOT native durability, migration or process authority proof.
 async function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-transition-record-'));
-  mkdirSync(path.join(root, 'source')); writeFileSync(path.join(root, 'source/value'), 'input');
-  const options = runtimeDependencyOperationControls({ lockTimeoutMs: 20_000 });
-  const sourceGeneration = await runtimeDependencySourceGeneration({ ownerRoot: root,
-    sourcePath: path.join(root, 'source'), binding: { fixture: 'transition' }, options });
-  return { root, options, sourceGeneration };
+  try {
+    mkdirSync(path.join(root, 'source')); writeFileSync(path.join(root, 'source/value'), 'input');
+    const options = runtimeDependencyOperationControls({ lockTimeoutMs: 20_000 });
+    const sourceGeneration = await runtimeDependencySourceGeneration({ ownerRoot: root,
+      sourcePath: path.join(root, 'source'), binding: { fixture: 'transition' }, options });
+    return { root, options, sourceGeneration };
+  } catch (error) {
+    settleResources({ primary: { label: 'transition-record-fixture-construction', error },
+      cleanup: [{ label: 'transition-record-fixture-root',
+        settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 function request(f: Awaited<ReturnType<typeof fixture>>) {
   return { kind: 'compiler-bridge' as const, ownerRoot: f.root, destinationPath: path.join(f.root, 'bridge'),
