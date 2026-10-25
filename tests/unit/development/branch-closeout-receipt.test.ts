@@ -179,7 +179,7 @@ function provenance() {
   });
 }
 
-function effectStart(operation = operationReceipt(), commentId = 20) {
+function effectStart(operation: ReturnType<typeof operationReceipt>) {
   const publication = createBranchCloseoutEffectStartPublication({
     binding: operation.binding,
     authorizationPublication: {
@@ -206,7 +206,7 @@ function effectStart(operation = operationReceipt(), commentId = 20) {
     },
     provenance: provenance()
   });
-  return Object.freeze({ publication, commentId });
+  return Object.freeze({ publication, commentId: 20 });
 }
 
 function actionsComment(id: number, body: string, app: unknown = CI_GITHUB_ACTIONS_IDENTITY_POLICY.app) {

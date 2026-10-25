@@ -282,14 +282,14 @@ interface FreezeFixture {
   dispose(): Promise<void>;
 }
 
-function currentStateSource(remoteName = 'origin'): string {
+function currentStateSource(): string {
   return `schema: sec-current-state-live-v1
 resolver:
   command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
-  remote: ${remoteName}
+  remote: origin
   defaultBranch: main
-  defaultRef: refs/remotes/${remoteName}/main
+  defaultRef: refs/remotes/origin/main
   requireRemoteMatch: true
 stableFacts:
   workSelection:
@@ -690,7 +690,7 @@ test('status resolves a published rolling projection as history after its exact 
       'utf8'
     );
     const projection = createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource('origin')),
+      spec: parseCurrentStateSpec(currentStateSource()),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
@@ -796,7 +796,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
     receipt,
     reviewedOn: '2026-08-12'
   });
-  const requiredSpec = parseCurrentStateSpec(currentStateSource('origin'));
+  const requiredSpec = parseCurrentStateSpec(currentStateSource());
   const projection = createFreezeProjection({
     spec: requiredSpec,
     currentPointerSource,
@@ -957,7 +957,7 @@ tests:
     defaultManifestBytes: currentManifestBytes
   });
   const projection = createFreezeProjection({
-    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    spec: parseCurrentStateSpec(currentStateSource()),
     currentPointerSource,
     currentRollingPlanSource: rollingPlanSource(),
     currentManifestBytes,
@@ -1003,7 +1003,7 @@ tests:
 ## Gate、单写者与重算`
   );
   const maximalProjection = createFreezeProjection({
-    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    spec: parseCurrentStateSpec(currentStateSource()),
     currentPointerSource,
     currentRollingPlanSource: maximalPriorTopology,
     currentManifestBytes,
@@ -1036,7 +1036,7 @@ tests:
     .toBe(CURRENT_ACTIVE_ID);
   const wrongManifestBytes = Buffer.from(freezeTargetManifestSource(baseSha), 'utf8');
   expect(() => createFreezeProjection({
-    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    spec: parseCurrentStateSpec(currentStateSource()),
     currentPointerSource,
     currentRollingPlanSource: rollingPlanSource(),
     currentManifestBytes,
@@ -1048,7 +1048,7 @@ tests:
     reviewedOn: '2026-08-12'
   })).toThrow('differs from the exact manifest or repository identity');
   expect(() => createFreezeProjection({
-    spec: parseCurrentStateSpec(currentStateSource('origin')),
+    spec: parseCurrentStateSpec(currentStateSource()),
     currentPointerSource,
     currentRollingPlanSource: rollingPlanSource(),
     currentManifestBytes,
@@ -1445,7 +1445,7 @@ test('committed candidate replan rebinds after main advances without changing it
   const fixture = await createFreezeFixture();
   try {
     const manifestFile = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
-    await writeFile(path.join(fixture.repositoryRoot, CURRENT_STATE_PATH), currentStateSource('origin'));
+    await writeFile(path.join(fixture.repositoryRoot, CURRENT_STATE_PATH), currentStateSource());
     runGit(fixture.repositoryRoot, [
       'reset', '--quiet', 'HEAD', '--', FREEZE_TARGET_PATH, CURRENT_ACTIVE_PATH
     ]);
@@ -1457,7 +1457,7 @@ test('committed candidate replan rebinds after main advances without changing it
     );
     await writeFile(manifestFile, firstManifest);
     const firstProjection = createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource('origin')),
+      spec: parseCurrentStateSpec(currentStateSource()),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
@@ -1559,7 +1559,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
     const manifestFile = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
     await writeFile(
       path.join(fixture.repositoryRoot, CURRENT_STATE_PATH),
-      currentStateSource('origin'),
+      currentStateSource(),
       'utf8'
     );
     // The published-selection base must not inherit createFreezeFixture's
@@ -1582,7 +1582,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
     );
     await writeFile(manifestFile, firstManifest);
     const firstProjection = createFreezeProjection({
-      spec: parseCurrentStateSpec(currentStateSource('origin')),
+      spec: parseCurrentStateSpec(currentStateSource()),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),

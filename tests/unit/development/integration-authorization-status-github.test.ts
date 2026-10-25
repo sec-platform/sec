@@ -126,7 +126,7 @@ function githubProviderFetch(): Readonly<{
 
 async function publishWithProvider(
   provider: ReturnType<typeof githubProviderFetch>,
-  gateResult: IntegrationAuthorizationGateResult = result()
+  gateResult: IntegrationAuthorizationGateResult
 ): Promise<Awaited<ReturnType<typeof publishIntegrationAuthorizationStatus>>> {
   const capability = issueGitHubApiTestCapability({
     repository: 'sec-platform/sec',

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterAll, expect, test } from 'bun:test';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 
 import type { GitHubApiPrincipal } from '../../../src/adapters/providers/github-api/operation-session.ts';
 import {
@@ -61,9 +62,10 @@ type DivergedReviewFixture = Readonly<{
 let observedRepository: RepositoryFixture | undefined;
 let observedDivergedRepository: DivergedReviewFixture | undefined;
 afterAll(() => {
-  for (const fixture of [observedRepository, observedDivergedRepository]) {
-    if (fixture !== undefined) rmSync(fixture.root, { recursive: true, force: true });
-  }
+  settleResources({ cleanup: [observedRepository, observedDivergedRepository].map((fixture, index) => ({
+    label: `supersession-fixture-${index}`,
+    settle: () => { if (fixture !== undefined) rmSync(fixture.root, { recursive: true, force: true }); }
+  })) });
 });
 
 function git(repositoryRoot: string, args: readonly string[]): string {
@@ -117,7 +119,8 @@ function createDivergedReviewFixture(): DivergedReviewFixture {
       currentMainTreeSha
     });
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: { label: 'diverged-review-fixture-construction', error },
+      cleanup: [{ label: 'diverged-review-fixture-root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
     throw error;
   }
 }
@@ -146,7 +149,8 @@ function createRepositoryFixture(): RepositoryFixture {
 
     return Object.freeze({ root, headSha, headTreeSha, currentMainSha, currentMainTreeSha });
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: { label: 'review-fixture-construction', error },
+      cleanup: [{ label: 'review-fixture-root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
     throw error;
   }
 }

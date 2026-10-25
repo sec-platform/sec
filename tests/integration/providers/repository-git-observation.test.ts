@@ -6,6 +6,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { affectedGitSelectionDigest, issueAffectedGitSelectionSource, rebindAffectedGitSelectionSource } from '../../../src/adapters/verification/platform/test-impact/runtime/affected-git-source.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 
 import { withAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/authority.ts';
 import { createAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/runtime/session.ts';
@@ -57,7 +58,8 @@ async function createRepository(prefix: string): Promise<string> {
     git(root, ['commit', '--quiet', '-m', 'initial']);
     return root;
   } catch (error) {
-    await rm(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary: { label: 'repository-fixture-construction', error },
+      cleanup: [{ label: 'repository-fixture-root', settle: () => rm(root, { recursive: true, force: true }) }] });
     throw error;
   }
 }

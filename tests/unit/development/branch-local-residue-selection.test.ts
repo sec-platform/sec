@@ -11,10 +11,10 @@ const MAIN = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
 const MERGE = '3'.repeat(40);
 
-function merged(branch = 'fix/example', headSha = HEAD) {
+function merged(headSha = HEAD) {
   return {
     number: 42,
-    headBranch: branch,
+    headBranch: 'fix/example',
     headSha,
     baseBranch: 'main',
     mergeCommitSha: MERGE,
@@ -25,7 +25,7 @@ function merged(branch = 'fix/example', headSha = HEAD) {
 
 test('prefixes never authorize a drifted PR, duplicate identity, or wrong base', () => {
   for (const mergedPullRequests of [
-    [merged('fix/example', '6'.repeat(40))],
+    [merged('6'.repeat(40))],
     [merged(), { ...merged(), number: 43, url: 'https://github.com/sec-platform/sec/pull/43' }],
     [{ ...merged(), baseBranch: 'release' }]
   ]) {

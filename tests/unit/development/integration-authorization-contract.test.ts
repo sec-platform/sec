@@ -62,7 +62,7 @@ function authorization(overrides: Partial<IntegrationAuthorizationInput> = {}) {
   return createIntegrationAuthorization(input(overrides));
 }
 
-function live(current = authorization()): IntegrationAuthorizationLiveState {
+function live(current: ReturnType<typeof authorization>): IntegrationAuthorizationLiveState {
   return {
     now: current.expiresAt,
     consumedAuthorizationIds: new Set<string>(),

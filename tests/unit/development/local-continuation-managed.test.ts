@@ -8,22 +8,19 @@ import process from 'node:process';
 import { createLocalContinuationCheckpoint, LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES } from '../../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const LOCAL_CONTINUATION_PROGRAM_PATH = path.resolve(
   import.meta.dir,
   '../../../src/adapters/self-hosting/control/continuation/local-continuation.ts'
 );
 
-function run(cwd: string, command: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env) {
-  const result = spawnSync(command, [...args], { cwd, encoding: 'utf8', windowsHide: true, env });
+function git(cwd: string, ...args: string[]): string {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, env: process.env });
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed (${result.status}): ${result.stderr || result.stdout}`);
+    throw new Error(`git ${args.join(' ')} failed (${result.status}): ${result.stderr || result.stdout}`);
   }
   return (result.stdout ?? '').trim();
-}
-
-function git(cwd: string, ...args: string[]): string {
-  return run(cwd, 'git', args);
 }
 
 async function invoke(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
@@ -44,10 +41,10 @@ test.each(['codex-development-work-package-v1', 'codex-development-work-package-
     SEC_STATE_HOME: stateRoot,
     SEC_CACHE_HOME: cacheRoot
   };
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(path.join(repositoryRoot, 'src'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'config', 'repository', 'work-packages'), { recursive: true });
-    run(repositoryRoot, 'git', ['init', '-b', 'integration/continuation-fixture']);
+    git(repositoryRoot, 'init', '-b', 'integration/continuation-fixture');
     git(repositoryRoot, 'config', 'core.autocrlf', 'false');
     git(repositoryRoot, 'config', 'user.email', 'sec@example.invalid');
     git(repositoryRoot, 'config', 'user.name', 'SEC Test');
@@ -177,9 +174,9 @@ tests:
     const stateBackup = path.join(fixtureRoot, 'state-before-control-drift');
     cpSync(stateRoot, stateBackup, { recursive: true });
     const unrelatedTree = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
-    const unrelatedCommit = run(repositoryRoot, 'git', [
+    const unrelatedCommit = git(repositoryRoot,
       'commit-tree', unrelatedTree, '-m', 'unrelated candidate history'
-    ]);
+    );
     git(repositoryRoot, 'reset', '--hard', unrelatedCommit);
     const unrelated = await invoke(repositoryRoot, env);
     expect(unrelated.code).toBe(0);
@@ -202,7 +199,7 @@ tests:
     const afterTerminal = await invoke(repositoryRoot, env);
     expect(afterTerminal.code).not.toBe(0);
     expect(afterTerminal.stderr).toContain('no managed continuation exists');
-  } finally {
+  }, async () => {
     rmSync(fixtureRoot, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
