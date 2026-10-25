@@ -1,6 +1,88 @@
 {
   "scope": "Independent parsed-value structural expectations only. Original and candidate readers are distinct. Semantic witnesses, exact scope binding, effects, paths and real roundtrip require their owners; no production proof.",
   "cases": [
+    {"name":"trait-declaration-default-dispatch-shape","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":true,"value":{"kind":"trait","selfParameter":{"name":"Self"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[]},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}}}},
+    {"name":"trait-inline-implementation-shape","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":true,"value":{"kind":"implementation","traitRef":"local:Captures","selfType":{"tag":"nominal","ref":"local:Empty"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"nominal","ref":"local:Empty"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[],"body":{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}}}}},
+    {"name":"trait-static-generic-associated-function","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":true,"value":{"kind":"trait","selfParameter":{"name":"Self"},"associatedTypes":{},"methods":{"error_message":{"typeParams":[{"name":"T","traitBounds":[{"traitRef":"fmt:Display","selfType":{"tag":"param","name":"T"}}]}],"parameters":[{"name":"message","type":{"tag":"param","name":"T"},"mode":"move"}],"returns":{"tag":"param","name":"Self"},"effects":[]}}}},
+    {"name":"trait-projection","schema":"urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type","expected":true,"value":{"tag":"associated","traitRef":"local:Matcher","selfType":{"tag":"param","name":"M"},"member":"Captures"}},
+    {"name":"trait-projection-old-reader-rejects","schema":"urn:gift:design-schema:universal-author-module-2#/$defs/Type","expected":false,"value":{"tag":"associated","traitRef":"local:Matcher","selfType":{"tag":"param","name":"M"},"member":"Captures"}},
+    {"name":"trait-method-selection","schema":"urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr","expected":true,"value":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"M"},"method":"len"}},
+    {"name":"trait-method-selection-old-reader-rejects","schema":"urn:gift:design-schema:universal-author-module-2#/$defs/Expr","expected":false,"value":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"M"},"method":"len"}},
+    {"name":"trait-bound-on-common-type-parameter","schema":"urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/TypeParam","expected":true,"value":{"name":"M","traitBounds":[{"traitRef":"local:Captures","selfType":{"tag":"param","name":"M"}}]}},
+    {"name":"trait-bound-old-reader-rejects","schema":"urn:gift:design-schema:universal-author-module-2#/$defs/TypeParam","expected":false,"value":{"name":"M","traitBounds":[{"traitRef":"local:Captures","selfType":{"tag":"param","name":"M"}}]}},
+    {"name":"trait-bound-and-method-in-ordinary-function","schema":"urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition","expected":true,"value":{"kind":"core:function","body":{"typeParams":[{"name":"M","traitBounds":[{"traitRef":"local:Captures","selfType":{"tag":"param","name":"M"}}]}],"parameters":[{"name":"m","type":{"tag":"param","name":"M"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[],"body":{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"M"},"method":"len"},"arguments":[{"op":"var","name":"m"}]}}}},
+    {"name":"trait-associated-equality-bound","schema":"urn:gift:design-schema:first-layer-trait-body-converged#/$defs/TraitBound","expected":true,"value":{"traitRef":"local:Matcher","selfType":{"tag":"param","name":"M"},"associatedTypes":{"Captures":{"tag":"associated","traitRef":"local:Matcher","selfType":{"tag":"param","name":"M"},"member":"Captures"}}}},
+    {"name":"trait-required-method-needs-effect-bound","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":false,"value":{"kind":"trait","selfParameter":{"name":"Self"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"}},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}}}},
+    {"name":"trait-self-parameter-must-be-type","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":false,"value":{"kind":"trait","selfParameter":{"name":"Self","kind":"Region"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[]},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}}}},
+    {"name":"trait-self-parameter-not-runtime-fresh","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":false,"value":{"kind":"trait","selfParameter":{"name":"Self","binding":"fresh"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[]},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}}}},
+    {"name":"trait-receiver-is-binder-name","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":false,"value":{"kind":"trait","selfParameter":{"name":"Self"},"associatedTypes":{},"methods":{"len":{"receiver":{"name":"self"},"parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[]},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}}}},
+    {"name":"trait-implementation-needs-real-body","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":false,"value":{"kind":"implementation","traitRef":"local:Captures","selfType":{"tag":"nominal","ref":"local:Empty"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"nominal","ref":"local:Empty"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[],"defaultBody":{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}}}}},
+    {"name":"trait-no-implicit-gat","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":false,"value":{"kind":"trait","selfParameter":{"name":"Self"},"associatedTypes":{"Item":{"typeParams":[{"name":"T"}]}},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[]},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}}}},
+    {"name":"trait-no-implicit-dyn-object","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":false,"value":{"kind":"trait","selfParameter":{"name":"Self"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[]},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}},"dyn":true}},
+    {"name":"trait-selection-does-not-capture-receiver","schema":"urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr","expected":false,"value":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"M"},"method":"len","receiver":{"op":"var","name":"m"}}},
+    {"name":"trait-projection-needs-trait-identity","schema":"urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type","expected":false,"value":{"tag":"associated","selfType":{"tag":"param","name":"M"},"member":"Captures"}},
+    {"name":"trait-trait-arguments-are-complete-array","schema":"urn:gift:design-schema:first-layer-trait-body-converged#/$defs/TraitBound","expected":false,"value":{"traitRef":"local:Captures","selfType":{"tag":"param","name":"M"},"traitArguments":{"T":{"tag":"scalar","name":"int"}}}},
+    {"name":"trait-method-termination-preserved","schema":"urn:gift:design-schema:first-layer-trait-body-converged","expected":true,"value":{"kind":"trait","selfParameter":{"name":"Self"},"associatedTypes":{},"methods":{"len":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"int"},"effects":[],"termination":"partial"},"is_empty":{"receiver":"self","parameters":[{"name":"self","type":{"tag":"param","name":"Self"},"mode":"borrow"}],"returns":{"tag":"scalar","name":"bool"},"effects":[],"defaultBody":{"op":"call","callee":{"op":"symbol","ref":"std:IntEq"},"arguments":[{"op":"call","callee":{"op":"trait-method","traitRef":"local:Captures","selfType":{"tag":"param","name":"Self"},"method":"len"},"arguments":[{"op":"var","name":"self"}]},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]}}}}},
+    {
+      "name": "opaque-record-declaration",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": true,
+      "value": {"kind":"core:type","body":{"opaque":true,"type":{"tag":"record","fields":{"value":{"type":{"tag":"scalar","name":"int"}}}}}}
+    },
+    {
+      "name": "opaque-open-record-declaration",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": true,
+      "value": {"kind":"core:type","body":{"opaque":true,"visibility":"private","type":{"tag":"record","fields":{},"open":true}}}
+    },
+    {
+      "name": "opaque-generic-recursive-variant-shape",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": true,
+      "value": {"kind":"core:type","body":{"opaque":true,"typeParams":[{"name":"T"}],"type":{"tag":"variant","cases":{"Empty":{"tag":"scalar","name":"unit"},"Next":{"tag":"nominal","ref":"local:Chain","args":[{"tag":"param","name":"T"}]}}}}}
+    },
+    {
+      "name": "transparent-alias-explicit-false",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": true,
+      "value": {"kind":"core:type","body":{"opaque":false,"type":{"tag":"nominal","ref":"local:Existing"}}}
+    },
+    {
+      "name": "opaque-alias-rejected",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": false,
+      "value": {"kind":"core:type","body":{"opaque":true,"type":{"tag":"nominal","ref":"local:Existing"}}}
+    },
+    {
+      "name": "opaque-scalar-rejected",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": false,
+      "value": {"kind":"core:type","body":{"opaque":true,"type":{"tag":"scalar","name":"int"}}}
+    },
+    {
+      "name": "opaque-flag-is-not-string",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": false,
+      "value": {"kind":"core:type","body":{"opaque":"true","type":{"tag":"record","fields":{}}}}
+    },
+    {
+      "name": "opaque-interface-type-is-not-declaration-modifier",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": false,
+      "value": {"kind":"core:type","body":{"opaque":true,"type":{"tag":"opaque","interfaceRef":"local:Port"}}}
+    },
+    {
+      "name": "opaque-interface-type-retains-existing-shape",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": true,
+      "value": {"kind":"core:type","body":{"type":{"tag":"opaque","interfaceRef":"local:Port"}}}
+    },
+    {
+      "name": "opaque-modifier-cannot-move-into-type",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expected": false,
+      "value": {"kind":"core:type","body":{"type":{"tag":"record","fields":{},"opaque":true}}}
+    },
     {
       "name": "exists-scope",
       "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",

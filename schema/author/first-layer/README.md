@@ -1,6 +1,6 @@
 # 本轮专业结构、语义与供给
 
-[SEMANTICS.md](SEMANTICS.md)拥有本轮完整规则。所有manifest是符合既有author-dialect-supply/1字段的**设计声明**；签名文件明确NOT_IMPLEMENTED。它们不授予安装、网络、模型运行或真实效果权限，也不假装已经存在可执行解释器。
+[SEMANTICS.md](SEMANTICS.md)拥有本目录的专业模型规则与供给分派；开放trait的独立计算语义沿下表链接回到原计算owner，不在此复制。所有manifest是符合既有author-dialect-supply/1字段的**设计声明**；签名文件明确NOT_IMPLEMENTED。它们不授予安装、网络、模型运行或真实效果权限，也不假装已经存在可执行解释器。
 
 | 结构身份 | 本地文件 | 实际范围 |
 |---|---|---|
@@ -8,6 +8,7 @@
 | gift.design-codec-parameters/2 | [codec-parameters.json](codec-parameters.json) | 固定底座、准确节点替换及保留原分支的联合扩展；重建31类完整Definition、递归Type与Requirement/shared闭包，并为ControlFile、Method/Target供给的真实名称选择器生成候选文法。短形按[纯展开规格](../../../tools/documentation/author_codec_spec.py)进入同一完整图，结构通过不签发语义/运行资格。 |
 | Requirement完整声明 | [requirement-declarations.schema.json](../../requirements/requirement-declarations.schema.json) | 四类Body及候选外壳的唯一机器结构；convergence校准也引用该模板，经同一参数图取得候选名称域，不再另留缩水Body。 |
 | exists / rational / wire-variant完整Type | [complete-types.schema.json](complete-types.schema.json) | [既有存在类型](../../../docs/作者/组合/参数包与类型级值.md)和已声明短型的完整终点；Region/Scope见证、精确有理数、原帧含义及真实Target资格分别沿原owner。 |
+| trait body / associated / trait-method | [trait-body.schema.json](trait-body.schema.json) | [开放 trait 语义](../../../docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile)的专业声明/实现 payload，以及进入同一候选 Type/Expr/TypeParam 的投影、方法选择和约束；普通端口和旧 `/2` 解释不变，结构通过不证明 coherence 或生产分派。 |
 | urn:gift:design-schema:semantic-convergence | [semantic-convergence.schema.json](semantic-convergence.schema.json) | 专业模型/显式类型/操作语义样本的结构，不代签模型或类型资格 |
 | urn:gift:design-schema:surface-convergence | [surface-convergence.schema.json](surface-convergence.schema.json) | 四个精确局部短例，输入类型和规则由[surface-inputs.json](surface-inputs.json)与语义正文完整定义 |
 | urn:gift:design-schema:convergence-examples | [convergence-examples.schema.json](convergence-examples.schema.json) | 本次convergence与model-contracts模块的闭合校准外壳；**不是全部作者语言的新Schema**，不覆盖所有旧Body |

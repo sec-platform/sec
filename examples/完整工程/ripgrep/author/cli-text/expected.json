@@ -1,0 +1,1098 @@
+{
+  "schema": "ripgrep-cli-text-expected/1",
+  "sourceRevision": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+  "scope": "Independent finite value expectations; borrowed views, UTF-8/bstr/OS/IO/format calls are explicit test doubles. Reader events are already the byte lines lent by bstr, not a claim to have tested actual buffering or native IO.",
+  "nativeBoundaryExamples": {
+    "bstrByteLines": [
+      {
+        "inputBytes": [
+          97,
+          13,
+          10,
+          10,
+          98,
+          13
+        ],
+        "expectedLines": [
+          [
+            97
+          ],
+          [],
+          [
+            98,
+            13
+          ]
+        ]
+      },
+      {
+        "inputBytes": [
+          97,
+          10
+        ],
+        "expectedLines": [
+          [
+            97
+          ]
+        ]
+      },
+      {
+        "inputBytes": [],
+        "expectedLines": []
+      }
+    ],
+    "source": "bstr 1.13.0 io.rs for_byte_line/trim_line_slice; not executed against the native dependency"
+  },
+  "cases": [
+    {
+      "id": "escape-empty",
+      "module": "escape",
+      "function": "Escape",
+      "arguments": [
+        []
+      ],
+      "expected": ""
+    },
+    {
+      "id": "escape-backslash",
+      "module": "escape",
+      "function": "Escape",
+      "arguments": [
+        [
+          92
+        ]
+      ],
+      "expected": "\\\\"
+    },
+    {
+      "id": "escape-controls",
+      "module": "escape",
+      "function": "Escape",
+      "arguments": [
+        [
+          0,
+          9,
+          10,
+          13,
+          1,
+          31,
+          127
+        ]
+      ],
+      "expected": "\\0\\t\\n\\r\\x01\\x1F\\x7F"
+    },
+    {
+      "id": "escape-invalid",
+      "module": "escape",
+      "function": "Escape",
+      "arguments": [
+        [
+          97,
+          255,
+          98
+        ]
+      ],
+      "expected": "a\\xFFb"
+    },
+    {
+      "id": "escape-unicode",
+      "module": "escape",
+      "function": "Escape",
+      "arguments": [
+        [
+          226,
+          152,
+          131
+        ]
+      ],
+      "expected": "☃"
+    },
+    {
+      "id": "escape-unicode-control-unchanged",
+      "module": "escape",
+      "function": "Escape",
+      "arguments": [
+        [
+          194,
+          133
+        ]
+      ],
+      "expected": ""
+    },
+    {
+      "id": "escape-truncated-utf8",
+      "module": "escape",
+      "function": "Escape",
+      "arguments": [
+        [
+          226,
+          152
+        ]
+      ],
+      "expected": "\\xE2\\x98"
+    },
+    {
+      "id": "unescape-empty",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        ""
+      ],
+      "expected": []
+    },
+    {
+      "id": "unescape-nul",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\0"
+      ],
+      "expected": [
+        0
+      ]
+    },
+    {
+      "id": "unescape-backslash",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\\\"
+      ],
+      "expected": [
+        92
+      ]
+    },
+    {
+      "id": "unescape-controls",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\t\\r\\n"
+      ],
+      "expected": [
+        9,
+        13,
+        10
+      ]
+    },
+    {
+      "id": "unescape-hex-case",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\xAf\\x0a"
+      ],
+      "expected": [
+        175,
+        10
+      ]
+    },
+    {
+      "id": "unescape-unknown",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\a"
+      ],
+      "expected": [
+        92,
+        97
+      ]
+    },
+    {
+      "id": "unescape-truncated-hex",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\xA"
+      ],
+      "expected": [
+        92,
+        120,
+        65
+      ]
+    },
+    {
+      "id": "unescape-invalid-hex",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\xGG"
+      ],
+      "expected": [
+        92,
+        120,
+        71,
+        71
+      ]
+    },
+    {
+      "id": "unescape-trailing-backslash",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\"
+      ],
+      "expected": [
+        92
+      ]
+    },
+    {
+      "id": "unescape-unicode",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "☃"
+      ],
+      "expected": [
+        226,
+        152,
+        131
+      ]
+    },
+    {
+      "id": "unescape-no-unicode-escape",
+      "module": "escape",
+      "function": "Unescape",
+      "arguments": [
+        "\\u{2603}"
+      ],
+      "expected": [
+        92,
+        117,
+        123,
+        50,
+        54,
+        48,
+        51,
+        125
+      ]
+    },
+    {
+      "id": "escape-os-unix-raw-bytes",
+      "module": "escape",
+      "function": "EscapeOs",
+      "arguments": [
+        {
+          "platform": "unix",
+          "units": [
+            97,
+            255
+          ]
+        }
+      ],
+      "expected": "a\\xFF"
+    },
+    {
+      "id": "escape-os-windows-lossy",
+      "module": "escape",
+      "function": "EscapeOs",
+      "arguments": [
+        {
+          "platform": "windows",
+          "units": [
+            97,
+            55296
+          ]
+        }
+      ],
+      "expected": "a�"
+    },
+    {
+      "id": "unescape-os-unix-first-lossy",
+      "module": "escape",
+      "function": "UnescapeOs",
+      "arguments": [
+        {
+          "platform": "unix",
+          "units": [
+            255,
+            92,
+            120,
+            70,
+            70
+          ]
+        }
+      ],
+      "expected": [
+        239,
+        191,
+        189,
+        255
+      ]
+    },
+    {
+      "id": "unescape-os-windows-first-lossy",
+      "module": "escape",
+      "function": "UnescapeOs",
+      "arguments": [
+        {
+          "platform": "windows",
+          "units": [
+            55296,
+            92,
+            110
+          ]
+        }
+      ],
+      "expected": [
+        239,
+        191,
+        189,
+        10
+      ]
+    },
+    {
+      "id": "bytes-empty",
+      "module": "pattern",
+      "function": "PatternFromBytes",
+      "arguments": [
+        []
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": ""
+      }
+    },
+    {
+      "id": "bytes-unicode",
+      "module": "pattern",
+      "function": "PatternFromBytes",
+      "arguments": [
+        [
+          226,
+          152,
+          131
+        ]
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": "☃"
+      }
+    },
+    {
+      "id": "bytes-invalid-offset",
+      "module": "pattern",
+      "function": "PatternFromBytes",
+      "arguments": [
+        [
+          97,
+          98,
+          99,
+          255,
+          120
+        ]
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "abc\\xFFx",
+          "validUpTo": 3
+        }
+      }
+    },
+    {
+      "id": "bytes-replacement-before-invalid",
+      "module": "pattern",
+      "function": "PatternFromBytes",
+      "arguments": [
+        [
+          239,
+          191,
+          189,
+          255
+        ]
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "�\\xFF",
+          "validUpTo": 3
+        }
+      }
+    },
+    {
+      "id": "bytes-overlong",
+      "module": "pattern",
+      "function": "PatternFromBytes",
+      "arguments": [
+        [
+          97,
+          192,
+          128
+        ]
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "a\\xC0\\x80",
+          "validUpTo": 1
+        }
+      }
+    },
+    {
+      "id": "bytes-truncated",
+      "module": "pattern",
+      "function": "PatternFromBytes",
+      "arguments": [
+        [
+          97,
+          226,
+          152
+        ]
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "a\\xE2\\x98",
+          "validUpTo": 1
+        }
+      }
+    },
+    {
+      "id": "os-unix-valid",
+      "module": "pattern",
+      "function": "PatternFromOs",
+      "arguments": [
+        {
+          "platform": "unix",
+          "units": [
+            97,
+            98,
+            99
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": "abc"
+      }
+    },
+    {
+      "id": "os-unix-invalid-offset",
+      "module": "pattern",
+      "function": "PatternFromOs",
+      "arguments": [
+        {
+          "platform": "unix",
+          "units": [
+            97,
+            98,
+            99,
+            255
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "abc\\xFF",
+          "validUpTo": 3
+        }
+      }
+    },
+    {
+      "id": "os-unix-valid-replacement-precedes-invalid",
+      "module": "pattern",
+      "function": "PatternFromOs",
+      "arguments": [
+        {
+          "platform": "unix",
+          "units": [
+            239,
+            191,
+            189,
+            255
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "�\\xFF",
+          "validUpTo": 0
+        }
+      }
+    },
+    {
+      "id": "os-windows-unpaired-surrogate",
+      "module": "pattern",
+      "function": "PatternFromOs",
+      "arguments": [
+        {
+          "platform": "windows",
+          "units": [
+            97,
+            55296,
+            98
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "a�b",
+          "validUpTo": 1
+        }
+      }
+    },
+    {
+      "id": "os-windows-valid-replacement-precedes-surrogate",
+      "module": "pattern",
+      "function": "PatternFromOs",
+      "arguments": [
+        {
+          "platform": "windows",
+          "units": [
+            65533,
+            55296
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "original": "��",
+          "validUpTo": 0
+        }
+      }
+    },
+    {
+      "id": "error-offset",
+      "module": "pattern",
+      "function": "InvalidPatternErrorValidUpTo",
+      "arguments": [
+        {
+          "original": "abc\\xFF",
+          "validUpTo": 3
+        }
+      ],
+      "expected": 3
+    },
+    {
+      "id": "error-clone",
+      "module": "pattern",
+      "function": "InvalidPatternErrorClone",
+      "arguments": [
+        {
+          "original": "abc\\xFF",
+          "validUpTo": 3
+        }
+      ],
+      "expected": {
+        "original": "abc\\xFF",
+        "validUpTo": 3
+      }
+    },
+    {
+      "id": "error-equal",
+      "module": "pattern",
+      "function": "InvalidPatternErrorEqual",
+      "arguments": [
+        {
+          "original": "x",
+          "validUpTo": 2
+        },
+        {
+          "original": "x",
+          "validUpTo": 2
+        }
+      ],
+      "expected": true
+    },
+    {
+      "id": "error-unequal-original",
+      "module": "pattern",
+      "function": "InvalidPatternErrorEqual",
+      "arguments": [
+        {
+          "original": "x",
+          "validUpTo": 2
+        },
+        {
+          "original": "y",
+          "validUpTo": 2
+        }
+      ],
+      "expected": false
+    },
+    {
+      "id": "error-unequal-offset",
+      "module": "pattern",
+      "function": "InvalidPatternErrorEqual",
+      "arguments": [
+        {
+          "original": "x",
+          "validUpTo": 2
+        },
+        {
+          "original": "x",
+          "validUpTo": 3
+        }
+      ],
+      "expected": false
+    },
+    {
+      "id": "error-display",
+      "module": "pattern",
+      "function": "InvalidPatternErrorDisplayText",
+      "arguments": [
+        {
+          "original": "abc\\xFF",
+          "validUpTo": 3
+        }
+      ],
+      "expected": "found invalid UTF-8 in pattern at byte offset 3: abc\\xFF (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')"
+    },
+    {
+      "id": "error-source-default-none",
+      "module": "pattern",
+      "function": "InvalidPatternErrorSource",
+      "arguments": [
+        {
+          "original": "x",
+          "validUpTo": 0
+        }
+      ],
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      }
+    },
+    {
+      "id": "error-into-io-preserves-payload",
+      "module": "pattern",
+      "function": "InvalidPatternErrorIntoIoError",
+      "arguments": [
+        {
+          "original": "abc\\xFF",
+          "validUpTo": 3
+        }
+      ],
+      "expected": {
+        "kind": "Other",
+        "message": "found invalid UTF-8 in pattern at byte offset 3: abc\\xFF (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')",
+        "source": {
+          "type": "InvalidPatternError",
+          "value": {
+            "original": "abc\\xFF",
+            "validUpTo": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "reader-empty",
+      "module": "pattern",
+      "function": "PatternsFromReader",
+      "arguments": [
+        {
+          "events": []
+        }
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": []
+      },
+      "expectedLinesVisited": 0
+    },
+    {
+      "id": "reader-order-empty-lone-cr",
+      "module": "pattern",
+      "function": "PatternsFromReader",
+      "arguments": [
+        {
+          "events": [
+            {
+              "line": [
+                102,
+                111,
+                111
+              ]
+            },
+            {
+              "line": []
+            },
+            {
+              "line": [
+                98,
+                97,
+                114,
+                13
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          "foo",
+          "",
+          "bar\r"
+        ]
+      },
+      "expectedLinesVisited": 3
+    },
+    {
+      "id": "reader-invalid-second-stops",
+      "module": "pattern",
+      "function": "PatternsFromReader",
+      "arguments": [
+        {
+          "events": [
+            {
+              "line": [
+                97
+              ]
+            },
+            {
+              "line": [
+                255
+              ]
+            },
+            {
+              "line": [
+                98
+              ]
+            },
+            {
+              "error": {
+                "kind": "TimedOut",
+                "message": "late",
+                "source": "native"
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "kind": "Other",
+          "message": "2: found invalid UTF-8 in pattern at byte offset 0: \\xFF (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')",
+          "source": "message"
+        }
+      },
+      "expectedLinesVisited": 2
+    },
+    {
+      "id": "reader-io-error-unwrapped",
+      "module": "pattern",
+      "function": "PatternsFromReader",
+      "arguments": [
+        {
+          "events": [
+            {
+              "line": [
+                97
+              ]
+            },
+            {
+              "error": {
+                "kind": "TimedOut",
+                "message": "timeout",
+                "source": "native"
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "kind": "TimedOut",
+          "message": "timeout",
+          "source": "native"
+        }
+      },
+      "expectedLinesVisited": 1
+    },
+    {
+      "id": "path-open-error-space",
+      "module": "pattern",
+      "function": "PatternsFromPath",
+      "arguments": [
+        {
+          "display": "rules.txt",
+          "open": {
+            "constructor": "Err",
+            "payload": {
+              "kind": "PermissionDenied",
+              "message": "denied",
+              "source": "native"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "kind": "Other",
+          "message": "rules.txt: denied",
+          "source": "message"
+        }
+      },
+      "expectedLinesVisited": 0
+    },
+    {
+      "id": "path-pattern-error-no-extra-space",
+      "module": "pattern",
+      "function": "PatternsFromPath",
+      "arguments": [
+        {
+          "display": "rules.txt",
+          "open": {
+            "constructor": "Ok",
+            "payload": {
+              "events": [
+                {
+                  "line": [
+                    255
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "kind": "Other",
+          "message": "rules.txt:1: found invalid UTF-8 in pattern at byte offset 0: \\xFF (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')",
+          "source": "message"
+        }
+      },
+      "expectedLinesVisited": 1
+    },
+    {
+      "id": "path-reader-io-no-space",
+      "module": "pattern",
+      "function": "PatternsFromPath",
+      "arguments": [
+        {
+          "display": "rules.txt",
+          "open": {
+            "constructor": "Ok",
+            "payload": {
+              "events": [
+                {
+                  "error": {
+                    "kind": "TimedOut",
+                    "message": "timeout",
+                    "source": "native"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "kind": "Other",
+          "message": "rules.txt:timeout",
+          "source": "message"
+        }
+      },
+      "expectedLinesVisited": 0
+    },
+    {
+      "id": "path-success",
+      "module": "pattern",
+      "function": "PatternsFromPath",
+      "arguments": [
+        {
+          "display": "rules.txt",
+          "open": {
+            "constructor": "Ok",
+            "payload": {
+              "events": [
+                {
+                  "line": [
+                    97
+                  ]
+                },
+                {
+                  "line": [
+                    98
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          "a",
+          "b"
+        ]
+      },
+      "expectedLinesVisited": 2
+    },
+    {
+      "id": "stdin-error-prefix",
+      "module": "pattern",
+      "function": "PatternsFromStdin",
+      "arguments": [],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "kind": "Other",
+          "message": "<stdin>:1: found invalid UTF-8 in pattern at byte offset 0: \\xFF (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')",
+          "source": "message"
+        }
+      },
+      "stdin": {
+        "events": [
+          {
+            "line": [
+              255
+            ]
+          },
+          {
+            "line": [
+              97
+            ]
+          }
+        ]
+      },
+      "expectedLinesVisited": 1
+    },
+    {
+      "id": "stdin-io-prefix",
+      "module": "pattern",
+      "function": "PatternsFromStdin",
+      "arguments": [],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "kind": "Other",
+          "message": "<stdin>:timeout",
+          "source": "message"
+        }
+      },
+      "stdin": {
+        "events": [
+          {
+            "error": {
+              "kind": "TimedOut",
+              "message": "timeout",
+              "source": "native"
+            }
+          }
+        ]
+      },
+      "expectedLinesVisited": 0
+    },
+    {
+      "id": "stdin-success",
+      "module": "pattern",
+      "function": "PatternsFromStdin",
+      "arguments": [],
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          "a"
+        ]
+      },
+      "stdin": {
+        "events": [
+          {
+            "line": [
+              97
+            ]
+          }
+        ]
+      },
+      "expectedLinesVisited": 1
+    },
+    {
+      "id": "formatter-success",
+      "module": "pattern",
+      "function": "InvalidPatternErrorDisplay",
+      "arguments": [
+        {
+          "original": "x",
+          "validUpTo": 2
+        },
+        {
+          "writes": [],
+          "failAt": null
+        }
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": null
+      },
+      "expectedWrites": [
+        "found invalid UTF-8 in pattern at byte offset ",
+        "2",
+        ": ",
+        "x",
+        " (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')"
+      ]
+    },
+    {
+      "id": "formatter-third-write-fails",
+      "module": "pattern",
+      "function": "InvalidPatternErrorDisplay",
+      "arguments": [
+        {
+          "original": "x",
+          "validUpTo": 2
+        },
+        {
+          "writes": [],
+          "failAt": 3
+        }
+      ],
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "formatError": true
+        }
+      },
+      "expectedWrites": [
+        "found invalid UTF-8 in pattern at byte offset ",
+        "2",
+        ": "
+      ]
+    },
+    {
+      "id": "debug-field-order",
+      "module": "pattern",
+      "function": "InvalidPatternErrorDebug",
+      "arguments": [
+        {
+          "original": "x",
+          "validUpTo": 2
+        },
+        {
+          "writes": [],
+          "failAt": null
+        }
+      ],
+      "expected": {
+        "constructor": "Ok",
+        "payload": null
+      },
+      "expectedDebug": {
+        "name": "InvalidPatternError",
+        "fields": [
+          [
+            "original",
+            "x"
+          ],
+          [
+            "valid_up_to",
+            2
+          ]
+        ]
+      }
+    }
+  ]
+}

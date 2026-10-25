@@ -1,0 +1,4464 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "ripgrep:core:flags:lowargs",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:path"
+    },
+    "color": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:color"
+    },
+    "hyperlink": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:hyperlink"
+    },
+    "encoding": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:searcher:encoding"
+    },
+    "termcolor": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:termcolor"
+    },
+    "bstr": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:bstr"
+    },
+    "tuple": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:tuple"
+    },
+    "os": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:os"
+    },
+    "runtime": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:runtime"
+    }
+  },
+  "definitions": {
+    "SpecialMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "HelpShort": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "HelpLong": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "VersionShort": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "VersionLong": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "VersionPCRE2": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "SearchMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Standard": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "FilesWithMatches": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "FilesWithoutMatch": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Count": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "CountMatches": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "JSON": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "GenerateMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Man": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "CompleteBash": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "CompleteZsh": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "CompleteFish": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "CompletePowerShell": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "Mode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Search": {
+              "tag": "nominal",
+              "ref": "local:SearchMode"
+            },
+            "Files": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Types": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Generate": {
+              "tag": "nominal",
+              "ref": "local:GenerateMode"
+            }
+          }
+        }
+      }
+    },
+    "BinaryMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Auto": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "SearchAndSuppress": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "AsText": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "BoundaryMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Line": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Word": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "BufferMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Auto": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Line": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Block": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "CaseMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Sensitive": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Insensitive": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Smart": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "ColorChoice": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Never": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Auto": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Always": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Ansi": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "ContextModeLimited": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "before": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                }
+              }
+            },
+            "after": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                }
+              }
+            },
+            "both": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                }
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "ContextMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Passthru": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Limited": {
+              "tag": "nominal",
+              "ref": "local:ContextModeLimited"
+            }
+          }
+        }
+      }
+    },
+    "ContextSeparator": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "bytes": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "scalar",
+                  "name": "bytes"
+                }
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "EncodingMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Auto": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Some": {
+              "tag": "nominal",
+              "ref": "encoding:Encoding"
+            },
+            "Disabled": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "EngineChoice": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Default": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Auto": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "PCRE2": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "FieldContextSeparator": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "bytes": {
+              "type": {
+                "tag": "scalar",
+                "name": "bytes"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "FieldMatchSeparator": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "bytes": {
+              "type": {
+                "tag": "scalar",
+                "name": "bytes"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "LoggingMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Debug": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Trace": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "MmapMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Auto": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "AlwaysTryMmap": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Never": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "PatternSource": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Regexp": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "File": {
+              "tag": "nominal",
+              "ref": "path:PathBuf"
+            }
+          }
+        }
+      }
+    },
+    "SortModeKind": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Path": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "LastModified": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "LastAccessed": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Created": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        }
+      }
+    },
+    "SortMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "reverse": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "kind": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:SortModeKind"
+              }
+            }
+          },
+          "open": false
+        }
+      }
+    },
+    "TypeChange": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Clear": {
+              "tag": "record",
+              "fields": {
+                "name": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                }
+              },
+              "open": false
+            },
+            "Add": {
+              "tag": "record",
+              "fields": {
+                "def": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                }
+              },
+              "open": false
+            },
+            "Select": {
+              "tag": "record",
+              "fields": {
+                "name": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                }
+              },
+              "open": false
+            },
+            "Negate": {
+              "tag": "record",
+              "fields": {
+                "name": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                }
+              },
+              "open": false
+            }
+          }
+        }
+      }
+    },
+    "LowArgsError": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "message": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "LowArgs": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "special": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "local:SpecialMode"
+                }
+              }
+            },
+            "mode": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:Mode"
+              }
+            },
+            "positional": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "nominal",
+                  "ref": "path:OsString"
+                },
+                "ordered": true
+              }
+            },
+            "patterns": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "nominal",
+                  "ref": "local:PatternSource"
+                },
+                "ordered": true
+              }
+            },
+            "binary": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:BinaryMode"
+              }
+            },
+            "boundary": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "local:BoundaryMode"
+                }
+              }
+            },
+            "buffer": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:BufferMode"
+              }
+            },
+            "byte_offset": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "case": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:CaseMode"
+              }
+            },
+            "color": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:ColorChoice"
+              }
+            },
+            "colors": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "nominal",
+                  "ref": "color:UserColorSpec"
+                },
+                "ordered": true
+              }
+            },
+            "column": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "scalar",
+                  "name": "bool"
+                }
+              }
+            },
+            "context": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:ContextMode"
+              }
+            },
+            "context_separator": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:ContextSeparator"
+              }
+            },
+            "crlf": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "dfa_size_limit": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                }
+              }
+            },
+            "encoding": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:EncodingMode"
+              }
+            },
+            "engine": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:EngineChoice"
+              }
+            },
+            "field_context_separator": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:FieldContextSeparator"
+              }
+            },
+            "field_match_separator": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:FieldMatchSeparator"
+              }
+            },
+            "fixed_strings": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "follow": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "glob_case_insensitive": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "globs": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "ordered": true
+              }
+            },
+            "heading": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "scalar",
+                  "name": "bool"
+                }
+              }
+            },
+            "hidden": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "hostname_bin": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "path:PathBuf"
+                }
+              }
+            },
+            "hyperlink_format": {
+              "type": {
+                "tag": "nominal",
+                "ref": "hyperlink:HyperlinkFormat"
+              }
+            },
+            "iglobs": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "ordered": true
+              }
+            },
+            "ignore_file": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "nominal",
+                  "ref": "path:PathBuf"
+                },
+                "ordered": true
+              }
+            },
+            "ignore_file_case_insensitive": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "include_zero": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "invert_match": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "line_number": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "scalar",
+                  "name": "bool"
+                }
+              }
+            },
+            "logging": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "local:LoggingMode"
+                }
+              }
+            },
+            "max_columns": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:U64"
+                }
+              }
+            },
+            "max_columns_preview": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "max_count": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:U64"
+                }
+              }
+            },
+            "max_depth": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                }
+              }
+            },
+            "max_filesize": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:U64"
+                }
+              }
+            },
+            "mmap": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:MmapMode"
+              }
+            },
+            "multiline": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "multiline_dotall": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_config": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_ignore_dot": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_ignore_exclude": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_ignore_files": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_ignore_global": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_ignore_messages": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_ignore_parent": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_ignore_vcs": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_messages": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_require_git": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "no_unicode": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "null": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "null_data": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "one_file_system": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "only_matching": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "path_separator": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              }
+            },
+            "pre": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "path:PathBuf"
+                }
+              }
+            },
+            "pre_glob": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "ordered": true
+              }
+            },
+            "quiet": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "regex_size_limit": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                }
+              }
+            },
+            "replace": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "scalar",
+                  "name": "bytes"
+                }
+              }
+            },
+            "search_zip": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "sort": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "local:SortMode"
+                }
+              }
+            },
+            "stats": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "stop_on_nonmatch": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "threads": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                }
+              }
+            },
+            "trim": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "type_changes": {
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "nominal",
+                  "ref": "local:TypeChange"
+                },
+                "ordered": true
+              }
+            },
+            "unrestricted": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              }
+            },
+            "vimgrep": {
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              }
+            },
+            "with_filename": {
+              "type": {
+                "tag": "option",
+                "inner": {
+                  "tag": "scalar",
+                  "name": "bool"
+                }
+              }
+            }
+          },
+          "open": false
+        }
+      }
+    },
+    "LowArgsDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:LowArgs"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "special",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "mode",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ModeDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "positional",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "patterns",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "binary",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:BinaryModeDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "boundary",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "buffer",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:BufferModeDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "byte_offset",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "case",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:CaseModeDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "color",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ColorChoiceDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "colors",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "column",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "context",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ContextModeDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "context_separator",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ContextSeparatorDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "crlf",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "dfa_size_limit",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "encoding",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:EncodingModeDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "engine",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:EngineChoiceDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "field_context_separator",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:FieldContextSeparatorDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "field_match_separator",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:FieldMatchSeparatorDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "fixed_strings",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "follow",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "glob_case_insensitive",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "globs",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "heading",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "hidden",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "hostname_bin",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "hyperlink_format",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "hyperlink:HyperlinkFormatDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "iglobs",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "ignore_file",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "ignore_file_case_insensitive",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "include_zero",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "invert_match",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "line_number",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "logging",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "max_columns",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "max_columns_preview",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "max_count",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "max_depth",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "max_filesize",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "mmap",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:MmapModeDefault"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "multiline",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "multiline_dotall",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_config",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_ignore_dot",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_ignore_exclude",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_ignore_files",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_ignore_global",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_ignore_messages",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_ignore_parent",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_ignore_vcs",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_messages",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_require_git",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "no_unicode",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "null",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "null_data",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "one_file_system",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "only_matching",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "path_separator",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "pre",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "pre_glob",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "quiet",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "regex_size_limit",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "replace",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "search_zip",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "sort",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "stats",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "stop_on_nonmatch",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "threads",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "trim",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "type_changes",
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "name": "unrestricted",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:UsizeZero"
+              }
+            },
+            {
+              "name": "vimgrep",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "name": "with_filename",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ModeDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Mode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Search",
+          "payload": {
+            "op": "variant",
+            "constructor": "Standard",
+            "payload": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "value": null
+            }
+          }
+        }
+      }
+    },
+    "ModeUpdate": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "current",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Mode"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "next",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Mode"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Mode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "var",
+          "name": "next"
+        }
+      }
+    },
+    "BinaryModeDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:BinaryMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Auto",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        }
+      }
+    },
+    "BufferModeDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:BufferMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Auto",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        }
+      }
+    },
+    "CaseModeDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:CaseMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Sensitive",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        }
+      }
+    },
+    "ColorChoiceDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ColorChoice"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Auto",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        }
+      }
+    },
+    "EncodingModeDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:EncodingMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Auto",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        }
+      }
+    },
+    "EngineChoiceDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:EngineChoice"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Default",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        }
+      }
+    },
+    "MmapModeDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:MmapMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Auto",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        }
+      }
+    },
+    "ColorChoiceToTermcolor": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "choice",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:ColorChoice"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "termcolor:ColorChoice"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "choice"
+          },
+          "cases": [
+            {
+              "constructor": "Never",
+              "binding": "unit",
+              "body": {
+                "op": "symbol",
+                "ref": "termcolor:Never"
+              }
+            },
+            {
+              "constructor": "Auto",
+              "binding": "unit",
+              "body": {
+                "op": "symbol",
+                "ref": "termcolor:Auto"
+              }
+            },
+            {
+              "constructor": "Always",
+              "binding": "unit",
+              "body": {
+                "op": "symbol",
+                "ref": "termcolor:Always"
+              }
+            },
+            {
+              "constructor": "Ansi",
+              "binding": "unit",
+              "body": {
+                "op": "symbol",
+                "ref": "termcolor:AlwaysAnsi"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextModeLimitedDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ContextModeLimited"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "before",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "after",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "name": "both",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextModeDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ContextMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Limited",
+          "payload": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:ContextModeLimitedDefault"
+            },
+            "arguments": []
+          }
+        }
+      }
+    },
+    "ContextModeSetBefore": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "context",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:ContextMode"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "lines",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ContextMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "context"
+          },
+          "cases": [
+            {
+              "constructor": "Passthru",
+              "binding": "unit",
+              "body": {
+                "op": "variant",
+                "constructor": "Limited",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "before",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Some",
+                        "payload": {
+                          "op": "var",
+                          "name": "lines"
+                        }
+                      }
+                    },
+                    {
+                      "name": "after",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    },
+                    {
+                      "name": "both",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Limited",
+              "binding": "limited",
+              "body": {
+                "op": "variant",
+                "constructor": "Limited",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "before",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Some",
+                        "payload": {
+                          "op": "var",
+                          "name": "lines"
+                        }
+                      }
+                    },
+                    {
+                      "name": "after",
+                      "value": {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "limited"
+                        },
+                        "name": "after"
+                      }
+                    },
+                    {
+                      "name": "both",
+                      "value": {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "limited"
+                        },
+                        "name": "both"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextModeSetAfter": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "context",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:ContextMode"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "lines",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ContextMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "context"
+          },
+          "cases": [
+            {
+              "constructor": "Passthru",
+              "binding": "unit",
+              "body": {
+                "op": "variant",
+                "constructor": "Limited",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "before",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    },
+                    {
+                      "name": "after",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Some",
+                        "payload": {
+                          "op": "var",
+                          "name": "lines"
+                        }
+                      }
+                    },
+                    {
+                      "name": "both",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Limited",
+              "binding": "limited",
+              "body": {
+                "op": "variant",
+                "constructor": "Limited",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "before",
+                      "value": {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "limited"
+                        },
+                        "name": "before"
+                      }
+                    },
+                    {
+                      "name": "after",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Some",
+                        "payload": {
+                          "op": "var",
+                          "name": "lines"
+                        }
+                      }
+                    },
+                    {
+                      "name": "both",
+                      "value": {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "limited"
+                        },
+                        "name": "both"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextModeSetBoth": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "context",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:ContextMode"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "lines",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ContextMode"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "context"
+          },
+          "cases": [
+            {
+              "constructor": "Passthru",
+              "binding": "unit",
+              "body": {
+                "op": "variant",
+                "constructor": "Limited",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "before",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    },
+                    {
+                      "name": "after",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    },
+                    {
+                      "name": "both",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Some",
+                        "payload": {
+                          "op": "var",
+                          "name": "lines"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Limited",
+              "binding": "limited",
+              "body": {
+                "op": "variant",
+                "constructor": "Limited",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "before",
+                      "value": {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "limited"
+                        },
+                        "name": "before"
+                      }
+                    },
+                    {
+                      "name": "after",
+                      "value": {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "limited"
+                        },
+                        "name": "after"
+                      }
+                    },
+                    {
+                      "name": "both",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Some",
+                        "payload": {
+                          "op": "var",
+                          "name": "lines"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextModeLimitedGet": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "limited",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:ContextModeLimited"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "tuple",
+          "items": [
+            {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            }
+          ]
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "let",
+          "name": "fallback",
+          "value": {
+            "op": "match",
+            "value": {
+              "op": "field",
+              "record": {
+                "op": "var",
+                "name": "limited"
+              },
+              "name": "both"
+            },
+            "cases": [
+              {
+                "constructor": "None",
+                "binding": "unit",
+                "body": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeZero"
+                }
+              },
+              {
+                "constructor": "Some",
+                "binding": "lines",
+                "body": {
+                  "op": "var",
+                  "name": "lines"
+                }
+              }
+            ]
+          },
+          "body": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "tuple:Pair"
+            },
+            "arguments": [
+              {
+                "op": "match",
+                "value": {
+                  "op": "field",
+                  "record": {
+                    "op": "var",
+                    "name": "limited"
+                  },
+                  "name": "before"
+                },
+                "cases": [
+                  {
+                    "constructor": "Some",
+                    "binding": "lines",
+                    "body": {
+                      "op": "var",
+                      "name": "lines"
+                    }
+                  },
+                  {
+                    "constructor": "None",
+                    "binding": "unit",
+                    "body": {
+                      "op": "var",
+                      "name": "fallback"
+                    }
+                  }
+                ]
+              },
+              {
+                "op": "match",
+                "value": {
+                  "op": "field",
+                  "record": {
+                    "op": "var",
+                    "name": "limited"
+                  },
+                  "name": "after"
+                },
+                "cases": [
+                  {
+                    "constructor": "Some",
+                    "binding": "lines",
+                    "body": {
+                      "op": "var",
+                      "name": "lines"
+                    }
+                  },
+                  {
+                    "constructor": "None",
+                    "binding": "unit",
+                    "body": {
+                      "op": "var",
+                      "name": "fallback"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "ContextModeGetLimitedForTest": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "context",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:ContextMode"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "tuple",
+          "items": [
+            {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            }
+          ]
+        },
+        "effects": [
+          {
+            "class": "external",
+            "portRef": "runtime:Panic"
+          }
+        ],
+        "termination": "partial",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "context"
+          },
+          "cases": [
+            {
+              "constructor": "Limited",
+              "binding": "limited",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ContextModeLimitedGet"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "limited"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Passthru",
+              "binding": "unit",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "runtime:Panic"
+                },
+                "arguments": [
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "internal error: entered unreachable code: context mode is passthru"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextSeparatorDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ContextSeparator"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "bytes",
+              "value": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bytes",
+                    "encoding": "hex"
+                  },
+                  "value": "2d2d"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextSeparatorNew": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "path:OsString"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "local:ContextSeparator"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "local:LowArgsError"
+          }
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:ToUtf8"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "unit",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "message",
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "separator must be valid UTF-8 (use escape sequences to provide a separator that is not valid UTF-8)"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "text",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "bytes",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Some",
+                        "payload": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "bstr:UnescapeBytes"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "text"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContextSeparatorIntoBytes": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "separator",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:ContextSeparator"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "scalar",
+            "name": "bytes"
+          }
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "field",
+          "record": {
+            "op": "var",
+            "name": "separator"
+          },
+          "name": "bytes"
+        }
+      }
+    },
+    "FieldContextSeparatorDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:FieldContextSeparator"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "bytes",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bytes",
+                  "encoding": "hex"
+                },
+                "value": "2d"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FieldContextSeparatorNew": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "path:OsString"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "local:FieldContextSeparator"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "local:LowArgsError"
+          }
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:ToUtf8"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "unit",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "message",
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "separator must be valid UTF-8 (use escape sequences to provide a separator that is not valid UTF-8)"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "text",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "bytes",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "bstr:UnescapeBytes"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "text"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FieldContextSeparatorIntoBytes": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "separator",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:FieldContextSeparator"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bytes"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "field",
+          "record": {
+            "op": "var",
+            "name": "separator"
+          },
+          "name": "bytes"
+        }
+      }
+    },
+    "FieldMatchSeparatorDefault": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:FieldMatchSeparator"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "bytes",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bytes",
+                  "encoding": "hex"
+                },
+                "value": "3a"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FieldMatchSeparatorNew": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "path:OsString"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "local:FieldMatchSeparator"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "local:LowArgsError"
+          }
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:ToUtf8"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "unit",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "message",
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "separator must be valid UTF-8 (use escape sequences to provide a separator that is not valid UTF-8)"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "text",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "bytes",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "bstr:UnescapeBytes"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "text"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FieldMatchSeparatorIntoBytes": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "separator",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:FieldMatchSeparator"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bytes"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "field",
+          "record": {
+            "op": "var",
+            "name": "separator"
+          },
+          "name": "bytes"
+        }
+      }
+    },
+    "ContextSeparatorDisabled": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ContextSeparator"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "bytes",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "LowArgsErrorMessage": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:LowArgsError"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "field",
+          "record": {
+            "op": "var",
+            "name": "error"
+          },
+          "name": "message"
+        }
+      }
+    },
+    "SortModeSupported": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "sort",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:SortMode"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "local:LowArgsError"
+          }
+        },
+        "effects": [
+          {
+            "class": "io",
+            "portRef": "os:CurrentExe"
+          },
+          {
+            "class": "io",
+            "portRef": "os:Metadata"
+          },
+          {
+            "class": "io",
+            "portRef": "os:Modified"
+          },
+          {
+            "class": "io",
+            "portRef": "os:Accessed"
+          },
+          {
+            "class": "io",
+            "portRef": "os:Created"
+          }
+        ],
+        "termination": "partial",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "field",
+            "record": {
+              "op": "var",
+              "name": "sort"
+            },
+            "name": "kind"
+          },
+          "cases": [
+            {
+              "constructor": "Path",
+              "binding": "unit",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "constructor": "LastModified",
+              "binding": "unit",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "os:CurrentExe"
+                  },
+                  "arguments": []
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "record",
+                        "fields": [
+                          {
+                            "name": "message",
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "std:TextConcat"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "text"
+                                  },
+                                  "value": "sorting by last modified isn't supported: "
+                                },
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "os:ErrorDisplay"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "error"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "path",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "os:Metadata"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "path"
+                          }
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "error",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Err",
+                            "payload": {
+                              "op": "record",
+                              "fields": [
+                                {
+                                  "name": "message",
+                                  "value": {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "std:TextConcat"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "literal",
+                                        "type": {
+                                          "tag": "scalar",
+                                          "name": "text"
+                                        },
+                                        "value": "sorting by last modified isn't supported: "
+                                      },
+                                      {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "os:ErrorDisplay"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "error"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "metadata",
+                          "body": {
+                            "op": "match",
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "os:Modified"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "metadata"
+                                }
+                              ]
+                            },
+                            "cases": [
+                              {
+                                "constructor": "Err",
+                                "binding": "error",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Err",
+                                  "payload": {
+                                    "op": "record",
+                                    "fields": [
+                                      {
+                                        "name": "message",
+                                        "value": {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "std:TextConcat"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "literal",
+                                              "type": {
+                                                "tag": "scalar",
+                                                "name": "text"
+                                              },
+                                              "value": "sorting by last modified isn't supported: "
+                                            },
+                                            {
+                                              "op": "call",
+                                              "callee": {
+                                                "op": "symbol",
+                                                "ref": "os:ErrorDisplay"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "op": "var",
+                                                  "name": "error"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "constructor": "Ok",
+                                "binding": "timestamp",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Ok",
+                                  "payload": {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "unit"
+                                    },
+                                    "value": null
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "LastAccessed",
+              "binding": "unit",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "os:CurrentExe"
+                  },
+                  "arguments": []
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "record",
+                        "fields": [
+                          {
+                            "name": "message",
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "std:TextConcat"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "text"
+                                  },
+                                  "value": "sorting by last accessed isn't supported: "
+                                },
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "os:ErrorDisplay"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "error"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "path",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "os:Metadata"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "path"
+                          }
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "error",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Err",
+                            "payload": {
+                              "op": "record",
+                              "fields": [
+                                {
+                                  "name": "message",
+                                  "value": {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "std:TextConcat"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "literal",
+                                        "type": {
+                                          "tag": "scalar",
+                                          "name": "text"
+                                        },
+                                        "value": "sorting by last accessed isn't supported: "
+                                      },
+                                      {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "os:ErrorDisplay"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "error"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "metadata",
+                          "body": {
+                            "op": "match",
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "os:Accessed"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "metadata"
+                                }
+                              ]
+                            },
+                            "cases": [
+                              {
+                                "constructor": "Err",
+                                "binding": "error",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Err",
+                                  "payload": {
+                                    "op": "record",
+                                    "fields": [
+                                      {
+                                        "name": "message",
+                                        "value": {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "std:TextConcat"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "literal",
+                                              "type": {
+                                                "tag": "scalar",
+                                                "name": "text"
+                                              },
+                                              "value": "sorting by last accessed isn't supported: "
+                                            },
+                                            {
+                                              "op": "call",
+                                              "callee": {
+                                                "op": "symbol",
+                                                "ref": "os:ErrorDisplay"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "op": "var",
+                                                  "name": "error"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "constructor": "Ok",
+                                "binding": "timestamp",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Ok",
+                                  "payload": {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "unit"
+                                    },
+                                    "value": null
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Created",
+              "binding": "unit",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "os:CurrentExe"
+                  },
+                  "arguments": []
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "record",
+                        "fields": [
+                          {
+                            "name": "message",
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "std:TextConcat"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "text"
+                                  },
+                                  "value": "sorting by creation time isn't supported: "
+                                },
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "os:ErrorDisplay"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "error"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "path",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "os:Metadata"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "path"
+                          }
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "error",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Err",
+                            "payload": {
+                              "op": "record",
+                              "fields": [
+                                {
+                                  "name": "message",
+                                  "value": {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "std:TextConcat"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "literal",
+                                        "type": {
+                                          "tag": "scalar",
+                                          "name": "text"
+                                        },
+                                        "value": "sorting by creation time isn't supported: "
+                                      },
+                                      {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "os:ErrorDisplay"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "error"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "metadata",
+                          "body": {
+                            "op": "match",
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "os:Created"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "metadata"
+                                }
+                              ]
+                            },
+                            "cases": [
+                              {
+                                "constructor": "Err",
+                                "binding": "error",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Err",
+                                  "payload": {
+                                    "op": "record",
+                                    "fields": [
+                                      {
+                                        "name": "message",
+                                        "value": {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "std:TextConcat"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "literal",
+                                              "type": {
+                                                "tag": "scalar",
+                                                "name": "text"
+                                              },
+                                              "value": "sorting by creation time isn't supported: "
+                                            },
+                                            {
+                                              "op": "call",
+                                              "callee": {
+                                                "op": "symbol",
+                                                "ref": "os:ErrorDisplay"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "op": "var",
+                                                  "name": "error"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "constructor": "Ok",
+                                "binding": "timestamp",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Ok",
+                                  "payload": {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "unit"
+                                    },
+                                    "value": null
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": {
+    "SpecialMode": {
+      "definitionId": "SpecialMode"
+    },
+    "SearchMode": {
+      "definitionId": "SearchMode"
+    },
+    "GenerateMode": {
+      "definitionId": "GenerateMode"
+    },
+    "Mode": {
+      "definitionId": "Mode"
+    },
+    "BinaryMode": {
+      "definitionId": "BinaryMode"
+    },
+    "BoundaryMode": {
+      "definitionId": "BoundaryMode"
+    },
+    "BufferMode": {
+      "definitionId": "BufferMode"
+    },
+    "CaseMode": {
+      "definitionId": "CaseMode"
+    },
+    "ColorChoice": {
+      "definitionId": "ColorChoice"
+    },
+    "ContextModeLimited": {
+      "definitionId": "ContextModeLimited"
+    },
+    "ContextMode": {
+      "definitionId": "ContextMode"
+    },
+    "ContextSeparator": {
+      "definitionId": "ContextSeparator"
+    },
+    "EncodingMode": {
+      "definitionId": "EncodingMode"
+    },
+    "EngineChoice": {
+      "definitionId": "EngineChoice"
+    },
+    "FieldContextSeparator": {
+      "definitionId": "FieldContextSeparator"
+    },
+    "FieldMatchSeparator": {
+      "definitionId": "FieldMatchSeparator"
+    },
+    "LoggingMode": {
+      "definitionId": "LoggingMode"
+    },
+    "MmapMode": {
+      "definitionId": "MmapMode"
+    },
+    "PatternSource": {
+      "definitionId": "PatternSource"
+    },
+    "SortModeKind": {
+      "definitionId": "SortModeKind"
+    },
+    "SortMode": {
+      "definitionId": "SortMode"
+    },
+    "TypeChange": {
+      "definitionId": "TypeChange"
+    },
+    "LowArgsError": {
+      "definitionId": "LowArgsError"
+    },
+    "LowArgs": {
+      "definitionId": "LowArgs"
+    },
+    "LowArgsDefault": {
+      "definitionId": "LowArgsDefault"
+    },
+    "ModeDefault": {
+      "definitionId": "ModeDefault"
+    },
+    "ModeUpdate": {
+      "definitionId": "ModeUpdate"
+    },
+    "BinaryModeDefault": {
+      "definitionId": "BinaryModeDefault"
+    },
+    "BufferModeDefault": {
+      "definitionId": "BufferModeDefault"
+    },
+    "CaseModeDefault": {
+      "definitionId": "CaseModeDefault"
+    },
+    "ColorChoiceDefault": {
+      "definitionId": "ColorChoiceDefault"
+    },
+    "EncodingModeDefault": {
+      "definitionId": "EncodingModeDefault"
+    },
+    "EngineChoiceDefault": {
+      "definitionId": "EngineChoiceDefault"
+    },
+    "MmapModeDefault": {
+      "definitionId": "MmapModeDefault"
+    },
+    "ColorChoiceToTermcolor": {
+      "definitionId": "ColorChoiceToTermcolor"
+    },
+    "ContextModeDefault": {
+      "definitionId": "ContextModeDefault"
+    },
+    "ContextModeSetBefore": {
+      "definitionId": "ContextModeSetBefore"
+    },
+    "ContextModeSetAfter": {
+      "definitionId": "ContextModeSetAfter"
+    },
+    "ContextModeSetBoth": {
+      "definitionId": "ContextModeSetBoth"
+    },
+    "ContextModeLimitedGet": {
+      "definitionId": "ContextModeLimitedGet"
+    },
+    "ContextModeGetLimitedForTest": {
+      "definitionId": "ContextModeGetLimitedForTest"
+    },
+    "ContextSeparatorDefault": {
+      "definitionId": "ContextSeparatorDefault"
+    },
+    "ContextSeparatorNew": {
+      "definitionId": "ContextSeparatorNew"
+    },
+    "ContextSeparatorIntoBytes": {
+      "definitionId": "ContextSeparatorIntoBytes"
+    },
+    "FieldContextSeparatorDefault": {
+      "definitionId": "FieldContextSeparatorDefault"
+    },
+    "FieldContextSeparatorNew": {
+      "definitionId": "FieldContextSeparatorNew"
+    },
+    "FieldContextSeparatorIntoBytes": {
+      "definitionId": "FieldContextSeparatorIntoBytes"
+    },
+    "FieldMatchSeparatorDefault": {
+      "definitionId": "FieldMatchSeparatorDefault"
+    },
+    "FieldMatchSeparatorNew": {
+      "definitionId": "FieldMatchSeparatorNew"
+    },
+    "FieldMatchSeparatorIntoBytes": {
+      "definitionId": "FieldMatchSeparatorIntoBytes"
+    },
+    "ContextSeparatorDisabled": {
+      "definitionId": "ContextSeparatorDisabled"
+    },
+    "LowArgsErrorMessage": {
+      "definitionId": "LowArgsErrorMessage"
+    },
+    "SortModeSupported": {
+      "definitionId": "SortModeSupported"
+    }
+  }
+}

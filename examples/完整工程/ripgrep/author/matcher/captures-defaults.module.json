@@ -1,0 +1,255 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:matcher:captures_defaults",
+  "imports": {
+    "machine": {"workspace":"ripgrep:foundation:machine"},
+    "values": {"workspace":"ripgrep:matcher:values"},
+    "interpolate": {"workspace":"ripgrep:matcher:interpolate"}
+  },
+  "definitions": {
+    "CapturesAsMatchDefault": {
+      "core:function": {
+        "typeParams": [{"name":"C"},{"name":"captureRegion","kind":"Region"},{"name":"Fx","kind":"EffectRow"}],
+        "parameters": [
+          {
+            "name": "captures",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"param","name":"C"},{"region":{"parameter":"captureRegion"}}]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "get",
+            "type": {
+              "tag": "function",
+              "params": [
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:Borrow"},
+                  "arguments": [{"tag":"param","name":"C"},{"region":{"parameter":"captureRegion"}}]
+                },
+                {"tag":"nominal","ref":"machine:Usize"}
+              ],
+              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"values:Match"}},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "shared",
+              "parameterContracts": [{"position":0,"retention":"noescape"}]
+            }
+          }
+        ],
+        "returns": {"tag":"nominal","ref":"values:Match"},
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op":"var","name":"get"},
+            "arguments": [
+              {"op":"var","name":"captures"},
+              {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"0"}]
+              }
+            ]
+          },
+          "cases": [
+            {"constructor":"Some","binding":"range","body":{"op":"var","name":"range"}},
+            {
+              "constructor": "None",
+              "binding": "none",
+              "body": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:Panic"},
+                "arguments": [{"op":"literal","type":{"tag":"scalar","name":"text"},"value":"called `Option::unwrap()` on a `None` value"}]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "CapturesIsEmptyDefault": {
+      "core:function": {
+        "typeParams": [{"name":"C"},{"name":"captureRegion","kind":"Region"},{"name":"Fx","kind":"EffectRow"}],
+        "parameters": [
+          {
+            "name": "captures",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"param","name":"C"},{"region":{"parameter":"captureRegion"}}]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "len",
+            "type": {
+              "tag": "function",
+              "params": [
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:Borrow"},
+                  "arguments": [{"tag":"param","name":"C"},{"region":{"parameter":"captureRegion"}}]
+                }
+              ],
+              "returns": {"tag":"nominal","ref":"machine:Usize"},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "shared",
+              "parameterContracts": [{"position":0,"retention":"noescape"}]
+            }
+          }
+        ],
+        "returns": {"tag":"scalar","name":"bool"},
+        "body": {
+          "op": "call",
+          "callee": {"op":"symbol","ref":"machine:UsizeEqual"},
+          "arguments": [
+            {"op":"call","callee":{"op":"var","name":"len"},"arguments":[{"op":"var","name":"captures"}]},
+            {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+              "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"0"}]
+            }
+          ]
+        }
+      }
+    },
+    "CapturesInterpolateDefault": {
+      "core:function": {
+        "typeParams": [
+          {"name":"C"},
+          {"name":"captureRegion","kind":"Region"},
+          {"name":"Fx","kind":"EffectRow"},
+          {"name":"haystackRegion","kind":"Region"},
+          {"name":"replacementRegion","kind":"Region"},
+          {"name":"destinationRegion","kind":"Region"},
+          {"name":"nameEnvironment","kind":"Region"}
+        ],
+        "parameters": [
+          {
+            "name": "captures",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"param","name":"C"},{"region":{"parameter":"captureRegion"}}]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "get",
+            "type": {
+              "tag": "function",
+              "params": [
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:Borrow"},
+                  "arguments": [{"tag":"param","name":"C"},{"region":{"parameter":"captureRegion"}}]
+                },
+                {"tag":"nominal","ref":"machine:Usize"}
+              ],
+              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"values:Match"}},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "shared",
+              "parameterContracts": [{"position":0,"retention":"noescape"}]
+            }
+          },
+          {
+            "name": "nameToIndex",
+            "type": {
+              "tag": "function",
+              "typeParams": [{"name":"nameRegion","kind":"Region"}],
+              "params": [
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:Borrow"},
+                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
+                }
+              ],
+              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "exclusive",
+              "captures": [{"region":{"parameter":"nameEnvironment"}}],
+              "parameterContracts": [{"position":0,"retention":"noescape"}]
+            },
+            "mode": "move"
+          },
+          {
+            "name": "haystack",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"haystackRegion"}}]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "replacement",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"replacementRegion"}}]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "destination",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:BorrowMut"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"destinationRegion"}}]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {"tag":"scalar","name":"unit"},
+        "body": {
+          "op": "call",
+          "callee": {"op":"symbol","ref":"interpolate:Interpolate"},
+          "arguments": [
+            {"op":"var","name":"replacement"},
+            {
+              "op": "lambda",
+              "params": [{"name":"index"},{"name":"destination"}],
+              "callMode": "shared",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op":"var","name":"get"},
+                  "arguments": [{"op":"var","name":"captures"},{"op":"var","name":"index"}]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "none",
+                    "body": {"op":"literal","type":{"tag":"scalar","name":"unit"},"value":null}
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "range",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:ByteVectorExtend"},
+                      "arguments": [
+                        {"op":"var","name":"destination"},
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"values:MatchIndexBytes"},
+                          "arguments": [{"op":"var","name":"haystack"},{"op":"var","name":"range"}]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {"op":"var","name":"nameToIndex"},
+            {"op":"var","name":"destination"}
+          ]
+        }
+      }
+    }
+  },
+  "exports": ["CapturesAsMatchDefault","CapturesIsEmptyDefault","CapturesInterpolateDefault"]
+}

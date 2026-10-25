@@ -1,0 +1,34 @@
+// ripgrep globset FNV-1a. Exact mathematical values; target u64 mapping is explicit.
+export opaque type Hasher = { state: Int };
+
+let Modulus: Int = 18446744073709551616;
+let OffsetBasis: Int = 14695981039346656037;
+let Prime: Int = 1099511628211;
+
+fn ByteDomain(bytes: List<Int>) -> Bool !{} =
+    match bytes {
+        case [] => true;
+        case [head, ..tail] =>
+            head >= 0 && head <= 255 && ByteDomain(tail);
+    };
+
+// A decreasing 64-bit decomposition, independent of target signed shifts.
+fn XorBits(a: Int, b: Int, remaining: Int, place: Int) -> Int !{} =
+    if remaining == 0 then 0 else
+        let low = if (a % 2) == (b % 2) then 0 else place;
+        low + XorBits(a / 2, b / 2, remaining - 1, place * 2);
+
+fn WriteState(state: Int, bytes: List<Int>) -> Int !{} =
+    match bytes {
+        case [] => state;
+        case [head, ..tail] =>
+            WriteState((XorBits(state, head, 64, 1) * Prime) % Modulus, tail);
+    };
+
+export fn Default() -> Hasher !{} = { state: OffsetBasis };
+
+export fn Finish(hasher: Hasher) -> Int !{} = hasher.state;
+
+export fn Write(hasher: Hasher, bytes: List<Int>) -> Hasher !{}
+    require ByteDomain(bytes)
+    = { state: WriteState(hasher.state, bytes) };

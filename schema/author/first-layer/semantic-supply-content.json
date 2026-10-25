@@ -4,13 +4,13 @@
   "members": [
     {
       "path": "SEMANTICS.md",
-      "bytes": 84157,
-      "sha256": "a5f391ce5d3407b2611451a046722606ebf1a100d68d68c156ad6bb592290dcd"
+      "bytes": 85530,
+      "sha256": "16af9fa7980b5daf502a4075819829873d3e6c5b27f3bcfd0b99a391ec634077"
     },
     {
       "path": "codec-parameters.json",
-      "bytes": 32183,
-      "sha256": "a9d192cb2467c2873433da4d400db2238aa0a33c69741688106a81f10f6c328c"
+      "bytes": 35484,
+      "sha256": "a0f25f1aac48d8dcd92d3ec00b4a79c09eb9bcf5e0df4b465cc9736329974271"
     },
     {
       "path": "complete-types.schema.json",
@@ -19,8 +19,8 @@
     },
     {
       "path": "consumer-signatures.json",
-      "bytes": 4688,
-      "sha256": "f099ba8c9e6ef63949841126750e8d9292f9499f996bf67b3fdb8af2f11e9ab5"
+      "bytes": 6014,
+      "sha256": "9f9cdad93e24838eec473654bbc6ce8e43ae5828df88672d10fbf301e7fb91c0"
     },
     {
       "path": "names.schema.json",
@@ -31,7 +31,12 @@
       "path": "semantic-convergence.schema.json",
       "bytes": 33267,
       "sha256": "098ca7dfc85ea989e26d54a21d04acd53f3ebcbb62055687f380c7d3c8a87ce7"
+    },
+    {
+      "path": "trait-body.schema.json",
+      "bytes": 9947,
+      "sha256": "d80c2424bb4fd9ac37e15603b5119c8187ead31b0170088f78152db23c443388"
     }
   ],
-  "digest": "sha256:0056ebd891eabc760cb1ca8d8a841dc897c8ec64587c40575557115989e7e491"
+  "digest": "sha256:758f669e7154439ef69678df5bd6b45db432fdfa3eb221314c87ae912ea1e926"
 }

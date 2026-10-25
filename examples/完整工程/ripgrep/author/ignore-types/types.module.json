@@ -1,0 +1,2855 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:types",
+  "imports": {"defaults": {"mode": "workspace", "moduleId": "ripgrep:ignore:default_types"}},
+  "definitions": {
+    "FileTypeDef": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "name": {"type": {"tag": "scalar", "name": "text"}},
+          "globs": {"type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true}}
+        },
+        "open": false
+      }
+    },
+    "Selection": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "name": {"type": {"tag": "scalar", "name": "text"}},
+          "negated": {"type": {"tag": "scalar", "name": "bool"}}
+        },
+        "open": false
+      }
+    },
+    "Builder": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "definitions": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true}},
+          "selections": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true}}
+        },
+        "open": false
+      }
+    },
+    "ResolvedSelection": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "selection": {"type": {"tag": "nominal", "ref": "local:Selection"}},
+          "definition": {"type": {"tag": "nominal", "ref": "local:FileTypeDef"}}
+        },
+        "open": false
+      }
+    },
+    "GlobSlot": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "selectionIndex": {"type": {"tag": "scalar", "name": "int"}},
+          "globIndex": {"type": {"tag": "scalar", "name": "int"}},
+          "glob": {"type": {"tag": "scalar", "name": "text"}}
+        },
+        "open": false
+      }
+    },
+    "TypeError": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "InvalidDefinition": {"tag": "scalar", "name": "unit"},
+          "UnrecognizedFileType": {"tag": "scalar", "name": "text"},
+          "Glob": {
+            "tag": "record",
+            "fields": {
+              "glob": {"type": {"tag": "option", "inner": {"tag": "scalar", "name": "text"}}},
+              "message": {"type": {"tag": "scalar", "name": "text"}}
+            },
+            "open": false
+          }
+        }
+      }
+    },
+    "UpdateResult": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {"Ok": {"tag": "nominal", "ref": "local:Builder"}, "Err": {"tag": "nominal", "ref": "local:TypeError"}}
+      }
+    },
+    "Match": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "NoMatch": {"tag": "scalar", "name": "unit"},
+          "IgnoredUnmatched": {"tag": "scalar", "name": "unit"},
+          "Ignored": {"tag": "nominal", "ref": "local:FileTypeDef"},
+          "Whitelisted": {"tag": "nominal", "ref": "local:FileTypeDef"}
+        }
+      }
+    },
+    "MatchStep": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "Done": {"tag": "nominal", "ref": "local:Match"},
+          "NeedFileName": {"tag": "scalar", "name": "unit"},
+          "NeedGlobMatches": {"tag": "scalar", "name": "unit"}
+        }
+      }
+    },
+    "BuildMetadata": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "definitions": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true}},
+          "selections": {
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:ResolvedSelection"}, "ordered": true}
+          },
+          "hasSelected": {"type": {"tag": "scalar", "name": "bool"}},
+          "globSlots": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:GlobSlot"}, "ordered": true}}
+        },
+        "open": false
+      }
+    },
+    "BuildCursor": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "definitions": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true}},
+          "displayDefinitions": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true}},
+          "remainingSelections": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true}},
+          "active": {"type": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:ResolvedSelection"}}},
+          "remainingGlobs": {"type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true}},
+          "selectionIndex": {"type": {"tag": "scalar", "name": "int"}},
+          "globIndex": {"type": {"tag": "scalar", "name": "int"}},
+          "resolved": {
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:ResolvedSelection"}, "ordered": true}
+          },
+          "globSlots": {"type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:GlobSlot"}, "ordered": true}},
+          "hasSelected": {"type": {"tag": "scalar", "name": "bool"}}
+        },
+        "open": false
+      }
+    },
+    "BuildStep": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "CompileGlob": {
+            "tag": "record",
+            "fields": {
+              "pattern": {"type": {"tag": "scalar", "name": "text"}},
+              "literalSeparator": {"type": {"tag": "scalar", "name": "bool"}},
+              "cursor": {"type": {"tag": "nominal", "ref": "local:BuildCursor"}}
+            },
+            "open": false
+          },
+          "AssembleSet": {"tag": "nominal", "ref": "local:BuildMetadata"},
+          "Failed": {"tag": "nominal", "ref": "local:TypeError"}
+        }
+      }
+    },
+    "AppendText": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "suffix",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "item_unit", "body": {"op": "var", "name": "suffix"}},
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:AppendText"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                      {"op": "var", "name": "suffix"}
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsEmptyText": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            }
+          ]
+        }
+      }
+    },
+    "AppendDefinition": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "suffix",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "item_unit", "body": {"op": "var", "name": "suffix"}},
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:AppendDefinition"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                      {"op": "var", "name": "suffix"}
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsEmptyDefinition": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            }
+          ]
+        }
+      }
+    },
+    "AppendSelection": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "suffix",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "item_unit", "body": {"op": "var", "name": "suffix"}},
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:AppendSelection"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                      {"op": "var", "name": "suffix"}
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsEmptySelection": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            }
+          ]
+        }
+      }
+    },
+    "AppendResolved": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:ResolvedSelection"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "suffix",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:ResolvedSelection"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:ResolvedSelection"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "item_unit", "body": {"op": "var", "name": "suffix"}},
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:AppendResolved"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                      {"op": "var", "name": "suffix"}
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsEmptyResolved": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:ResolvedSelection"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            }
+          ]
+        }
+      }
+    },
+    "AppendSlot": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:GlobSlot"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "suffix",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:GlobSlot"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:GlobSlot"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "item_unit", "body": {"op": "var", "name": "suffix"}},
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:AppendSlot"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                      {"op": "var", "name": "suffix"}
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsEmptySlot": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:GlobSlot"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            }
+          ]
+        }
+      }
+    },
+    "FindDefinition": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "definitions",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"}
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:FileTypeDef"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "definitions"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:TextEqual"},
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                      "name": "name"
+                    },
+                    {"op": "var", "name": "name"}
+                  ]
+                },
+                "then": {
+                  "op": "variant",
+                  "constructor": "Some",
+                  "payload": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:FindDefinition"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                    {"op": "var", "name": "name"}
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "RemoveDefinition": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "definitions",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"}
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "definitions"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "item_unit", "body": {"op": "sequence", "items": []}},
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:TextEqual"},
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                      "name": "name"
+                    },
+                    {"op": "var", "name": "name"}
+                  ]
+                },
+                "then": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                "otherwise": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                    {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:RemoveDefinition"},
+                      "arguments": [
+                        {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                        {"op": "var", "name": "name"}
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "PutGlob": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "definitions",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "glob", "type": {"tag": "scalar", "name": "text"}, "mode": "in"}
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "definitions"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {
+                "op": "sequence",
+                "items": [
+                  {
+                    "op": "record",
+                    "fields": [
+                      {"name": "name", "value": {"op": "var", "name": "name"}},
+                      {"name": "globs", "value": {"op": "sequence", "items": [{"op": "var", "name": "glob"}]}}
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:TextEqual"},
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                      "name": "name"
+                    },
+                    {"op": "var", "name": "name"}
+                  ]
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                  "arguments": [
+                    {
+                      "op": "record",
+                      "fields": [
+                        {"name": "name", "value": {"op": "var", "name": "name"}},
+                        {
+                          "name": "globs",
+                          "value": {
+                            "op": "call",
+                            "callee": {"op": "symbol", "ref": "local:AppendText"},
+                            "arguments": [
+                              {
+                                "op": "field",
+                                "record": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                                "name": "globs"
+                              },
+                              {"op": "sequence", "items": [{"op": "var", "name": "glob"}]}
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"}
+                  ]
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                    {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:PutGlob"},
+                      "arguments": [
+                        {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                        {"op": "var", "name": "name"},
+                        {"op": "var", "name": "glob"}
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "NewBuilder": {
+      "core:function": {
+        "parameters": [],
+        "returns": {"tag": "nominal", "ref": "local:Builder"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {"name": "definitions", "value": {"op": "sequence", "items": []}},
+            {"name": "selections", "value": {"op": "sequence", "items": []}}
+          ]
+        }
+      }
+    },
+    "Clear": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:Builder"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "definitions",
+              "value": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:RemoveDefinition"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "definitions"},
+                  {"op": "var", "name": "name"}
+                ]
+              }
+            },
+            {
+              "name": "selections",
+              "value": {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "selections"}
+            }
+          ]
+        }
+      }
+    },
+    "AddAfterNameClassification": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "glob", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "allCharactersAlphanumeric", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:TextEqual"},
+            "arguments": [
+              {"op": "var", "name": "name"},
+              {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "all"}
+            ]
+          },
+          "then": {
+            "op": "variant",
+            "constructor": "Err",
+            "payload": {
+              "op": "variant",
+              "constructor": "InvalidDefinition",
+              "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {"op": "var", "name": "allCharactersAlphanumeric"},
+            "then": {
+              "op": "variant",
+              "constructor": "Ok",
+              "payload": {
+                "op": "record",
+                "fields": [
+                  {
+                    "name": "definitions",
+                    "value": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:PutGlob"},
+                      "arguments": [
+                        {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "definitions"},
+                        {"op": "var", "name": "name"},
+                        {"op": "var", "name": "glob"}
+                      ]
+                    }
+                  },
+                  {
+                    "name": "selections",
+                    "value": {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "selections"}
+                  }
+                ]
+              }
+            },
+            "otherwise": {
+              "op": "variant",
+              "constructor": "Err",
+              "payload": {
+                "op": "variant",
+                "constructor": "InvalidDefinition",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            }
+          }
+        }
+      }
+    },
+    "AddGlobsAfterNameClassification": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {
+            "name": "globs",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "allCharactersAlphanumeric", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "globs"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "variant", "constructor": "Ok", "payload": {"op": "var", "name": "builder"}}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:AddAfterNameClassification"},
+                  "arguments": [
+                    {"op": "var", "name": "builder"},
+                    {"op": "var", "name": "name"},
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                    {"op": "var", "name": "allCharactersAlphanumeric"}
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {"op": "variant", "constructor": "Err", "payload": {"op": "var", "name": "error"}}
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "next",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:AddGlobsAfterNameClassification"},
+                      "arguments": [
+                        {"op": "var", "name": "next"},
+                        {"op": "var", "name": "name"},
+                        {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                        {"op": "var", "name": "allCharactersAlphanumeric"}
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AllNamesPresent": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "definitions",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "names",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "names"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:FindDefinition"},
+                  "arguments": [
+                    {"op": "var", "name": "definitions"},
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "missing",
+                    "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "found",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:AllNamesPresent"},
+                      "arguments": [
+                        {"op": "var", "name": "definitions"},
+                        {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"}
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IncludeExisting": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {
+            "name": "names",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "allCharactersAlphanumeric", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "names"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "variant", "constructor": "Ok", "payload": {"op": "var", "name": "builder"}}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:FindDefinition"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "definitions"},
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "missing",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "variant",
+                        "constructor": "InvalidDefinition",
+                        "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "definition",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {"op": "symbol", "ref": "local:AddGlobsAfterNameClassification"},
+                        "arguments": [
+                          {"op": "var", "name": "builder"},
+                          {"op": "var", "name": "name"},
+                          {"op": "field", "record": {"op": "var", "name": "definition"}, "name": "globs"},
+                          {"op": "var", "name": "allCharactersAlphanumeric"}
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "error",
+                          "body": {"op": "variant", "constructor": "Err", "payload": {"op": "var", "name": "error"}}
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "next",
+                          "body": {
+                            "op": "call",
+                            "callee": {"op": "symbol", "ref": "local:IncludeExisting"},
+                            "arguments": [
+                              {"op": "var", "name": "next"},
+                              {"op": "var", "name": "name"},
+                              {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                              {"op": "var", "name": "allCharactersAlphanumeric"}
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AddRootAfterLexing": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "glob", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "allCharactersAlphanumeric", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:TextEqual"},
+            "arguments": [
+              {"op": "var", "name": "name"},
+              {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ""}
+            ]
+          },
+          "then": {
+            "op": "variant",
+            "constructor": "Err",
+            "payload": {
+              "op": "variant",
+              "constructor": "InvalidDefinition",
+              "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op": "symbol", "ref": "std:TextEqual"},
+              "arguments": [
+                {"op": "var", "name": "glob"},
+                {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ""}
+              ]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "Err",
+              "payload": {
+                "op": "variant",
+                "constructor": "InvalidDefinition",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            "otherwise": {
+              "op": "call",
+              "callee": {"op": "symbol", "ref": "local:AddAfterNameClassification"},
+              "arguments": [
+                {"op": "var", "name": "builder"},
+                {"op": "var", "name": "name"},
+                {"op": "var", "name": "glob"},
+                {"op": "var", "name": "allCharactersAlphanumeric"}
+              ]
+            }
+          }
+        }
+      }
+    },
+    "AddIncludeAfterLexing": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {
+            "name": "names",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "allCharactersAlphanumeric", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:TextEqual"},
+            "arguments": [
+              {"op": "var", "name": "name"},
+              {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ""}
+            ]
+          },
+          "then": {
+            "op": "variant",
+            "constructor": "Err",
+            "payload": {
+              "op": "variant",
+              "constructor": "InvalidDefinition",
+              "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op": "symbol", "ref": "local:IsEmptyText"},
+              "arguments": [{"op": "var", "name": "names"}]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "Err",
+              "payload": {
+                "op": "variant",
+                "constructor": "InvalidDefinition",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:AllNamesPresent"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "definitions"},
+                  {"op": "var", "name": "names"}
+                ]
+              },
+              "then": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:IncludeExisting"},
+                "arguments": [
+                  {"op": "var", "name": "builder"},
+                  {"op": "var", "name": "name"},
+                  {"op": "var", "name": "names"},
+                  {"op": "var", "name": "allCharactersAlphanumeric"}
+                ]
+              },
+              "otherwise": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "variant",
+                  "constructor": "InvalidDefinition",
+                  "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "AddDefaultNames": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {
+            "name": "names",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "globs",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "names"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "variant", "constructor": "Ok", "payload": {"op": "var", "name": "builder"}}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:AddGlobsAfterNameClassification"},
+                  "arguments": [
+                    {"op": "var", "name": "builder"},
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                    {"op": "var", "name": "globs"},
+                    {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {"op": "variant", "constructor": "Err", "payload": {"op": "var", "name": "error"}}
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "next",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:AddDefaultNames"},
+                      "arguments": [
+                        {"op": "var", "name": "next"},
+                        {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                        {"op": "var", "name": "globs"}
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AddDefaultGroups": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {
+            "name": "groups",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "defaults:DefaultTypeGroup"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "groups"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "variant", "constructor": "Ok", "payload": {"op": "var", "name": "builder"}}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:AddDefaultNames"},
+                  "arguments": [
+                    {"op": "var", "name": "builder"},
+                    {
+                      "op": "field",
+                      "record": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                      "name": "names"
+                    },
+                    {
+                      "op": "field",
+                      "record": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                      "name": "globs"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {"op": "variant", "constructor": "Err", "payload": {"op": "var", "name": "error"}}
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "next",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:AddDefaultGroups"},
+                      "arguments": [
+                        {"op": "var", "name": "next"},
+                        {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"}
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AddDefaults": {
+      "core:function": {
+        "parameters": [{"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"}],
+        "returns": {"tag": "nominal", "ref": "local:UpdateResult"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "local:AddDefaultGroups"},
+          "arguments": [{"op": "var", "name": "builder"}, {"op": "symbol", "ref": "defaults:DefaultTypes"}]
+        }
+      }
+    },
+    "AppendNamedSelection": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "negated", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:Builder"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "definitions",
+              "value": {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "definitions"}
+            },
+            {
+              "name": "selections",
+              "value": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:AppendSelection"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "selections"},
+                  {
+                    "op": "sequence",
+                    "items": [
+                      {
+                        "op": "record",
+                        "fields": [
+                          {"name": "name", "value": {"op": "var", "name": "name"}},
+                          {"name": "negated", "value": {"op": "var", "name": "negated"}}
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsExactKeyEnumeration": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "definitions",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "names",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "names"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:IsEmptyDefinition"},
+                "arguments": [{"op": "var", "name": "definitions"}]
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:FindDefinition"},
+                  "arguments": [
+                    {"op": "var", "name": "definitions"},
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "missing",
+                    "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "found",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:IsExactKeyEnumeration"},
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {"op": "symbol", "ref": "local:RemoveDefinition"},
+                          "arguments": [
+                            {"op": "var", "name": "definitions"},
+                            {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                          ]
+                        },
+                        {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"}
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AppendAllSelections": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {
+            "name": "names",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "negated", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:Builder"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "names"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "item_unit", "body": {"op": "var", "name": "builder"}},
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:AppendAllSelections"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:AppendNamedSelection"},
+                    "arguments": [
+                      {"op": "var", "name": "builder"},
+                      {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                      {"op": "var", "name": "negated"}
+                    ]
+                  },
+                  {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                  {"op": "var", "name": "negated"}
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "SelectAfterKeyEnumeration": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {"name": "name", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "negated", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"},
+          {
+            "name": "currentKeyOrder",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:Builder"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:TextEqual"},
+            "arguments": [
+              {"op": "var", "name": "name"},
+              {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "all"}
+            ]
+          },
+          "then": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op": "symbol", "ref": "local:IsExactKeyEnumeration"},
+              "arguments": [
+                {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "definitions"},
+                {"op": "var", "name": "currentKeyOrder"}
+              ]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "Some",
+              "payload": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:AppendAllSelections"},
+                "arguments": [
+                  {"op": "var", "name": "builder"},
+                  {"op": "var", "name": "currentKeyOrder"},
+                  {"op": "var", "name": "negated"}
+                ]
+              }
+            },
+            "otherwise": {
+              "op": "variant",
+              "constructor": "None",
+              "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+            }
+          },
+          "otherwise": {
+            "op": "variant",
+            "constructor": "Some",
+            "payload": {
+              "op": "call",
+              "callee": {"op": "symbol", "ref": "local:AppendNamedSelection"},
+              "arguments": [{"op": "var", "name": "builder"}, {"op": "var", "name": "name"}, {"op": "var", "name": "negated"}]
+            }
+          }
+        }
+      }
+    },
+    "HasSelected": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "selections",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "selections"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "field",
+                  "record": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"},
+                  "name": "negated"
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:HasSelected"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"}]
+                },
+                "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "SelectionCount": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "selections",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Selection"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "selections"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:IntAdd"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:SelectionCount"},
+                    "arguments": [{"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"}]
+                  },
+                  {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IsEmpty": {
+      "core:function": {
+        "parameters": [{"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "local:IsEmptySelection"},
+          "arguments": [{"op": "field", "record": {"op": "var", "name": "builder"}, "name": "selections"}]
+        }
+      }
+    },
+    "Len": {
+      "core:function": {
+        "parameters": [{"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "local:SelectionCount"},
+          "arguments": [{"op": "field", "record": {"op": "var", "name": "builder"}, "name": "selections"}]
+        }
+      }
+    },
+    "StartBuild": {
+      "core:function": {
+        "parameters": [
+          {"name": "builder", "type": {"tag": "nominal", "ref": "local:Builder"}, "mode": "in"},
+          {
+            "name": "sortedDefinitions",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:FileTypeDef"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "nominal", "ref": "local:BuildCursor"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "definitions",
+              "value": {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "definitions"}
+            },
+            {"name": "displayDefinitions", "value": {"op": "var", "name": "sortedDefinitions"}},
+            {
+              "name": "remainingSelections",
+              "value": {"op": "field", "record": {"op": "var", "name": "builder"}, "name": "selections"}
+            },
+            {
+              "name": "active",
+              "value": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {"name": "remainingGlobs", "value": {"op": "sequence", "items": []}},
+            {
+              "name": "selectionIndex",
+              "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+            },
+            {
+              "name": "globIndex",
+              "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+            },
+            {"name": "resolved", "value": {"op": "sequence", "items": []}},
+            {"name": "globSlots", "value": {"op": "sequence", "items": []}},
+            {
+              "name": "hasSelected",
+              "value": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "local:HasSelected"},
+                "arguments": [{"op": "field", "record": {"op": "var", "name": "builder"}, "name": "selections"}]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "NextBuildStep": {
+      "core:function": {
+        "parameters": [{"name": "cursor", "type": {"tag": "nominal", "ref": "local:BuildCursor"}, "mode": "in"}],
+        "returns": {"tag": "nominal", "ref": "local:BuildStep"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "active"},
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "inactive",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "remainingSelections"}]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "selection_unit",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "AssembleSet",
+                      "payload": {
+                        "op": "record",
+                        "fields": [
+                          {
+                            "name": "definitions",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "displayDefinitions"}
+                          },
+                          {
+                            "name": "selections",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "resolved"}
+                          },
+                          {
+                            "name": "hasSelected",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "hasSelected"}
+                          },
+                          {
+                            "name": "globSlots",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "globSlots"}
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "selection",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {"op": "symbol", "ref": "local:FindDefinition"},
+                        "arguments": [
+                          {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "definitions"},
+                          {
+                            "op": "field",
+                            "record": {"op": "field", "record": {"op": "var", "name": "selection"}, "name": "head"},
+                            "name": "name"
+                          }
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "None",
+                          "binding": "missing",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Failed",
+                            "payload": {
+                              "op": "variant",
+                              "constructor": "UnrecognizedFileType",
+                              "payload": {
+                                "op": "field",
+                                "record": {"op": "field", "record": {"op": "var", "name": "selection"}, "name": "head"},
+                                "name": "name"
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "constructor": "Some",
+                          "binding": "definition",
+                          "body": {
+                            "op": "call",
+                            "callee": {"op": "symbol", "ref": "local:NextBuildStep"},
+                            "arguments": [
+                              {
+                                "op": "record",
+                                "fields": [
+                                  {
+                                    "name": "definitions",
+                                    "value": {
+                                      "op": "field",
+                                      "record": {"op": "var", "name": "cursor"},
+                                      "name": "definitions"
+                                    }
+                                  },
+                                  {
+                                    "name": "displayDefinitions",
+                                    "value": {
+                                      "op": "field",
+                                      "record": {"op": "var", "name": "cursor"},
+                                      "name": "displayDefinitions"
+                                    }
+                                  },
+                                  {
+                                    "name": "remainingSelections",
+                                    "value": {"op": "field", "record": {"op": "var", "name": "selection"}, "name": "tail"}
+                                  },
+                                  {
+                                    "name": "active",
+                                    "value": {
+                                      "op": "variant",
+                                      "constructor": "Some",
+                                      "payload": {
+                                        "op": "record",
+                                        "fields": [
+                                          {
+                                            "name": "selection",
+                                            "value": {
+                                              "op": "field",
+                                              "record": {"op": "var", "name": "selection"},
+                                              "name": "head"
+                                            }
+                                          },
+                                          {"name": "definition", "value": {"op": "var", "name": "definition"}}
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "name": "remainingGlobs",
+                                    "value": {"op": "field", "record": {"op": "var", "name": "definition"}, "name": "globs"}
+                                  },
+                                  {
+                                    "name": "selectionIndex",
+                                    "value": {
+                                      "op": "field",
+                                      "record": {"op": "var", "name": "cursor"},
+                                      "name": "selectionIndex"
+                                    }
+                                  },
+                                  {
+                                    "name": "globIndex",
+                                    "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+                                  },
+                                  {
+                                    "name": "resolved",
+                                    "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "resolved"}
+                                  },
+                                  {
+                                    "name": "globSlots",
+                                    "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "globSlots"}
+                                  },
+                                  {
+                                    "name": "hasSelected",
+                                    "value": {
+                                      "op": "field",
+                                      "record": {"op": "var", "name": "cursor"},
+                                      "name": "hasSelected"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "active",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "remainingGlobs"}]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "glob_unit",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:NextBuildStep"},
+                      "arguments": [
+                        {
+                          "op": "record",
+                          "fields": [
+                            {
+                              "name": "definitions",
+                              "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "definitions"}
+                            },
+                            {
+                              "name": "displayDefinitions",
+                              "value": {
+                                "op": "field",
+                                "record": {"op": "var", "name": "cursor"},
+                                "name": "displayDefinitions"
+                              }
+                            },
+                            {
+                              "name": "remainingSelections",
+                              "value": {
+                                "op": "field",
+                                "record": {"op": "var", "name": "cursor"},
+                                "name": "remainingSelections"
+                              }
+                            },
+                            {
+                              "name": "active",
+                              "value": {
+                                "op": "variant",
+                                "constructor": "None",
+                                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+                              }
+                            },
+                            {
+                              "name": "remainingGlobs",
+                              "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "remainingGlobs"}
+                            },
+                            {
+                              "name": "selectionIndex",
+                              "value": {
+                                "op": "call",
+                                "callee": {"op": "symbol", "ref": "std:IntAdd"},
+                                "arguments": [
+                                  {
+                                    "op": "field",
+                                    "record": {"op": "var", "name": "cursor"},
+                                    "name": "selectionIndex"
+                                  },
+                                  {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                                ]
+                              }
+                            },
+                            {
+                              "name": "globIndex",
+                              "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+                            },
+                            {
+                              "name": "resolved",
+                              "value": {
+                                "op": "call",
+                                "callee": {"op": "symbol", "ref": "local:AppendResolved"},
+                                "arguments": [
+                                  {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "resolved"},
+                                  {"op": "sequence", "items": [{"op": "var", "name": "active"}]}
+                                ]
+                              }
+                            },
+                            {
+                              "name": "globSlots",
+                              "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "globSlots"}
+                            },
+                            {
+                              "name": "hasSelected",
+                              "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "hasSelected"}
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "glob",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "CompileGlob",
+                      "payload": {
+                        "op": "record",
+                        "fields": [
+                          {
+                            "name": "pattern",
+                            "value": {"op": "field", "record": {"op": "var", "name": "glob"}, "name": "head"}
+                          },
+                          {
+                            "name": "literalSeparator",
+                            "value": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+                          },
+                          {"name": "cursor", "value": {"op": "var", "name": "cursor"}}
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AdvanceAfterGlobSuccess": {
+      "core:function": {
+        "parameters": [{"name": "cursor", "type": {"tag": "nominal", "ref": "local:BuildCursor"}, "mode": "in"}],
+        "returns": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:BuildCursor"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "active"},
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "inactive",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "active",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "remainingGlobs"}]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "glob_unit",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "None",
+                      "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "glob",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Some",
+                      "payload": {
+                        "op": "record",
+                        "fields": [
+                          {
+                            "name": "definitions",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "definitions"}
+                          },
+                          {
+                            "name": "displayDefinitions",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "displayDefinitions"}
+                          },
+                          {
+                            "name": "remainingSelections",
+                            "value": {
+                              "op": "field",
+                              "record": {"op": "var", "name": "cursor"},
+                              "name": "remainingSelections"
+                            }
+                          },
+                          {
+                            "name": "active",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "active"}
+                          },
+                          {
+                            "name": "remainingGlobs",
+                            "value": {"op": "field", "record": {"op": "var", "name": "glob"}, "name": "tail"}
+                          },
+                          {
+                            "name": "selectionIndex",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "selectionIndex"}
+                          },
+                          {
+                            "name": "globIndex",
+                            "value": {
+                              "op": "call",
+                              "callee": {"op": "symbol", "ref": "std:IntAdd"},
+                              "arguments": [
+                                {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "globIndex"},
+                                {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                              ]
+                            }
+                          },
+                          {
+                            "name": "resolved",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "resolved"}
+                          },
+                          {
+                            "name": "globSlots",
+                            "value": {
+                              "op": "call",
+                              "callee": {"op": "symbol", "ref": "local:AppendSlot"},
+                              "arguments": [
+                                {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "globSlots"},
+                                {
+                                  "op": "sequence",
+                                  "items": [
+                                    {
+                                      "op": "record",
+                                      "fields": [
+                                        {
+                                          "name": "selectionIndex",
+                                          "value": {
+                                            "op": "field",
+                                            "record": {"op": "var", "name": "cursor"},
+                                            "name": "selectionIndex"
+                                          }
+                                        },
+                                        {
+                                          "name": "globIndex",
+                                          "value": {
+                                            "op": "field",
+                                            "record": {"op": "var", "name": "cursor"},
+                                            "name": "globIndex"
+                                          }
+                                        },
+                                        {
+                                          "name": "glob",
+                                          "value": {"op": "field", "record": {"op": "var", "name": "glob"}, "name": "head"}
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hasSelected",
+                            "value": {"op": "field", "record": {"op": "var", "name": "cursor"}, "name": "hasSelected"}
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "GlobCompileFailure": {
+      "core:function": {
+        "parameters": [
+          {"name": "pattern", "type": {"tag": "scalar", "name": "text"}, "mode": "in"},
+          {"name": "kindMessage", "type": {"tag": "scalar", "name": "text"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:TypeError"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Glob",
+          "payload": {
+            "op": "record",
+            "fields": [
+              {
+                "name": "glob",
+                "value": {"op": "variant", "constructor": "Some", "payload": {"op": "var", "name": "pattern"}}
+              },
+              {"name": "message", "value": {"op": "var", "name": "kindMessage"}}
+            ]
+          }
+        }
+      }
+    },
+    "GlobSetFailure": {
+      "core:function": {
+        "parameters": [{"name": "displayMessage", "type": {"tag": "scalar", "name": "text"}, "mode": "in"}],
+        "returns": {"tag": "nominal", "ref": "local:TypeError"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "variant",
+          "constructor": "Glob",
+          "payload": {
+            "op": "record",
+            "fields": [
+              {
+                "name": "glob",
+                "value": {
+                  "op": "variant",
+                  "constructor": "None",
+                  "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+                }
+              },
+              {"name": "message", "value": {"op": "var", "name": "displayMessage"}}
+            ]
+          }
+        }
+      }
+    },
+    "Unmatched": {
+      "core:function": {
+        "parameters": [{"name": "hasSelected", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}],
+        "returns": {"tag": "nominal", "ref": "local:Match"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {"op": "var", "name": "hasSelected"},
+          "then": {
+            "op": "variant",
+            "constructor": "IgnoredUnmatched",
+            "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+          },
+          "otherwise": {
+            "op": "variant",
+            "constructor": "NoMatch",
+            "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+          }
+        }
+      }
+    },
+    "StartMatch": {
+      "core:function": {
+        "parameters": [
+          {"name": "isDirectory", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"},
+          {"name": "globSetIsEmpty", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:MatchStep"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {"op": "var", "name": "isDirectory"},
+          "then": {
+            "op": "variant",
+            "constructor": "Done",
+            "payload": {
+              "op": "variant",
+              "constructor": "NoMatch",
+              "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {"op": "var", "name": "globSetIsEmpty"},
+            "then": {
+              "op": "variant",
+              "constructor": "Done",
+              "payload": {
+                "op": "variant",
+                "constructor": "NoMatch",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            "otherwise": {
+              "op": "variant",
+              "constructor": "NeedFileName",
+              "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+            }
+          }
+        }
+      }
+    },
+    "AfterFileName": {
+      "core:function": {
+        "parameters": [
+          {"name": "hasSelected", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"},
+          {"name": "hasFileName", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:MatchStep"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {"op": "var", "name": "hasFileName"},
+          "then": {
+            "op": "variant",
+            "constructor": "NeedGlobMatches",
+            "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+          },
+          "otherwise": {
+            "op": "variant",
+            "constructor": "Done",
+            "payload": {
+              "op": "call",
+              "callee": {"op": "symbol", "ref": "local:Unmatched"},
+              "arguments": [{"op": "var", "name": "hasSelected"}]
+            }
+          }
+        }
+      }
+    },
+    "LastMatchIndex": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "matches",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "int"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "scalar", "name": "int"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "matches"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:LastMatchIndex"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"}]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "end",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Some",
+                      "payload": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "last",
+                    "body": {"op": "variant", "constructor": "Some", "payload": {"op": "var", "name": "last"}}
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AtSlot": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:GlobSlot"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "index", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:GlobSlot"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:IntEq"},
+                  "arguments": [
+                    {"op": "var", "name": "index"},
+                    {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+                  ]
+                },
+                "then": {
+                  "op": "variant",
+                  "constructor": "Some",
+                  "payload": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:AtSlot"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                    {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "std:IntSub"},
+                      "arguments": [
+                        {"op": "var", "name": "index"},
+                        {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AtResolved": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:ResolvedSelection"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "index", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:ResolvedSelection"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "item_unit",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "item",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:IntEq"},
+                  "arguments": [
+                    {"op": "var", "name": "index"},
+                    {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+                  ]
+                },
+                "then": {
+                  "op": "variant",
+                  "constructor": "Some",
+                  "payload": {"op": "field", "record": {"op": "var", "name": "item"}, "name": "head"}
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:AtResolved"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "item"}, "name": "tail"},
+                    {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "std:IntSub"},
+                      "arguments": [
+                        {"op": "var", "name": "index"},
+                        {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ClassifyMatches": {
+      "core:function": {
+        "parameters": [
+          {"name": "metadata", "type": {"tag": "nominal", "ref": "local:BuildMetadata"}, "mode": "in"},
+          {
+            "name": "matchesInGlobSetOrder",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "int"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:Match"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "local:LastMatchIndex"},
+            "arguments": [{"op": "var", "name": "matchesInGlobSetOrder"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "unmatched",
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:Unmatched"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "metadata"}, "name": "hasSelected"}]
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "last",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:AtSlot"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "metadata"}, "name": "globSlots"},
+                    {"op": "var", "name": "last"}
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "badSlot",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "None",
+                      "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "slot",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {"op": "symbol", "ref": "local:AtResolved"},
+                        "arguments": [
+                          {"op": "field", "record": {"op": "var", "name": "metadata"}, "name": "selections"},
+                          {"op": "field", "record": {"op": "var", "name": "slot"}, "name": "selectionIndex"}
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "None",
+                          "binding": "badSelection",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "None",
+                            "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+                          }
+                        },
+                        {
+                          "constructor": "Some",
+                          "binding": "resolved",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Some",
+                            "payload": {
+                              "op": "if",
+                              "condition": {
+                                "op": "field",
+                                "record": {"op": "field", "record": {"op": "var", "name": "resolved"}, "name": "selection"},
+                                "name": "negated"
+                              },
+                              "then": {
+                                "op": "variant",
+                                "constructor": "Ignored",
+                                "payload": {"op": "field", "record": {"op": "var", "name": "resolved"}, "name": "definition"}
+                              },
+                              "otherwise": {
+                                "op": "variant",
+                                "constructor": "Whitelisted",
+                                "payload": {"op": "field", "record": {"op": "var", "name": "resolved"}, "name": "definition"}
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FileTypeDefOfMatch": {
+      "core:function": {
+        "parameters": [{"name": "match", "type": {"tag": "nominal", "ref": "local:Match"}, "mode": "in"}],
+        "returns": {"tag": "option", "inner": {"tag": "nominal", "ref": "local:FileTypeDef"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "var", "name": "match"},
+          "cases": [
+            {
+              "constructor": "NoMatch",
+              "binding": "noMatch",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {
+              "constructor": "IgnoredUnmatched",
+              "binding": "unmatched",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}
+              }
+            },
+            {
+              "constructor": "Ignored",
+              "binding": "definition",
+              "body": {"op": "variant", "constructor": "Some", "payload": {"op": "var", "name": "definition"}}
+            },
+            {
+              "constructor": "Whitelisted",
+              "binding": "definition",
+              "body": {"op": "variant", "constructor": "Some", "payload": {"op": "var", "name": "definition"}}
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": [
+    "FileTypeDef",
+    "Selection",
+    "Builder",
+    "ResolvedSelection",
+    "GlobSlot",
+    "TypeError",
+    "UpdateResult",
+    "Match",
+    "MatchStep",
+    "BuildCursor",
+    "BuildStep",
+    "BuildMetadata",
+    "NewBuilder",
+    "Clear",
+    "AddAfterNameClassification",
+    "AddRootAfterLexing",
+    "AddIncludeAfterLexing",
+    "AddDefaults",
+    "SelectAfterKeyEnumeration",
+    "HasSelected",
+    "IsEmpty",
+    "Len",
+    "StartBuild",
+    "NextBuildStep",
+    "AdvanceAfterGlobSuccess",
+    "GlobCompileFailure",
+    "GlobSetFailure",
+    "StartMatch",
+    "AfterFileName",
+    "ClassifyMatches",
+    "FileTypeDefOfMatch"
+  ]
+}

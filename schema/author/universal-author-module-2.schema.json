@@ -3032,8 +3032,28 @@
                     "public",
                     "private"
                   ]
+                },
+                "opaque": {
+                  "type": "boolean",
+                  "description": "Declaration representation visibility, distinct from exported-name visibility and Type.opaque(interfaceRef). Omitted/false preserves the existing transparent representation. true is only legal for a directly declared nominal record or variant; the defining module retains representation access while import/re-export exposes identity, parameters and qualified public operations only. It does not grant runtime secrecy, codec, equality or ABI qualification."
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {"opaque": {"const": true}},
+                    "required": ["opaque"]
+                  },
+                  "then": {
+                    "properties": {
+                      "type": {
+                        "properties": {"tag": {"enum": ["record", "variant"]}},
+                        "required": ["tag"]
+                      }
+                    }
+                  }
+                }
+              ]
             },
             "qualifiers": {
               "$ref": "#/$defs/AuthorQualifiers"

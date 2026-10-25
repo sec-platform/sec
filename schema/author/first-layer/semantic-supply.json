@@ -3,7 +3,7 @@
   "dialect": {
     "languageId": "gift.semantic-convergence",
     "revision": "design-semantic-boundaries",
-    "digest": "sha256:0056ebd891eabc760cb1ca8d8a841dc897c8ec64587c40575557115989e7e491"
+    "digest": "sha256:758f669e7154439ef69678df5bd6b45db432fdfa3eb221314c87ae912ea1e926"
   },
   "issuer": "design-specification-not-a-runtime-authority",
   "definitionKinds": [
@@ -12,12 +12,18 @@
       "bodySchemaRef": "urn:gift:design-schema:semantic-convergence",
       "resultTypeRef": "consumer-signatures.json#/exports/Interpret/result",
       "consumerRef": "consumer-signatures.json#/exports/Interpret"
+    },
+    {
+      "kind": "extension:definition",
+      "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+      "resultTypeRef": "consumer-signatures.json#/exports/InterpretTrait/result",
+      "consumerRef": "consumer-signatures.json#/exports/InterpretTrait"
     }
   ],
   "decoderRef": "SEMANTICS.md#consumer",
   "interpreterRef": "SEMANTICS.md#consumer",
-  "typeRulesRef": "SEMANTICS.md#terms",
-  "effectRulesRef": "SEMANTICS.md#consumers",
+  "typeRulesRef": "SEMANTICS.md#supply-rule-dispatch",
+  "effectRulesRef": "SEMANTICS.md#supply-rule-dispatch",
   "compositionRef": "SEMANTICS.md#consumer",
   "migrationRef": "SEMANTICS.md#legacy",
   "evidenceObligations": [

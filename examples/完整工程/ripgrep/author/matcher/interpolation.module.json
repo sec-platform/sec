@@ -1,0 +1,1195 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:matcher:interpolate",
+  "imports": {"machine":{"workspace":"ripgrep:foundation:machine"},"memchr":{"workspace":"ripgrep:external:memchr"}},
+  "definitions": {
+    "CaptureReference": {
+      "core:type": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Named": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"r"}}]
+            },
+            "Number": {"tag":"nominal","ref":"machine:Usize"}
+          }
+        },
+        "visibility": "private"
+      }
+    },
+    "CaptureRef": {
+      "core:type": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "type": {
+          "tag": "record",
+          "fields": {
+            "cap": {"type":{"tag":"apply","constructor":{"decl":"local:CaptureReference"},"arguments":[{"region":{"parameter":"r"}}]}},
+            "end": {"type":{"tag":"nominal","ref":"machine:Usize"}}
+          },
+          "open": false
+        },
+        "visibility": "private"
+      }
+    },
+    "InterpolationStep": {
+      "core:type": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "type": {
+          "tag": "record",
+          "fields": {
+            "done": {"type":{"tag":"scalar","name":"bool"}},
+            "remaining": {
+              "type": {
+                "tag": "apply",
+                "constructor": {"decl":"machine:Borrow"},
+                "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"r"}}]
+              }
+            }
+          },
+          "open": false
+        },
+        "visibility": "private"
+      }
+    },
+    "RefFromName": {
+      "core:function": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "parameters": [
+          {
+            "name": "name",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"r"}}]
+            }
+          }
+        ],
+        "returns": {"tag":"apply","constructor":{"decl":"local:CaptureReference"},"arguments":[{"region":{"parameter":"r"}}]},
+        "body": {"op":"variant","constructor":"Named","payload":{"op":"var","name":"name"}}
+      }
+    },
+    "RefFromNumber": {
+      "core:function": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "parameters": [{"name":"index","type":{"tag":"nominal","ref":"machine:Usize"}}],
+        "returns": {"tag":"apply","constructor":{"decl":"local:CaptureReference"},"arguments":[{"region":{"parameter":"r"}}]},
+        "body": {"op":"variant","constructor":"Number","payload":{"op":"var","name":"index"}}
+      }
+    },
+    "IsValidCaptureLetter": {
+      "core:function": {
+        "parameters": [{"name":"byte","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"}}],
+        "returns": {"tag":"scalar","name":"bool"},
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"std:BoolNot"},
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"machine:ByteGreater"},
+                  "arguments": [
+                    {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"48"},
+                    {"op":"var","name":"byte"}
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"std:BoolNot"},
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"machine:ByteGreater"},
+                  "arguments": [
+                    {"op":"var","name":"byte"},
+                    {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"57"}
+                  ]
+                }
+              ]
+            },
+            "otherwise": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}
+          },
+          "then": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true},
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"std:BoolNot"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:ByteGreater"},
+                    "arguments": [
+                      {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"97"},
+                      {"op":"var","name":"byte"}
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"std:BoolNot"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:ByteGreater"},
+                    "arguments": [
+                      {"op":"var","name":"byte"},
+                      {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"122"}
+                    ]
+                  }
+                ]
+              },
+              "otherwise": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}
+            },
+            "then": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true},
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"std:BoolNot"},
+                  "arguments": [
+                    {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:ByteGreater"},
+                      "arguments": [
+                        {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"65"},
+                        {"op":"var","name":"byte"}
+                      ]
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"std:BoolNot"},
+                  "arguments": [
+                    {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:ByteGreater"},
+                      "arguments": [
+                        {"op":"var","name":"byte"},
+                        {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"90"}
+                      ]
+                    }
+                  ]
+                },
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}
+              },
+              "then": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true},
+              "otherwise": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:ByteEqual"},
+                "arguments": [
+                  {"op":"var","name":"byte"},
+                  {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"95"}
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "ByteEqualsAt": {
+      "core:function": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "parameters": [
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"r"}}]
+            },
+            "mode": "borrow"
+          },
+          {"name":"index","type":{"tag":"nominal","ref":"machine:Usize"}},
+          {"name":"expected","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"}}
+        ],
+        "returns": {"tag":"scalar","name":"bool"},
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"machine:ByteSliceGet"},
+            "arguments": [{"op":"var","name":"bytes"},{"op":"var","name":"index"}]
+          },
+          "cases": [
+            {"constructor":"None","binding":"none","body":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}},
+            {
+              "constructor": "Some",
+              "binding": "actual",
+              "body": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:ByteEqual"},
+                "arguments": [{"op":"var","name":"actual"},{"op":"var","name":"expected"}]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"}]
+      }
+    },
+    "IsValidCaptureLetterAt": {
+      "core:function": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "parameters": [
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"r"}}]
+            },
+            "mode": "borrow"
+          },
+          {"name":"index","type":{"tag":"nominal","ref":"machine:Usize"}}
+        ],
+        "returns": {"tag":"scalar","name":"bool"},
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"machine:ByteSliceGet"},
+            "arguments": [{"op":"var","name":"bytes"},{"op":"var","name":"index"}]
+          },
+          "cases": [
+            {"constructor":"None","binding":"none","body":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}},
+            {
+              "constructor": "Some",
+              "binding": "actual",
+              "body": {"op":"call","callee":{"op":"symbol","ref":"local:IsValidCaptureLetter"},"arguments":[{"op":"var","name":"actual"}]}
+            }
+          ]
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"}]
+      }
+    },
+    "CaptureNameUtf8": {
+      "core:function": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "parameters": [
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"r"}}]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {"decl":"machine:Borrow"},
+          "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"r"}}]
+        },
+        "body": {
+          "op": "match",
+          "value": {"op":"call","callee":{"op":"symbol","ref":"machine:StrFromUtf8"},"arguments":[{"op":"var","name":"bytes"}]},
+          "cases": [
+            {"constructor":"Ok","binding":"name","body":{"op":"var","name":"name"}},
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:Panic"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"std:TextConcat"},
+                    "arguments": [
+                      {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"valid UTF-8 capture name: "},
+                      {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"machine:Utf8ErrorDebug"},
+                        "arguments": [{"op":"var","name":"error"}]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FindCaptureRef": {
+      "core:function": {
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "parameters": [
+          {
+            "name": "replacement",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"r"}}]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {"tag":"apply","constructor":{"decl":"local:CaptureRef"},"arguments":[{"region":{"parameter":"r"}}]}
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:UsizeLessEqual"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:ByteSliceLength"},
+                    "arguments": [{"op":"var","name":"replacement"}]
+                  },
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                    "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"1"}]
+                  }
+                ]
+              },
+              "then": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "return",
+                    "value": {
+                      "op": "variant",
+                      "constructor": "None",
+                      "payload": {"op":"literal","type":{"tag":"scalar","name":"unit"},"value":null}
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"std:BoolNot"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:ByteEqualsAt"},
+                    "arguments": [
+                      {"op":"var","name":"replacement"},
+                      {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                        "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"0"}]
+                      },
+                      {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"36"}
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "return",
+                    "value": {
+                      "op": "variant",
+                      "constructor": "None",
+                      "payload": {"op":"literal","type":{"tag":"scalar","name":"unit"},"value":null}
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "let",
+              "name": "brace",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:ByteEqualsAt"},
+                "arguments": [
+                  {"op":"var","name":"replacement"},
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                    "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"1"}]
+                  },
+                  {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"123"}
+                ]
+              }
+            },
+            {
+              "op": "let",
+              "name": "start",
+              "value": {
+                "op": "if",
+                "condition": {"op":"var","name":"brace"},
+                "then": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                  "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"2"}]
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                  "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"1"}]
+                }
+              }
+            },
+            {"op":"var","name":"end","value":{"op":"var","name":"start"}},
+            {
+              "op": "while",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:IsValidCaptureLetterAt"},
+                "arguments": [{"op":"var","name":"replacement"},{"op":"var","name":"end"}]
+              },
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "set",
+                    "name": "end",
+                    "value": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:UsizeAdd"},
+                      "arguments": [
+                        {"op":"var","name":"end"},
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                          "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"1"}]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:UsizeEqual"},
+                "arguments": [{"op":"var","name":"end"},{"op":"var","name":"start"}]
+              },
+              "then": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "return",
+                    "value": {
+                      "op": "variant",
+                      "constructor": "None",
+                      "payload": {"op":"literal","type":{"tag":"scalar","name":"unit"},"value":null}
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "let",
+              "name": "name",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:CaptureNameUtf8"},
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:ByteSliceRange"},
+                    "arguments": [{"op":"var","name":"replacement"},{"op":"var","name":"start"},{"op":"var","name":"end"}]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "if",
+              "condition": {"op":"var","name":"brace"},
+              "then": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"std:BoolNot"},
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"local:ByteEqualsAt"},
+                          "arguments": [
+                            {"op":"var","name":"replacement"},
+                            {"op":"var","name":"end"},
+                            {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"125"}
+                          ]
+                        }
+                      ]
+                    },
+                    "then": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "return",
+                          "value": {
+                            "op": "variant",
+                            "constructor": "None",
+                            "payload": {"op":"literal","type":{"tag":"scalar","name":"unit"},"value":null}
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "set",
+                    "name": "end",
+                    "value": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:UsizeAdd"},
+                      "arguments": [
+                        {"op":"var","name":"end"},
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                          "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"1"}]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "variant",
+            "constructor": "Some",
+            "payload": {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "cap",
+                  "value": {
+                    "op": "match",
+                    "value": {"op":"call","callee":{"op":"symbol","ref":"machine:ParseU32"},"arguments":[{"op":"var","name":"name"}]},
+                    "cases": [
+                      {
+                        "constructor": "Ok",
+                        "binding": "number",
+                        "body": {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"local:RefFromNumber"},
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"machine:U32AsUsize"},
+                              "arguments": [{"op":"var","name":"number"}]
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "constructor": "Err",
+                        "binding": "invalidNumber",
+                        "body": {"op":"call","callee":{"op":"symbol","ref":"local:RefFromName"},"arguments":[{"op":"var","name":"name"}]}
+                      }
+                    ]
+                  }
+                },
+                {"name":"end","value":{"op":"var","name":"end"}}
+              ]
+            }
+          }
+        }
+      }
+    },
+    "AppendCapture": {
+      "core:function": {
+        "typeParams": [
+          {"name":"replacementRegion","kind":"Region"},
+          {"name":"destinationRegion","kind":"Region"},
+          {"name":"appendEnvironment","kind":"Region"},
+          {"name":"nameEnvironment","kind":"Region"},
+          {"name":"Fx","kind":"EffectRow"}
+        ],
+        "parameters": [
+          {
+            "name": "capture",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"local:CaptureReference"},
+              "arguments": [{"region":{"parameter":"replacementRegion"}}]
+            }
+          },
+          {
+            "name": "append",
+            "type": {
+              "tag": "function",
+              "typeParams": [{"name":"writeRegion","kind":"Region"}],
+              "params": [
+                {"tag":"nominal","ref":"machine:Usize"},
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:BorrowMut"},
+                  "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]
+                }
+              ],
+              "returns": {"tag":"scalar","name":"unit"},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "exclusive",
+              "captures": [{"region":{"parameter":"appendEnvironment"}}],
+              "parameterContracts": [{"position":1,"retention":"noescape"}]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "nameToIndex",
+            "type": {
+              "tag": "function",
+              "typeParams": [{"name":"nameRegion","kind":"Region"}],
+              "params": [
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:Borrow"},
+                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
+                }
+              ],
+              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "exclusive",
+              "captures": [{"region":{"parameter":"nameEnvironment"}}],
+              "parameterContracts": [{"position":0,"retention":"noescape"}]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "destination",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:BorrowMut"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"destinationRegion"}}]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {"tag":"scalar","name":"unit"},
+        "parameterContracts": [
+          {"position":0,"retention":"noescape"},
+          {"position":1,"retention":"noescape"},
+          {"position":2,"retention":"noescape"},
+          {"position":3,"retention":"noescape"}
+        ],
+        "body": {
+          "op": "match",
+          "value": {"op":"var","name":"capture"},
+          "cases": [
+            {
+              "constructor": "Number",
+              "binding": "index",
+              "body": {
+                "op": "call",
+                "callee": {"op":"var","name":"append"},
+                "arguments": [{"op":"var","name":"index"},{"op":"var","name":"destination"}]
+              }
+            },
+            {
+              "constructor": "Named",
+              "binding": "name",
+              "body": {
+                "op": "match",
+                "value": {"op":"call","callee":{"op":"var","name":"nameToIndex"},"arguments":[{"op":"var","name":"name"}]},
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "missing",
+                    "body": {"op":"literal","type":{"tag":"scalar","name":"unit"},"value":null}
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "index",
+                    "body": {
+                      "op": "call",
+                      "callee": {"op":"var","name":"append"},
+                      "arguments": [{"op":"var","name":"index"},{"op":"var","name":"destination"}]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "InterpolateFound": {
+      "core:function": {
+        "typeParams": [
+          {"name":"replacementRegion","kind":"Region"},
+          {"name":"destinationRegion","kind":"Region"},
+          {"name":"appendEnvironment","kind":"Region"},
+          {"name":"nameEnvironment","kind":"Region"},
+          {"name":"Fx","kind":"EffectRow"}
+        ],
+        "parameters": [
+          {
+            "name": "remaining",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"replacementRegion"}}]
+            },
+            "mode": "borrow"
+          },
+          {"name":"index","type":{"tag":"nominal","ref":"machine:Usize"}},
+          {
+            "name": "append",
+            "type": {
+              "tag": "function",
+              "typeParams": [{"name":"writeRegion","kind":"Region"}],
+              "params": [
+                {"tag":"nominal","ref":"machine:Usize"},
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:BorrowMut"},
+                  "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]
+                }
+              ],
+              "returns": {"tag":"scalar","name":"unit"},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "exclusive",
+              "captures": [{"region":{"parameter":"appendEnvironment"}}],
+              "parameterContracts": [{"position":1,"retention":"noescape"}]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "nameToIndex",
+            "type": {
+              "tag": "function",
+              "typeParams": [{"name":"nameRegion","kind":"Region"}],
+              "params": [
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:Borrow"},
+                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
+                }
+              ],
+              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "exclusive",
+              "captures": [{"region":{"parameter":"nameEnvironment"}}],
+              "parameterContracts": [{"position":0,"retention":"noescape"}]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "destination",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:BorrowMut"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"destinationRegion"}}]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {"decl":"local:InterpolationStep"},
+          "arguments": [{"region":{"parameter":"replacementRegion"}}]
+        },
+        "parameterContracts": [{"position":2,"retention":"noescape"},{"position":3,"retention":"noescape"},{"position":4,"retention":"noescape"}],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:ByteVectorExtend"},
+                "arguments": [
+                  {"op":"var","name":"destination"},
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:ByteSliceRange"},
+                    "arguments": [
+                      {"op":"var","name":"remaining"},
+                      {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                        "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"0"}]
+                      },
+                      {"op":"var","name":"index"}
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "let",
+              "name": "rest",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:ByteSliceRange"},
+                "arguments": [
+                  {"op":"var","name":"remaining"},
+                  {"op":"var","name":"index"},
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:ByteSliceLength"},
+                    "arguments": [{"op":"var","name":"remaining"}]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:ByteEqualsAt"},
+                "arguments": [
+                  {"op":"var","name":"rest"},
+                  {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                    "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"1"}]
+                  },
+                  {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"36"}
+                ]
+              },
+              "then": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:ByteVectorPush"},
+                      "arguments": [
+                        {"op":"var","name":"destination"},
+                        {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"36"}
+                      ]
+                    }
+                  },
+                  {
+                    "op": "return",
+                    "value": {
+                      "op": "record",
+                      "fields": [
+                        {"name":"done","value":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}},
+                        {
+                          "name": "remaining",
+                          "value": {
+                            "op": "call",
+                            "callee": {"op":"symbol","ref":"machine:ByteSliceRange"},
+                            "arguments": [
+                              {"op":"var","name":"rest"},
+                              {
+                                "op": "call",
+                                "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                                "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"2"}]
+                              },
+                              {
+                                "op": "call",
+                                "callee": {"op":"symbol","ref":"machine:ByteSliceLength"},
+                                "arguments": [{"op":"var","name":"rest"}]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "match",
+            "value": {"op":"call","callee":{"op":"symbol","ref":"local:FindCaptureRef"},"arguments":[{"op":"var","name":"rest"}]},
+            "cases": [
+              {
+                "constructor": "None",
+                "binding": "invalid",
+                "body": {
+                  "op": "do",
+                  "steps": [
+                    {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:ByteVectorPush"},
+                      "arguments": [
+                        {"op":"var","name":"destination"},
+                        {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"36"}
+                      ]
+                    }
+                  ],
+                  "result": {
+                    "op": "record",
+                    "fields": [
+                      {"name":"done","value":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}},
+                      {
+                        "name": "remaining",
+                        "value": {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"machine:ByteSliceRange"},
+                          "arguments": [
+                            {"op":"var","name":"rest"},
+                            {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                              "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"1"}]
+                            },
+                            {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"machine:ByteSliceLength"},
+                              "arguments": [{"op":"var","name":"rest"}]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "constructor": "Some",
+                "binding": "capture",
+                "body": {
+                  "op": "let",
+                  "name": "next",
+                  "value": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"machine:ByteSliceRange"},
+                    "arguments": [
+                      {"op":"var","name":"rest"},
+                      {"op":"field","record":{"op":"var","name":"capture"},"name":"end"},
+                      {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"machine:ByteSliceLength"},
+                        "arguments": [{"op":"var","name":"rest"}]
+                      }
+                    ]
+                  },
+                  "body": {
+                    "op": "do",
+                    "steps": [
+                      {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:AppendCapture"},
+                        "arguments": [
+                          {"op":"field","record":{"op":"var","name":"capture"},"name":"cap"},
+                          {"op":"var","name":"append"},
+                          {"op":"var","name":"nameToIndex"},
+                          {"op":"var","name":"destination"}
+                        ]
+                      }
+                    ],
+                    "result": {
+                      "op": "record",
+                      "fields": [
+                        {"name":"done","value":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}},
+                        {"name":"remaining","value":{"op":"var","name":"next"}}
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "Interpolate": {
+      "core:function": {
+        "typeParams": [
+          {"name":"replacementRegion","kind":"Region"},
+          {"name":"destinationRegion","kind":"Region"},
+          {"name":"appendEnvironment","kind":"Region"},
+          {"name":"nameEnvironment","kind":"Region"},
+          {"name":"Fx","kind":"EffectRow"}
+        ],
+        "parameters": [
+          {
+            "name": "replacement",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:Borrow"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteSlice"},{"region":{"parameter":"replacementRegion"}}]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "append",
+            "type": {
+              "tag": "function",
+              "typeParams": [{"name":"writeRegion","kind":"Region"}],
+              "params": [
+                {"tag":"nominal","ref":"machine:Usize"},
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:BorrowMut"},
+                  "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]
+                }
+              ],
+              "returns": {"tag":"scalar","name":"unit"},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "exclusive",
+              "captures": [{"region":{"parameter":"appendEnvironment"}}],
+              "parameterContracts": [{"position":1,"retention":"noescape"}]
+            },
+            "mode": "move"
+          },
+          {
+            "name": "nameToIndex",
+            "type": {
+              "tag": "function",
+              "typeParams": [{"name":"nameRegion","kind":"Region"}],
+              "params": [
+                {
+                  "tag": "apply",
+                  "constructor": {"decl":"machine:Borrow"},
+                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
+                }
+              ],
+              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
+              "effects": {"members":[],"tail":{"parameter":"Fx"}},
+              "callMode": "exclusive",
+              "captures": [{"region":{"parameter":"nameEnvironment"}}],
+              "parameterContracts": [{"position":0,"retention":"noescape"}]
+            },
+            "mode": "move"
+          },
+          {
+            "name": "destination",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:BorrowMut"},
+              "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"destinationRegion"}}]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {"tag":"scalar","name":"unit"},
+        "parameterContracts": [
+          {"position":0,"retention":"noescape"},
+          {"position":1,"retention":"noescape"},
+          {"position":2,"retention":"noescape"},
+          {"position":3,"retention":"noescape"}
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {"op":"var","name":"remaining","value":{"op":"var","name":"replacement"}},
+            {"op":"var","name":"scanning","value":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true}},
+            {
+              "op": "while",
+              "condition": {
+                "op": "if",
+                "condition": {"op":"var","name":"scanning"},
+                "then": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"std:BoolNot"},
+                  "arguments": [
+                    {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"machine:UsizeEqual"},
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"machine:ByteSliceLength"},
+                          "arguments": [{"op":"var","name":"remaining"}]
+                        },
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                          "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"0"}]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}
+              },
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "step",
+                    "value": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"memchr:Memchr"},
+                        "arguments": [
+                          {"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"36"},
+                          {"op":"var","name":"remaining"}
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "None",
+                          "binding": "noDollar",
+                          "body": {
+                            "op": "record",
+                            "fields": [
+                              {"name":"done","value":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true}},
+                              {"name":"remaining","value":{"op":"var","name":"remaining"}}
+                            ]
+                          }
+                        },
+                        {
+                          "constructor": "Some",
+                          "binding": "index",
+                          "body": {
+                            "op": "call",
+                            "callee": {"op":"symbol","ref":"local:InterpolateFound"},
+                            "arguments": [
+                              {"op":"var","name":"remaining"},
+                              {"op":"var","name":"index"},
+                              {"op":"var","name":"append"},
+                              {"op":"var","name":"nameToIndex"},
+                              {"op":"var","name":"destination"}
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {"op":"set","name":"remaining","value":{"op":"field","record":{"op":"var","name":"step"},"name":"remaining"}},
+                  {
+                    "op": "set",
+                    "name": "scanning",
+                    "value": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"std:BoolNot"},
+                      "arguments": [{"op":"field","record":{"op":"var","name":"step"},"name":"done"}]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:ByteVectorExtend"},
+                "arguments": [{"op":"var","name":"destination"},{"op":"var","name":"remaining"}]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": ["Interpolate"]
+}

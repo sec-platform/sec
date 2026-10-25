@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:first-layer-trait-body",
+  "title": "Qualified trait declaration, implementation, projection and method selection",
+  "$comment": "Semantic owner: docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile. The existing extension:definition boundary validates this payload through its exact bodySchemaRef and bindingRef. The complete candidate graph rebinds every shared Type, Expr, Param and TypeParam reference. Shape does not establish a qualified trait binding, coherence, type equality or target implementation.",
+  "oneOf": [
+    {"$ref": "#/$defs/Declaration"},
+    {"$ref": "#/$defs/Implementation"}
+  ],
+  "$defs": {
+    "TraitBound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traitRef", "selfType"],
+      "properties": {
+        "traitRef": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"},
+        "selfType": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"},
+        "traitArguments": {"$ref": "#/$defs/Arguments"},
+        "associatedTypes": {"$ref": "#/$defs/TypeMap"}
+      },
+      "description": "A required trait instance with optional associated-type equalities. Omitted traitArguments is empty, not a second inference protocol. Member names, bounds and equalities are checked against the resolved declaration in the complete generic environment."
+    },
+    "Arguments": {
+      "type": "array",
+      "items": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/SemanticArgument"}
+    },
+    "Bounds": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/TraitBound"}
+    },
+    "TypeParameters": {
+      "type": "array",
+      "items": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/TypeParam"}
+    },
+    "TypeMap": {
+      "type": "object",
+      "propertyNames": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"},
+      "additionalProperties": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"}
+    },
+    "AssociatedProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "traitRef", "selfType", "member"],
+      "properties": {
+        "tag": {"const": "associated"},
+        "traitRef": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"},
+        "selfType": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"},
+        "traitArguments": {"$ref": "#/$defs/Arguments"},
+        "member": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"}
+      },
+      "description": "A type projection keyed by the qualified trait, Self, complete trait arguments and declared member. It remains symbolic under a bound, and reduces only through its qualified unique witness or an established equality."
+    },
+    "MethodSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "traitRef", "selfType", "method"],
+      "properties": {
+        "op": {"const": "trait-method"},
+        "traitRef": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"},
+        "selfType": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"},
+        "traitArguments": {"$ref": "#/$defs/Arguments"},
+        "method": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"}
+      },
+      "description": "A callable method selected from a qualified witness. It does not evaluate or capture a receiver. Expr.call supplies all runtime parameters, including any explicit receiver, and the method-level semanticArguments. No implicit Result, perform, IO, copying or effect permission is added."
+    },
+    "Method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameters", "returns", "effects"],
+      "properties": {
+        "typeParams": {"$ref": "#/$defs/TypeParameters"},
+        "receiver": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"},
+        "parameters": {
+          "type": "array",
+          "items": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Param"}
+        },
+        "returns": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"},
+        "effects": {
+          "oneOf": [
+            {"type": "array", "items": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Effect"}},
+            {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/EffectRow"}
+          ]
+        },
+        "contract": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Contract"},
+        "callMode": {"enum": ["shared", "exclusive", "consume"]},
+        "parameterContracts": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ParameterContracts"},
+        "captures": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Captures"},
+        "termination": {"enum": ["total", "partial", "assumed-total"]},
+        "defaultBody": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ExecBody"}
+      },
+      "description": "The common function boundary with an explicit public effect bound and an optional default body. receiver, when present, names the first parameter; absence denotes a static associated function. Its Type and Param.mode, not callMode, determine receiver ownership. Method type parameters use the existing hygienic call-instantiation rules."
+    },
+    "Declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "selfParameter", "associatedTypes", "methods"],
+      "properties": {
+        "kind": {"const": "trait"},
+        "selfParameter": {
+          "allOf": [
+            {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/TypeParam"},
+            {"properties": {"kind": {"const": "Type"}, "binding": {"const": "argument"}}}
+          ]
+        },
+        "typeParams": {"$ref": "#/$defs/TypeParameters"},
+        "superTraits": {"$ref": "#/$defs/Bounds"},
+        "associatedTypes": {
+          "type": "object",
+          "propertyNames": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"bounds": {"$ref": "#/$defs/Bounds"}}
+          }
+        },
+        "methods": {
+          "type": "object",
+          "propertyNames": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"},
+          "additionalProperties": {"$ref": "#/$defs/Method"}
+        }
+      },
+      "description": "Defines an open trait with one explicit selfParameter of kind Type, separate from typeParams and bound by selfType rather than traitArguments. Ordinary associated types have no hidden default, member generic parameters, specialization or dynamic-object semantics."
+    },
+    "ImplementationMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameters", "returns", "body"],
+      "properties": {
+        "typeParams": {"$ref": "#/$defs/TypeParameters"},
+        "receiver": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"},
+        "parameters": {
+          "type": "array",
+          "items": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Param"}
+        },
+        "returns": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"},
+        "effects": {
+          "oneOf": [
+            {"type": "array", "items": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Effect"}},
+            {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/EffectRow"}
+          ]
+        },
+        "contract": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Contract"},
+        "callMode": {"enum": ["shared", "exclusive", "consume"]},
+        "parameterContracts": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ParameterContracts"},
+        "captures": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Captures"},
+        "termination": {"enum": ["total", "partial", "assumed-total"]},
+        "body": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ExecBody"}
+      },
+      "description": "An ordinary function body in the implementation's lexical generic environment. Its own method binders are checked up to hygienic renaming against the declaration. Omitted effects are inferred from this complete body and must fit the declared public bound; omission never makes an unknown callee pure. This is not a partial generic function reference or a callback supply."
+    },
+    "Implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "traitRef", "selfType", "associatedTypes", "methods"],
+      "properties": {
+        "kind": {"const": "implementation"},
+        "typeParams": {"$ref": "#/$defs/TypeParameters"},
+        "traitRef": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"},
+        "selfType": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"},
+        "traitArguments": {"$ref": "#/$defs/Arguments"},
+        "bounds": {"$ref": "#/$defs/Bounds"},
+        "associatedTypes": {"$ref": "#/$defs/TypeMap"},
+        "methods": {
+          "type": "object",
+          "propertyNames": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"},
+          "additionalProperties": {"$ref": "#/$defs/ImplementationMethod"}
+        }
+      },
+      "description": "One implementation witness, not a registry or runtime state object. All associated members are defined exactly once; omitted methods select their declared default or are an error. Coherence, ownership, open downstream compatibility and target orphan rules remain mandatory."
+    }
+  }
+}

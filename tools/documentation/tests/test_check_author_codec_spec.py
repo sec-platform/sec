@@ -59,6 +59,24 @@ class AuthorCodecSpec(TestCase):
         # Missing required in the field is deliberately retained for complete
         # Schema rejection. Expansion return alone must not be called decoding.
 
+    def test_opaque_declaration_preserves_representation_boundary(self):
+        source = {'core:type': {'opaque': True, 'visibility': 'public',
+                  'type': {'record': {'start': 'int', 'end': 'int'}, 'open': False}}}
+        expected = {'kind': 'core:type', 'body': {'opaque': True, 'visibility': 'public',
+                    'type': {'tag': 'record', 'fields': {
+                        'start': {'type': {'tag': 'scalar', 'name': 'int'}},
+                        'end': {'type': {'tag': 'scalar', 'name': 'int'}}}, 'open': False}}}
+        self.assertEqual(self.expansion.definition(source), expected)
+        self.assertEqual(self.expansion.definition(expected), expected)
+        for opaque in (False, 'true'):
+            candidate = copy.deepcopy(source)
+            candidate['core:type']['opaque'] = opaque
+            self.assertEqual(self.expansion.definition(candidate)['body']['opaque'], opaque)
+        # A malformed flag is retained for strict Schema rejection, not coerced.
+        transparent = copy.deepcopy(source)
+        del transparent['core:type']['opaque']
+        self.assertNotIn('opaque', self.expansion.definition(transparent)['body'])
+
     def test_exact_branches_stop_recursive_short_expansion(self):
         for value, method in [({'tag': 'option', 'inner': 'bool'}, self.expansion.type),
                               ({'op': 'all', 'items': [{'local:P': {}}]}, self.expansion.formula)]:

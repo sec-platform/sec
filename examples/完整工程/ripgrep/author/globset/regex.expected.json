@@ -1,0 +1,1692 @@
+{
+  "schema": "ripgrep-globset-regex-expected/1",
+  "sourceRevision": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+  "defaultOptions": {
+    "caseInsensitive": false,
+    "literalSeparator": false,
+    "backslashEscape": true,
+    "emptyAlternates": false,
+    "allowUnclosedClass": false,
+    "backslashIsSeparator": false
+  },
+  "cases": [
+    {
+      "id": "empty",
+      "function": "RenderRegex",
+      "pattern": "",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "casei",
+      "function": "RenderRegex",
+      "pattern": "a",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)(?i)^a$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "slash-any",
+      "function": "RenderRegex",
+      "pattern": "?",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[^/]$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "slash-star",
+      "function": "RenderRegex",
+      "pattern": "*",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[^/]*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-1",
+      "function": "RenderRegex",
+      "pattern": "a",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-2",
+      "function": "RenderRegex",
+      "pattern": "?",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-3",
+      "function": "RenderRegex",
+      "pattern": "*",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-4",
+      "function": "RenderRegex",
+      "pattern": "a?",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a.$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-5",
+      "function": "RenderRegex",
+      "pattern": "?a",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.a$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-6",
+      "function": "RenderRegex",
+      "pattern": "a*",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-7",
+      "function": "RenderRegex",
+      "pattern": "*a",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*a$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-8",
+      "function": "RenderRegex",
+      "pattern": "[*]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[\\*]$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-9",
+      "function": "RenderRegex",
+      "pattern": "[+]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[\\+]$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-10",
+      "function": "RenderRegex",
+      "pattern": "+",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^\\+$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-11",
+      "function": "RenderRegex",
+      "pattern": "☃",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^\\xe2\\x98\\x83$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-12",
+      "function": "RenderRegex",
+      "pattern": "**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-13",
+      "function": "RenderRegex",
+      "pattern": "**/",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-14",
+      "function": "RenderRegex",
+      "pattern": "**/*",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:/?|.*/).*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-15",
+      "function": "RenderRegex",
+      "pattern": "**/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-16",
+      "function": "RenderRegex",
+      "pattern": "**/**/*",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:/?|.*/).*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-17",
+      "function": "RenderRegex",
+      "pattern": "**/**/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-18",
+      "function": "RenderRegex",
+      "pattern": "**/**/**/*",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:/?|.*/).*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-19",
+      "function": "RenderRegex",
+      "pattern": "a/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a/.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-20",
+      "function": "RenderRegex",
+      "pattern": "a/**/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a/.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-21",
+      "function": "RenderRegex",
+      "pattern": "a/**/**/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a/.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-22",
+      "function": "RenderRegex",
+      "pattern": "a/**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a(?:/|/.*/)b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-23",
+      "function": "RenderRegex",
+      "pattern": "a/**/**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a(?:/|/.*/)b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-24",
+      "function": "RenderRegex",
+      "pattern": "a/**/**/**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a(?:/|/.*/)b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-25",
+      "function": "RenderRegex",
+      "pattern": "**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:/?|.*/)b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-26",
+      "function": "RenderRegex",
+      "pattern": "**/**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:/?|.*/)b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-27",
+      "function": "RenderRegex",
+      "pattern": "**/**/**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:/?|.*/)b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-28",
+      "function": "RenderRegex",
+      "pattern": "a**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a.*.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-29",
+      "function": "RenderRegex",
+      "pattern": "**a",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*.*a$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-30",
+      "function": "RenderRegex",
+      "pattern": "a**b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^a.*.*b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-31",
+      "function": "RenderRegex",
+      "pattern": "***",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^.*.*.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-32",
+      "function": "RenderRegex",
+      "pattern": "/a**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^/a.*.*$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-33",
+      "function": "RenderRegex",
+      "pattern": "/**a",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^/.*.*a$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-34",
+      "function": "RenderRegex",
+      "pattern": "/a**b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^/a.*.*b$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-35",
+      "function": "RenderRegex",
+      "pattern": "{a,b}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:a|b)$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-36",
+      "function": "RenderRegex",
+      "pattern": "{a,{b,c}}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:a|(?:b|c))$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "upstream-re-37",
+      "function": "RenderRegex",
+      "pattern": "{{a,b},{c,d}}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:(?:a|b)|(?:c|d))$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "empty-alt-removed",
+      "function": "RenderRegex",
+      "pattern": "foo{,.txt}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^foo(?:\\.txt)$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "empty-alt-kept",
+      "function": "RenderRegex",
+      "pattern": "foo{,.txt}",
+      "options": {
+        "emptyAlternates": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^foo(?:|\\.txt)$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "all-empty-removed",
+      "function": "RenderRegex",
+      "pattern": "{,}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "all-empty-kept",
+      "function": "RenderRegex",
+      "pattern": "{,}",
+      "options": {
+        "emptyAlternates": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:|)$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "nested-empty-removed",
+      "function": "RenderRegex",
+      "pattern": "{{},a}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:a)$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "nested-empty-kept",
+      "function": "RenderRegex",
+      "pattern": "{{},a}",
+      "options": {
+        "emptyAlternates": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:(?:)|a)$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "prefix-special-not-in-alt",
+      "function": "RenderRegex",
+      "pattern": "{**/,a}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:(?:/?|.*/)|a)$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "unclosed-rollback",
+      "function": "RenderRegex",
+      "pattern": "{[abc,[xyz}",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^(?:\\[abc|\\[xyz)$"
+      },
+      "source": "fixed glob.rs toregex! expectation including the (?−u) prefix used by production"
+    },
+    {
+      "id": "negated-range",
+      "function": "RenderRegex",
+      "pattern": "[^a-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[^a-z]$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "unicode-fourbytes",
+      "function": "RenderRegex",
+      "pattern": "😀",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^\\xf0\\x9f\\x98\\x80$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "unicode-range-original-byte-contract",
+      "function": "RenderRegex",
+      "pattern": "[☃-★]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[\\xe2\\x98\\x83-\\xe2\\x98\\x85]$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "trailing-class-dash",
+      "function": "RenderRegex",
+      "pattern": "[a-]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[a\\-]$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "class-initial-close",
+      "function": "RenderRegex",
+      "pattern": "[]]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": "(?-u)^[\\]]$"
+      },
+      "source": "independent expectation derived from fixed P source"
+    },
+    {
+      "id": "literal-54",
+      "function": "Literal",
+      "pattern": "foo",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          102,
+          111,
+          111
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "literal-55",
+      "function": "Literal",
+      "pattern": "/foo",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          47,
+          102,
+          111,
+          111
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "literal-56",
+      "function": "Literal",
+      "pattern": "/foo/",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          47,
+          102,
+          111,
+          111,
+          47
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "literal-57",
+      "function": "Literal",
+      "pattern": "foo/bar",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          102,
+          111,
+          111,
+          47,
+          98,
+          97,
+          114
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "literal-58",
+      "function": "Literal",
+      "pattern": "*.foo",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "literal-59",
+      "function": "Literal",
+      "pattern": "**/foo/bar",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "literal-60",
+      "function": "Literal",
+      "pattern": "",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "literal-casei",
+      "function": "Literal",
+      "pattern": "foo",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-62",
+      "function": "Extension",
+      "pattern": "**/*.rs",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-63",
+      "function": "Extension",
+      "pattern": "**/*.rs.bak",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-64",
+      "function": "Extension",
+      "pattern": "*.rs",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-65",
+      "function": "Extension",
+      "pattern": "a*.rs",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-66",
+      "function": "Extension",
+      "pattern": "/*.c",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-67",
+      "function": "Extension",
+      "pattern": "*.",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-literal-separator",
+      "function": "Extension",
+      "pattern": "*.c",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "extension-recursive-literal-separator",
+      "function": "Extension",
+      "pattern": "**/*.c",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46,
+          99
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-70",
+      "function": "RequiredExtension",
+      "pattern": "*.rs",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-71",
+      "function": "RequiredExtension",
+      "pattern": "/foo/bar/*.rs",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-72",
+      "function": "RequiredExtension",
+      "pattern": "/foo/bar/.rs",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-73",
+      "function": "RequiredExtension",
+      "pattern": ".rs",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-74",
+      "function": "RequiredExtension",
+      "pattern": "./rs",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-75",
+      "function": "RequiredExtension",
+      "pattern": "foo",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-76",
+      "function": "RequiredExtension",
+      "pattern": ".foo/",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-77",
+      "function": "RequiredExtension",
+      "pattern": "foo/",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "required-extension-78",
+      "function": "RequiredExtension",
+      "pattern": "foo.",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          46
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-79",
+      "function": "Prefix",
+      "pattern": "/foo",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          47,
+          102,
+          111,
+          111
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-80",
+      "function": "Prefix",
+      "pattern": "/foo/*",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          47,
+          102,
+          111,
+          111,
+          47
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-81",
+      "function": "Prefix",
+      "pattern": "**/foo",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-82",
+      "function": "Prefix",
+      "pattern": "foo/**",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          102,
+          111,
+          111,
+          47
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-83",
+      "function": "Prefix",
+      "pattern": "/**",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          47
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-84",
+      "function": "Prefix",
+      "pattern": "*",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-85",
+      "function": "Prefix",
+      "pattern": "",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "prefix-literal-separator",
+      "function": "Prefix",
+      "pattern": "foo/*",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-87",
+      "function": "Suffix",
+      "pattern": "**/foo/bar",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": {
+          "suffix": [
+            47,
+            102,
+            111,
+            111,
+            47,
+            98,
+            97,
+            114
+          ],
+          "component": true
+        }
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-88",
+      "function": "Suffix",
+      "pattern": "*/foo/bar",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": {
+          "suffix": [
+            47,
+            102,
+            111,
+            111,
+            47,
+            98,
+            97,
+            114
+          ],
+          "component": false
+        }
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-89",
+      "function": "Suffix",
+      "pattern": "foo/bar",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": {
+          "suffix": [
+            102,
+            111,
+            111,
+            47,
+            98,
+            97,
+            114
+          ],
+          "component": false
+        }
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-90",
+      "function": "Suffix",
+      "pattern": "*.foo",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": {
+          "suffix": [
+            46,
+            102,
+            111,
+            111
+          ],
+          "component": false
+        }
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-91",
+      "function": "Suffix",
+      "pattern": "**/*_test",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": {
+          "suffix": [
+            95,
+            116,
+            101,
+            115,
+            116
+          ],
+          "component": false
+        }
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-92",
+      "function": "Suffix",
+      "pattern": "/",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-93",
+      "function": "Suffix",
+      "pattern": "*",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-94",
+      "function": "Suffix",
+      "pattern": "**",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "suffix-literal-separator",
+      "function": "Suffix",
+      "pattern": "*.foo",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "basename-96",
+      "function": "BasenameLiteral",
+      "pattern": "**/foo",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          102,
+          111,
+          111
+        ]
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "basename-97",
+      "function": "BasenameLiteral",
+      "pattern": "foo",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "basename-98",
+      "function": "BasenameLiteral",
+      "pattern": "*foo",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "basename-99",
+      "function": "BasenameLiteral",
+      "pattern": "*/foo",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "basename-100",
+      "function": "BasenameLiteral",
+      "pattern": "**/foo/bar",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "basename-101",
+      "function": "BasenameLiteral",
+      "pattern": "**/fo?o",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "basename-casei",
+      "function": "BasenameLiteral",
+      "pattern": "**/foo",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "strategy-basename-first",
+      "function": "ChooseStrategy",
+      "pattern": "**/foo",
+      "options": {},
+      "expected": {
+        "constructor": "BasenameLiteral",
+        "payload": [
+          102,
+          111,
+          111
+        ]
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-literal-before-prefix",
+      "function": "ChooseStrategy",
+      "pattern": "foo",
+      "options": {},
+      "expected": {
+        "constructor": "Literal",
+        "payload": [
+          102,
+          111,
+          111
+        ]
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-extension",
+      "function": "ChooseStrategy",
+      "pattern": "**/*.rs",
+      "options": {},
+      "expected": {
+        "constructor": "Extension",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-prefix",
+      "function": "ChooseStrategy",
+      "pattern": "foo/**",
+      "options": {},
+      "expected": {
+        "constructor": "Prefix",
+        "payload": [
+          102,
+          111,
+          111,
+          47
+        ]
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-suffix",
+      "function": "ChooseStrategy",
+      "pattern": "*foo",
+      "options": {},
+      "expected": {
+        "constructor": "Suffix",
+        "payload": {
+          "suffix": [
+            102,
+            111,
+            111
+          ],
+          "component": false
+        }
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-required-ext",
+      "function": "ChooseStrategy",
+      "pattern": "a?*.rs",
+      "options": {},
+      "expected": {
+        "constructor": "RequiredExtension",
+        "payload": [
+          46,
+          114,
+          115
+        ]
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-regex-casei",
+      "function": "ChooseStrategy",
+      "pattern": "foo",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "Regex",
+        "payload": null
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-regex-any",
+      "function": "ChooseStrategy",
+      "pattern": "?",
+      "options": {},
+      "expected": {
+        "constructor": "Regex",
+        "payload": null
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "strategy-empty",
+      "function": "ChooseStrategy",
+      "pattern": "",
+      "options": {},
+      "expected": {
+        "constructor": "Regex",
+        "payload": null
+      },
+      "source": "independent ordered strategy selection expectation"
+    },
+    {
+      "id": "casei-disables-Extension",
+      "function": "Extension",
+      "pattern": "**/foo.rs",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "casei-disables-RequiredExtension",
+      "function": "RequiredExtension",
+      "pattern": "**/foo.rs",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "casei-disables-Prefix",
+      "function": "Prefix",
+      "pattern": "**/foo.rs",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "casei-disables-Suffix",
+      "function": "Suffix",
+      "pattern": "**/foo.rs",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "casei-disables-BasenameTokens",
+      "function": "BasenameTokens",
+      "pattern": "**/foo.rs",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "casei-disables-BasenameLiteral",
+      "function": "BasenameLiteral",
+      "pattern": "**/foo.rs",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs extract! expectation or independently stated decision boundary"
+    },
+    {
+      "id": "compile-invalid-scalar",
+      "function": "CompileScalars",
+      "inputScalars": [
+        55296
+      ],
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "constructor": "Parse",
+          "payload": {
+            "glob": [
+              55296
+            ],
+            "kind": {
+              "constructor": "InvalidScalar",
+              "payload": 55296
+            }
+          }
+        }
+      },
+      "source": "explicit input admission before encoding"
+    },
+    {
+      "id": "escape-invalid-byte-low",
+      "function": "EscapeByte",
+      "rawArguments": [
+        -1
+      ],
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "constructor": "InvalidAscii",
+          "payload": -1
+        }
+      },
+      "source": "shared conversion error propagated without fallback"
+    },
+    {
+      "id": "escape-invalid-byte-high",
+      "function": "EscapeByte",
+      "rawArguments": [
+        256
+      ],
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "constructor": "InvalidByte",
+          "payload": 256
+        }
+      },
+      "source": "shared conversion error propagated without fallback"
+    },
+    {
+      "id": "basename-tokens-literal",
+      "function": "BasenameTokens",
+      "pattern": "**/foo",
+      "options": {},
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 102
+          },
+          {
+            "constructor": "Literal",
+            "payload": 111
+          },
+          {
+            "constructor": "Literal",
+            "payload": 111
+          }
+        ]
+      },
+      "source": "fixed glob.rs basetokens! extract_basetoks1..7"
+    },
+    {
+      "id": "basename-tokens-literal-casei",
+      "function": "BasenameTokens",
+      "pattern": "**/foo",
+      "options": {
+        "caseInsensitive": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs basetokens! extract_basetoks1..7"
+    },
+    {
+      "id": "basename-tokens-literal-literal-separator",
+      "function": "BasenameTokens",
+      "pattern": "**/foo",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 102
+          },
+          {
+            "constructor": "Literal",
+            "payload": 111
+          },
+          {
+            "constructor": "Literal",
+            "payload": 111
+          }
+        ]
+      },
+      "source": "fixed glob.rs basetokens! extract_basetoks1..7"
+    },
+    {
+      "id": "basename-tokens-no-recursive-literal-separator",
+      "function": "BasenameTokens",
+      "pattern": "*foo",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs basetokens! extract_basetoks1..7"
+    },
+    {
+      "id": "basename-tokens-no-recursive",
+      "function": "BasenameTokens",
+      "pattern": "*foo",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs basetokens! extract_basetoks1..7"
+    },
+    {
+      "id": "basename-tokens-cross-separator-star",
+      "function": "BasenameTokens",
+      "pattern": "**/fo*o",
+      "options": {},
+      "expected": {
+        "constructor": "None",
+        "payload": null
+      },
+      "source": "fixed glob.rs basetokens! extract_basetoks1..7"
+    },
+    {
+      "id": "basename-tokens-contained-star",
+      "function": "BasenameTokens",
+      "pattern": "**/fo*o",
+      "options": {
+        "literalSeparator": true
+      },
+      "expected": {
+        "constructor": "Some",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 102
+          },
+          {
+            "constructor": "Literal",
+            "payload": 111
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 111
+          }
+        ]
+      },
+      "source": "fixed glob.rs basetokens! extract_basetoks1..7"
+    }
+  ]
+}

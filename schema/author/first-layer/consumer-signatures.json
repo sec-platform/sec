@@ -87,6 +87,27 @@
           "resultRole": "original Claim/Requirement relation with exact residuals; no new public consumer"
         }
       }
+    },
+    "InterpretTrait": {
+      "input": "A payload admitted by trait-body.schema.json in the exact complete candidate Type/Expr/TypeParam graph, with resolved dialect binding and lexical declarations.",
+      "result": "An existing typed trait declaration or implementation witness with associated projections, method signatures/bodies and qualified obligations. Never runtime authority or program equivalence.",
+      "owner": "../../../docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile",
+      "effects": "pure interpretation and checking; method effects remain their declared bounds and require separately admitted execution",
+      "implementation": "NOT_IMPLEMENTED",
+      "requiredResolvedDependencies": [
+        "exact candidate Schema closure and trait body interpretation",
+        "self, trait and method binders with shared kind and substitution rules",
+        "real referenced declarations, supertraits and trait bounds",
+        "qualified coherence scope, associated-type equalities and method bodies",
+        "selected witness and target/open-export constraints when demanded"
+      ],
+      "doesNotReturn": [
+        "installed interpreter",
+        "permission",
+        "runtime dispatch proof",
+        "open Rust API qualification",
+        "product PASS"
+      ]
     }
   }
 }

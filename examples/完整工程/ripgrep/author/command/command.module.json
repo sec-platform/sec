@@ -1,0 +1,1043 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:core:command",
+  "imports": {
+    "flags": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:flags"
+    },
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "errors": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:errors"
+    },
+    "messages": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:messages"
+    },
+    "sessions": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:sessions"
+    },
+    "information": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:command:information"
+    },
+    "listing": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:command:types"
+    }
+  },
+  "definitions": {
+    "Main": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:Byte"
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "let",
+              "name": "parsed",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "flags:Parse"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "op": "let",
+              "name": "outcome",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:Run"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "parsed"
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "match",
+            "value": {
+              "op": "var",
+              "name": "outcome"
+            },
+            "cases": [
+              {
+                "constructor": "Ok",
+                "binding": "status",
+                "body": {
+                  "op": "var",
+                  "name": "status"
+                }
+              },
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:MainError"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "error"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "MainError": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "errors:Error"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:Byte"
+        },
+        "body": {
+          "op": "let",
+          "name": "brokenPipe",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "errors:WithChain"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "error"
+              },
+              {
+                "op": "lambda",
+                "params": [
+                  {
+                    "name": "cursor",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "errors:ChainCursor"
+                      },
+                      "arguments": [
+                        {
+                          "region": {
+                            "parameter": "r"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:ScanBrokenPipe"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "cursor"
+                    }
+                  ]
+                },
+                "typeParams": [
+                  {
+                    "name": "r",
+                    "kind": "Region",
+                    "binding": "argument"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ]
+              }
+            ]
+          },
+          "body": {
+            "op": "if",
+            "condition": {
+              "op": "var",
+              "name": "brokenPipe"
+            },
+            "then": {
+              "op": "symbol",
+              "ref": "machine:ByteZero"
+            },
+            "otherwise": {
+              "op": "do",
+              "steps": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "messages:EprintlnErrorLocked"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "error"
+                    }
+                  ]
+                }
+              ],
+              "result": {
+                "op": "symbol",
+                "ref": "machine:ByteTwo"
+              }
+            }
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "ScanBrokenPipe": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "cursor",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "errors:ChainCursor"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "errors:NextCause"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "cursor"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "noCause",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "cause",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "errors:CauseIsIoBrokenPipe"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "cause"
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  },
+                  "value": true
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:ScanBrokenPipe"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "cursor"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Run": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "parsed",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:ParseResultHiArgs"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "parsed"
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Special",
+              "binding": "mode",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "information:Special"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "mode"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "args",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:RunArgs"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "RunArgs": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "args",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:HiArgs"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "flags:HiArgsMode"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "args"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Search",
+              "binding": "mode",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:RunSearch"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "args"
+                  },
+                  {
+                    "op": "var",
+                    "name": "mode"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Files",
+              "binding": "filesUnit",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:RunFiles"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Types",
+              "binding": "typesUnit",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "listing:Types"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Generate",
+              "binding": "mode",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "information:Generate"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "mode"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "RunSearch": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "args",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:HiArgs"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "mode",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:SearchMode"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "outcome",
+          "value": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "flags:MatchesPossible"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "args"
+                }
+              ]
+            },
+            "then": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeEqual"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "flags:Threads"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "args"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "machine:UsizeOne"
+                  }
+                ]
+              },
+              "then": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "sessions:Search"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "args"
+                  },
+                  {
+                    "op": "var",
+                    "name": "mode"
+                  }
+                ]
+              },
+              "otherwise": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "sessions:SearchParallel"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "args"
+                  },
+                  {
+                    "op": "var",
+                    "name": "mode"
+                  }
+                ]
+              }
+            },
+            "otherwise": {
+              "op": "variant",
+              "constructor": "Ok",
+              "payload": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            }
+          },
+          "body": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:FinishMatch"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "args"
+              },
+              {
+                "op": "var",
+                "name": "outcome"
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "RunFiles": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "args",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:HiArgs"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "outcome",
+          "value": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:UsizeEqual"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "flags:Threads"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "args"
+                    }
+                  ]
+                },
+                {
+                  "op": "symbol",
+                  "ref": "machine:UsizeOne"
+                }
+              ]
+            },
+            "then": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "sessions:Files"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "args"
+                }
+              ]
+            },
+            "otherwise": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "sessions:FilesParallel"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "args"
+                }
+              ]
+            }
+          },
+          "body": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:FinishMatch"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "args"
+              },
+              {
+                "op": "var",
+                "name": "outcome"
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "FinishMatch": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "args",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:HiArgs"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "outcome",
+            "type": {
+              "tag": "result",
+              "ok": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "error": {
+                "tag": "nominal",
+                "ref": "errors:Error"
+              }
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "outcome"
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "matched",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:ExitForMatched"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "args"
+                    },
+                    {
+                      "op": "var",
+                      "name": "matched"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "ExitForMatched": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "args",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:HiArgs"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "matched",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:Byte"
+        },
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "var",
+            "name": "matched"
+          },
+          "then": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "flags:Quiet"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "args"
+                }
+              ]
+            },
+            "then": {
+              "op": "symbol",
+              "ref": "machine:ByteZero"
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "messages:Errored"
+                },
+                "arguments": []
+              },
+              "then": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ExitWithoutSuccess"
+                },
+                "arguments": []
+              },
+              "otherwise": {
+                "op": "symbol",
+                "ref": "machine:ByteZero"
+              }
+            }
+          },
+          "otherwise": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:ExitWithoutSuccess"
+            },
+            "arguments": []
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "ExitWithoutSuccess": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:Byte"
+        },
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "messages:Errored"
+            },
+            "arguments": []
+          },
+          "then": {
+            "op": "symbol",
+            "ref": "machine:ByteTwo"
+          },
+          "otherwise": {
+            "op": "symbol",
+            "ref": "machine:ByteOne"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Main": {
+      "definitionId": "Main"
+    },
+    "Run": {
+      "definitionId": "Run"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourcePath": "crates/core/main.rs",
+    "sourceRegions": [
+      "main:43-66",
+      "run:77-101"
+    ],
+    "qualification": "Complete local bodies; imports are required future Gift project modules, not native ripgrep implementations. Cross-module type/effect/ownership qualification remains OPEN until their real definitions are integrated.",
+    "effectInference": "Effect fields are omitted deliberately where imported bodies are not yet fixed. Omission requests inference and never grants empty effects or runtime permission."
+  }
+}

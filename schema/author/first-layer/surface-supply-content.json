@@ -4,13 +4,13 @@
   "members": [
     {
       "path": "SEMANTICS.md",
-      "bytes": 84157,
-      "sha256": "a5f391ce5d3407b2611451a046722606ebf1a100d68d68c156ad6bb592290dcd"
+      "bytes": 85530,
+      "sha256": "16af9fa7980b5daf502a4075819829873d3e6c5b27f3bcfd0b99a391ec634077"
     },
     {
       "path": "codec-parameters.json",
-      "bytes": 32183,
-      "sha256": "a9d192cb2467c2873433da4d400db2238aa0a33c69741688106a81f10f6c328c"
+      "bytes": 35484,
+      "sha256": "a0f25f1aac48d8dcd92d3ec00b4a79c09eb9bcf5e0df4b465cc9736329974271"
     },
     {
       "path": "complete-types.schema.json",
@@ -36,7 +36,12 @@
       "path": "surface-inputs.json",
       "bytes": 2187,
       "sha256": "d6dd6a12731f9a67cf849b26c62966f1da068fb15357acc9f7f5b21110fc7104"
+    },
+    {
+      "path": "trait-body.schema.json",
+      "bytes": 9947,
+      "sha256": "d80c2424bb4fd9ac37e15603b5119c8187ead31b0170088f78152db23c443388"
     }
   ],
-  "digest": "sha256:e53e62978d8468e34d59aec4b762dec1df7434ad1842c0347d4d4db757542f4a"
+  "digest": "sha256:5503ad5df48a7dde111cf598ebc8bd75718f6e83a4b37f389186d4046980ecb7"
 }

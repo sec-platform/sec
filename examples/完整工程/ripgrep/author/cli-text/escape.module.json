@@ -1,0 +1,319 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "ripgrep:cli:escape",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:path"
+    },
+    "text": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:text"
+    },
+    "bstr": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:bstr"
+    }
+  },
+  "definitions": {
+    "Escape": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "effects": [],
+        "body": {
+          "op": "let",
+          "name": "escaped",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "bstr:EscapeBytes"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "bytes"
+              }
+            ]
+          },
+          "body": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "bstr:EscapeBytesToText"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "escaped"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "EscapeOs": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "string",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "effects": [],
+        "body": {
+          "op": "let",
+          "name": "bytes",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "bstr:OsStrBytesLossy"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "string"
+              }
+            ]
+          },
+          "body": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Escape"
+            },
+            "arguments": [
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "bstr:CowBytesAsSlice"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "bytes"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "Unescape": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "string",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:Str"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bytes"
+        },
+        "effects": [],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "bstr:UnescapeStr"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "string"
+            }
+          ]
+        }
+      }
+    },
+    "UnescapeOs": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "string",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bytes"
+        },
+        "effects": [],
+        "body": {
+          "op": "let",
+          "name": "text",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:OsStrToStringLossy"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "string"
+              }
+            ]
+          },
+          "body": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Unescape"
+            },
+            "arguments": [
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "text:CowStrAsStr"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "text"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Escape": {
+      "definitionId": "Escape"
+    },
+    "EscapeOs": {
+      "definitionId": "EscapeOs"
+    },
+    "Unescape": {
+      "definitionId": "Unescape"
+    },
+    "UnescapeOs": {
+      "definitionId": "UnescapeOs"
+    }
+  }
+}

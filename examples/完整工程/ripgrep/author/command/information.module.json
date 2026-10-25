@@ -1,0 +1,514 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:core:command:information",
+  "imports": {
+    "flags": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:flags"
+    },
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "errors": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:errors"
+    },
+    "producers": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:information"
+    },
+    "text": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:text"
+    },
+    "output": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:output"
+    },
+    "messages": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:messages"
+    }
+  },
+  "definitions": {
+    "Generate": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "mode",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:GenerateMode"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "output",
+          "value": {
+            "op": "match",
+            "value": {
+              "op": "var",
+              "name": "mode"
+            },
+            "cases": [
+              {
+                "constructor": "Man",
+                "binding": "unitMan",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "producers:GenerateManPage"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "constructor": "CompleteBash",
+                "binding": "unitBash",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "producers:GenerateCompleteBash"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "constructor": "CompleteZsh",
+                "binding": "unitZsh",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "producers:GenerateCompleteZsh"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "constructor": "CompleteFish",
+                "binding": "unitFish",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "producers:GenerateCompleteFish"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "constructor": "CompletePowerShell",
+                "binding": "unitPowerShell",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "producers:GenerateCompletePowerShell"
+                  },
+                  "arguments": []
+                }
+              }
+            ]
+          },
+          "body": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:WriteOutputAndCode"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "output"
+              },
+              {
+                "op": "symbol",
+                "ref": "machine:ByteZero"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "Special": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "mode",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:SpecialMode"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "mode"
+          },
+          "cases": [
+            {
+              "constructor": "HelpShort",
+              "binding": "unitHelpShort",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:WriteOutputAndCode"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "producers:GenerateHelpShort"
+                    },
+                    "arguments": []
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "machine:ByteZero"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "HelpLong",
+              "binding": "unitHelpLong",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:WriteOutputAndCode"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "producers:GenerateHelpLong"
+                    },
+                    "arguments": []
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "machine:ByteZero"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "VersionShort",
+              "binding": "unitVersionShort",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:WriteOutputAndCode"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "producers:GenerateVersionShort"
+                    },
+                    "arguments": []
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "machine:ByteZero"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "VersionLong",
+              "binding": "unitVersionLong",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:WriteOutputAndCode"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "producers:GenerateVersionLong"
+                    },
+                    "arguments": []
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "machine:ByteZero"
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "VersionPCRE2",
+              "binding": "unitVersionPcre2",
+              "body": {
+                "op": "let",
+                "name": "version",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "producers:GenerateVersionPcre2"
+                  },
+                  "arguments": []
+                },
+                "body": {
+                  "op": "let",
+                  "name": "status",
+                  "value": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "producers:Pcre2Available"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "version"
+                        }
+                      ]
+                    },
+                    "then": {
+                      "op": "symbol",
+                      "ref": "machine:ByteZero"
+                    },
+                    "otherwise": {
+                      "op": "symbol",
+                      "ref": "machine:ByteOne"
+                    }
+                  },
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:WriteOutputAndCode"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "producers:Pcre2Text"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "version"
+                          }
+                        ]
+                      },
+                      {
+                        "op": "var",
+                        "name": "status"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WriteOutputAndCode": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "text",
+            "type": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "status",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Byte"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "trimmed",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "text:TrimEndUnicodeWhitespace"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "text"
+              }
+            ]
+          },
+          "body": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "output:WriteRawStdoutLine"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "trimmed"
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Ok",
+                "binding": "written",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Ok",
+                  "payload": {
+                    "op": "var",
+                    "name": "status"
+                  }
+                }
+              },
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "errors:FromIoError"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "EprintNothingSearched": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "messages:ErrorMessage"
+          },
+          "arguments": [
+            {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              },
+              "value": "No files were searched, which means ripgrep probably applied a filter you didn't expect.\nRunning with --debug will show why files are being skipped."
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": {
+    "Generate": {
+      "definitionId": "Generate"
+    },
+    "Special": {
+      "definitionId": "Special"
+    },
+    "EprintNothingSearched": {
+      "definitionId": "EprintNothingSearched"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourcePath": "crates/core/main.rs",
+    "sourceRegions": [
+      "generate:355-371",
+      "special:383-405",
+      "eprint_nothing_searched:414-420"
+    ],
+    "qualification": "Complete local bodies; imports are required future Gift project modules, not native ripgrep implementations. Cross-module type/effect/ownership qualification remains OPEN until their real definitions are integrated.",
+    "effectInference": "Effect fields are omitted deliberately where imported bodies are not yet fixed. Omission requests inference and never grants empty effects or runtime permission."
+  }
+}

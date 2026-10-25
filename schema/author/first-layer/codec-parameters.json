@@ -5,7 +5,7 @@
     {
       "path": "schema/author/universal-author-module-2.schema.json",
       "id": "urn:gift:design-schema:universal-author-module-2",
-      "sha256": "2eb7f51fb35f95df6378f9d00b7be519713a81201bb37d0a2f59625c90f466af",
+      "sha256": "aef13ee04308879fbf19e148dd6815499be820dc6ab27410d15d82d3efe4b154",
       "candidateId": "urn:gift:design-schema:universal-author-module-2-converged-base",
       "replacements": [
         {
@@ -225,6 +225,70 @@
           },
           "replacement": {
             "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/TypeParam",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "constraintRefs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "minItems": 0
+              },
+              "kind": {
+                "$ref": "#/$defs/Kind"
+              },
+              "binding": {
+                "enum": [
+                  "argument",
+                  "fresh"
+                ]
+              }
+            },
+            "description": "Existing name and constraintRefs are retained. Omitted kind is Type and omitted binding is argument. fresh is limited to Region/Scope at a method-qualified real introduction; callback-local binders follow the original restricted rule. Shape does not establish kind, freshness or constraint qualification."
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "constraintRefs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "minItems": 0
+              },
+              "kind": {
+                "$ref": "#/$defs/Kind"
+              },
+              "binding": {
+                "enum": [
+                  "argument",
+                  "fresh"
+                ]
+              },
+              "traitBounds": {
+                "$ref": "urn:gift:design-schema:first-layer-trait-body#/$defs/Bounds"
+              }
+            },
+            "description": "Existing name and constraintRefs are retained. Omitted kind is Type and omitted binding is argument. fresh is limited to Region/Scope at a method-qualified real introduction; callback-local binders follow the original restricted rule. Shape does not establish kind, freshness or constraint qualification. The candidate traitBounds contributes qualified trait-instance and associated-type equality obligations to the same complete generic environment; constraintRefs is unchanged."
           }
         }
       ]
@@ -945,6 +1009,13 @@
           }
         }
       ]
+    },
+    {
+      "path": "schema/author/first-layer/trait-body.schema.json",
+      "id": "urn:gift:design-schema:first-layer-trait-body",
+      "sha256": "d80c2424bb4fd9ac37e15603b5119c8187ead31b0170088f78152db23c443388",
+      "candidateId": "urn:gift:design-schema:first-layer-trait-body-converged",
+      "replacements": []
     }
   ],
   "externals": [
@@ -969,7 +1040,7 @@
       "resource": "urn:gift:design-schema:universal-author-module-2",
       "pointer": "/$defs/Definition",
       "keyword": "oneOf",
-      "expectedSha256": "e1c36de418aa84aa86c7cb7e6394230a9e22cfcc40582add399778068e08ec40",
+      "expectedSha256": "391b8973d14ffaf86f22c5c3fbcd53cb0b001d97b0f88cf64f2370498ceca7ac",
       "append": [
         {
           "$ref": "urn:gift:design-schema:requirement-declarations#/$defs/Subject"
@@ -999,6 +1070,9 @@
         },
         {
           "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/Exists"
+        },
+        {
+          "$ref": "urn:gift:design-schema:first-layer-trait-body#/$defs/AssociatedProjection"
         }
       ]
     },
@@ -1010,6 +1084,17 @@
       "append": [
         {
           "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/RationalLiteralConstraint"
+        }
+      ]
+    },
+    {
+      "resource": "urn:gift:design-schema:universal-author-module-2",
+      "pointer": "/$defs/Expr",
+      "keyword": "oneOf",
+      "expectedSha256": "3c93572c5c7637fe4196461c59679a7e8f13d1eb06e4150a67d916f325de6b3b",
+      "append": [
+        {
+          "$ref": "urn:gift:design-schema:first-layer-trait-body#/$defs/MethodSelection"
         }
       ]
     }

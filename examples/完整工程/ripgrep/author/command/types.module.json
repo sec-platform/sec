@@ -1,0 +1,1110 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:core:command:types",
+  "imports": {
+    "flags": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:flags"
+    },
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "errors": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:errors"
+    },
+    "output": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:output"
+    }
+  },
+  "definitions": {
+    "Types": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "args",
+            "type": {
+              "tag": "nominal",
+              "ref": "flags:HiArgs"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "output:WithConfiguredStdout"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "flags:StdoutConfiguration"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "args"
+                }
+              ]
+            },
+            {
+              "op": "lambda",
+              "params": [
+                {
+                  "name": "writer",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "output:WriterBorrow"
+                    },
+                    "arguments": [
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:WriteTypeDefinitions"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "writer"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "flags:TypeListingEntries"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "args"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "machine:I32Zero"
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region",
+                  "binding": "argument"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "WriteTypeDefinitions": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "writer",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "output:WriterBorrow"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "remaining",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "record",
+                "fields": {
+                  "name": {
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    }
+                  },
+                  "globs": {
+                    "type": {
+                      "tag": "sequence",
+                      "item": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "ordered": true
+                    }
+                  }
+                },
+                "open": false
+              },
+              "ordered": true
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "count",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:I32"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Byte"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:SeqUncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "remaining"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "empty",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:I32Equal"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "count"
+                      },
+                      {
+                        "op": "symbol",
+                        "ref": "machine:I32Zero"
+                      }
+                    ]
+                  },
+                  "then": {
+                    "op": "symbol",
+                    "ref": "machine:ByteOne"
+                  },
+                  "otherwise": {
+                    "op": "symbol",
+                    "ref": "machine:ByteZero"
+                  }
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "cell",
+              "body": {
+                "op": "let",
+                "name": "nextCount",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:I32Add"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "count"
+                    },
+                    {
+                      "op": "symbol",
+                      "ref": "machine:I32One"
+                    }
+                  ]
+                },
+                "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:WriteType"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "writer"
+                    },
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "cell"
+                      },
+                      "name": "head"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "typeError",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "var",
+                        "name": "typeError"
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "typeUnit",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:WriteTypeDefinitions"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "writer"
+                        },
+                        {
+                          "op": "field",
+                          "record": {
+                            "op": "var",
+                            "name": "cell"
+                          },
+                          "name": "tail"
+                        },
+                        {
+                          "op": "var",
+                          "name": "nextCount"
+                        }
+                      ]
+                    }
+                  }
+                ]
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "WriteType": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "writer",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "output:WriterBorrow"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "entry",
+            "type": {
+              "tag": "record",
+              "fields": {
+                "name": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                },
+                "globs": {
+                  "type": {
+                    "tag": "sequence",
+                    "item": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "ordered": true
+                  }
+                }
+              },
+              "open": false
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:WriteTextChecked"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "writer"
+              },
+              {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "entry"
+                },
+                "name": "name"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "nameError",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "nameError"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "nameUnit",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:WriteBytesChecked"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "writer"
+                    },
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "bytes",
+                        "encoding": "utf8"
+                      },
+                      "value": ": "
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "colonError",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "var",
+                        "name": "colonError"
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "colonUnit",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "local:WriteGlobs"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "writer"
+                          },
+                          {
+                            "op": "field",
+                            "record": {
+                              "op": "var",
+                              "name": "entry"
+                            },
+                            "name": "globs"
+                          },
+                          {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "bool"
+                            },
+                            "value": true
+                          }
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "globsError",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Err",
+                            "payload": {
+                              "op": "var",
+                              "name": "globsError"
+                            }
+                          }
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "globsUnit",
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "local:WriteBytesChecked"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "writer"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "bytes",
+                                  "encoding": "utf8"
+                                },
+                                "value": "\n"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "WriteGlobs": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "writer",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "output:WriterBorrow"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "remaining",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "text"
+              },
+              "ordered": true
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "first",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:SeqUncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "remaining"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "empty",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "cell",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "if",
+                  "condition": {
+                    "op": "var",
+                    "name": "first"
+                  },
+                  "then": {
+                    "op": "variant",
+                    "constructor": "Ok",
+                    "payload": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  },
+                  "otherwise": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:WriteBytesChecked"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "writer"
+                      },
+                      {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "bytes",
+                          "encoding": "utf8"
+                        },
+                        "value": ", "
+                      }
+                    ]
+                  }
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "separatorError",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "var",
+                        "name": "separatorError"
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "separatorUnit",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "local:WriteTextChecked"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "writer"
+                          },
+                          {
+                            "op": "field",
+                            "record": {
+                              "op": "var",
+                              "name": "cell"
+                            },
+                            "name": "head"
+                          }
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "globError",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Err",
+                            "payload": {
+                              "op": "var",
+                              "name": "globError"
+                            }
+                          }
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "globUnit",
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "local:WriteGlobs"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "writer"
+                              },
+                              {
+                                "op": "field",
+                                "record": {
+                                  "op": "var",
+                                  "name": "cell"
+                                },
+                                "name": "tail"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "bool"
+                                },
+                                "value": false
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "WriteTextChecked": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "writer",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "output:WriterBorrow"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "text",
+            "type": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "output:WriteText"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "writer"
+              },
+              {
+                "op": "var",
+                "name": "text"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Ok",
+              "binding": "written",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "errors:FromIoError"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "error"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "WriteBytesChecked": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "writer",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "output:WriterBorrow"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "scalar",
+              "name": "bytes",
+              "encoding": "utf8"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "errors:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "output:WriteBytes"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "writer"
+              },
+              {
+                "op": "var",
+                "name": "bytes"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Ok",
+              "binding": "written",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "errors:FromIoError"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "error"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Types": {
+      "definitionId": "Types"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourcePath": "crates/core/main.rs",
+    "sourceRegions": [
+      "types:329-348"
+    ],
+    "qualification": "Complete local bodies; imports are required future Gift project modules, not native ripgrep implementations. Cross-module type/effect/ownership qualification remains OPEN until their real definitions are integrated.",
+    "effectInference": "Effect fields are omitted deliberately where imported bodies are not yet fixed. Omission requests inference and never grants empty effects or runtime permission."
+  }
+}

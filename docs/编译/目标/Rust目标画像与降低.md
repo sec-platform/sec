@@ -210,6 +210,8 @@ Rust 原生泛型只在它真实表达所需接口时保留。目标选择按[�
 
 Rust `const fn`/const generic 的实际可用范围由固定 toolchain 能力确定；需要 Gift compile-only 的元方法不必强迫 rustc 也支持同一元程序。运行时不需要的反射元数据不进入产物。
 
+[trait 结构画像](../../领域/计算基础/作者表示与实现分工.md#structured-trait-profile)的声明、关联类型解、默认主体和覆盖主体分别生成准确 Rust trait/impl 成员。receiver 标记、显式类型/借用、方法泛型、错误层次和公共路径均需保持；不能从第一个参数叫 self 就推导 receiver。后端消费已选择 witness，默认主体调用仍分派该实现的覆盖方法。开放 Rust 导出需保留未来下游实现/实例化、Sized 与 `?Sized`、orphan/coherence 等原边界；不能用当前 regex/pcre2 两个实现的单态化代签。dyn/object safety、GAT 或 specialization 不因普通 trait payload 存在而取得资格；不支持时返回准确导出缺项，内部已合格的有限实例继续可用。
+
 ## 8. 模块、可见性、名字与源码结构
 
 默认一个语义 module 对应稳定、可维护的 Rust module 区域；生成器可为循环声明、公开 API、私有 helper 与目标布局选择更合适的文件边界，但不能改变公共路径而无迁移说明。

@@ -1,0 +1,1961 @@
+{
+  "schema": "ripgrep-globset-parser-expected/1",
+  "sourceRevision": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+  "valueEncoding": "Variant values use constructor/payload; scalar code points are exact JSON integers; expected values are data, not author Expr.",
+  "defaultOptions": {
+    "caseInsensitive": false,
+    "literalSeparator": false,
+    "backslashEscape": true,
+    "emptyAlternates": false,
+    "allowUnclosedClass": false,
+    "backslashIsSeparator": false
+  },
+  "cases": [
+    {
+      "id": "empty",
+      "pattern": "",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": []
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "literals",
+      "pattern": "a☃😀",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "Literal",
+            "payload": 9731
+          },
+          {
+            "constructor": "Literal",
+            "payload": 128512
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "wildcards",
+      "pattern": "a?*b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "Any",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "recursive-alone",
+      "pattern": "**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "RecursivePrefix",
+            "payload": null
+          }
+        ]
+      },
+      "source": "glob.rs syntax! rseq1"
+    },
+    {
+      "id": "recursive-prefix",
+      "pattern": "**/",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "RecursivePrefix",
+            "payload": null
+          }
+        ]
+      },
+      "source": "glob.rs syntax! rseq2"
+    },
+    {
+      "id": "recursive-suffix",
+      "pattern": "/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "RecursiveSuffix",
+            "payload": null
+          }
+        ]
+      },
+      "source": "glob.rs syntax! rseq3"
+    },
+    {
+      "id": "recursive-middle",
+      "pattern": "/**/",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "RecursiveZeroOrMore",
+            "payload": null
+          }
+        ]
+      },
+      "source": "glob.rs syntax! rseq4"
+    },
+    {
+      "id": "recursive-between",
+      "pattern": "a/**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "RecursiveZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "glob.rs syntax! rseq5"
+    },
+    {
+      "id": "collapsed-prefix",
+      "pattern": "**/**/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "RecursivePrefix",
+            "payload": null
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "collapsed-suffix",
+      "pattern": "a/**/**/**",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "RecursiveSuffix",
+            "payload": null
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "collapsed-middle",
+      "pattern": "a/**/**/**/b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "RecursiveZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "ordinary-adjacent-star",
+      "pattern": "a**b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "three-stars",
+      "pattern": "***",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "three-stars-after-separator",
+      "pattern": "/***",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 47
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "double-star-before-letter",
+      "pattern": "**a",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 97
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "single-star-before-separator",
+      "pattern": "*/a",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 47
+          },
+          {
+            "constructor": "Literal",
+            "payload": 97
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "class-single",
+      "pattern": "[a]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 97
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls1"
+    },
+    {
+      "id": "class-negated",
+      "pattern": "[!a]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": true,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 97
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls2"
+    },
+    {
+      "id": "class-range",
+      "pattern": "[a-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls3"
+    },
+    {
+      "id": "class-negated-range",
+      "pattern": "[!a-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": true,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls4"
+    },
+    {
+      "id": "class-dash",
+      "pattern": "[-]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 45,
+                  "end": 45
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls5"
+    },
+    {
+      "id": "class-close-bracket",
+      "pattern": "[]]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 93,
+                  "end": 93
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls6"
+    },
+    {
+      "id": "class-star",
+      "pattern": "[*]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 42,
+                  "end": 42
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls7"
+    },
+    {
+      "id": "class-negated-bang",
+      "pattern": "[!!]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": true,
+              "ranges": [
+                {
+                  "start": 33,
+                  "end": 33
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls8"
+    },
+    {
+      "id": "class-trailing-dash",
+      "pattern": "[a-]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 97
+                },
+                {
+                  "start": 45,
+                  "end": 45
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls9"
+    },
+    {
+      "id": "class-leading-dash-range",
+      "pattern": "[-a-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 45,
+                  "end": 45
+                },
+                {
+                  "start": 97,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls10"
+    },
+    {
+      "id": "class-range-trailing-dash",
+      "pattern": "[a-z-]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 122
+                },
+                {
+                  "start": 45,
+                  "end": 45
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls11"
+    },
+    {
+      "id": "class-both-dashes",
+      "pattern": "[-a-z-]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 45,
+                  "end": 45
+                },
+                {
+                  "start": 97,
+                  "end": 122
+                },
+                {
+                  "start": 45,
+                  "end": 45
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls12"
+    },
+    {
+      "id": "class-bracket-range",
+      "pattern": "[]-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 93,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls13"
+    },
+    {
+      "id": "class-dash-range",
+      "pattern": "[--z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 45,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls14"
+    },
+    {
+      "id": "class-range-to-dash",
+      "pattern": "[ --]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 32,
+                  "end": 45
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls15"
+    },
+    {
+      "id": "class-two-ranges",
+      "pattern": "[0-9a-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 48,
+                  "end": 57
+                },
+                {
+                  "start": 97,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls16"
+    },
+    {
+      "id": "class-reordered-ranges",
+      "pattern": "[a-z0-9]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 122
+                },
+                {
+                  "start": 48,
+                  "end": 57
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls17"
+    },
+    {
+      "id": "class-negated-two-ranges",
+      "pattern": "[!0-9a-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": true,
+              "ranges": [
+                {
+                  "start": 48,
+                  "end": 57
+                },
+                {
+                  "start": 97,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls18"
+    },
+    {
+      "id": "class-negated-reordered-ranges",
+      "pattern": "[!a-z0-9]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": true,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 122
+                },
+                {
+                  "start": 48,
+                  "end": 57
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls19"
+    },
+    {
+      "id": "class-caret-negation",
+      "pattern": "[^a]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": true,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 97
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls20"
+    },
+    {
+      "id": "class-caret-range",
+      "pattern": "[^a-z]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": true,
+              "ranges": [
+                {
+                  "start": 97,
+                  "end": 122
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "glob.rs syntax! cls21"
+    },
+    {
+      "id": "class-unicode-range",
+      "pattern": "[☃-★]",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 9731,
+                  "end": 9733
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "class-backslash-not-escape",
+      "pattern": "[\\*]",
+      "options": {
+        "backslashEscape": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Class",
+            "payload": {
+              "negated": false,
+              "ranges": [
+                {
+                  "start": 92,
+                  "end": 92
+                },
+                {
+                  "start": 42,
+                  "end": 42
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "class-brace",
+      "pattern": "{[}],foo}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [
+                {
+                  "constructor": "Class",
+                  "payload": {
+                    "negated": false,
+                    "ranges": [
+                      {
+                        "start": 125,
+                        "end": 125
+                      }
+                    ]
+                  }
+                }
+              ],
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 102
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 111
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 111
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "nested-alternates",
+      "pattern": "{a,{b,c}}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 97
+                }
+              ],
+              [
+                {
+                  "constructor": "Alternates",
+                  "payload": [
+                    [
+                      {
+                        "constructor": "Literal",
+                        "payload": 98
+                      }
+                    ],
+                    [
+                      {
+                        "constructor": "Literal",
+                        "payload": 99
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "nested-alternates-parents",
+      "pattern": "x{a,b{c,d}}y",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 120
+          },
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 97
+                }
+              ],
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 98
+                },
+                {
+                  "constructor": "Alternates",
+                  "payload": [
+                    [
+                      {
+                        "constructor": "Literal",
+                        "payload": 99
+                      }
+                    ],
+                    [
+                      {
+                        "constructor": "Literal",
+                        "payload": 100
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ]
+          },
+          {
+            "constructor": "Literal",
+            "payload": 121
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "empty-alternates",
+      "pattern": "{,}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [],
+              []
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "singleton-empty-alternate",
+      "pattern": "{}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              []
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "comma-outside",
+      "pattern": "a,b",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "Literal",
+            "payload": 44
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "group-star-at-delimiter",
+      "pattern": "{a/**,b/**}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 97
+                },
+                {
+                  "constructor": "RecursiveSuffix",
+                  "payload": null
+                }
+              ],
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 98
+                },
+                {
+                  "constructor": "RecursiveSuffix",
+                  "payload": null
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "empty-branch-double-star",
+      "pattern": "{**,**/a}",
+      "options": {},
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [
+                {
+                  "constructor": "ZeroOrMore",
+                  "payload": null
+                },
+                {
+                  "constructor": "ZeroOrMore",
+                  "payload": null
+                }
+              ],
+              [
+                {
+                  "constructor": "RecursivePrefix",
+                  "payload": null
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 97
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "literal-escaped",
+      "pattern": "\\*\\?\\[\\{\\,\\}",
+      "options": {
+        "backslashEscape": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 42
+          },
+          {
+            "constructor": "Literal",
+            "payload": 63
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 123
+          },
+          {
+            "constructor": "Literal",
+            "payload": 44
+          },
+          {
+            "constructor": "Literal",
+            "payload": 125
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "escaped-separator-before-recursive",
+      "pattern": "a\\/**",
+      "options": {
+        "backslashEscape": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "RecursiveSuffix",
+            "payload": null
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "windows-default-backslash",
+      "pattern": "a\\b",
+      "options": {
+        "backslashIsSeparator": true,
+        "backslashEscape": false
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "Literal",
+            "payload": 47
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unix-no-escape-backslash",
+      "pattern": "a\\b",
+      "options": {
+        "backslashIsSeparator": false,
+        "backslashEscape": false
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "Literal",
+            "payload": 92
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "windows-force-escape",
+      "pattern": "a\\b",
+      "options": {
+        "backslashIsSeparator": true,
+        "backslashEscape": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "windows-recursive-backslashes",
+      "pattern": "a\\**\\b",
+      "options": {
+        "backslashIsSeparator": true,
+        "backslashEscape": false
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "RecursiveZeroOrMore",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 98
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "windows-star-consumes-backslash-even-escape",
+      "pattern": "**\\a",
+      "options": {
+        "backslashIsSeparator": true,
+        "backslashEscape": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "RecursivePrefix",
+            "payload": null
+          },
+          {
+            "constructor": "Literal",
+            "payload": 97
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unclosed-class-rollback",
+      "pattern": "[a?*",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 97
+          },
+          {
+            "constructor": "Any",
+            "payload": null
+          },
+          {
+            "constructor": "ZeroOrMore",
+            "payload": null
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unclosed-class-empty",
+      "pattern": "[]",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 93
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unclosed-class-negation",
+      "pattern": "[!]",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 33
+          },
+          {
+            "constructor": "Literal",
+            "payload": 93
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unclosed-class-in-alternate",
+      "pattern": "{[abc,[xyz}",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 91
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 97
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 98
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 99
+                }
+              ],
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 91
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 120
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 121
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 122
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unclosed-class-after-valid-class",
+      "pattern": "{[abc],[xyz}",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Alternates",
+            "payload": [
+              [
+                {
+                  "constructor": "Class",
+                  "payload": {
+                    "negated": false,
+                    "ranges": [
+                      {
+                        "start": 97,
+                        "end": 97
+                      },
+                      {
+                        "start": 98,
+                        "end": 98
+                      },
+                      {
+                        "start": 99,
+                        "end": 99
+                      }
+                    ]
+                  }
+                }
+              ],
+              [
+                {
+                  "constructor": "Literal",
+                  "payload": 91
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 120
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 121
+                },
+                {
+                  "constructor": "Literal",
+                  "payload": 122
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unclosed-class-once",
+      "pattern": "[[[[[[[[",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Ok",
+        "payload": [
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          },
+          {
+            "constructor": "Literal",
+            "payload": 91
+          }
+        ]
+      },
+      "source": "independent branch expectation"
+    },
+    {
+      "id": "unclosed-1",
+      "pattern": "[",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            91
+          ],
+          "kind": {
+            "constructor": "UnclosedClass",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "unclosed-2",
+      "pattern": "[]",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            91,
+            93
+          ],
+          "kind": {
+            "constructor": "UnclosedClass",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "unclosed-3",
+      "pattern": "[!",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            91,
+            33
+          ],
+          "kind": {
+            "constructor": "UnclosedClass",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "unclosed-4",
+      "pattern": "[!]",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            91,
+            33,
+            93
+          ],
+          "kind": {
+            "constructor": "UnclosedClass",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "invalid-range",
+      "pattern": "[z-a]",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            91,
+            122,
+            45,
+            97,
+            93
+          ],
+          "kind": {
+            "constructor": "InvalidRange",
+            "payload": {
+              "start": 122,
+              "end": 97
+            }
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "invalid-range-to-dash",
+      "pattern": "[z--]",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            91,
+            122,
+            45,
+            45,
+            93
+          ],
+          "kind": {
+            "constructor": "InvalidRange",
+            "payload": {
+              "start": 122,
+              "end": 45
+            }
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "invalid-range-before-unclosed-rollback",
+      "pattern": "[z-a",
+      "options": {
+        "allowUnclosedClass": true
+      },
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            91,
+            122,
+            45,
+            97
+          ],
+          "kind": {
+            "constructor": "InvalidRange",
+            "payload": {
+              "start": 122,
+              "end": 97
+            }
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "unclosed-alternate",
+      "pattern": "{a,b",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            123,
+            97,
+            44,
+            98
+          ],
+          "kind": {
+            "constructor": "UnclosedAlternates",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "unclosed-nested-alternate",
+      "pattern": "{a,{b,c}",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            123,
+            97,
+            44,
+            123,
+            98,
+            44,
+            99,
+            125
+          ],
+          "kind": {
+            "constructor": "UnclosedAlternates",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "unopened-alternate",
+      "pattern": "a,b}",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            97,
+            44,
+            98,
+            125
+          ],
+          "kind": {
+            "constructor": "UnopenedAlternates",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "extra-close-alternate",
+      "pattern": "{a,b}}",
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            123,
+            97,
+            44,
+            98,
+            125,
+            125
+          ],
+          "kind": {
+            "constructor": "UnopenedAlternates",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "dangling-escape",
+      "pattern": "\\",
+      "options": {
+        "backslashEscape": true
+      },
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            92
+          ],
+          "kind": {
+            "constructor": "DanglingEscape",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "escaped-class-then-dangling",
+      "pattern": "\\[\\",
+      "options": {
+        "backslashEscape": true
+      },
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            92,
+            91,
+            92
+          ],
+          "kind": {
+            "constructor": "DanglingEscape",
+            "payload": null
+          }
+        }
+      },
+      "source": "upstream Parser error branch; independently stated result"
+    },
+    {
+      "id": "invalid-scalar--1",
+      "inputScalars": [
+        97,
+        -1
+      ],
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            97,
+            -1
+          ],
+          "kind": {
+            "constructor": "InvalidScalar",
+            "payload": -1
+          }
+        }
+      },
+      "source": "explicit scalar admission boundary outside Rust str domain"
+    },
+    {
+      "id": "invalid-scalar-55296",
+      "inputScalars": [
+        97,
+        55296
+      ],
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            97,
+            55296
+          ],
+          "kind": {
+            "constructor": "InvalidScalar",
+            "payload": 55296
+          }
+        }
+      },
+      "source": "explicit scalar admission boundary outside Rust str domain"
+    },
+    {
+      "id": "invalid-scalar-57343",
+      "inputScalars": [
+        97,
+        57343
+      ],
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            97,
+            57343
+          ],
+          "kind": {
+            "constructor": "InvalidScalar",
+            "payload": 57343
+          }
+        }
+      },
+      "source": "explicit scalar admission boundary outside Rust str domain"
+    },
+    {
+      "id": "invalid-scalar-1114112",
+      "inputScalars": [
+        97,
+        1114112
+      ],
+      "options": {},
+      "expected": {
+        "constructor": "Err",
+        "payload": {
+          "glob": [
+            97,
+            1114112
+          ],
+          "kind": {
+            "constructor": "InvalidScalar",
+            "payload": 1114112
+          }
+        }
+      },
+      "source": "explicit scalar admission boundary outside Rust str domain"
+    }
+  ]
+}

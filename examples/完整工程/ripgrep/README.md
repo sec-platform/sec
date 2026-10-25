@@ -1,10 +1,33 @@
-# ripgrep：完整混合 Gift 作者工程设计
+# ripgrep：全工程 Gift 作者源码迁移（进行中）
 
-本例把成熟外部工程 **ripgrep 的整个作者工程**放进 Gift 设计：`rg`、九个库、Cargo 依赖、构建与发行配置、测试、fuzz、benchmark、许可证和资产全部保留。它交付两份可实际装配的完整作者实例、准确接合、模型与实现的保持关系，以及全工程逐项审查。
+本任务终点是 **ripgrep整个工程的Gift开发面作者源码**：CLI、九个库中的原项目逻辑必须逐层取得真实Gift定义、算法、状态/资源责任和消费者接合；仅保留有具体理由的原生边界。旧混合原型只迁移Unix路径函数，不能算达成这个终点，上一轮整体完成结论撤回。完整原生快照仍是对照证据，不能替代尚未完成的作者源码。
 
-**这是完整混合作者工程设计，不是整个 ripgrep 已转换为纯 Gift，也不是已能由生产 Gift 编译器构建的成品。** 原生 Rust 仍是主要的可编辑作者源码。本次真正迁出的区域只有 Unix 最终路径分量算法；没有把原生源码、实现供给或维护资产移出分母来宣称大幅精简。生产 Reader、链接/类型/效果检查、方法资格、Rust Target 与受管回源尚未实现/执行，具体未验证项见 [EQUIVALENCE.md](EQUIVALENCE.md)。
+当前`author/`逐层形成新的作者源码与每片SOURCE说明，未闭合的跨模块引用、目标接合或公开面保持明确开放。不能把它们称为已完成工程。`models/`、`methods/`、`patches/`及`materialize.ps1`仍保存已经核验的单算法混合原型；其十个native根模板不是最终Gift工程的完成证据。生产Reader与Rust生成链仍未执行，设计和运行验证分别保留义务。
 
-## 实际交付与选择理由
+全量范围按原工程责任推进：CLI参数/配置/命令及搜索组织；globset解析/优化/匹配；ignore规则/类型/增量缓存/串并行遍历；Matcher与Captures；regex/PCRE2引擎接合；searcher读取/行缓冲/搜索/sink；printer文本/JSON/颜色/超链接/统计；cli进程/解压/终端；grep公开转导；构建、维护、测试和发行入口。外部regex/PCRE2实现、OS、线程/原子/IO、分配与目标ABI可以有具体原生实现边界，但原项目的控制算法、规则和格式决定不能整块藏到这些名字下面。
+
+## 作者层的当前前沿
+
+以下是真实源文件的阶段状态，不是完成率；“已落源”不代签完整类型、链接、目标或全域等价。
+
+| 原工程责任 | 已落源的部分 | 仍须闭合的部分 |
+| --- | --- | --- |
+| globset | `author/globset/`的完整Unicode标量解析、regex渲染、literal/extension/prefix/suffix/basename策略提取；`author/foundation/fnv.gift`的FNV纯算法 | 真实Text/路径输入、候选和集合匹配、公开API、serde、外部regex及Hasher/HashMap接合 |
+| ignore | `author/ignore-types/`的完整默认类型数据、定义/选择/构建步骤与分类算法 | 共享文本方法与glob实际消费；gitignore/override/dir规则、incremental缓存、串并行walk及平台条件 |
+| matcher | `author/matcher/`的值层算法、Captures默认算法与完整replacement插值扫描 | 实际Captures/Matcher trait声明及实例、全部Matcher默认搜索方法、开放下游、机器值/借用/格式化实际接合 |
+| shared text | `author/foundation/text/`的标量UTF-8编码、ASCII与两位小写hex转换 | 真实Borrow/Str视图、Unicode分类/trim、错误格式化与所需其他共享声明 |
+| core flags | `author/flags/lowargs.module.json`的完整低层类型、默认值与方法 | 104个Flag更新及顺序、parse/config、HiArgs转换、flags门面、help/man/completion以及实际消费者 |
+| core command | `author/command/`的Main/Run与信息出口、Types输出组织 | sessions搜索/列举实现、messages/errors、完整信息生成、资源/输出和真实依赖接合 |
+| regex/pcre2 | 暂无完成的作者子层 | 保留外部引擎，但自有配置、pattern/AST/HIR转换、字面量优化、错误与Matcher实现都必须迁入Gift |
+| cli | `author/cli-text/`的escape/pattern转换、错误政策与逐行读取算法 | 任意Read/AsRef实例与效果、实际IO/借用接合、子进程/解压/hostname/终端和其余公开接口 |
+| searcher/printer | 暂无完成的作者子层 | 搜索/缓冲/sink状态机、全部输出格式和策略、资源/并发协议与公开接口 |
+| 完整工程 | 源对照、入口/DAG及资产范围已清点 | Gift产品根与公开转导、build.rs逻辑、生成配置、测试/harness、fuzz、benchmark runner及发行脚本中的自有算法；原数据/模板/许可按准确资产继续保全 |
+
+当前最上游的共享设计义务是机器数值与生命周期原语、真实trait声明/实例及最终Gift SourceProfile。`opaque type`以及[开放trait/关联类型/默认分派的结构接合](../../../docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile)已回到原共同合同修正；新结构不代替ripgrep实际声明、实例或生产类型器。各片`SOURCE.md`逐项列出真实import签名和未完成边界；尚未实现的ripgrep自有模块属于待迁移，不会被更名为“必须原生”。最终接合必须消费同一组定义和身份，而不是让每片各建一套回调或类型表。
+
+完整交付验收要同时确认：全部自有算法有作者主体；保留原生逐项有原因；实际公开接口/实例/错误/资源保持；唯一作者源与第二次修改闭包；全工程根和构建输入可解释；独立审查覆盖真实消费者。生产执行未验证可按用户范围明列，但缺作者主体、缺接口设计或缺消费者不能借此免责。
+
+## 已核验的局部混合原型（不作为总目标完成）
 
 | 文件或目录 | 责任 |
 | --- | --- |
@@ -24,7 +47,7 @@
 
 完整上游内容通过精确Git对象分发，不在维护仓库中重复提交两套第三方源码。本目录是版本化分发材料，项目模板的路径相对装配后的实例，不把同时包含P/Q两版材料的分发目录当成单一活动工程。装配后的实例实际包含所有224个上游跟踪成员及新增方法文件；并非只有远端引用、调用已安装rg的薄壳或源码摘要。上游许可证及原文件模式随Git对象保留；本例派生的两个方法沿用上游 MIT OR Unlicense。
 
-CLI旗标、解析、命令模式、并行搜索和错误/退出本来就是产品决定。把这些 Rust 逐句镜像成JSON、再添加Args/Error/Effects回调表，会增加重复维护，不能证明精简。因此这些区域保持原生作者源；`defs.rs`也不被改名成“通用供给”而隐藏其产品责任。Gift模型用于明确算法语义，借用方法保留原生表示与成本责任。这一选择不证明纯Gift全工程迁移已经完成，也不证明该混合形式比原工程更小。
+CLI旗标、解析、命令模式、并行搜索和错误/退出本来就是产品决定。在这个历史混合原型中，它们保持原生作者源；这项范围不足正是继续全工程迁移的原因。当前迁移把真实算法写入Gift并沿共同类型/资源合同接合，不再添加Args/Error/Effects回调表来隐藏整段产品行为。`defs.rs`也不能被改名成“通用供给”逃避迁移。旧混合形式不证明全工程Gift完成，也不证明比原工程更小。
 
 ## 创建与继续编辑完整实例
 

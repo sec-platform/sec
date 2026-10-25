@@ -1,0 +1,2246 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "ripgrep:cli:pattern",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:path"
+    },
+    "text": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:text"
+    },
+    "bstr": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:bstr"
+    },
+    "io": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:io"
+    },
+    "format": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:format"
+    },
+    "runtime": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:runtime"
+    },
+    "escape": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:cli:escape"
+    }
+  },
+  "definitions": {
+    "InvalidPatternError": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {
+            "original": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            },
+            "validUpTo": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              }
+            }
+          }
+        },
+        "opaque": true
+      }
+    },
+    "InvalidPatternErrorValidUpTo": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:Usize"
+        },
+        "effects": [],
+        "body": {
+          "op": "field",
+          "record": {
+            "op": "var",
+            "name": "error"
+          },
+          "name": "validUpTo"
+        }
+      }
+    },
+    "InvalidPatternErrorClone": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:InvalidPatternError"
+        },
+        "effects": [],
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "original",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "text:Clone"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "error"
+                    },
+                    "name": "original"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "validUpTo",
+              "value": {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "error"
+                },
+                "name": "validUpTo"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "InvalidPatternErrorEqual": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:TextEqual"
+            },
+            "arguments": [
+              {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "left"
+                },
+                "name": "original"
+              },
+              {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "right"
+                },
+                "name": "original"
+              }
+            ]
+          },
+          "then": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:UsizeEqual"
+            },
+            "arguments": [
+              {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "left"
+                },
+                "name": "validUpTo"
+              },
+              {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "right"
+                },
+                "name": "validUpTo"
+              }
+            ]
+          },
+          "otherwise": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "value": false
+          }
+        }
+      }
+    },
+    "InvalidPatternErrorDisplayText": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "effects": [],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "std:TextConcat"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "std:TextConcat"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "std:TextConcat"
+                  },
+                  "arguments": [
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "std:TextConcat"
+                      },
+                      "arguments": [
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "found invalid UTF-8 in pattern at byte offset "
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:UsizeDecimal"
+                          },
+                          "arguments": [
+                            {
+                              "op": "field",
+                              "record": {
+                                "op": "var",
+                                "name": "error"
+                              },
+                              "name": "validUpTo"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": ": "
+                    }
+                  ]
+                },
+                {
+                  "op": "field",
+                  "record": {
+                    "op": "var",
+                    "name": "error"
+                  },
+                  "name": "original"
+                }
+              ]
+            },
+            {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              },
+              "value": " (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')"
+            }
+          ]
+        }
+      }
+    },
+    "InvalidPatternErrorDisplay": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "data",
+            "kind": "Region",
+            "binding": "argument"
+          },
+          {
+            "name": "f",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Formatter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "f"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:FormatResult"
+        },
+        "effects": [
+          {
+            "class": "state-write"
+          }
+        ],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "format:WriteText"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "formatter"
+              },
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "found invalid UTF-8 in pattern at byte offset "
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Ok",
+              "binding": "written",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "format:WriteUsize"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "formatter"
+                    },
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "error"
+                      },
+                      "name": "validUpTo"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Ok",
+                    "binding": "written",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "format:WriteText"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "formatter"
+                          },
+                          {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": ": "
+                          }
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Ok",
+                          "binding": "written",
+                          "body": {
+                            "op": "match",
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "format:WriteText"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "formatter"
+                                },
+                                {
+                                  "op": "field",
+                                  "record": {
+                                    "op": "var",
+                                    "name": "error"
+                                  },
+                                  "name": "original"
+                                }
+                              ]
+                            },
+                            "cases": [
+                              {
+                                "constructor": "Ok",
+                                "binding": "written",
+                                "body": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "format:WriteText"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "formatter"
+                                    },
+                                    {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": " (disable Unicode mode and use hex escape sequences to match arbitrary bytes in a pattern, e.g., '(?-u)\\xFF')"
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "constructor": "Err",
+                                "binding": "error",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Err",
+                                  "payload": {
+                                    "op": "var",
+                                    "name": "error"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "constructor": "Err",
+                          "binding": "error",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Err",
+                            "payload": {
+                              "op": "var",
+                              "name": "error"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "var",
+                        "name": "error"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "InvalidPatternErrorDebug": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "data",
+            "kind": "Region",
+            "binding": "argument"
+          },
+          {
+            "name": "f",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Formatter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "f"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:FormatResult"
+        },
+        "effects": [
+          {
+            "class": "state-write"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "format:DebugStruct"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "data"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "f"
+                    }
+                  }
+                ]
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugStruct"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "InvalidPatternError"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugFieldText"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "original"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "error"
+                    },
+                    "name": "original"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugFieldUsize"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "valid_up_to"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "error"
+                    },
+                    "name": "validUpTo"
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "format:DebugFinish"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "builder"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "InvalidPatternErrorIntoIoError": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:InvalidPatternError"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:IOError"
+        },
+        "effects": [],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "io:OtherError"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "error"
+            }
+          ]
+        }
+      }
+    },
+    "InvalidPatternErrorSource": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "error",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:InvalidPatternError"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "io:StaticError"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          }
+        },
+        "effects": [],
+        "body": {
+          "op": "variant",
+          "constructor": "None",
+          "payload": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ]
+      }
+    },
+    "PatternFromBytes": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pattern",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "machine:Str"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "local:InvalidPatternError"
+          }
+        },
+        "effects": [],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "text:FromUtf8"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "pattern"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Ok",
+              "binding": "patternText",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "var",
+                  "name": "patternText"
+                }
+              }
+            },
+            {
+              "constructor": "Err",
+              "binding": "utf8Error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "original",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "escape:Escape"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "pattern"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "validUpTo",
+                      "value": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "text:Utf8ErrorValidUpTo"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "utf8Error"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "PatternFromOs": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region",
+            "binding": "argument"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pattern",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "machine:Str"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "local:InvalidPatternError"
+          }
+        },
+        "effects": [
+          {
+            "class": "external"
+          }
+        ],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:OsStrToStr"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "pattern"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Some",
+              "binding": "patternText",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "var",
+                  "name": "patternText"
+                }
+              }
+            },
+            {
+              "constructor": "None",
+              "binding": "invalid",
+              "body": {
+                "op": "let",
+                "name": "offset",
+                "value": {
+                  "op": "let",
+                  "name": "lossy",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "path:OsStrToStringLossy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "pattern"
+                      }
+                    ]
+                  },
+                  "body": {
+                    "op": "match",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "text:StrFind"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "text:CowStrAsStr"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "lossy"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "�"
+                        }
+                      ]
+                    },
+                    "cases": [
+                      {
+                        "constructor": "Some",
+                        "binding": "offset",
+                        "body": {
+                          "op": "var",
+                          "name": "offset"
+                        }
+                      },
+                      {
+                        "constructor": "None",
+                        "binding": "impossible",
+                        "body": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "runtime:Panic"
+                          },
+                          "arguments": [
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "a Unicode replacement codepoint for invalid UTF-8"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "record",
+                    "fields": [
+                      {
+                        "name": "original",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "escape:EscapeOs"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "pattern"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": "validUpTo",
+                        "value": {
+                          "op": "var",
+                          "name": "offset"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ReversePatternsInto": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "rest",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "text"
+              },
+              "ordered": true
+            }
+          },
+          {
+            "name": "result",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "text"
+              },
+              "ordered": true
+            }
+          }
+        ],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "scalar",
+            "name": "text"
+          },
+          "ordered": true
+        },
+        "effects": [],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:SeqUncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "rest"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "empty",
+              "body": {
+                "op": "var",
+                "name": "result"
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "parts",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ReversePatternsInto"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "parts"
+                    },
+                    "name": "tail"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "std:SeqPrepend"
+                    },
+                    "arguments": [
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "parts"
+                        },
+                        "name": "head"
+                      },
+                      {
+                        "op": "var",
+                        "name": "result"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "termination": "total"
+      }
+    },
+    "PatternsFromReader": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "R",
+            "constraintRefs": [
+              "io:Read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reader",
+            "type": {
+              "tag": "param",
+              "name": "R"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "sequence",
+            "item": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "ordered": true
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "patternsReversed",
+              "type": {
+                "tag": "sequence",
+                "item": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "ordered": true
+              },
+              "value": {
+                "op": "sequence",
+                "items": []
+              }
+            },
+            {
+              "op": "var",
+              "name": "lineNumber",
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:I32"
+              },
+              "value": {
+                "op": "symbol",
+                "ref": "machine:I32Zero"
+              }
+            },
+            {
+              "op": "let",
+              "name": "readResult",
+              "type": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "lambda",
+                  "params": [],
+                  "callMode": "consume",
+                  "body": {
+                    "op": "exec:block",
+                    "statements": [
+                      {
+                        "op": "var",
+                        "name": "buffered",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "io:BufReader"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "param",
+                              "name": "R"
+                            }
+                          ]
+                        },
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "io:BufReaderNew"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "reader"
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "result": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "bstr:ForByteLine"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "buffered"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "line",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:Borrow"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "machine:ByteSlice"
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "line"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "borrow"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "line",
+                              "kind": "Region",
+                              "binding": "argument"
+                            }
+                          ],
+                          "callMode": "exclusive",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "effects": [
+                            {
+                              "class": "state-read"
+                            },
+                            {
+                              "class": "state-write"
+                            }
+                          ],
+                          "body": {
+                            "op": "exec:block",
+                            "statements": [
+                              {
+                                "op": "set",
+                                "name": "lineNumber",
+                                "value": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "machine:I32Add"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "lineNumber"
+                                    },
+                                    {
+                                      "op": "symbol",
+                                      "ref": "machine:I32One"
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "op": "let",
+                                "name": "step",
+                                "type": {
+                                  "tag": "record",
+                                  "open": false,
+                                  "fields": {
+                                    "patterns": {
+                                      "type": {
+                                        "tag": "sequence",
+                                        "item": {
+                                          "tag": "scalar",
+                                          "name": "text"
+                                        },
+                                        "ordered": true
+                                      }
+                                    },
+                                    "result": {
+                                      "type": {
+                                        "tag": "result",
+                                        "ok": {
+                                          "tag": "scalar",
+                                          "name": "bool"
+                                        },
+                                        "error": {
+                                          "tag": "nominal",
+                                          "ref": "machine:IOError"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "value": {
+                                  "op": "match",
+                                  "value": {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "local:PatternFromBytes"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "var",
+                                        "name": "line"
+                                      }
+                                    ]
+                                  },
+                                  "cases": [
+                                    {
+                                      "constructor": "Ok",
+                                      "binding": "pattern",
+                                      "body": {
+                                        "op": "record",
+                                        "fields": [
+                                          {
+                                            "name": "patterns",
+                                            "value": {
+                                              "op": "call",
+                                              "callee": {
+                                                "op": "symbol",
+                                                "ref": "std:SeqPrepend"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "op": "call",
+                                                  "callee": {
+                                                    "op": "symbol",
+                                                    "ref": "text:StrToText"
+                                                  },
+                                                  "arguments": [
+                                                    {
+                                                      "op": "var",
+                                                      "name": "pattern"
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "var",
+                                                  "name": "patternsReversed"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          {
+                                            "name": "result",
+                                            "value": {
+                                              "op": "variant",
+                                              "constructor": "Ok",
+                                              "payload": {
+                                                "op": "literal",
+                                                "type": {
+                                                  "tag": "scalar",
+                                                  "name": "bool"
+                                                },
+                                                "value": true
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    {
+                                      "constructor": "Err",
+                                      "binding": "error",
+                                      "body": {
+                                        "op": "record",
+                                        "fields": [
+                                          {
+                                            "name": "patterns",
+                                            "value": {
+                                              "op": "var",
+                                              "name": "patternsReversed"
+                                            }
+                                          },
+                                          {
+                                            "name": "result",
+                                            "value": {
+                                              "op": "variant",
+                                              "constructor": "Err",
+                                              "payload": {
+                                                "op": "call",
+                                                "callee": {
+                                                  "op": "symbol",
+                                                  "ref": "io:OtherMessage"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "op": "call",
+                                                    "callee": {
+                                                      "op": "symbol",
+                                                      "ref": "std:TextConcat"
+                                                    },
+                                                    "arguments": [
+                                                      {
+                                                        "op": "call",
+                                                        "callee": {
+                                                          "op": "symbol",
+                                                          "ref": "std:TextConcat"
+                                                        },
+                                                        "arguments": [
+                                                          {
+                                                            "op": "call",
+                                                            "callee": {
+                                                              "op": "symbol",
+                                                              "ref": "machine:I32Decimal"
+                                                            },
+                                                            "arguments": [
+                                                              {
+                                                                "op": "var",
+                                                                "name": "lineNumber"
+                                                              }
+                                                            ]
+                                                          },
+                                                          {
+                                                            "op": "literal",
+                                                            "type": {
+                                                              "tag": "scalar",
+                                                              "name": "text"
+                                                            },
+                                                            "value": ": "
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "op": "call",
+                                                        "callee": {
+                                                          "op": "symbol",
+                                                          "ref": "local:InvalidPatternErrorDisplayText"
+                                                        },
+                                                        "arguments": [
+                                                          {
+                                                            "op": "var",
+                                                            "name": "error"
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "op": "set",
+                                "name": "patternsReversed",
+                                "value": {
+                                  "op": "field",
+                                  "record": {
+                                    "op": "var",
+                                    "name": "step"
+                                  },
+                                  "name": "patterns"
+                                }
+                              }
+                            ],
+                            "result": {
+                              "op": "field",
+                              "record": {
+                                "op": "var",
+                                "name": "step"
+                              },
+                              "name": "result"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "arguments": []
+              }
+            }
+          ],
+          "result": {
+            "op": "match",
+            "value": {
+              "op": "var",
+              "name": "readResult"
+            },
+            "cases": [
+              {
+                "constructor": "Ok",
+                "binding": "done",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Ok",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:ReversePatternsInto"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "patternsReversed"
+                      },
+                      {
+                        "op": "sequence",
+                        "items": []
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "var",
+                    "name": "error"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "termination": "partial"
+      }
+    },
+    "PatternsFromPath": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "P",
+            "constraintRefs": [
+              "path:AsRefPathConstraint"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pathValue",
+            "type": {
+              "tag": "param",
+              "name": "P"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "sequence",
+            "item": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "ordered": true
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "path",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:AsRefPath"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "pathValue"
+              }
+            ]
+          },
+          "body": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "io:FileOpen"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "io:OtherMessage"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "std:TextConcat"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "std:TextConcat"
+                            },
+                            "arguments": [
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "path:Display"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "path"
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": ": "
+                              }
+                            ]
+                          },
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "io:ErrorDisplay"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "error"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "file",
+                "body": {
+                  "op": "match",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:PatternsFromReader"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "file"
+                      }
+                    ]
+                  },
+                  "cases": [
+                    {
+                      "constructor": "Ok",
+                      "binding": "patterns",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Ok",
+                        "payload": {
+                          "op": "var",
+                          "name": "patterns"
+                        }
+                      }
+                    },
+                    {
+                      "constructor": "Err",
+                      "binding": "error",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Err",
+                        "payload": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "io:OtherMessage"
+                          },
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "std:TextConcat"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "std:TextConcat"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "path:Display"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "path"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": ":"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "io:ErrorDisplay"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "error"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "termination": "partial"
+      }
+    },
+    "PatternsFromStdin": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "sequence",
+            "item": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "ordered": true
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "effects": [
+          {
+            "class": "io"
+          },
+          {
+            "class": "state-read"
+          },
+          {
+            "class": "state-write"
+          }
+        ],
+        "body": {
+          "op": "let",
+          "name": "stdin",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "io:Stdin"
+            },
+            "arguments": []
+          },
+          "body": {
+            "op": "let",
+            "name": "locked",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "io:StdinLock"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "stdin"
+                }
+              ]
+            },
+            "body": {
+              "op": "match",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:PatternsFromReader"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "locked"
+                  }
+                ]
+              },
+              "cases": [
+                {
+                  "constructor": "Ok",
+                  "binding": "patterns",
+                  "body": {
+                    "op": "variant",
+                    "constructor": "Ok",
+                    "payload": {
+                      "op": "var",
+                      "name": "patterns"
+                    }
+                  }
+                },
+                {
+                  "constructor": "Err",
+                  "binding": "error",
+                  "body": {
+                    "op": "variant",
+                    "constructor": "Err",
+                    "payload": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "io:OtherMessage"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "std:TextConcat"
+                          },
+                          "arguments": [
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "<stdin>:"
+                            },
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "io:ErrorDisplay"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "error"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "termination": "partial"
+      }
+    }
+  },
+  "exports": {
+    "InvalidPatternError": {
+      "definitionId": "InvalidPatternError"
+    },
+    "InvalidPatternErrorValidUpTo": {
+      "definitionId": "InvalidPatternErrorValidUpTo"
+    },
+    "InvalidPatternErrorClone": {
+      "definitionId": "InvalidPatternErrorClone"
+    },
+    "InvalidPatternErrorEqual": {
+      "definitionId": "InvalidPatternErrorEqual"
+    },
+    "InvalidPatternErrorDisplayText": {
+      "definitionId": "InvalidPatternErrorDisplayText"
+    },
+    "InvalidPatternErrorDisplay": {
+      "definitionId": "InvalidPatternErrorDisplay"
+    },
+    "InvalidPatternErrorDebug": {
+      "definitionId": "InvalidPatternErrorDebug"
+    },
+    "InvalidPatternErrorIntoIoError": {
+      "definitionId": "InvalidPatternErrorIntoIoError"
+    },
+    "InvalidPatternErrorSource": {
+      "definitionId": "InvalidPatternErrorSource"
+    },
+    "PatternFromBytes": {
+      "definitionId": "PatternFromBytes"
+    },
+    "PatternFromOs": {
+      "definitionId": "PatternFromOs"
+    },
+    "PatternsFromReader": {
+      "definitionId": "PatternsFromReader"
+    },
+    "PatternsFromPath": {
+      "definitionId": "PatternsFromPath"
+    },
+    "PatternsFromStdin": {
+      "definitionId": "PatternsFromStdin"
+    }
+  }
+}

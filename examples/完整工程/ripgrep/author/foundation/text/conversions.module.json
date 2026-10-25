@@ -1,0 +1,1884 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:text",
+  "definitions": {
+    "ConversionError": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "InvalidScalar": {"tag":"scalar","name":"int"},
+            "InvalidAscii": {"tag":"scalar","name":"int"},
+            "InvalidByte": {"tag":"scalar","name":"int"},
+            "ArithmeticInvariant": {"tag":"scalar","name":"unit"}
+          }
+        }
+      }
+    },
+    "Less": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"left","type":{"tag":"scalar","name":"int"},"mode":"in"},{"name":"right","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {"tag":"scalar","name":"bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op":"call","callee":{"op":"symbol","ref":"std:IntCompare"},"arguments":[{"op":"var","name":"left"},{"op":"var","name":"right"}]},
+          "cases": [
+            {"constructor":"Less","binding":"less","body":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true}},
+            {"constructor":"Equal","binding":"equal","body":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}},
+            {"constructor":"Greater","binding":"greater","body":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false}}
+          ]
+        }
+      }
+    },
+    "IsUnicodeScalar": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"code","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {"tag":"scalar","name":"bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"local:Less"},
+            "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]
+          },
+          "then": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false},
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"55296"}]
+            },
+            "then": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true},
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"57344"}]
+              },
+              "then": {"op":"literal","type":{"tag":"scalar","name":"bool"},"value":false},
+              "otherwise": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"1114112"}]
+              }
+            }
+          }
+        }
+      }
+    },
+    "DivModPositive": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {"name":"value","type":{"tag":"scalar","name":"int"},"mode":"in"},
+          {"name":"divisor","type":{"tag":"scalar","name":"int"},"mode":"in"}
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "record",
+            "fields": {"quot":{"type":{"tag":"scalar","name":"int"}},"rem":{"type":{"tag":"scalar","name":"int"}}},
+            "open": false
+          },
+          "error": {"tag":"nominal","ref":"local:ConversionError"}
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"std:IntDivMod"},
+            "arguments": [{"op":"var","name":"value"},{"op":"var","name":"divisor"}]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "arithmeticFault",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "variant",
+                  "constructor": "ArithmeticInvariant",
+                  "payload": {"op":"literal","type":{"tag":"scalar","name":"unit"},"value":null}
+                }
+              }
+            },
+            {"constructor":"Ok","binding":"parts","body":{"op":"variant","constructor":"Ok","payload":{"op":"var","name":"parts"}}}
+          ]
+        }
+      }
+    },
+    "EncodeScalarValid": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"code","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {
+          "tag": "result",
+          "ok": {"tag":"sequence","item":{"tag":"scalar","name":"int"},"ordered":true},
+          "error": {"tag":"nominal","ref":"local:ConversionError"}
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"local:Less"},
+            "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"}]
+          },
+          "then": {
+            "op": "variant",
+            "constructor": "Ok",
+            "payload": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+              "arguments": [
+                {"op":"var","name":"code"},
+                {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"std:SeqEmpty"},
+                  "arguments": [],
+                  "semanticArguments": [{"tag":"scalar","name":"int"}]
+                }
+              ],
+              "semanticArguments": [{"tag":"scalar","name":"int"}]
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"2048"}]
+            },
+            "then": {
+              "op": "match",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:DivModPositive"},
+                "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"64"}]
+              },
+              "cases": [
+                {"constructor":"Err","binding":"error","body":{"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}},
+                {
+                  "constructor": "Ok",
+                  "binding": "part",
+                  "body": {
+                    "op": "variant",
+                    "constructor": "Ok",
+                    "payload": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"std:IntAdd"},
+                          "arguments": [
+                            {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"192"},
+                            {"op":"field","record":{"op":"var","name":"part"},"name":"quot"}
+                          ]
+                        },
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"std:IntAdd"},
+                              "arguments": [
+                                {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"},
+                                {"op":"field","record":{"op":"var","name":"part"},"name":"rem"}
+                              ]
+                            },
+                            {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"std:SeqEmpty"},
+                              "arguments": [],
+                              "semanticArguments": [{"tag":"scalar","name":"int"}]
+                            }
+                          ],
+                          "semanticArguments": [{"tag":"scalar","name":"int"}]
+                        }
+                      ],
+                      "semanticArguments": [{"tag":"scalar","name":"int"}]
+                    }
+                  }
+                }
+              ]
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"65536"}]
+              },
+              "then": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:DivModPositive"},
+                  "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"64"}]
+                },
+                "cases": [
+                  {"constructor":"Err","binding":"error","body":{"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}},
+                  {
+                    "constructor": "Ok",
+                    "binding": "part",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:DivModPositive"},
+                        "arguments": [
+                          {"op":"field","record":{"op":"var","name":"part"},"name":"quot"},
+                          {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"64"}
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "error",
+                          "body": {"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "high",
+                          "body": {
+                            "op": "variant",
+                            "constructor": "Ok",
+                            "payload": {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                              "arguments": [
+                                {
+                                  "op": "call",
+                                  "callee": {"op":"symbol","ref":"std:IntAdd"},
+                                  "arguments": [
+                                    {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"224"},
+                                    {"op":"field","record":{"op":"var","name":"high"},"name":"quot"}
+                                  ]
+                                },
+                                {
+                                  "op": "call",
+                                  "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                                  "arguments": [
+                                    {
+                                      "op": "call",
+                                      "callee": {"op":"symbol","ref":"std:IntAdd"},
+                                      "arguments": [
+                                        {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"},
+                                        {"op":"field","record":{"op":"var","name":"high"},"name":"rem"}
+                                      ]
+                                    },
+                                    {
+                                      "op": "call",
+                                      "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                                      "arguments": [
+                                        {
+                                          "op": "call",
+                                          "callee": {"op":"symbol","ref":"std:IntAdd"},
+                                          "arguments": [
+                                            {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"},
+                                            {"op":"field","record":{"op":"var","name":"part"},"name":"rem"}
+                                          ]
+                                        },
+                                        {
+                                          "op": "call",
+                                          "callee": {"op":"symbol","ref":"std:SeqEmpty"},
+                                          "arguments": [],
+                                          "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                        }
+                                      ],
+                                      "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                    }
+                                  ],
+                                  "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                }
+                              ],
+                              "semanticArguments": [{"tag":"scalar","name":"int"}]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "otherwise": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:DivModPositive"},
+                  "arguments": [{"op":"var","name":"code"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"64"}]
+                },
+                "cases": [
+                  {"constructor":"Err","binding":"error","body":{"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}},
+                  {
+                    "constructor": "Ok",
+                    "binding": "part",
+                    "body": {
+                      "op": "match",
+                      "value": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:DivModPositive"},
+                        "arguments": [
+                          {"op":"field","record":{"op":"var","name":"part"},"name":"quot"},
+                          {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"64"}
+                        ]
+                      },
+                      "cases": [
+                        {
+                          "constructor": "Err",
+                          "binding": "error",
+                          "body": {"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}
+                        },
+                        {
+                          "constructor": "Ok",
+                          "binding": "middle",
+                          "body": {
+                            "op": "match",
+                            "value": {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"local:DivModPositive"},
+                              "arguments": [
+                                {"op":"field","record":{"op":"var","name":"middle"},"name":"quot"},
+                                {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"64"}
+                              ]
+                            },
+                            "cases": [
+                              {
+                                "constructor": "Err",
+                                "binding": "error",
+                                "body": {"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}
+                              },
+                              {
+                                "constructor": "Ok",
+                                "binding": "high",
+                                "body": {
+                                  "op": "variant",
+                                  "constructor": "Ok",
+                                  "payload": {
+                                    "op": "call",
+                                    "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                                    "arguments": [
+                                      {
+                                        "op": "call",
+                                        "callee": {"op":"symbol","ref":"std:IntAdd"},
+                                        "arguments": [
+                                          {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"240"},
+                                          {"op":"field","record":{"op":"var","name":"high"},"name":"quot"}
+                                        ]
+                                      },
+                                      {
+                                        "op": "call",
+                                        "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                                        "arguments": [
+                                          {
+                                            "op": "call",
+                                            "callee": {"op":"symbol","ref":"std:IntAdd"},
+                                            "arguments": [
+                                              {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"},
+                                              {"op":"field","record":{"op":"var","name":"high"},"name":"rem"}
+                                            ]
+                                          },
+                                          {
+                                            "op": "call",
+                                            "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                                            "arguments": [
+                                              {
+                                                "op": "call",
+                                                "callee": {"op":"symbol","ref":"std:IntAdd"},
+                                                "arguments": [
+                                                  {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"},
+                                                  {"op":"field","record":{"op":"var","name":"middle"},"name":"rem"}
+                                                ]
+                                              },
+                                              {
+                                                "op": "call",
+                                                "callee": {"op":"symbol","ref":"std:SeqPrepend"},
+                                                "arguments": [
+                                                  {
+                                                    "op": "call",
+                                                    "callee": {"op":"symbol","ref":"std:IntAdd"},
+                                                    "arguments": [
+                                                      {"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"},
+                                                      {"op":"field","record":{"op":"var","name":"part"},"name":"rem"}
+                                                    ]
+                                                  },
+                                                  {
+                                                    "op": "call",
+                                                    "callee": {"op":"symbol","ref":"std:SeqEmpty"},
+                                                    "arguments": [],
+                                                    "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                                  }
+                                                ],
+                                                "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                              }
+                                            ],
+                                            "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                          }
+                                        ],
+                                        "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                      }
+                                    ],
+                                    "semanticArguments": [{"tag":"scalar","name":"int"}]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "ScalarUtf8": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"code","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {
+          "tag": "result",
+          "ok": {"tag":"sequence","item":{"tag":"scalar","name":"int"},"ordered":true},
+          "error": {"tag":"nominal","ref":"local:ConversionError"}
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {"op":"call","callee":{"op":"symbol","ref":"local:IsUnicodeScalar"},"arguments":[{"op":"var","name":"code"}]},
+          "then": {"op":"call","callee":{"op":"symbol","ref":"local:EncodeScalarValid"},"arguments":[{"op":"var","name":"code"}]},
+          "otherwise": {"op":"variant","constructor":"Err","payload":{"op":"variant","constructor":"InvalidScalar","payload":{"op":"var","name":"code"}}}
+        }
+      }
+    },
+    "AsciiLookup": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"byte","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {"tag":"scalar","name":"text"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"local:Less"},
+            "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"64"}]
+          },
+          "then": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"32"}]
+            },
+            "then": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"16"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"8"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"4"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"2"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"1"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0000"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0001"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"3"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0002"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0003"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"6"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"5"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0004"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0005"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"7"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0006"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0007"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"12"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"10"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"9"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\b"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\t"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"11"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\n"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u000b"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"14"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"13"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\f"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\r"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"15"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u000e"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u000f"}
+                    }
+                  }
+                }
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"24"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"20"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"18"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"17"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0010"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0011"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"19"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0012"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0013"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"22"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"21"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0014"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0015"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"23"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0016"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0017"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"28"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"26"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"25"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0018"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u0019"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"27"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u001a"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u001b"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"30"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"29"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u001c"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u001d"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"31"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u001e"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\u001f"}
+                    }
+                  }
+                }
+              }
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"48"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"40"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"36"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"34"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"33"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":" "},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"!"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"35"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\""},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"#"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"38"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"37"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"$"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"%"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"39"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"&"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"'"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"44"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"42"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"41"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"("},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":")"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"43"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"*"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"+"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"46"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"45"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":","},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"-"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"47"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"."},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"/"}
+                    }
+                  }
+                }
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"56"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"52"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"50"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"49"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"0"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"1"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"51"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"2"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"3"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"54"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"53"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"4"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"5"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"55"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"6"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"7"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"60"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"58"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"57"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"8"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"9"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"59"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":":"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":";"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"62"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"61"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"<"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"="}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"63"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":">"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"?"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"96"}]
+            },
+            "then": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"80"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"72"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"68"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"66"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"65"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"@"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"A"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"67"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"B"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"C"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"70"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"69"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"D"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"E"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"71"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"F"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"G"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"76"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"74"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"73"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"H"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"I"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"75"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"J"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"K"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"78"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"77"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"L"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"M"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"79"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"N"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"O"}
+                    }
+                  }
+                }
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"88"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"84"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"82"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"81"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"P"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"Q"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"83"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"R"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"S"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"86"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"85"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"T"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"U"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"87"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"V"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"W"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"92"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"90"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"89"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"X"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"Y"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"91"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"Z"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"["}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"94"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"93"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"\\"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"]"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"95"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"^"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"_"}
+                    }
+                  }
+                }
+              }
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"112"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"104"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"100"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"98"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"97"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"`"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"a"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"99"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"b"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"c"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"102"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"101"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"d"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"e"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"103"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"f"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"g"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"108"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"106"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"105"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"h"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"i"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"107"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"j"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"k"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"110"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"109"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"l"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"m"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"111"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"n"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"o"}
+                    }
+                  }
+                }
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"120"}]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"116"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"114"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"113"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"p"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"q"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"115"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"r"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"s"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"118"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"117"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"t"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"u"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"119"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"v"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"w"}
+                    }
+                  }
+                },
+                "otherwise": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {"op":"symbol","ref":"local:Less"},
+                    "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"124"}]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"122"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"121"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"x"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"y"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"123"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"z"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"{"}
+                    }
+                  },
+                  "otherwise": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"local:Less"},
+                      "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"126"}]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"125"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"|"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"}"}
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {"op":"symbol","ref":"local:Less"},
+                        "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"127"}]
+                      },
+                      "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"~"},
+                      "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":""}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "AsciiText": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"byte","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {"tag":"result","ok":{"tag":"scalar","name":"text"},"error":{"tag":"nominal","ref":"local:ConversionError"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"local:Less"},
+            "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]
+          },
+          "then": {"op":"variant","constructor":"Err","payload":{"op":"variant","constructor":"InvalidAscii","payload":{"op":"var","name":"byte"}}},
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"128"}]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "Ok",
+              "payload": {"op":"call","callee":{"op":"symbol","ref":"local:AsciiLookup"},"arguments":[{"op":"var","name":"byte"}]}
+            },
+            "otherwise": {
+              "op": "variant",
+              "constructor": "Err",
+              "payload": {"op":"variant","constructor":"InvalidAscii","payload":{"op":"var","name":"byte"}}
+            }
+          }
+        }
+      }
+    },
+    "HexNibble": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"nibble","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {"tag":"scalar","name":"text"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"local:Less"},
+            "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"8"}]
+          },
+          "then": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"4"}]
+            },
+            "then": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"2"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"1"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"0"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"1"}
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"3"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"2"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"3"}
+              }
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"6"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"5"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"4"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"5"}
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"7"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"6"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"7"}
+              }
+            }
+          },
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"12"}]
+            },
+            "then": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"10"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"9"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"8"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"9"}
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"11"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"a"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"b"}
+              }
+            },
+            "otherwise": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:Less"},
+                "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"14"}]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"13"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"c"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"d"}
+              },
+              "otherwise": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"local:Less"},
+                  "arguments": [{"op":"var","name":"nibble"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"15"}]
+                },
+                "then": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"e"},
+                "otherwise": {"op":"literal","type":{"tag":"scalar","name":"text"},"value":"f"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "ByteHexLower": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"byte","type":{"tag":"scalar","name":"int"},"mode":"in"}],
+        "returns": {"tag":"result","ok":{"tag":"scalar","name":"text"},"error":{"tag":"nominal","ref":"local:ConversionError"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"local:Less"},
+            "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"0"}]
+          },
+          "then": {"op":"variant","constructor":"Err","payload":{"op":"variant","constructor":"InvalidByte","payload":{"op":"var","name":"byte"}}},
+          "otherwise": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"local:Less"},
+              "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"256"}]
+            },
+            "then": {
+              "op": "match",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"local:DivModPositive"},
+                "arguments": [{"op":"var","name":"byte"},{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"16"}]
+              },
+              "cases": [
+                {"constructor":"Err","binding":"error","body":{"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}},
+                {
+                  "constructor": "Ok",
+                  "binding": "parts",
+                  "body": {
+                    "op": "variant",
+                    "constructor": "Ok",
+                    "payload": {
+                      "op": "call",
+                      "callee": {"op":"symbol","ref":"std:TextConcat"},
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"local:HexNibble"},
+                          "arguments": [{"op":"field","record":{"op":"var","name":"parts"},"name":"quot"}]
+                        },
+                        {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"local:HexNibble"},
+                          "arguments": [{"op":"field","record":{"op":"var","name":"parts"},"name":"rem"}]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "otherwise": {"op":"variant","constructor":"Err","payload":{"op":"variant","constructor":"InvalidByte","payload":{"op":"var","name":"byte"}}}
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "ConversionError": {"definitionId":"ConversionError"},
+    "ScalarUtf8": {"definitionId":"ScalarUtf8"},
+    "AsciiText": {"definitionId":"AsciiText"},
+    "ByteHexLower": {"definitionId":"ByteHexLower"}
+  },
+  "annotations": {
+    "scope": "Three shared pure conversions used by the Gift glob renderer. No claim that this implements every foundation:text operation.",
+    "sourceRelation": "ripgrep P 4c2362d359d9913c7a5e391ccd79cb4da22bc89b crates/globset/src/glob.rs:768-789 uses char::encode_utf8, ASCII character conversion and lowercase two-digit hexadecimal formatting. This module gives those primitive value conversions as Gift bodies, not native ripgrep callbacks.",
+    "domains": "ScalarUtf8 accepts exactly 0..0x10ffff excluding 0xd800..0xdfff. AsciiText accepts 0..127. ByteHexLower accepts 0..255. All public invalid inputs return their original Int in the corresponding ConversionError before conversion.",
+    "arithmetic": "Only mathematical Int; IntDivMod divisors at real call sites are 16 or 64. ArithmeticInvariant is the explicit defensive branch for a reported arithmetic failure, not panic or empty success.",
+    "asciiTable": "AsciiLookup has exactly 128 literal leaves for U+0000 through U+007F and a balanced selection tree; HexNibble has exactly 16 leaves 0..9,a..f. These are the intrinsic finite encodings, not application-input examples.",
+    "unimplementedExports": "TrimEndUnicodeWhitespace requested by command remains OPEN and is not exported by this slice.",
+    "qualification": "Pure-body local validation is not a production Reader/linker/Target or entire-ripgrep equivalence result. Standard Ordering/Result/Sequence and exact Text scalar/normalization profiles still require actual qualified engine bindings."
+  }
+}

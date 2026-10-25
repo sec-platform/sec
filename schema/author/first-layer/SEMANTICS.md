@@ -75,6 +75,11 @@ Name、SourceRef与仅含三个互斥对象的StructuredSourceRef见[names.schem
 
 供给的 decoder、typeRules、effectRules、composition、migration、evidenceObligations 都定位到真实规范正文/机器结构；`consumer-signatures.json`声明输入输出，而非提供可执行代码。解释映像只在取得真实实现及资格以后才能产生运行 binding；当前设计源有准确数学解释，但生产 capability 为 NOT_IMPLEMENTED。这个明确差别避免把几个非空引用当成已部署解释器。
 
+同一供给框架另导出设计签名 `InterpretTrait`，仅用于 `bodySchemaRef=urn:gift:design-schema:first-layer-trait-body` 的专业 payload；不能把原 `Interpret` 的输入域静默扩大。其声明、实现、关联类型和方法分派由[开放 trait 结构画像](../../../docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile)拥有，专业 Schema 在准确候选图中消费递归 Type/Expr/TypeParam。typed binding slot 的 `sem:InterpretTrait` 沿同一 dialect 空间解析；它不注册生产插件，也不把 shape 检查当作 coherence、下游 Rust 导出或执行证据。缺绑定、缺类型器或缺目标资格分别保留对应 Need；旧 Body 和解释入口不改义。
+
+<a id="supply-rule-dispatch"></a>
+供给的 `typeRulesRef/effectRulesRef` 在此按已固定 `bodySchemaRef` 分派：`urn:gift:design-schema:semantic-convergence` 继续消费[专业项类型规则](#terms)和[原消费/效果边界](#consumers)；`urn:gift:design-schema:first-layer-trait-body` 消费[开放trait的类型、默认/覆盖方法与效果规则](../../../docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile)。两者不能交叉套用，未知Body没有默认回退。解释的纯性与解释所得方法的执行效果分开核验，签名文件的owner引用不替代本分派入口。
+
 处理顺序：冻结原输入→无损解码→按 profile 读结构→核名称与类型→核模型资格→形成准确 denotation/专业语义图→把要求及保持条件投给原 Requirement/Claim→按请求选择已有方法或创作→原 Target/Execution/Assurance 消费。一般程序进入原 CheckedProgram/降低，模型分析进入原合格查询/证据；都不另建可写 IR、身份库或权限库。
 
 结果至少区分：结构不合法；模型不合格；在准确模型与假设下真/假；有定义但本次方法未取得结论；现场绑定/授权未取得。形式上真不改变任何 HostGrant。若模型状态不是现场可验证的映像，仅能报告模型结论；模型仿真不能生成“事故未发生”证明。
