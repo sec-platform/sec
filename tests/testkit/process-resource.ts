@@ -93,8 +93,9 @@ export type RetainedBunTestWorkspaceRun = (
 ) => Promise<RetainedCommandResult>;
 
 /** Own a workspace until every managed command has joined and released inputs.
- * The callback must not launch unmanaged work. Once it ends, no new command may
- * borrow the workspace; unknown physical outcomes retain it without afterAll.
+ * The callback must not leave unmanaged work borrowing fixture resources.
+ * Once it ends, no new command may borrow the workspace; unknown physical
+ * outcomes retain it without afterAll.
  */
 export async function withRetainedBunTestWorkspace<T>(
   prefix: string,
@@ -108,7 +109,7 @@ export async function withRetainedBunTestWorkspace<T>(
 /** Gate an existing fixture's entire cleanup on all managed child outcomes.
  * Root supplies the default command cwd and retention diagnostic, not deletion
  * authority: only the fixture's cleanup decides which resources to release.
- * The callback must not launch unmanaged work.
+ * The callback must not leave unmanaged work borrowing fixture resources.
  */
 export async function withRetainedBunTestCommands<T>(
   root: string,

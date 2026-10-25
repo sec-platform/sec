@@ -2,21 +2,20 @@ import { expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { withRetainedBunTestWorkspace, type RetainedBunTestWorkspaceRun } from '../../testkit/process-resource.ts';
 
 const cliEntrypoint = path.resolve(import.meta.dir, '../../../src/bootstrap/cli/cli.ts');
 const internalFailureEntrypoint = path.resolve(import.meta.dir, '../../helpers/cli-entry-internal-failure.ts');
 
 // Native Commander termination is part of this contract; do not replace it
 // with an in-process parser or a test-owned error/help implementation.
-async function runEntry(workspaceRoot: string, args: readonly string[], internalFailure = false) {
+async function runEntry(run: RetainedBunTestWorkspaceRun, workspaceRoot: string, args: readonly string[], internalFailure = false) {
   const options = {
     cwd: workspaceRoot,
     env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
     timeoutMs: 5_000
   };
-  const result = await runRetainedBunTestCommand([
+  const result = await run([
     '--no-env-file', internalFailure ? internalFailureEntrypoint : cliEntrypoint, ...args
   ], options);
   return { status: result.code, stdout: result.stdout, stderr: result.stderr };
@@ -50,8 +49,8 @@ function errorProtocol(stderr: string): Record<string, unknown> {
 }
 
 test('CLI prints its real help for missing commands', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const result = await runEntry(workspaceRoot, []);
+  await withRetainedBunTestWorkspace('engineering-compiler-test-', async (workspaceRoot, run) => {
+    const result = await runEntry(run, workspaceRoot, []);
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
     for (const marker of ['Usage: sec', 'init', 'resolve', 'compose', 'verify']) {
@@ -63,8 +62,8 @@ test('CLI prints its real help for missing commands', async () => {
 
 for (const args of [['unknown']]) {
   test(`CLI rejects unknown invocation: ${args.join(' ')}`, async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      const result = await runEntry(workspaceRoot, args);
+    await withRetainedBunTestWorkspace('engineering-compiler-test-', async (workspaceRoot, run) => {
+      const result = await runEntry(run, workspaceRoot, args);
       expect(result.status).toBe(2);
       expect(result.stdout).toBe('');
       expect(errorProtocol(result.stderr)).toMatchObject({
@@ -87,8 +86,8 @@ const usageCases = [
 
 for (const { args, diagnostic, protocol } of usageCases) {
   test(`CLI reports the argument error for ${args.join(' ')}`, async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      const result = await runEntry(workspaceRoot, args);
+    await withRetainedBunTestWorkspace('engineering-compiler-test-', async (workspaceRoot, run) => {
+      const result = await runEntry(run, workspaceRoot, args);
       expect(result.status).toBe(protocol ? 1 : 2);
       expect(result.stdout).toBe('');
       expect(result.stderr).toContain(diagnostic);
@@ -101,8 +100,8 @@ for (const { args, diagnostic, protocol } of usageCases) {
 }
 
 test('CLI preserves an unexpected handler failure as a kernel error', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const result = await runEntry(workspaceRoot, ['fail'], true);
+  await withRetainedBunTestWorkspace('engineering-compiler-test-', async (workspaceRoot, run) => {
+    const result = await runEntry(run, workspaceRoot, ['fail'], true);
     expect(result.status).toBe(1);
     expect(result.stdout).toBe('');
     expect(errorProtocol(result.stderr)).toMatchObject({
