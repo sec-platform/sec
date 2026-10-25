@@ -149,6 +149,14 @@ test('Read Plan compiles deterministically while referencing rather than redefin
   expect(first.maxSkillBodies).toBe(1);
   expect(first.maintainerMutationPolicy).toBe('current-physical-state-authoritative-v1');
   expect(first.protectedRootPolicy).toBe('outside-candidate-write-authority-v1');
+  const envelope = projectSkillApplicabilityEnvelopeFromOperationReadPlan(first);
+  expect(envelope.taskCapsuleRef).toBe(first.taskCapsule.ref);
+  expect(envelope.taskCapsuleDigest).toBe(first.taskCapsule.digest);
+  expect(envelope.taskCapsuleRevision).toBe(first.taskCapsule.revision);
+  expect(() => parseOperationReadPlan({
+    ...first,
+    readPlanDigest: digest('f')
+  })).toThrow(/readPlanDigest mismatch/u);
 });
 
 test('conditional reads require an explicit bidirectional frontier', () => {
@@ -199,18 +207,6 @@ test('retired documentation clause projections cannot re-enter the read contract
       projection: { kind: 'markdown-clauses' } as never
     }]
   })).toThrow(/projection is unsupported/u);
-});
-
-test('plan parser rejects tampering and Skill projection carries exact upstream capsule identity', () => {
-  const plan = compileOperationReadPlan(input());
-  const envelope = projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan);
-  expect(envelope.taskCapsuleRef).toBe(plan.taskCapsule.ref);
-  expect(envelope.taskCapsuleDigest).toBe(plan.taskCapsule.digest);
-  expect(envelope.taskCapsuleRevision).toBe(plan.taskCapsule.revision);
-  expect(() => parseOperationReadPlan({
-    ...plan,
-    readPlanDigest: digest('f')
-  })).toThrow(/readPlanDigest mismatch/u);
 });
 
 test('zero Skill-body budget rejects selectable candidates', () => {

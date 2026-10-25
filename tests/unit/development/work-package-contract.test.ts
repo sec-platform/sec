@@ -80,7 +80,7 @@ test('Work Package locator is one exact canonical PR body line', () => {
   )).toThrow('must be exactly');
 });
 
-test('frozen Work Package V1 binds strict task ownership and full manifest bytes', () => {
+test('frozen Work Package V1 preserves manifest identity, parser admission and exact ownership', () => {
   const source = manifest();
   const parsed = CodexDevelopmentDecodeWorkPackageManifest(
     source,
@@ -105,12 +105,9 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
       { path: 'scripts/codex/example.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' }
     ]
   });
-});
-
-test('Work Package V1 authorityRefs are optional canonical document identities', () => {
   const first = 'urn:uuid:00000000-0000-4000-8000-000000000001';
   const second = 'urn:uuid:00000000-0000-4000-8000-000000000002';
-  const withAuthority = manifest().replace(
+  const withAuthority = source.replace(
     'tasks:\n',
     `authorityRefs:\n  - ${first}\n  - ${second}\ntasks:\n`
   );
@@ -118,7 +115,7 @@ test('Work Package V1 authorityRefs are optional canonical document identities',
     first,
     second
   ]);
-  expect(CodexDevelopmentDecodeWorkPackageManifest(manifest()).authorityRefs).toBeUndefined();
+  expect(parsed.authorityRefs).toBeUndefined();
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(withAuthority.replace(
     `  - ${first}\n  - ${second}`,
     `  - ${second}\n  - ${first}`
@@ -127,12 +124,7 @@ test('Work Package V1 authorityRefs are optional canonical document identities',
     first,
     'development-governance'
   ))).toThrow(/document UUID URN/u);
-});
-
-test('Work Package parser exposes one V1 authority route and rejects retired V2 bytes', () => {
-  expect(CodexDevelopmentParseWorkPackageManifest(manifest())).toEqual(
-    CodexDevelopmentDecodeWorkPackageManifest(manifest())
-  );
+  expect(CodexDevelopmentParseWorkPackageManifest(source)).toEqual(parsed);
   expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifest()))
     .toThrow('schema is unsupported');
   for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20'] as const) {
@@ -143,6 +135,9 @@ test('Work Package parser exposes one V1 authority route and rejects retired V2 
       manifest().replace('ci-verification-v19', historicalOrFuture)
     ).ciRevision).toBe(historicalOrFuture);
   }
+  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['README.md'])).toThrow('exactly one');
+  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['src/compiler/resolve/index.ts'])).toThrow('forbidden');
+  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['scripts\\codex\\merge-gate.ts'])).toThrow('normalized POSIX');
 });
 
 test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous scope', () => {
@@ -207,13 +202,6 @@ test('built-in Work Package YAML keeps strict mapping and lexical fail-closed se
   )).not.toThrow();
 });
 
-test('Work Package ownership rejects unowned and forbidden changed paths', () => {
-  const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest());
-  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['README.md'])).toThrow('exactly one');
-  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['src/compiler/resolve/index.ts'])).toThrow('forbidden');
-  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['scripts\\codex\\merge-gate.ts'])).toThrow('normalized POSIX');
-});
-
 test('Work Package literal paths allow framework brackets but reject reserved names, streams and globs', () => {
   const bracketed = manifest().replace(
     '      - scripts/codex/',
@@ -261,7 +249,7 @@ test('rename and copy endpoints must remain inside one task seam', () => {
   }])).toThrow('Cross-task copied is forbidden');
 });
 
-test('changed records preserve same-source copy lineage without weakening path identity', () => {
+test('changed records preserve same-source copy lineage and reject ambiguous path identity', () => {
   const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest().replace(
     '  - src/compiler/',
     '  - vendor/'
@@ -305,16 +293,6 @@ test('changed records preserve same-source copy lineage without weakening path i
     { status: 'renamed', previousPath: 'src/source.ts', path: 'src/archive/first.ts' },
     { status: 'renamed', previousPath: 'src/source.ts', path: 'src/archive/second.ts' }
   ])).toThrow('ambiguous duplicate path roles');
-});
-
-test('changed records reject case-insensitive flattened path collisions', () => {
-  const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest().replace(
-    '  - src/compiler/',
-    '  - vendor/'
-  ).replace(
-    '      - platform/shared/ci-contract.ts\n      - scripts/codex/',
-    '      - src/'
-  ));
   expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [
     { status: 'changed', path: 'src/Foo.ts' },
     { status: 'changed', path: 'src/foo.ts' }

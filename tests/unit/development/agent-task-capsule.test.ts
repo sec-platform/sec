@@ -88,17 +88,13 @@ test('Task Capsule is a deterministic content-addressed pure compiler output', (
   expect(first.authorityStatus).toBe(TASK_CAPSULE_AUTHORITY_STATUS);
   expect(first.effectAuthority).toBe('none');
   expect(parseTaskCapsule(JSON.parse(JSON.stringify(first)))).toEqual(first);
-});
-
-test('Task Capsule rejects unknown caller fields and digest tampering', () => {
   expect(() => compileTaskCapsule({
     ...input(),
     currentState: 'candidate'
   })).toThrow(/keys must be exact/u);
 
-  const capsule = compileTaskCapsule(input());
   expect(() => parseTaskCapsule({
-    ...capsule,
+    ...first,
     digest: digest('f')
   })).toThrow(/digest does not bind its complete planning content/u);
 });
