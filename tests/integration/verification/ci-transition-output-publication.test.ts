@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
@@ -35,22 +36,22 @@ async function runTransitionOutput(options: ReturnType<typeof transitionOutputOp
 
 test('CI transition output publishes exact stdout at the configured destination with read-only permissions', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-output-bytes-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const stdout = Buffer.from([0x20, 0x7b, 0x0a, 0x00, 0xff, 0xc3, 0x28, 0x0d, 0x0a]);
     const options = transitionOutputOptions(root, stdout);
     expect((await runTransitionOutput(options)).code).toBe(0);
     const output = path.join(path.dirname(options.evidencePath), SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE);
     expect(readFileSync(output)).toEqual(stdout);
     if (process.platform !== 'win32') expect(statSync(output).mode & 0o777).toBe(0o400);
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 for (const existing of ['same', 'different'] as const) {
   test(`CI transition output rejects an existing ${existing}-byte leaf without replacing it`, async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-output-exclusive-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       const stdout = Buffer.from('{"result":"captured"}\n');
       const options = transitionOutputOptions(root, stdout);
       const output = path.join(path.dirname(options.evidencePath), SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE);
@@ -69,16 +70,16 @@ for (const existing of ['same', 'different'] as const) {
       }
       expect(readFileSync(output)).toEqual(original);
       expect(statSync(output, { bigint: true }).ino).toBe(identity.ino);
-    } finally {
+    }, async () => {
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   });
 }
 
 for (const replacement of ['directory', 'symlink'] as const) {
   test(`CI transition output rejects its parent being replaced by a ${replacement} during execution`, async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-output-parent-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       const parent = path.join(root, 'configured-output');
       const saved = path.join(root, 'saved-output');
       const redirected = path.join(root, 'redirected-output');
@@ -97,8 +98,8 @@ for (const replacement of ['directory', 'symlink'] as const) {
         await expect(lstat(path.join(directory, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE)))
           .rejects.toMatchObject({ code: 'ENOENT' });
       }
-    } finally {
+    }, async () => {
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   });
 }

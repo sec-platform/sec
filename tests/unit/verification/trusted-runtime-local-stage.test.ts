@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,11 +32,12 @@ const OPERATOR_CLI = path.resolve('src/bootstrap/engineering/trusted-runtime-clo
 async function fixture(operation: (input: { root: string; requestPath: string; state: string; cache: string }) => Promise<void>) {
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-local-stage-'));
   const root = path.join(parent, 'workspace');
-  mkdirSync(root);
-  const requestPath = path.join(root, 'request.json');
-  writeFileSync(requestPath, JSON.stringify(LOCAL));
-  try { await operation({ root, requestPath, state: path.join(parent, 'state'), cache: path.join(parent, 'cache') }); }
-  finally { rmSync(parent, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(async () => {
+    mkdirSync(root);
+    const requestPath = path.join(root, 'request.json');
+    writeFileSync(requestPath, JSON.stringify(LOCAL));
+    await operation({ root, requestPath, state: path.join(parent, 'state'), cache: path.join(parent, 'cache') });
+  }, async () => { rmSync(parent, { recursive: true, force: true }); });
 }
 
 function runCli(cli: string, args: string[], root: string, state: string, cache: string) {

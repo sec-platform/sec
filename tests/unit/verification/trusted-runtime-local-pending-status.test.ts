@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -81,8 +82,8 @@ async function runPendingStatus(saved: unknown, receiptOverrides: Record<string,
   const root = path.join(parent, 'workspace');
   const state = path.join(parent, 'state');
   const cache = path.join(parent, 'cache');
-  mkdirSync(root);
-  try {
+  return settleWorkspaceCallback(async () => {
+    mkdirSync(root);
     const receiptInput = { ...receiptFields, ...receiptOverrides };
     const receipt = parseTrustedRuntimeContainerReceipt({ ...receiptInput, receiptDigest: digest(receiptInput) });
     const record = { schema: 'sec-trusted-runtime-pending-qualification-v1', evidence, receipt };
@@ -96,7 +97,7 @@ async function runPendingStatus(saved: unknown, receiptOverrides: Record<string,
     return await runRetainedBunTestCommand([path.resolve("src/bootstrap/development/closeout/verification-session-cli.ts"),
       'status', '--request', requestPath], { cwd: root, env: { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache },
       envMode: 'replace', timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
-  } finally { rmSync(parent, { recursive: true, force: true }); }
+  }, async () => { rmSync(parent, { recursive: true, force: true }); });
 }
 
 test('unmocked pending status reports matching historical evidence and unestablished request bindings', async () => {

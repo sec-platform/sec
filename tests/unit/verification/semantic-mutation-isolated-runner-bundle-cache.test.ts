@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -76,7 +77,7 @@ test('isolated runner relocation resolves the compiler runtime from each deploye
   );
   expect(relocated).not.toContain(buildModulesRoot);
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-runner-relocation-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     for (const name of ['first root#', 'second root%']) {
       const deploymentRoot = path.join(temporaryRoot, name);
       const modulePath = path.join(deploymentRoot, SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH);
@@ -88,9 +89,9 @@ test('isolated runner relocation resolves the compiler runtime from each deploye
       expect(observed.directory).toBe(runtimeDirectory);
       expect(observed.filename).toBe(path.join(runtimeDirectory, 'typescript.js'));
     }
-  } finally {
+  }, async () => {
     rmSync(temporaryRoot, { recursive: true, force: true });
-  }
+  });
 
   expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(
     assignment(path.resolve('foreign-compiler-runtime')),

@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -125,7 +126,7 @@ test('progress transport preserves committed and pending checkpoint state and re
 
 async function withGeneratedRuntime(run: (root: string, bootstrap: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-isolated-relocation-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const bootstrap = path.join(root, SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH);
     const files = [
       [bootstrap, semanticMutationIsolatedBootstrapBytes()],
@@ -145,9 +146,9 @@ async function withGeneratedRuntime(run: (root: string, bootstrap: string) => Pr
     }
     await mkdir(path.join(root, '.isolated-process', 'child'), { recursive: true });
     await run(root, bootstrap);
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }
 
 

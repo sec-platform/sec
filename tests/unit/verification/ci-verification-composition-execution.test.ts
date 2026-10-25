@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -75,7 +76,7 @@ function executeScriptGate(repositoryRoot: string, script: string) {
 
 test('composition gates execute through the same Action runner and preserve producer env/scope identity', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const plan = buildCiVerificationActionPlanClosure({ candidate, gates });
     const variants: readonly (readonly CiVerificationProducerGate[])[] = [
       gates.map((gate, index) => index === 0 ? { ...gate, environment: { 'ci-env-v1:environment': digest('8') } } : gate),
@@ -119,14 +120,14 @@ test('composition gates execute through the same Action runner and preserve prod
       digest(`${root}\n`),
       digest('')
     ]);
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('composition failure remains failed and later Action is canonical not-run', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-fail-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const failureCandidate = candidateFor('failed-composition');
     const plan = buildCiVerificationActionPlanClosure({ candidate: failureCandidate, gates });
     const result = await CodexDevelopmentExecuteCiActionClosure({
@@ -140,15 +141,15 @@ test('composition failure remains failed and later Action is canonical not-run',
     expect(result.failed).toBe(true);
     expect(result.gates.map((gate) => gate.result.status)).toEqual(['failed', 'not-run']);
     expect(result.gates[1]?.result.reasonCode).toBe('fail-fast-prerequisite-failed');
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('composition rejects same-id descriptor argv or runtime substitution before physical execution', async () => {
   const plan = buildCiVerificationActionPlanClosure({ candidate, gates: [gates[0]!] });
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-substitution-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     for (const gate of [
       { ...gates[0]!, argv: ['bun', 'test', 'tests/forged.test.ts'] },
       { ...gates[0]!, runtime: 'bun@1.3.14' }
@@ -167,9 +168,9 @@ test('composition rejects same-id descriptor argv or runtime substitution before
       })).rejects.toThrow(/differs from its authorized operation/);
       expect(physicalExecutions).toBe(0);
     }
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('composition rejects a plain structural process result without an owner-issued resource receipt', async () => {
@@ -179,7 +180,7 @@ test('composition rejects a plain structural process result without an owner-iss
     gates: [gates[0]!]
   });
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-plain-result-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(CodexDevelopmentExecuteCiActionClosure({
       repositoryRoot: root,
       actionPlan: plan,
@@ -192,9 +193,9 @@ test('composition rejects a plain structural process result without an owner-iss
         failureTail: ''
       } as unknown as CodexDevelopmentGateProcessSettlement)
     })).rejects.toThrow(/did not receive an owner-issued process terminal/u);
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 // The transport fixture is deliberately historical data. It never executes the
@@ -248,7 +249,7 @@ test('source Action transport consumes the exact completed gate without a second
   const { subject, sourceGate, plan, sourceAction } = historicalSourceActionFixture();
   const processCalls: string[] = [];
   const root = mkdtempSync(path.join(tmpdir(), 'sec-source-handoff-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const execution = await CodexDevelopmentExecuteCiActionClosure({
       repositoryRoot: root, actionPlan: plan, gates: [{ gate: gates[0]!, env: {} }, { gate: sourceGate, env: {} }],
       headSha: subject.headSha, now: clock(), sourceAction, sessionRevision: sourceAction.sessionRevision,
@@ -266,7 +267,7 @@ test('source Action transport consumes the exact completed gate without a second
     expect(transported.gate.result.status).toBe('passed');
     expect(() => assertTrustedRuntimeSourceProgramAction(sourceAction)).toThrow('exact live isolated producer handoff');
     expect(() => assertTrustedRuntimeSourceProgramAction(transported)).toThrow('exact live isolated producer handoff');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
 });
 
 test('source Action transport rejects another Session, subject, or altered full gate', async () => {

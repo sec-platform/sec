@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deriveTestWorkspaceRunNamespace } from '../../../src/adapters/self-hosting/development/runner/env-manager.ts';
 import { captureWorkspacePipelineOptions, workspaceTemplatePipeline, type WorkspaceTemplateKind } from '../../testkit/template-preparation.ts';
-import { workspaceTemporaryPrefix } from '../../testkit/workspace-cleanup.ts';
+import { settleWorkspaceCallback, workspaceTemporaryPrefix } from '../../testkit/workspace-cleanup.ts';
 
 test('a workspace name is an allocation label, never a caller-selected parent path', () => {
   for (const prefix of ['', '.', '..', '../escape-', '/absolute-', 'nested/prefix-', '..\\escape-', 'C:drive-', 'x\0y']) {
@@ -31,12 +31,12 @@ test.skipIf(process.platform !== 'win32')('nested Gate workspace cwd stays withi
 
 test('native mkdtemp allocations remain inside the selected parent for valid labels', async () => {
   const parent = await fs.mkdtemp(path.join(tmpdir(), 'workspace-prefix-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     for (const label of ['simple-', 'with space-', '中文-']) {
       const directory = await fs.mkdtemp(workspaceTemporaryPrefix(parent, label));
       assert.equal(path.dirname(directory), parent); assert.ok(path.basename(directory).startsWith(label));
     }
-  } finally { await fs.rm(parent, { recursive: true, force: true }); }
+  }, async () => { await fs.rm(parent, { recursive: true, force: true }); });
 });
 
 test('pipeline selection owns a single block list rather than re-reading it after init', () => {

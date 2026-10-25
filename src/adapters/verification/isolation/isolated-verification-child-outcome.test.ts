@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../tests/testkit/workspace-cleanup.ts';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,7 +39,7 @@ test.skipIf(process.platform === 'win32')(
   'isolated child outcome publication refuses a substituted pending leaf',
   async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sec-isolated-child-outcome-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       await mkdir(path.join(root, '.isolated-process', 'child'), { recursive: true });
       const outside = path.join(root, 'outside.json');
       await writeFile(outside, 'outside\n', 'utf8');
@@ -49,8 +50,8 @@ test.skipIf(process.platform === 'win32')(
       expect(await readFile(outside, 'utf8')).toBe('outside\n');
       await expect(readFile(semanticMutationIsolatedChildOutcomePath(root), 'utf8'))
         .rejects.toMatchObject({ code: 'ENOENT' });
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }
 );
