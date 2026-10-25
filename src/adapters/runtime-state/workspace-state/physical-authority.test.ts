@@ -1,4 +1,5 @@
-import { settleResources, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
+import { settleWorkspaceCleanups } from '../../../../tests/testkit/workspace-cleanup.ts';
+import { settleResources, settleResourcesAsync, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import { expect, jest, test } from 'bun:test';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -295,6 +296,7 @@ test.skipIf(process.platform !== 'win32')('bounded owner child generations queue
   });
   let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   let third: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let primaryFailure: ResourceSettlementFailure | undefined;
   try {
     const concurrentDeadlineAtUnixMs = Date.now() + 30_000;
     const concurrent = await Promise.allSettled([
@@ -323,14 +325,20 @@ test.skipIf(process.platform !== 'win32')('bounded owner child generations queue
     if (second === undefined || third === undefined) {
       throw new Error('Bounded concurrent Runtime State authority acquisition returned no capability.');
     }
-    await Promise.all([first.assertCurrent(), second.assertCurrent(), third.assertCurrent()]);
+    await settleWorkspaceCleanups([() => first.assertCurrent(), () => second!.assertCurrent(), () => third!.assertCurrent()]);
     expect(second.directory(path.join(stateRoot, 'operations', 'first')).path).toBe(path.join(stateRoot, 'operations', 'first'));
     expect(third.directory(path.join(stateRoot, 'operations', 'second')).path).toBe(path.join(stateRoot, 'operations', 'second'));
+  } catch (error) {
+    primaryFailure = { label: 'authority fixture', error };
   } finally {
-    await third?.release();
-    await second?.release();
-    await first.release();
-    rmSync(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary: primaryFailure, cleanup: [{ label: 'release authorities before retiring root', settle: async () => {
+      await settleResourcesAsync({ cleanup: [
+        { label: 'third authority', settle: () => third?.release() },
+        { label: 'second authority', settle: () => second?.release() },
+        { label: 'first authority', settle: () => first.release() },
+      ] });
+      rmSync(root, { recursive: true, force: true });
+    } }] });
   }
 });
 
@@ -353,6 +361,7 @@ test.skipIf(process.platform !== 'win32')(
     });
     let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
     let firstWarm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let primaryFailure: ResourceSettlementFailure | undefined;
     try {
       second = await acquireSecRuntimeStatePhysicalAuthority({
         repositoryRoot: secondRepositoryRoot,
@@ -371,12 +380,18 @@ test.skipIf(process.platform !== 'win32')(
         requiredDirectories: []
       });
       expect(observeWindowsAclSessionLifecycleForTests().opened).toBe(afterIndependentRoots.opened);
-      await Promise.all([first.assertCurrent(), second.assertCurrent(), firstWarm.assertCurrent()]);
+      await settleWorkspaceCleanups([() => first.assertCurrent(), () => second!.assertCurrent(), () => firstWarm!.assertCurrent()]);
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      await firstWarm?.release();
-      await second?.release();
-      await first.release();
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [{ label: 'release authorities before retiring root', settle: async () => {
+        await settleResourcesAsync({ cleanup: [
+          { label: 'firstWarm authority', settle: () => firstWarm?.release() },
+          { label: 'second authority', settle: () => second?.release() },
+          { label: 'first authority', settle: () => first.release() },
+        ] });
+        rmSync(root, { recursive: true, force: true });
+      } }] });
     }
   }
 );
@@ -399,6 +414,7 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses authority and a m
   let warm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   let delta: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   let deltaWarm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let primaryFailure: ResourceSettlementFailure | undefined;
   try {
     const afterCold = observeWindowsAclSessionLifecycleForTests();
     expect(afterCold.opened - before.opened).toBe(1);
@@ -430,13 +446,19 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses authority and a m
     });
     const afterDeltaWarm = observeWindowsAclSessionLifecycleForTests();
     expect(afterDeltaWarm.opened).toBe(afterDelta.opened);
-    await Promise.all([cold.assertCurrent(), warm.assertCurrent(), delta.assertCurrent(), deltaWarm.assertCurrent()]);
+    await settleWorkspaceCleanups([() => cold.assertCurrent(), () => warm!.assertCurrent(), () => delta!.assertCurrent(), () => deltaWarm!.assertCurrent()]);
+  } catch (error) {
+    primaryFailure = { label: 'authority fixture', error };
   } finally {
-    await deltaWarm?.release();
-    await delta?.release();
-    await warm?.release();
-    await cold.release();
-    rmSync(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary: primaryFailure, cleanup: [{ label: 'release authorities before retiring root', settle: async () => {
+      await settleResourcesAsync({ cleanup: [
+        { label: 'deltaWarm authority', settle: () => deltaWarm?.release() },
+        { label: 'delta authority', settle: () => delta?.release() },
+        { label: 'warm authority', settle: () => warm?.release() },
+        { label: 'cold authority', settle: () => cold.release() },
+      ] });
+      rmSync(root, { recursive: true, force: true });
+    } }] });
   }
   const afterRelease = observeWindowsAclSessionLifecycleForTests();
   expect(afterRelease.opened - before.opened).toBe(afterRelease.closed - before.closed);
