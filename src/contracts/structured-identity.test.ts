@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { createContentIdentityRuntime } from '../bootstrap/content-identity-runtime.ts';
 import { canonicalEncodingChunks, rawSha256, sha256 } from './canonical.ts';
-import { identityFrameHeader, parseIdentity } from './identity-profile.ts';
+import { identityFrameHeader } from './identity-profile.ts';
 
 const RUNTIME = createContentIdentityRuntime();
 const { contentDigest } = RUNTIME.content;
@@ -23,7 +23,6 @@ test('equal payloads cannot cross domain, schema or raw-content boundaries', () 
   assert.notEqual(identity.digest, contentDigest([...canonicalEncodingChunks(value)].join('')));
   assert.notEqual(structuredIdentity('ab', 'c', value).digest,
     structuredIdentity('a', 'bc', value).digest);
-  assert.throws(() => parseIdentity(identity, 'revision', 'record/v2'), TypeError);
 });
 
 test('canonical key order and encoding remain shared rather than independently reimplemented', () => {

@@ -162,9 +162,14 @@ test('context rejects foreign requirements and ceiling widening while identity f
 });
 
 test('requirement binding narrows an explicitly declared zero input ceiling and never creates one', () => {
+  const bound = operation('zero-input-provider', 0);
+  expect(bound.plan.execution.aggregateBudgets).toContainEqual({
+    resource: 'input-bytes',
+    maximum: 0
+  });
   const explicitZero = consumeOperationRequirementBindingContext(
     issueOperationRequirementBindingContext({
-      operation: operation('zero-input-provider', 0),
+      operation: bound,
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'input-bytes', maximum: 0 }]
     })

@@ -60,7 +60,7 @@ function fixture(root: string) {
   return { root, repositoryRoot, stateRoot, cacheRoot, environment, checkpoint, layout };
 }
 
-test('one admitted handoff becomes a reusable CAS object plus workspace locator and active pointer', async () => {
+test('admitted handoff publishes reusable state and is idempotent while CAS byte conflict fails closed', async () => {
   await withTemporaryRoot('sec-runtime-state-', async root => {
     const value = fixture(root);
     await persistActiveContinuationCheckpoint({
@@ -87,18 +87,6 @@ test('one admitted handoff becomes a reusable CAS object plus workspace locator 
     expect(value.layout.continuationObjectRoot.startsWith(value.repositoryRoot + path.sep)).toBe(false);
     expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.stateRoot + path.sep)).toBe(true);
     expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.repositoryRoot + path.sep)).toBe(false);
-  });
-}, 30_000);
-
-test('same checkpoint is idempotent while digest-path byte conflict fails closed', async () => {
-  await withTemporaryRoot('sec-runtime-state-', async root => {
-    const value = fixture(root);
-    await persistActiveContinuationCheckpoint({
-      layout: value.layout,
-      repositoryRoot: value.repositoryRoot,
-      checkpoint: value.checkpoint,
-      environment: value.environment
-    });
     await expect(persistActiveContinuationCheckpoint({
       layout: value.layout,
       repositoryRoot: value.repositoryRoot,

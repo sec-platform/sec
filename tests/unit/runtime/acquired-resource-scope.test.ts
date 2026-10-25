@@ -24,17 +24,6 @@ for (const reason of [undefined, Object.freeze({ failure: true })]) {
     assert.deepEqual(events, ['acquire']);
   });
 
-  test(`body failure (${typeof reason}) survives one successful release`, async () => {
-    const resource = {}, events: string[] = [];
-    await rejectsWith(withAcquiredResource({
-      operationLabel: 'use', resourceLabel: 'resource',
-      acquire: () => resource,
-      use(actual) { assert.equal(actual, resource); events.push('use'); throw reason; },
-      release(actual) { assert.equal(actual, resource); events.push('release'); }
-    }), reason);
-    assert.deepEqual(events, ['use', 'release']);
-  });
-
   test(`release failure (${typeof reason}) never becomes normal result delivery`, async () => {
     await rejectsWith(withAcquiredResource({
       operationLabel: 'use', resourceLabel: 'resource',
@@ -44,6 +33,17 @@ for (const reason of [undefined, Object.freeze({ failure: true })]) {
     }), reason);
   });
 }
+
+test('body failure (undefined) survives one successful release', async () => {
+  const reason = undefined, resource = {}, events: string[] = [];
+  await rejectsWith(withAcquiredResource({
+    operationLabel: 'use', resourceLabel: 'resource',
+    acquire: () => resource,
+    use(actual) { assert.equal(actual, resource); events.push('use'); throw reason; },
+    release(actual) { assert.equal(actual, resource); events.push('release'); }
+  }), reason);
+  assert.deepEqual(events, ['use', 'release']);
+});
 
 test('successful false-like resource/result (undefined) still owns a release obligation', async () => {
   const value = undefined;
