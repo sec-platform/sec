@@ -5,6 +5,7 @@ import {
 } from '../../../src/application/compile-workspace.ts';
 import type { LockFile, PlanFile } from '../../../src/compiler/contract.ts';
 import type { PipelineSemanticContext } from '../../../src/compiler/pipeline/semantic-context.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import type { PipelineStageId } from '../../../src/compiler/pipeline/stages.ts';
 
 // The fixture provides stage/lock handles only. It neither compiles a project
@@ -75,11 +76,11 @@ test('completion waits for the original selected stage promise', async () => {
   const entered = deferred(), held = deferred();
   provider.onLock = async () => { entered.resolve(); await held.promise; };
   const run = completeWorkspaceCompilationTransaction('tx:held', ['lock'], provider);
-  try {
+  await settleWorkspaceCallback(async () => {
     await entered.promise;
     expect(provider.trace).toEqual(['lease', 'boundary:lock', 'lock']);
     expect(provider.proofInput).toBeUndefined();
-  } finally { held.resolve(); }
+  }, async () => { held.resolve(); await run; });
   expect((await run).lock).toEqual(lock);
   expect(provider.trace).toEqual(['lease', 'boundary:lock', 'lock', 'read-lock', 'proof', 'revalidate']);
 });

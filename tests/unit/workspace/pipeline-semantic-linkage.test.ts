@@ -22,6 +22,12 @@ test('creation and consumption retain the exact issued domain identities', () =>
   assert.equal(requirePipelineSemanticContext(c), link);
   assert.equal(link.snapshot, i.snapshot); assert.equal(link.generatorPlan, i.plan); assert.equal(link.semanticViews, i.views);
   assert.ok(Object.isFrozen(link));
+  assert.throws(() => requirePipelineSemanticContext(context({ ...link })), code('PIPELINE-SEMANTIC-002'));
+  c.transactionId = 'other';
+  assert.throws(() => requirePipelineSemanticContext(c), code('PIPELINE-SEMANTIC-002'));
+  const accessor = context();
+  Object.defineProperty(accessor, 'semantic', { get() { assert.fail('untrusted context getter'); } });
+  assert.throws(() => requirePipelineSemanticContext(accessor), code('PIPELINE-SEMANTIC-002'));
 });
 
 test('binding is single assignment while unrelated transaction state remains mutable', () => {
@@ -32,17 +38,4 @@ test('binding is single assignment while unrelated transaction state remains mut
   assert.equal(Reflect.deleteProperty(c, 'semantic'), false);
   assert.equal(Reflect.set(c, 'unrelated', 7), true);
   assert.throws(() => bindPipelineSemanticContext(c, i.snapshot as never, i.plan as never, i.views as never), code('PIPELINE-SEMANTIC-001'));
-});
-
-test('a shape clone is not a linkage created by the semantic context owner', () => {
-  const link = create();
-  assert.throws(() => requirePipelineSemanticContext(context({ ...link })), code('PIPELINE-SEMANTIC-002'));
-});
-
-test('wrong transaction and accessor-provided context links are refused', () => {
-  const link = create(), c = context(link); c.transactionId = 'other';
-  assert.throws(() => requirePipelineSemanticContext(c), code('PIPELINE-SEMANTIC-002'));
-  const accessor = context();
-  Object.defineProperty(accessor, 'semantic', { get() { assert.fail('untrusted context getter'); } });
-  assert.throws(() => requirePipelineSemanticContext(accessor), code('PIPELINE-SEMANTIC-002'));
 });

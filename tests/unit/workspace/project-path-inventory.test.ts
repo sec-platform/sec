@@ -8,15 +8,10 @@ test('explicit producer coalescing and strict scope uniqueness remain different 
   assert.deepEqual(captureProjectPathInventory([], 'reject', 'scope'), []);
 });
 
-test('a changed iterator or map implementation cannot substitute a validated scope', () => {
-  const paths = ['src/a.ts'];
-  paths[Symbol.iterator] = () => ['../substituted'].values();
-  paths.map = () => { assert.fail('caller map'); };
-  assert.deepEqual(captureProjectPathInventory(paths, 'reject', 'scope'), ['src/a.ts']);
-});
-
 test('the result is sorted, immutable and detached from future caller mutation', () => {
   const paths = ['src/b.ts', 'src/a.ts'];
+  paths[Symbol.iterator] = () => ['../substituted'].values();
+  paths.map = () => { assert.fail('caller map'); };
   const result = captureProjectPathInventory(paths, 'reject', 'scope');
   paths[0] = 'changed';
   assert.deepEqual(result, ['src/a.ts', 'src/b.ts']);

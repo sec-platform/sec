@@ -31,11 +31,6 @@ test('normalization keeps defaults and independent output without inventing a mi
     error instanceof CodedFailure && error.code === 'PLAN-VALIDATION-014');
 });
 
-test('explicit empty registries stay empty rather than acquiring default providers', () => {
-  const plan = normalize({ ...input(), registry: { sources: [] } });
-  assert.deepEqual(plan.registry.sources, []); validatePlan(plan);
-});
-
 test('null scalar defaults remain distinct from null containers', () => {
   const plan = normalize({ app: { ...input().app, packageManager: null, mode: null },
     registry: { sources: [{ id: 'custom', kind: null, location: null, path: null }] } });
@@ -61,7 +56,9 @@ test('unsupported package/mode retain their existing diagnostic families', () =>
 
 test('strict root and existing nested metadata projection are not silently conflated', () => {
   assert.throws(() => normalize({ ...input(), foreignRoot: true }), code('PLAN-VALIDATION-022'));
-  const plan = normalize({ app: { ...input().app, titleHint: 'ignored' }, blocks: [{ id: 'block/a', custom: { hint: true } }] });
+  const plan = normalize({ app: { ...input().app, titleHint: 'ignored' }, registry: { sources: [] },
+    blocks: [{ id: 'block/a', custom: { hint: true } }] });
+  assert.deepEqual(plan.registry.sources, []);
   assert.equal('titleHint' in plan.app, false);
   assert.deepEqual((plan.blocks[0] as unknown as { custom: unknown }).custom, { hint: true });
   validatePlan(plan);

@@ -32,20 +32,16 @@ for (const source of [null, false, '', 'other', '__proto__']) test(`invalid sour
 
 test('requested stages preserve valid ordering and detach the caller array', () => {
   const values: Array<'resolve' | 'compose'> = ['resolve', 'compose'];
+  Object.defineProperty(values, Symbol.iterator, { value: () => ['bad'].values() });
   const captured = capturePipelineRequestedStages(values);
   values.reverse();
   assert.deepEqual(captured, ['resolve', 'compose']);
   assert.ok(Object.isFrozen(captured));
   assert.deepEqual(capturePipelineRequestedStages([]), []);
+  Object.defineProperty(values, 0, { get() { assert.fail('slot getter'); } });
+  assert.throws(() => capturePipelineRequestedStages(values), { code: 'PIPELINE-USAGE-001' });
 });
 
 for (const values of [new Array(1), ['compose', 'compose'], ['__proto__'], ['unknown']]) test('invalid stage list is rejected', () => {
   assert.throws(() => capturePipelineRequestedStages(values as never));
-});
-
-test('stage capture ignores a custom iterator and refuses accessor slots', () => {
-  const values = ['resolve']; values[Symbol.iterator] = () => ['bad'].values();
-  assert.deepEqual(capturePipelineRequestedStages(values as never), ['resolve']);
-  Object.defineProperty(values, 0, { get() { assert.fail('slot getter'); } });
-  assert.throws(() => capturePipelineRequestedStages(values as never), { code: 'PIPELINE-USAGE-001' });
 });

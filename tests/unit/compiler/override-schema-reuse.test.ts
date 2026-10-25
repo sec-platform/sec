@@ -8,12 +8,16 @@ const validate = validateOverrideManifest;
 
 test('Block conflict selectors retain their own namespace alongside local Override references', () => {
   const conflictsWith = ['second', 'entity/customer@0.2.0', 'entity/customer@0.2.x', 'entity/customer@>=0.2.0'];
+  const first = { ...row('first', 'src/a.ts'), source: 'manual', conflictsWith };
   const parsed = validate({ overrides: [
-    { ...row('first', 'src/a.ts'), source: 'manual', conflictsWith },
+    first,
     { ...row('second', 'src/b.ts'), source: 'rule-backed' }
   ] });
   assert.deepEqual(parsed.overrides[0]!.conflictsWith, conflictsWith);
   assert.deepEqual(parsed.overrides.map(entry => entry.source), ['manual', 'rule-backed']);
+  parsed.overrides[0]!.conflictsWith.length = 0;
+  assert.deepEqual(first.conflictsWith, ['second', 'entity/customer@0.2.0', 'entity/customer@0.2.x', 'entity/customer@>=0.2.0']);
+  assert.equal(first.reason, '  reason  ');
   for (const reference of [
     'entity/customer', 'entity/customer@', 'entity/customer@>=0.2',
     'entity/customer@01.2.x', 'entity/customer@>=01.2.0', 'Entity/customer@0.2.0',
@@ -40,15 +44,6 @@ test('schema acceptance does not authorize a reserved target, duplicate owner or
     { overrides: [{ ...row(), entry: '../source.ts' }] }
   ]) assert.throws(() => validate(input));
 });
-
-test('changing decoded conflicts does not modify the input manifest', () => {
-  const first = { ...row('first', 'src/a.ts'), conflictsWith: ['second'] };
-  const raw = { overrides: [first, row('second', 'src/b.ts')] };
-  const parsed = validate(raw); parsed.overrides[0]!.conflictsWith.length = 0;
-  assert.deepEqual(first.conflictsWith, ['second']);
-  assert.equal(first.reason, '  reason  ');
-});
-
 
 test('default arrays are independently owned across parses and between entries', () => {
   assert.deepEqual(emptyOverrideManifest(), { overrides: [] });
