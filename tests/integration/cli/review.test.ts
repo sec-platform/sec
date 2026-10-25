@@ -1,6 +1,4 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
@@ -64,7 +62,6 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
 
   await withTempWorkspace(async (workspaceRoot) => {
     const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
-    await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
     const reviewSummary: ReviewSummary = {
       formatVersion: '2',
       ciSummary: {
