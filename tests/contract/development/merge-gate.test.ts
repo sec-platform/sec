@@ -789,6 +789,7 @@ type WorkflowStep = Readonly<{
   if?: string;
   uses?: string;
   run?: string;
+  'continue-on-error'?: unknown;
   env?: Readonly<Record<string, unknown>>;
   with?: Readonly<Record<string, unknown>>;
 }>;
@@ -983,16 +984,45 @@ test('hosted integration splits read-only authorization, terminal status, and me
     statuses: 'read',
     'id-token': 'write'
   });
-  expect(authorize.steps.find(({ id }) => id === 'prepare')?.run)
-    .toContain('--job authorize --phase prepare-integration-hosted');
-  expect(authorize.steps.find(({ id }) => id === 'verify')?.run)
-    .toContain('--job authorize --phase verify-integration-recovery');
-  const uploadRecovery = authorize.steps.findIndex(({ id }) => id === 'upload-recovery');
-  expect(uploadRecovery).toBeGreaterThan(-1);
-  expect(authorize.steps.findIndex(({ id }) => id === 'verify')).toBeGreaterThan(uploadRecovery);
+  const prepare = authorize.steps.find(({ id }) => id === 'prepare');
+  const upload = authorize.steps.find(({ id }) => id === 'upload-recovery');
+  const verify = authorize.steps.find(({ id }) => id === 'verify');
+  if (prepare === undefined || upload === undefined || verify === undefined) {
+    throw new Error('Authorize job requires prepare, upload-recovery and verify steps.');
+  }
+  const launcher = 'src/bootstrap/development/hosted-job-runtime.ts';
+  expect(prepare.run).toBe(`exec bun --no-env-file ${launcher} --job authorize --phase prepare-integration-hosted`);
+  expect(verify.run).toBe(`exec bun --no-env-file ${launcher} --job authorize --phase verify-integration-recovery`);
+  expect(authorize.steps.indexOf(upload)).toBe(authorize.steps.indexOf(prepare) + 1);
+  expect(authorize.steps.indexOf(verify)).toBe(authorize.steps.indexOf(upload) + 1);
+  // Preparation failure must stop readback; skipped upload must still allow
+  // the independent recovery-absent readback lane.
+  expect(prepare['continue-on-error']).toBeUndefined();
+  expect(verify.if).toBeUndefined();
+  expect(verify['continue-on-error']).toBeUndefined();
+  expect(upload.if).toBe("${{ always() && !cancelled() && steps.prepare.outputs.recovery-ready == 'true' }}");
+  expect(upload.with?.name).toBe('${{ steps.prepare.outputs.recovery-artifact-name }}');
+  expect(upload.with?.path).toBe([
+    '${{ github.workspace }}/.tmp/codex/hosted-job/authorize/out/recovery/branch-closeout-recovery.json',
+    '${{ github.workspace }}/.tmp/codex/hosted-job/authorize/out/recovery/integration-preflight-result-v2.json'
+  ].join('\n'));
+  expect(upload.with?.['if-no-files-found']).toBe('error');
+  const retentionDays = upload.with?.['retention-days'];
+  expect(Number.isSafeInteger(retentionDays)).toBe(true);
+  expect(retentionDays as number).toBeGreaterThan(0);
+  expect(upload.with?.['include-hidden-files']).toBe(true);
+  expect(upload.with?.overwrite).toBe(false);
+  expect(authorize.outputs).toEqual({
+    'recovery-artifact-name': '${{ steps.prepare.outputs.recovery-artifact-name }}',
+    'integration-lane': '${{ steps.prepare.outputs.integration-lane }}',
+    'head-sha': '${{ steps.prepare.outputs.head-sha }}',
+    'preflight-result-digest': '${{ steps.prepare.outputs.preflight-result-digest }}',
+    'ruleset-digest': '${{ steps.prepare.outputs.ruleset-digest }}'
+  });
   expect(authorize.steps.some(({ run }) => run?.includes('--phase integrate-hosted'))).toBe(false);
 
   expect(terminal.needs).toEqual(['plan', 'authorize']);
+  expect(terminal.if).toBe("${{ needs.authorize.result == 'success' && needs.authorize.outputs.integration-lane == 'open-first-effect' }}");
   expect(terminal.permissions).toEqual({
     contents: 'read',
     'pull-requests': 'read',
@@ -1016,6 +1046,10 @@ test('hosted integration splits read-only authorization, terminal status, and me
   });
   const downloadRecovery = integrate.steps.findIndex(({ id }) => id === 'download-recovery');
   expect(downloadRecovery).toBeGreaterThan(-1);
+  expect(integrate.steps[downloadRecovery]?.if)
+    .toBe("${{ needs.authorize.outputs.recovery-artifact-name != '' }}");
+  expect(integrate.steps[downloadRecovery]?.with?.path)
+    .toBe('${{ github.workspace }}/.tmp/codex/hosted-job/integrate/in/recovery');
   expect(integrate.steps[downloadRecovery]?.with?.name)
     .toBe('${{ needs.authorize.outputs.recovery-artifact-name }}');
   expect(integrate.steps.find(({ id }) => id === 'mutate')?.run)
