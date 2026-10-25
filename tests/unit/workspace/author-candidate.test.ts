@@ -23,6 +23,11 @@ test('forks preserve independent branches and earlier captured values', () => {
   assert.equal(sibling.parentRevision, workspace.initial.revision);
   assert.equal(next.parentRevision, edited.revision);
   assert.notEqual(sibling.revision, edited.revision);
+  const plan = workspace.planSave(workspace.initial, edited);
+  assert.equal(plan.expected, workspace.initial);
+  assert.equal(plan.candidate, edited);
+  assert.deepEqual(plan.before, { value: 1 });
+  assert.deepEqual(plan.after, { value: 2 });
   assert.deepEqual([workspace.initial, edited, sibling, next].map(candidate => workspace.read(candidate)),
     [{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]);
 });
@@ -38,15 +43,4 @@ test('candidate-looking copies are rejected and workspace ownership is enforced'
   // A query can consume an actually issued candidate without claiming to be
   // its workspace owner. Read access is not authority to fork or save it.
   assert.deepEqual(readAuthorCandidate(right.initial), { value: 2 });
-});
-
-test('save planning selects before and after without promoting a mutable saved head', () => {
-  const workspace = createAuthorWorkspace({ value: 1 });
-  const edited = workspace.fork(workspace.initial, { value: 2 });
-  const plan = workspace.planSave(workspace.initial, edited);
-  assert.equal(plan.expected, workspace.initial);
-  assert.equal(plan.candidate, edited);
-  assert.deepEqual(plan.before, { value: 1 });
-  assert.deepEqual(plan.after, { value: 2 });
-  assert.deepEqual(workspace.read(workspace.initial), { value: 1 });
 });

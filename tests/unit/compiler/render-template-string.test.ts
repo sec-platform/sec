@@ -17,12 +17,12 @@ const code = (expected: string, details?: Record<string, unknown>) => (error: un
 for (const newline of ['\n', '\r\n']) {
   test(`template conditionals preserve literal ${JSON.stringify(newline)} bytes around paired directives`, () => {
     const source = [
-      'before', '/*#IF enabled*/', 'enabled', '/*#IF !nested*/',
+      'before', '/*#IF enabled*/', '__enabledText__', '/*#IF !nested*/',
       'not-nested', '/*#ENDIF*/', '/*#ENDIF*/', 'after'
     ].join(newline);
     // Markers are syntax. Active text, including each surrounding newline,
     // is content, not a formatter's permission to delete whitespace.
-    expect(renderTemplateString(source, { enabled: true, nested: false }))
+    expect(renderTemplateString(source, { enabled: true, nested: false, enabledText: 'enabled' }))
       .toBe(['before', '', 'enabled', '', 'not-nested', '', '', 'after'].join(newline));
     expect(renderTemplateString(source, { enabled: false, nested: false }))
       .toBe(['before', '', 'after'].join(newline));
@@ -91,8 +91,4 @@ test('template output bound counts UTF-8 bytes rather than UTF-16 code units', (
   assert.equal(Buffer.byteLength(exact), MAX_OUTPUT_BYTES);
   assert.equal(renderTemplateString('__VALUE__', { VALUE: exact }), exact);
   assert.throws(() => renderTemplateString('__VALUE__', { VALUE: exact + 'x' }), code('COMPOSE-TEMPLATE-009'));
-});
-
-test('template inactive branches do not interpolate missing values', () => {
-  assert.equal(renderTemplateString('/*#IF ON*/__MISSING__/*#ENDIF*/', { ON: false }), '');
 });

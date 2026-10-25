@@ -84,16 +84,10 @@ test('quoted and comment delimiters are not structural braces', () => {
   assert.equal(mergePrismaSchemas(input, input), input);
 });
 
-test('a trailing comment brace is not accidentally incorporated into a merged body', () => {
-  const existing = 'model Record {\n  id Int @id\n} // tail }\n';
-  const merged = mergePrismaSchemas(existing, model('  name String'));
-  assert.equal(merged, 'model Record {\n  id Int @id\n  name String\n} // tail }\n');
-});
-
 test('field documentation remains directly attached when another field is added', () => {
-  const existing = model('  /// Primary key\n  id Int @id\n  /// Existing label\n  label String');
+  const existing = 'model Record {\n  /// Primary key\n  id Int @id\n  /// Existing label\n  label String\n} // tail }\n';
   const merged = mergePrismaSchemas(existing, model('  /// New name\n  name String'));
-  assert.equal(merged, model('  /// Primary key\n  id Int @id\n  /// Existing label\n  label String\n  /// New name\n  name String'));
+  assert.equal(merged, 'model Record {\n  /// Primary key\n  id Int @id\n  /// Existing label\n  label String\n  /// New name\n  name String\n} // tail }\n');
   assert.equal(mergePrismaSchemas(merged, model('  /// New name\n  name String')), merged);
 });
 
