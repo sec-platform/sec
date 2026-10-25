@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildProvenance, buildProvenanceFromVerificationPublication } from '../../../src/adapters/artifacts/provenance.ts';
-import { writeJson } from "../../../src/adapters/filesystem/files.ts";
 import { readOptionalVerificationArtifactSet } from '../../../src/adapters/verification/platform/artifact/runtime/authority.ts';
 import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { buildAcceptanceCoverageReport } from '../../../src/assurance/acceptance/build-coverage.ts';
@@ -128,7 +127,7 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       }),
       summary: { requestedLane: 'all' }
     });
-    const verificationReport = await writeCanonicalPassingVerificationArtifacts(workspaceRoot, report, lock);
+    await writeCanonicalPassingVerificationArtifacts(workspaceRoot, report, lock);
 
     const captured = readOptionalVerificationArtifactSet(workspaceRoot);
     const provenance = await buildProvenance(workspaceRoot, lock);
@@ -151,12 +150,10 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       acceptanceCoveragePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
       verificationReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport)
     };
-    await Promise.all([
-      fs.rm(paths.runtimeReportPath),
-      fs.rm(paths.policyReportPath),
-      fs.rm(paths.acceptanceCoveragePath)
-    ]);
-    await writeJson(paths.verificationReportPath, verificationReport);
+    // Preparation must settle before the workspace callback may clean its root.
+    for (const artifactPath of [paths.runtimeReportPath, paths.policyReportPath, paths.acceptanceCoveragePath]) {
+      await fs.rm(artifactPath);
+    }
     await expect(buildProvenance(workspaceRoot, lock))
       .rejects.toThrow('Provenance Verification artifact set is partially published');
 

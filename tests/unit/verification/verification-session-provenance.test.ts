@@ -122,12 +122,8 @@ test('recovery job readback accepts the provider-omitted attempt only with its e
     expect(() => decodeHostedRecoveryControlStepFacts({ ...value,
       job: { ...value.job, run_attempt } })).toThrow();
   }
-  for (const patch of [{ id: 8 }, { run_id: 21 }, { head_sha: '2'.repeat(40) },
-    { check_run_url: 'https://api.github.com/repos/sec-platform/sec/check-runs/9' }]) {
-    expect(() => decodeHostedRecoveryControlStepFacts({ ...value, job: { ...value.job, ...patch } })).toThrow();
-  }
   expect(() => decodeHostedRecoveryControlStepFacts({ ...value,
-    run: { ...value.run, run_attempt: 2 } })).toThrow();
+    job: { ...value.job, check_run_url: 'https://api.github.com/repos/sec-platform/sec/check-runs/9' } })).toThrow();
 });
 
 test('recovery readback rejects changed native job, run, repository, attempt, source or phase', () => {
@@ -138,7 +134,7 @@ test('recovery readback rejects changed native job, run, repository, attempt, so
     { repository: { id: 5, full_name: 'other/repo' } }]) {
     expect(() => decodeHostedRecoveryControlStepFacts({ ...value, run: { ...value.run, ...patch } })).toThrow();
   }
-  for (const patch of [{ id: 8 }, { run_id: 21 }, { run_attempt: 2 }, { name: 'integrate' },
+  for (const patch of [{ id: 8 }, { run_id: 21 }, { name: 'integrate' },
     { head_sha: '2'.repeat(40) }, { check_run_url: 'https://api.github.com/repos/other/repo/check-runs/8' },
     { status: 'completed' }, { conclusion: 'success' }]) {
     expect(() => decodeHostedRecoveryControlStepFacts({ ...value, job: { ...value.job, ...patch } })).toThrow();

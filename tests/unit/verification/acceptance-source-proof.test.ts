@@ -138,8 +138,6 @@ test('missing, unexecuted or unmapped source evidence cannot close acceptance co
     expect(buildAcceptanceCoverageReport(empty).acceptancePassed).toEqual([]);
     const skipped = fixture(); skipped.fast.acceptance.status = 'skipped';
     expect(buildAcceptanceCoverageReport(skipped).acceptancePassed).toEqual([]);
-    const missing = fixture(); missing.lock.installPlan = [];
-    expect(buildAcceptanceCoverageReport(missing).acceptancePassed).toEqual([]);
     const helper = fixture(); helper.lock.installPlan.push({ ...helper.lock.installPlan[0]!, to: 'tests/acceptance/helpers.ts' });
     expect(buildAcceptanceCoverageReport(helper).source.tests).toEqual([{ testPath: first, blockId: 'billing/invoice' }]);
     const absent = fixture(); delete absent.lock.acceptanceSources![0]!.acceptance.source;
@@ -239,7 +237,9 @@ test('invalid acceptance plans, ownership and dependency graphs are refused', as
     expect(() => buildAcceptanceCoverageReport(duplicate)).toThrow('ownership must be unique');
     const missing = fixture(); missing.lock.installPlan = [];
     const before = structuredClone(missing.lock);
-    expect(buildAcceptanceCoverageReport(missing).blocks[0]!.uncovered).toBe(true);
+    const missingCoverage = buildAcceptanceCoverageReport(missing);
+    expect(missingCoverage.acceptancePassed).toEqual([]);
+    expect(missingCoverage.blocks[0]!.uncovered).toBe(true);
     expect(missing.lock).toEqual(before);
   }
   {

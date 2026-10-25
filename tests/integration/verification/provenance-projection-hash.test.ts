@@ -41,9 +41,10 @@ test('provenance records projection outputs without recursively hashing them', a
       }
     };
 
-    await Promise.all(projectionPaths.map((artifactPath) =>
-      writeText(resolveWorkspaceArtifactPath(workspaceRoot, artifactPath), `projection:${artifactPath}\n`)
-    ));
+    // No parallel writer may escape into cleanup after a sibling rejects.
+    for (const artifactPath of projectionPaths) {
+      await writeText(resolveWorkspaceArtifactPath(workspaceRoot, artifactPath), `projection:${artifactPath}\n`);
+    }
     const stableOutputPath = resolvePathInside(workspaceRoot, stablePath);
     if (stableOutputPath === null) throw new Error('Stable provenance fixture path escaped workspace');
     await writeText(stableOutputPath, stableContent);

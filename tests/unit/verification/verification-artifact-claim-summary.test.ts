@@ -285,7 +285,7 @@ function artifactSet(
 }
 
 function mutablePassedArtifact(policy?: PolicyReport): MutableClaimSummaryArtifactSet {
-  return structuredClone(artifactSet('passed', policy)) as MutableClaimSummaryArtifactSet;
+  return artifactSet('passed', policy) as MutableClaimSummaryArtifactSet;
 }
 
 function invalidateCoverage(candidate: MutableClaimSummaryArtifactSet): void {
@@ -442,7 +442,7 @@ test('contradictory lane observations and invalid policy status cannot retain a 
   const runtimeDrift = mutablePassedArtifact();
   const skipped: RuntimeStep = { status: 'skipped', passed: [], failed: [], command: null };
   runtimeDrift.verificationReport.runtime.acceptance = skipped;
-  runtimeDrift.runtimeReport.acceptance = structuredClone(skipped);
+  runtimeDrift.runtimeReport.acceptance = skipped;
   invalidateCoverage(runtimeDrift);
   expectBlocked(runtimeDrift);
 });
@@ -484,7 +484,7 @@ test('all-lane artifacts cannot replace full runtime proof with a service projec
   const candidate = mutablePassedArtifact();
   const skipped: RuntimeStep = { status: 'skipped', passed: [], failed: [], command: null };
   candidate.verificationReport.runtime.acceptance = skipped;
-  candidate.runtimeReport.acceptance = structuredClone(skipped);
+  candidate.runtimeReport.acceptance = skipped;
   invalidateCoverage(candidate);
   candidate.verificationReport.summary.status = 'failed';
   const expected = buildExpectedProductVerificationClaimSummary(
