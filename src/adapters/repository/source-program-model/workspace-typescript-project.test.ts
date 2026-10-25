@@ -20,27 +20,7 @@ function projectInput(config: Readonly<Record<string, unknown>>, source = 'expor
     'src/value.ts': source,
     'tsconfig.json': `${JSON.stringify(config, null, 2)}\n`
   });
-  const snapshot = compileVirtualWorkspaceSourceSnapshot({
-    subject: Object.freeze({
-      kind: 'virtual-mutation' as const,
-      provenance: Object.freeze({
-        kind: 'source-program-virtual-mutation' as const,
-        baseSnapshotDigest: rawSha256('typescript-execution-containment-base'),
-        mutationDigest: rawSha256(JSON.stringify(sources))
-      })
-    }),
-    files: Object.entries(sources).map(([path, fileSource]) => Object.freeze({
-      path,
-      source: fileSource,
-      contentDigest: rawSha256(fileSource)
-    })),
-    moduleMembership: Object.freeze({
-      descriptors: Object.freeze([]),
-      graphRoots: Object.freeze([]),
-      moduleRoots: Object.freeze([]),
-      moduleForPath: () => null
-    })
-  });
+  const snapshot = virtualProjectSnapshot(sources, 'typescript-execution-containment-base');
   return Object.freeze({
     input: compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json'),
     snapshot
@@ -135,13 +115,16 @@ test('nested JSONC project admission and Program agree on directory roots and tr
   assert.deepEqual(projectTypeScriptProjectFactIdentity(input), admission);
 });
 
-function virtualProjectSnapshot(sources: Readonly<Record<string, string>>) {
+function virtualProjectSnapshot(
+  sources: Readonly<Record<string, string>>,
+  base = 'project-input-test-base'
+) {
   return compileVirtualWorkspaceSourceSnapshot({
     subject: Object.freeze({
       kind: 'virtual-mutation' as const,
       provenance: Object.freeze({
         kind: 'source-program-virtual-mutation' as const,
-        baseSnapshotDigest: rawSha256('project-input-test-base'),
+        baseSnapshotDigest: rawSha256(base),
         mutationDigest: rawSha256(JSON.stringify(sources))
       })
     }),

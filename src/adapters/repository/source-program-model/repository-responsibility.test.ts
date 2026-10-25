@@ -382,6 +382,29 @@ test('source program closes exact issuer and recovery roles without accepting an
   ]);
 });
 
+const operationObligation = (capability: string, operation: string) => ({
+  operation: { kind: 'capability', capability, operation },
+  consumerSupport: { consumers: [] },
+  effect: {
+    kinds: ['process'],
+    failureKinds: ['example.failed'],
+    recovery: 'owner-intervention'
+  },
+  evolution: {
+    migration: 'not-required',
+    retirement: 'replacement-obligations-satisfied'
+  },
+  resources: {
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: 1_000 },
+      { resource: 'input-bytes', maximum: 0 },
+      { resource: 'output-bytes', maximum: 1 },
+      { resource: 'processes', maximum: 1 }
+    ]
+  },
+  futureSupport: { condition: 'semantic-superset-required' }
+});
+
 test('source program rejects cross-owner issuers, generic worker inputs, domain imports, and missing recovery without conflating unrelated issuer roles', () => {
   const model = compileIssuerRoleFixture({
     sources: {
@@ -393,32 +416,7 @@ test('source program rejects cross-owner issuers, generic worker inputs, domain 
       'src/store/worker.ts': "import { domainOperation } from '../domain/operation.ts';\nexport function append(argv: string[], callback: () => void): number { callback(); return argv.length + domainOperation; }\n"
     },
     operationObligations: {
-      'src/effect': [{
-        operation: {
-          kind: 'capability',
-          capability: 'example.effect',
-          operation: 'execute'
-        },
-        consumerSupport: { consumers: [] },
-        effect: {
-          kinds: ['process'],
-          failureKinds: ['example.failed'],
-          recovery: 'owner-intervention'
-        },
-        evolution: {
-          migration: 'not-required',
-          retirement: 'replacement-obligations-satisfied'
-        },
-        resources: {
-          aggregateBudgets: [
-            { resource: 'duration-ms', maximum: 1_000 },
-            { resource: 'input-bytes', maximum: 0 },
-            { resource: 'output-bytes', maximum: 1 },
-            { resource: 'processes', maximum: 1 }
-          ]
-        },
-        futureSupport: { condition: 'semantic-superset-required' }
-      }]
+      'src/effect': [operationObligation('example.effect', 'execute')]
     },
     descriptors: {
       'src/effect': [{
@@ -463,39 +461,18 @@ test('source program rejects cross-owner issuers, generic worker inputs, domain 
 });
 
 test('source program accepts a terminal issuer only through its unique same-capability semantic domain owner', () => {
-  const operationObligation = (capability: string, operation: string) => ({
-    operation: { kind: 'capability', capability, operation },
-    consumerSupport: { consumers: [] },
-    effect: {
-      kinds: ['process'],
-      failureKinds: ['example.failed'],
-      recovery: 'owner-intervention'
-    },
-    evolution: {
-      migration: 'not-required',
-      retirement: 'replacement-obligations-satisfied'
-    },
-    resources: {
-      aggregateBudgets: [
-        { resource: 'duration-ms', maximum: 1_000 },
-        { resource: 'input-bytes', maximum: 0 },
-        { resource: 'output-bytes', maximum: 1 },
-        { resource: 'processes', maximum: 1 }
-      ]
-    },
-    futureSupport: { condition: 'semantic-superset-required' }
-  });
+  type OperationRoleFixture = Readonly<{
+    operation: string;
+    role: string;
+    semanticOperation: string;
+    requirementId: string | null;
+    recovery: null;
+  }>;
   const compile = (capabilityProviders: readonly Readonly<{
     capability: string;
     operations: readonly string[];
     effectKinds: readonly string[];
-    operationRoles: readonly Readonly<{
-      operation: string;
-      role: string;
-      semanticOperation: string;
-      requirementId: string | null;
-      recovery: null;
-    }>[];
+    operationRoles: readonly OperationRoleFixture[];
   }>[]) => compileIssuerRoleFixture({
     sources: {
       'src/lifecycle/operation.ts': [
@@ -523,13 +500,6 @@ test('source program accepts a terminal issuer only through its unique same-capa
     requirementId: null,
     recovery: null
   } as const;
-  type OperationRoleFixture = Readonly<{
-    operation: string;
-    role: string;
-    semanticOperation: string;
-    requirementId: string | null;
-    recovery: null;
-  }>;
   const provider = (operationRoles: readonly OperationRoleFixture[]) => ({
     capability: 'example.lifecycle',
     operations: ['create', 'createOther', 'close'],
