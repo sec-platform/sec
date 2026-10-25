@@ -1,3 +1,4 @@
+import { settleResources } from '../../../../execution/resource-settlement.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -66,17 +67,25 @@ export function openProvider(root: string) {
       resourceCeilings: operation.plan.execution.aggregateBudgets
     })
   });
-  const executablePath = Bun.which('git');
-  if (executablePath === null) throw new Error('Focused Git ref test requires Git.');
-  const resolution = openGitPhysicalProvider({
-    cwd: root,
-    executablePath: path.resolve(executablePath),
-    operation,
-    processSession,
-    maximumExecutableBytes: 64 * 1024 * 1024
-  });
-  if (resolution.status !== 'ready') throw new Error(`Git provider unavailable: ${resolution.reason}`);
-  return { processSession, provider: resolution.capability };
+  try {
+    const executablePath = Bun.which('git');
+    if (executablePath === null) throw new Error('Focused Git ref test requires Git.');
+    const resolution = openGitPhysicalProvider({
+      cwd: root,
+      executablePath: path.resolve(executablePath),
+      operation,
+      processSession,
+      maximumExecutableBytes: 64 * 1024 * 1024
+    });
+    if (resolution.status !== 'ready') throw new Error(`Git provider unavailable: ${resolution.reason}`);
+    return { processSession, provider: resolution.capability };
+  } catch (error) {
+    settleResources({
+      primary: { label: 'Git ref provider fixture construction', error },
+      cleanup: [{ label: 'Git ref fixture process session', settle: () => { processSession.close(); } }]
+    });
+    throw error;
+  }
 }
 
 export function closeProvider(value: ReturnType<typeof openProvider>): void {

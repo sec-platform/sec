@@ -63,18 +63,28 @@ async function createFixture(label: string): Promise<Readonly<{
   rootPath: string;
 }>> {
   const { rootPath, generationParent } = await createGenerationParentFixture(label);
-  const dependencyPath = path.join(rootPath, 'disjoint-dependency');
-  await mkdir(dependencyPath);
-  await writeFile(path.join(dependencyPath, 'dependency.txt'), 'dependency\n');
-  const dependencyRoot = inspectNoFollowDirectoryChain(
-    dependencyPath,
-    `${label} dependency`
-  ).target;
-  const inventory = scanNoFollowDirectoryTreeInventory(dependencyRoot, {
-    deadlineAtMs: performance.now() + 30_000,
-    maximumBytes: 1_024,
-    maximumEntries: 4
-  });
+  let dependencyRoot: PhysicalDirectoryIdentity;
+  let inventory: ReturnType<typeof scanNoFollowDirectoryTreeInventory>;
+  try {
+    const dependencyPath = path.join(rootPath, 'disjoint-dependency');
+    await mkdir(dependencyPath);
+    await writeFile(path.join(dependencyPath, 'dependency.txt'), 'dependency\n');
+    dependencyRoot = inspectNoFollowDirectoryChain(
+      dependencyPath,
+      `${label} dependency`
+    ).target;
+    inventory = scanNoFollowDirectoryTreeInventory(dependencyRoot, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumBytes: 1_024,
+      maximumEntries: 4
+    });
+  } catch (error) {
+    await settleResourcesAsync({
+      primary: { label: 'dependency fixture preparation', error },
+      cleanup: [{ label: 'fixture root before authority admission', settle: () => rm(rootPath, { recursive: true, force: true }) }]
+    });
+    throw error;
+  }
   const materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
     binding: {
       generationDigest: digest(`${label}-dependency-generation`),
