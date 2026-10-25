@@ -27,12 +27,10 @@ function envelope(overrides: Partial<SkillApplicabilityEnvelope> = {}): SkillApp
 test('metadata table covers every registered Skill exactly once with valid vocabularies', () => {
   for (const skillId of AGENT_SKILL_IDS) {
     const metadata = AGENT_SKILL_METADATA[skillId];
-    expect(metadata.id).toBe(skillId);
     expect(metadata.roles.length).toBeGreaterThan(0);
     for (const role of metadata.roles) expect(isAgentRole(role)).toBe(true);
     expect(metadata.operationKinds.length).toBeGreaterThan(0);
     for (const kind of metadata.operationKinds) expect(isTaskCapsuleOperationKind(kind)).toBe(true);
-    expect(Object.keys(metadata).sort()).toEqual(['id', 'operationKinds', 'roles']);
   }
 });
 

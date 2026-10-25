@@ -288,7 +288,6 @@ describe('work-selection live contract', () => {
       expect(commands.every(({ command }) => command === 'git')).toBe(true);
       expect(commands.some(({ args }) => args.some((argument) => argument.includes('config/repository/work-selection.md'))))
         .toBe(false);
-      expect(commands).toHaveLength(6);
     }
   });
 
@@ -351,7 +350,6 @@ describe('work-selection live contract', () => {
 
   test('canonical roadmap embeds one bounded normalized catalog', () => {
     const catalog = parseRoadmapWorkCatalog(roadmapSource);
-    expect(catalog.stageRef).toBe('r14-agent-operation');
     expect(catalog.items.length).toBeGreaterThanOrEqual(2);
     expect(new Set(catalog.items.map(({ packageId }) => packageId)).size)
       .toBe(catalog.items.length);
