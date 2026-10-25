@@ -1,14 +1,12 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
 import { createLocalContinuationCheckpoint, LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES } from '../../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 const LOCAL_CONTINUATION_PROGRAM_PATH = path.resolve(
   import.meta.dir,
@@ -23,25 +21,23 @@ function git(cwd: string, ...args: string[]): string {
   return (result.stdout ?? '').trim();
 }
 
-async function invoke(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
-  return await runRetainedBunTestCommand([LOCAL_CONTINUATION_PROGRAM_PATH, 'continue', ...args, '--json'], {
-    cwd, env, envMode: 'replace', timeoutMs: 60_000
-  });
-}
-
 test.each(['codex-development-work-package-v1', 'codex-development-work-package-v3'] as const)(
   '%s upstream handoff preserves managed admission, resume and ownership', async (schema) => {
-  const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'sec-managed-continuation-'));
-  const repositoryRoot = path.join(fixtureRoot, 'repo');
-  const stateRoot = path.join(fixtureRoot, 'state');
-  const cacheRoot = path.join(fixtureRoot, 'cache');
-  const handoffPath = path.join(fixtureRoot, 'handoff.json');
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    SEC_STATE_HOME: stateRoot,
-    SEC_CACHE_HOME: cacheRoot
-  };
-  await settleWorkspaceCallback(async () => {
+  await withRetainedBunTestWorkspace('sec-managed-continuation-', async (fixtureRoot, run) => {
+    async function invoke(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
+      return await run([LOCAL_CONTINUATION_PROGRAM_PATH, 'continue', ...args, '--json'], {
+        cwd, env, envMode: 'replace', timeoutMs: 60_000
+      });
+    }
+    const repositoryRoot = path.join(fixtureRoot, 'repo');
+    const stateRoot = path.join(fixtureRoot, 'state');
+    const cacheRoot = path.join(fixtureRoot, 'cache');
+    const handoffPath = path.join(fixtureRoot, 'handoff.json');
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      SEC_STATE_HOME: stateRoot,
+      SEC_CACHE_HOME: cacheRoot
+    };
     mkdirSync(path.join(repositoryRoot, 'src'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'config', 'repository', 'work-packages'), { recursive: true });
     git(repositoryRoot, 'init', '-b', 'integration/continuation-fixture');
@@ -199,7 +195,5 @@ tests:
     const afterTerminal = await invoke(repositoryRoot, env);
     expect(afterTerminal.code).not.toBe(0);
     expect(afterTerminal.stderr).toContain('no managed continuation exists');
-  }, async () => {
-    rmSync(fixtureRoot, { recursive: true, force: true });
   });
 }, 60_000);

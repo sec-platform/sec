@@ -12,7 +12,7 @@ import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../../src/ad
 import { selectHostedJobRuntimePhase } from '../../../src/application/hosted-job-runtime.ts';
 import { rawSha256 } from '../../../src/contracts/canonical.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../../testkit/git-protocol.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 import {
   assertAgentOperationActivationTestCensus,
@@ -293,21 +293,20 @@ test('App comment is only a canonical immutable-artifact locator', () => {
 });
 
 test.skipIf(process.platform !== 'win32')('Windows activation fails closed before fake PATH Git or GitHub children and ambient CLI state', async () => {
-  const binHome = mkdtempSync(path.join(tmpdir(), 'sec-agent-activation-fake-cli-'));
-  const gitExecutionSentinel = path.join(binHome, 'git-executed.txt');
-  const ghExecutionSentinel = path.join(binHome, 'gh-executed.txt');
-  const installFake = (name: string, sentinel: string): void => {
-    writeFileSync(path.join(binHome, `${name}.cmd`), [
-      '@echo off',
-      `echo executed>"${sentinel}"`,
-      ''
-    ].join('\r\n'), 'utf8');
-  };
-  await settleWorkspaceCallback(async () => {
+  await withRetainedBunTestWorkspace('sec-agent-activation-fake-cli-', async (binHome, run) => {
+    const gitExecutionSentinel = path.join(binHome, 'git-executed.txt');
+    const ghExecutionSentinel = path.join(binHome, 'gh-executed.txt');
+    const installFake = (name: string, sentinel: string): void => {
+      writeFileSync(path.join(binHome, `${name}.cmd`), [
+        '@echo off',
+        `echo executed>"${sentinel}"`,
+        ''
+      ].join('\r\n'), 'utf8');
+    };
     installFake('git', gitExecutionSentinel);
     installFake('gh', ghExecutionSentinel);
     const runner = path.resolve(import.meta.dir, '../../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts');
-    const result = await runRetainedBunTestCommand([
+    const result = await run([
       runner,
       'request',
       '--phase', 'prepare',
@@ -332,8 +331,6 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
     });
     expect(existsSync(gitExecutionSentinel)).toBe(false);
     expect(existsSync(ghExecutionSentinel)).toBe(false);
-  }, async () => {
-    rmSync(binHome, { recursive: true, force: true });
   });
 });
 

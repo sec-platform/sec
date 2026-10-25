@@ -1,23 +1,20 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 const FIXTURE = path.resolve('tests/helpers/local-stage/v2-preparation-fixture.ts');
 const CLI = path.resolve('src/bootstrap/development/closeout/verification-session-cli.ts');
 async function scenario(name: string) {
-  const parent = mkdtempSync(path.join(tmpdir(), 'sec-v2-stage-'));
-  const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
-  return settleWorkspaceCallback(async () => {
+  return withRetainedBunTestWorkspace('sec-v2-stage-', async (parent, run) => {
+    const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
     mkdirSync(root);
     const env = { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache };
-    const result = await runRetainedBunTestCommand([FIXTURE, name, root], { cwd: root, env, envMode: 'replace',
+    const result = await run([FIXTURE, name, root], { cwd: root, env, envMode: 'replace',
       timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
     expect(result.code).toBe(0);
     return JSON.parse(result.stdout);
-  }, async () => { rmSync(parent, { recursive: true, force: true }); });
+  });
 }
 
 test('V2 explicit execution reports missing frozen native content without creating state or trying another backend', async () => {
@@ -50,26 +47,25 @@ test('real CLI status/resume accept V2 read-only and explicit hosted readers rej
   expect(observed.counters).toMatchObject({ source: 0, native: 0, healthObservation: 0 });
   expect(observed.stateCreated).toBe(false); expect(observed.cacheCreated).toBe(false);
   const request = observed.result.request;
-  const parent = mkdtempSync(path.join(tmpdir(), 'sec-v2-cli-'));
-  const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
-  await settleWorkspaceCallback(async () => {
+  await withRetainedBunTestWorkspace('sec-v2-cli-', async (parent, run) => {
+    const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
     mkdirSync(root);
     const file = path.join(root, 'request.json'); writeFileSync(file, JSON.stringify(request));
     const env = { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache };
     for (const command of ['status', 'resume']) {
-      const read = await runRetainedBunTestCommand([CLI, command, '--request', file], { cwd: root, env, envMode: 'replace',
+      const read = await run([CLI, command, '--request', file], { cwd: root, env, envMode: 'replace',
         timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
       expect(read.code).toBe(0);
       expect(JSON.parse(read.stdout)).toMatchObject({ status: 'LOCAL_REQUEST_OBSERVED',
         stage: 'read-only-projection', sessionRevision: null, verificationStatus: 'not-observed',
         preparationInputMatched: false, sourceQualification: 'not-revalidated',
         currentSubject: 'not-observed', executionStarted: false });
-      const hosted = await runRetainedBunTestCommand([CLI, command, '--execution', 'hosted', '--request', file],
+      const hosted = await run([CLI, command, '--execution', 'hosted', '--request', file],
         { cwd: root, env, envMode: 'replace', timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
       expect(hosted.code).toBe(1); expect(hosted.stderr).toContain('cannot be consumed by a hosted operation');
       expect(existsSync(state)).toBe(false); expect(existsSync(cache)).toBe(false);
     }
-  }, async () => { rmSync(parent, { recursive: true, force: true }); });
+  });
 });
 
 test('preparation reobserves mutable PR metadata even when all source SHAs remain equal', async () => {
