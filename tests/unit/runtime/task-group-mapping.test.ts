@@ -31,8 +31,9 @@ test('a mapping failure stops acceptance but still joins a suspended mapper', as
   } finally { gate.resolve(); await result; }
 });
 
-test('item slots are captured, but the group does not clone a domain object', async () => {
+test('mapping captures own item slots without invoking a replacement iterator or cloning domain objects', async () => {
   const first = { id: 1 }, second = { id: 2 }, items = [first, second];
+  items[Symbol.iterator] = function* () { assert.fail('iterator invoked'); };
   const results = await mapTaskGroup(items, (item, index) => {
     if (index === 0) items[1] = { id: 99 }; return item;
   }, { concurrency: 1 });
@@ -47,17 +48,6 @@ test('group options are sampled before any item observation and stay fixed', asy
     return Reflect.getOwnPropertyDescriptor(target, key);
   } });
   assert.deepEqual(await mapTaskGroup(items, item => item, options), [1, 2]);
-});
-
-for (const items of [new Array(1), Object.defineProperty([1], 0, { get() { assert.fail('input getter invoked'); } })]) {
-  test('a sparse or accessor mapping input is rejected before executing any item', async () => {
-    await assert.rejects(mapTaskGroup(items, () => assert.fail('mapper invoked')), TypeError);
-  });
-}
-
-test('custom array iteration cannot alter or extend the requested work', async () => {
-  const values = [1, 2]; values[Symbol.iterator] = function* () { assert.fail('iterator invoked'); };
-  assert.deepEqual(await mapTaskGroup(values, value => value), [1, 2]);
 });
 
 test('parent cancellation prevents later acceptance even when current mapper succeeds', async () => {
@@ -80,8 +70,11 @@ test('owner fence rejection is preserved rather than converted into cancellation
   await assert.rejects(createTaskGroupEffectFence(controller.signal, () => { throw reason; })(), error => error === reason);
 });
 
-test('invalid mapper and concurrency run no domain code', async () => {
+test('invalid mapper, item slots and concurrency run no domain code', async () => {
   await assert.rejects(mapTaskGroup([1], null as never), TypeError);
+  for (const items of [new Array(1), Object.defineProperty([1], 0, { get() { assert.fail('input getter invoked'); } })]) {
+    await assert.rejects(mapTaskGroup(items, () => assert.fail('mapper invoked')), TypeError);
+  }
   for (const concurrency of [0, -1, NaN, Infinity, 1.5]) {
     await assert.rejects(mapTaskGroup([1], () => assert.fail('invalid group ran'), { concurrency }), TypeError);
   }

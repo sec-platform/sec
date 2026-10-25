@@ -2,12 +2,16 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { runTaskGroup } from '../../../src/execution/task-group.ts';
 
-test('active concurrency is bounded and results retain input order', async () => {
+test('concurrent groups preserve separate ordered results and bound active work', async () => {
   let active = 0, maximum = 0;
-  const result = await runTaskGroup(Array.from({ length: 51 }, (_, i) => async () => {
-    maximum = Math.max(maximum, ++active); await Promise.resolve(); active--; return i;
-  }), { concurrency: 3 });
+  const [result, peer] = await Promise.all([
+    runTaskGroup(Array.from({ length: 51 }, (_, i) => async () => {
+      maximum = Math.max(maximum, ++active); await Promise.resolve(); active--; return i;
+    }), { concurrency: 3 }),
+    runTaskGroup([async () => 2])
+  ]);
   assert.equal(maximum, 3); assert.deepEqual(result, Array.from({ length: 51 }, (_, i) => i));
+  assert.deepEqual(peer, [2]);
 });
 
 test('concurrent failures retain every cause after joining, including undefined', async () => {
@@ -16,9 +20,4 @@ test('concurrent failures retain every cause after joining, including undefined'
     assert.ok(e instanceof AggregateError); assert.deepEqual(e.errors, [undefined, secondary]);
     assert.equal(e.cause, undefined); return true;
   });
-});
-
-test('concurrent groups preserve their separate results', async () => {
-  const values = await Promise.all([runTaskGroup([async () => 1]), runTaskGroup([async () => 2])]);
-  assert.deepEqual(values, [[1], [2]]);
 });
