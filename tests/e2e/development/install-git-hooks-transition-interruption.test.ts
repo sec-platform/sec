@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { configTransitionNames, configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, withRepository } from './fixtures/install-git-hooks.ts';
+import { configTransitionNames, configuredBootstrapHooksPath, configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, withRepository } from './fixtures/install-git-hooks.ts';
 test('concurrent hook publishers converge without a mixed managed generation', async () => {
   await withRepository(async (repoRoot) => {
     const outcomes = await Promise.allSettled([
@@ -35,6 +35,9 @@ test('config transition resumes after every effect-before-receipt interruption',
       const configured = configuredManagedHooksPath(repoRoot);
       await expectManagedHooksMirror(repoRoot, configured);
       if (step === 1) {
+        expect(path.resolve(git(repoRoot, ['config', '--get', 'core.hooksPath']))).toBe(configured);
+        expect(configuredBootstrapHooksPath(repoRoot)).toBe(configured);
+        expect(git(repoRoot, ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'])).toBe('true');
         expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
         expect(configuredManagedHooksPath(repoRoot)).toBe(configured);
         expect(await configTransitionNames(repoRoot)).toHaveLength(0);

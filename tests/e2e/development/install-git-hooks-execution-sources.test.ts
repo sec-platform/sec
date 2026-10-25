@@ -23,8 +23,9 @@ test('hook installer audits default hooks and preserves a non-sample authority',
     const defaultHook = path.join(repoRoot, '.git', 'hooks', 'pre-commit');
     await writeFile(defaultHook, '#!/usr/bin/env sh\nexit 0\n', 'utf8');
 
-    await expect(installGitHooks({ repoRoot })).rejects.toThrow(defaultHook);
-    expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({ status: 'conflict' });
+    expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({
+      status: 'conflict', message: expect.stringContaining(defaultHook)
+    });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
 });
@@ -42,16 +43,18 @@ test('hook installer requires the tracked managed hook before configuring author
   await withRepository(async (repoRoot) => {
     git(repoRoot, ['update-index', '--chmod=-x', '.githooks/pre-commit']);
 
-    await expect(installGitHooks({ repoRoot })).rejects.toThrow('index-identical managed hooks are unavailable');
-    expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({ status: 'conflict' });
+    expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({
+      status: 'conflict', message: expect.stringContaining('index-identical managed hooks are unavailable')
+    });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
 
   await withRepository(async (repoRoot) => {
     await writeFile(path.join(repoRoot, '.githooks', 'pre-commit'), '#!/usr/bin/env sh\nexit 42\n', 'utf8');
 
-    await expect(installGitHooks({ repoRoot })).rejects.toThrow('index-identical managed hooks are unavailable');
-    expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({ status: 'conflict' });
+    expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({
+      status: 'conflict', message: expect.stringContaining('index-identical managed hooks are unavailable')
+    });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
 });
