@@ -1,9 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:gift:design-schema:first-layer-complete-types",
-  "title": "Complete candidate types for rational values and raw-preserving wire variants",
-  "$comment": "Syntax owner: docs/作者/紧凑结构与同源编辑.md. Exact rational and raw-frame meaning: schema/author/first-layer/SEMANTICS.md#surface. These are candidate Type branches, not a claim that any Target or runtime supports them. The codec graph rebinds nested Type references to the same candidate closure.",
+  "title": "Complete candidate types for existing existential, rational and wire contracts",
+  "$comment": "Syntax owner: docs/作者/紧凑结构与同源编辑.md. Existential formation, elimination and witness lifetime: docs/作者/组合/参数包与类型级值.md. Exact rational and raw-frame meaning: schema/author/first-layer/SEMANTICS.md#surface. These are candidate Type branches, not a claim that any Target or runtime supports them. The codec graph rebinds nested Type references to the same candidate closure.",
   "$defs": {
+    "Exists": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "parameters", "type"],
+      "properties": {
+        "tag": {"const": "exists"},
+        "parameters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "allOf": [
+              {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/TypeParam"},
+              {
+                "required": ["kind", "binding"],
+                "properties": {
+                  "kind": {"enum": ["Region", "Scope"]},
+                  "binding": {"const": "fresh"}
+                }
+              }
+            ]
+          }
+        },
+        "type": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"}
+      },
+      "description": "Encoding of the existing common existential contract in docs/作者/组合/参数包与类型级值.md. TypeParam.name is the lexical binder for existing tagged region/scope arguments; duplicate binders, witness qualification, capture/escape and ownership are semantic checks. Reading this type does not create a runtime witness. Expected-type introduction and qualified call/lambda elimination reuse existing expression forms."
+    },
     "Rational": {
       "type": "object",
       "additionalProperties": false,

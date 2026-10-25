@@ -5,7 +5,7 @@
     {
       "path": "schema/author/universal-author-module-2.schema.json",
       "id": "urn:gift:design-schema:universal-author-module-2",
-      "sha256": "596898a5d86ceb417cb88398e9bbf51f368336dcc25501e18f7cb6df9a49bdb5",
+      "sha256": "2eb7f51fb35f95df6378f9d00b7be519713a81201bb37d0a2f59625c90f466af",
       "candidateId": "urn:gift:design-schema:universal-author-module-2-converged-base",
       "replacements": [
         {
@@ -21,7 +21,7 @@
           "pointer": "/$defs/Ref",
           "expected": {
             "type": "string",
-            "pattern": "^(local|[A-Za-z_][A-Za-z0-9_]*):[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^(local|[A-Za-z_][A-Za-z0-9_]*):[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "replacement": {
             "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
@@ -31,7 +31,7 @@
           "pointer": "/$defs/MemberName",
           "expected": {
             "type": "string",
-            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?![\\s\\S])",
             "description": "Record field and variant case name, shared by declarations, construction, access and matching. Definition and binder names retain Identifier."
           },
           "replacement": {
@@ -94,7 +94,7 @@
         {
           "pointer": "/properties/dialects/propertyNames",
           "expected": {
-            "pattern": "^[a-z][a-z0-9-]*$"
+            "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])"
           },
           "replacement": {
             "allOf": [
@@ -232,7 +232,7 @@
     {
       "path": "schema/requirements/requirement-structure-1.schema.json",
       "id": "urn:gift:design-schema:requirement-structure-1",
-      "sha256": "3e3802e204c641ba330607a86c457791682d003fecbb0054918dd4055408814e",
+      "sha256": "b97bc50ee4af9e63e58eb8d82049c083199c1e6d92f3d366eaed3d2d5b5846ad",
       "candidateId": "urn:gift:design-schema:requirement-structure-1-converged-base",
       "replacements": [
         {
@@ -240,7 +240,9 @@
           "expected": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {
+              "pattern": "[\\u0000-\\u001f\\u007f]"
+            }
           },
           "replacement": {
             "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
@@ -251,7 +253,9 @@
           "expected": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {
+              "pattern": "[\\u0000-\\u001f\\u007f]"
+            }
           },
           "replacement": {
             "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
@@ -262,7 +266,9 @@
           "expected": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {
+              "pattern": "[\\u0000-\\u001f\\u007f]"
+            }
           },
           "replacement": {
             "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
@@ -273,7 +279,7 @@
     {
       "path": "schema/author/shared-semantic-structure-1.schema.json",
       "id": "urn:gift:design-schema:shared-semantic-structure-1",
-      "sha256": "490f31cf83e2c3f58cdf77f377b44ef71206ffc95fe4aa6728cf3d1b3de35ce1",
+      "sha256": "f62559de5a7c6aed9f9d1b51fd12180b8e0557867440b116ccacb77ae276a988",
       "candidateId": "urn:gift:design-schema:shared-semantic-structure-1-converged-base",
       "replacements": [
         {
@@ -391,7 +397,7 @@
     {
       "path": "schema/semantics/intent-body-1.schema.json",
       "id": "urn:gift:design-schema:intent-body-1",
-      "sha256": "7e467e9fcaab6a60f50747b6592002f427d51fc017a50b61e0874cce8c6826d5",
+      "sha256": "af2b122cb3367da77324ccbfc2405e6406d7805995d506024168f2125e4ecd0e",
       "candidateId": "urn:gift:design-schema:intent-body-1-converged-base",
       "replacements": [
         {
@@ -695,7 +701,7 @@
     {
       "path": "schema/semantics/semantic-pattern-1.schema.json",
       "id": "urn:gift:design-schema:semantic-pattern-1",
-      "sha256": "4b53eb0565c3559fb34878e4a3596fbd6260cfae71891a3ab104e57784ffedbb",
+      "sha256": "5673684c974e54b7b2732447ef60505348f6e159887c8f0c17d298c506baa516",
       "candidateId": "urn:gift:design-schema:semantic-pattern-1-converged-base",
       "replacements": [
         {
@@ -775,7 +781,7 @@
     {
       "path": "schema/semantics/semantic-pattern-use-2.schema.json",
       "id": "urn:gift:design-schema:semantic-pattern-use-2",
-      "sha256": "1f32ebfb3499d5682866448463e17d63de30a59e0c760329470dc1d76a84d955",
+      "sha256": "62b1d365293d91694a50d5c98f41054052166727868b137c1da6cf55acdb82c0",
       "candidateId": "urn:gift:design-schema:semantic-pattern-use-2-converged-base",
       "replacements": [
         {
@@ -820,16 +826,125 @@
     {
       "path": "schema/author/first-layer/complete-types.schema.json",
       "id": "urn:gift:design-schema:first-layer-complete-types",
-      "sha256": "31a244e8d18797d5491a17b2e55b2ea4a800bdce88b5a77ea705cd77c36256c8",
+      "sha256": "2cb91db9493915d5577bdd3ef6e9d65e1a04360902ac669d058631f4349804fe",
       "candidateId": "urn:gift:design-schema:first-layer-complete-types-converged",
       "replacements": []
     },
     {
       "path": "schema/author/first-layer/convergence-examples.schema.json",
       "id": "urn:gift:design-schema:convergence-examples",
-      "sha256": "10bb2ce24e4a37be6334d71f436fda2ef989f03b4da1130b608cd49333a87864",
+      "sha256": "ba2487c2fb1c8a522a0f6f0c2a36c154bc3cf782f65b25c785463e568ef5491b",
       "candidateId": "urn:gift:design-schema:convergence-examples-converged",
       "replacements": []
+    },
+    {
+      "path": "schema/controls/control-file-1.schema.json",
+      "id": "urn:gift:design-schema:control-file-1",
+      "sha256": "05f57a442e7bf0457ee42f87abd93b4e630eb5ec719d5238623ad7a13cc31b58",
+      "candidateId": "urn:gift:design-schema:control-file-1-converged",
+      "replacements": [
+        {
+          "pointer": "/properties/schema",
+          "expected": {
+            "const": "gift.control-file/1"
+          },
+          "replacement": {
+            "const": "gift.control-file/design-converged"
+          }
+        },
+        {
+          "pointer": "/properties/records/items/properties/scopeRef/oneOf/3/properties/definitionId",
+          "expected": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/properties/records/items/properties/scopeRef/oneOf/4/properties/definitionId",
+          "expected": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      ]
+    },
+    {
+      "path": "schema/supply/method-supply-1.schema.json",
+      "id": "urn:gift:design-schema:method-supply-1",
+      "sha256": "5b117a5bc2d86edd4c163270eb67274807e3c6886464269d296e8c02d0663c10",
+      "candidateId": "urn:gift:design-schema:method-supply-1-converged",
+      "replacements": [
+        {
+          "pointer": "/properties/schema",
+          "expected": {
+            "const": "gift.method-supply-manifest/1"
+          },
+          "replacement": {
+            "const": "gift.method-supply-manifest/design-converged"
+          }
+        },
+        {
+          "pointer": "/properties/covers/items/properties/rule/properties/export",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/properties/covers/items/properties/domainRef/properties/export",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/properties/contributes/items/properties/producerRef/properties/export",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      ]
+    },
+    {
+      "path": "schema/supply/target-profile-1.schema.json",
+      "id": "urn:gift:design-schema:target-profile-1",
+      "sha256": "e4c4e8ff00d3db7a48dca27f31fdded94d682c0d8093c79208654c22dd9b2eaf",
+      "candidateId": "urn:gift:design-schema:target-profile-1-converged",
+      "replacements": [
+        {
+          "pointer": "/properties/schema",
+          "expected": {
+            "const": "gift.target-profile-manifest/1"
+          },
+          "replacement": {
+            "const": "gift.target-profile-manifest/design-converged"
+          }
+        },
+        {
+          "pointer": "/properties/loweringRefs/items/properties/export",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      ]
     }
   ],
   "externals": [
@@ -841,12 +956,12 @@
     {
       "path": "schema/author/first-layer/semantic-convergence.schema.json",
       "id": "urn:gift:design-schema:semantic-convergence",
-      "sha256": "26f278df1cc4a0fc652b96bf950bb7046044b7ca69571d8ab657ec7d6b7ce7d3"
+      "sha256": "098ca7dfc85ea989e26d54a21d04acd53f3ebcbb62055687f380c7d3c8a87ce7"
     },
     {
       "path": "schema/author/first-layer/surface-convergence.schema.json",
       "id": "urn:gift:design-schema:surface-convergence",
-      "sha256": "7d2390197c9afb04838e5cd362beabc1864bc15c259ba6167cb2b5b23c54cf4b"
+      "sha256": "6b59bd1b9104ffa757458ff282d2aa109684ec66483fb92f64fdd549546facf6"
     }
   ],
   "extensions": [
@@ -854,7 +969,7 @@
       "resource": "urn:gift:design-schema:universal-author-module-2",
       "pointer": "/$defs/Definition",
       "keyword": "oneOf",
-      "expectedSha256": "e14f242b01f6e6231f1795d195e859509072e98f78a95df6e497a4f9c5915db2",
+      "expectedSha256": "e1c36de418aa84aa86c7cb7e6394230a9e22cfcc40582add399778068e08ec40",
       "append": [
         {
           "$ref": "urn:gift:design-schema:requirement-declarations#/$defs/Subject"
@@ -881,6 +996,9 @@
         },
         {
           "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/WireVariant"
+        },
+        {
+          "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/Exists"
         }
       ]
     },
@@ -888,7 +1006,7 @@
       "resource": "urn:gift:design-schema:universal-author-module-2",
       "pointer": "/$defs/Expr/oneOf/0",
       "keyword": "allOf",
-      "expectedSha256": "54027b5503e4492d2568c591a1bd8b82659b059d96757d9b1747b8aa20bb7d0b",
+      "expectedSha256": "c977e40477a25eef3cd211c927a0e98e244f05dd4b4cd1933306ed69abb28997",
       "append": [
         {
           "$ref": "urn:gift:design-schema:first-layer-complete-types#/$defs/RationalLiteralConstraint"

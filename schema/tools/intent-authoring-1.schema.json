@@ -18,7 +18,7 @@
     "Ref": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "Json": {
       "oneOf": [
@@ -59,7 +59,7 @@
         "at": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "limit": {
           "type": "integer",
@@ -69,7 +69,7 @@
         "cursor": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "view": {
           "const": "intentCatalog"
@@ -87,7 +87,7 @@
             "scopeRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "term": {
               "type": "string",
@@ -96,7 +96,7 @@
             "domainRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -113,7 +113,7 @@
         "at": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "limit": {
           "type": "integer",
@@ -123,7 +123,7 @@
         "cursor": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "view": {
           "const": "intentOccurrence"
@@ -142,17 +142,17 @@
             "subjectRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "scopeRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "roleRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -176,22 +176,22 @@
         "base": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "facetRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "action": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])",
           "description": "Stable declared action identifier from the exact resolved FacetDescriptor for this base/revision; spelling must match FacetAction.name. There is no dynamic method lookup by human display label."
         },
         "subjectBindings": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/Json"
@@ -200,7 +200,7 @@
         "values": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/Json"
@@ -243,7 +243,7 @@
         "facetRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "label": {
           "type": "string",
@@ -256,17 +256,17 @@
         "basis": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "subjectRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "descriptorRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "availability": {
           "enum": [
@@ -280,7 +280,7 @@
         "explanationRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -298,27 +298,27 @@
         "occurrenceRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "subjectRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "facetRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "basis": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "authorRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "availability": {
           "enum": [
@@ -348,7 +348,7 @@
         "basis": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "items": {
           "type": "array",
@@ -365,7 +365,7 @@
         "nextCursor": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -386,7 +386,7 @@
         "basis": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "items": {
           "type": "array",
@@ -403,7 +403,7 @@
         "nextCursor": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -432,7 +432,7 @@
           "type": "object",
           "propertyNames": {
             "type": "string",
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/FormalRole"
@@ -442,7 +442,7 @@
           "type": "object",
           "propertyNames": {
             "type": "string",
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/FacetParameter"
@@ -568,7 +568,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
         },
         "expansionMethodRef": {
           "$ref": "#/$defs/Ref"

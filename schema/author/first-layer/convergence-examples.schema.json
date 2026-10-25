@@ -366,7 +366,7 @@
                     "oneOf": [
                       {
                         "type": "string",
-                        "pattern": "^(0|-?[1-9][0-9]*)$"
+                        "pattern": "^(0|-?[1-9][0-9]*)(?![\\s\\S])"
                       },
                       {
                         "type": "object",
@@ -374,11 +374,11 @@
                         "properties": {
                           "numerator": {
                             "type": "string",
-                            "pattern": "^(0|-?[1-9][0-9]*)$"
+                            "pattern": "^(0|-?[1-9][0-9]*)(?![\\s\\S])"
                           },
                           "denominator": {
                             "type": "string",
-                            "pattern": "^[1-9][0-9]*$"
+                            "pattern": "^[1-9][0-9]*(?![\\s\\S])"
                           }
                         },
                         "required": [

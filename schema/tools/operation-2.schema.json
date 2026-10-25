@@ -32,7 +32,7 @@
     }
   ],
   "$defs": {
-    "Ref": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "Ref": { "type": "string", "minLength": 1, "not": {"pattern": "[\\u0000-\\u001f\\u007f]"} },
     "Json": {
       "oneOf": [
         {

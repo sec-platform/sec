@@ -17,22 +17,22 @@
         "candidateRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "artifactRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "methodRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "requestId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "claimRefs": {
           "type": "array",
@@ -41,18 +41,18 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         },
         "methodInputsRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "coverageRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       },
       "description": "A fixed qualified VerificationMethodSelection and accepted subject/claims, not a user-supplied executable command or a fabricated PASS. Host must bind actual safe runner, input, effect grant and evidence."

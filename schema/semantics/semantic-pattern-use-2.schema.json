@@ -19,7 +19,7 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
-        "pattern": "^[a-z][A-Za-z0-9_]*$"
+        "pattern": "^[a-z][A-Za-z0-9_]*(?![\\s\\S])"
       },
       "additionalProperties": {
         "$ref": "#/$defs/roleBinding"
@@ -28,7 +28,7 @@
     "variationSelections": {
       "type": "object",
       "propertyNames": {
-        "pattern": "^[a-z][A-Za-z0-9_]*$"
+        "pattern": "^[a-z][A-Za-z0-9_]*(?![\\s\\S])"
       },
       "additionalProperties": {
         "type": "object",
@@ -237,7 +237,7 @@
                   },
                   "count": {
                     "type": "string",
-                    "pattern": "^[1-9][0-9]*$"
+                    "pattern": "^[1-9][0-9]*(?![\\s\\S])"
                   }
                 }
               }

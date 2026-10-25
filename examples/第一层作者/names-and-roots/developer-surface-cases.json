@@ -1,0 +1,2205 @@
+{
+  "scope": "Independent parsed-value structural expectations only. Original and candidate readers are distinct. Semantic witnesses, exact scope binding, effects, paths and real roundtrip require their owners; no production proof.",
+  "cases": [
+    {
+      "name": "exists-scope",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": true,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Scope",
+            "binding": "fresh"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-region",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": true,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Region",
+            "binding": "fresh"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-nested-result",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": true,
+      "value": {
+        "tag": "result",
+        "ok": {
+          "tag": "exists",
+          "parameters": [
+            {
+              "name": "s",
+              "kind": "Scope",
+              "binding": "fresh"
+            }
+          ],
+          "type": {
+            "tag": "nominal",
+            "ref": "std:Own",
+            "args": [
+              {
+                "tag": "nominal",
+                "ref": "std:Scope",
+                "args": [
+                  {
+                    "tag": "param",
+                    "name": "s"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "error": {
+          "tag": "scalar",
+          "name": "text"
+        }
+      }
+    },
+    {
+      "name": "exists-nested-function",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": true,
+      "value": {
+        "tag": "function",
+        "params": [
+          {
+            "tag": "exists",
+            "parameters": [
+              {
+                "name": "s",
+                "kind": "Scope",
+                "binding": "fresh"
+              }
+            ],
+            "type": {
+              "tag": "nominal",
+              "ref": "std:Own",
+              "args": [
+                {
+                  "tag": "nominal",
+                  "ref": "std:Scope",
+                  "args": [
+                    {
+                      "tag": "param",
+                      "name": "s"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "returns": {
+          "tag": "exists",
+          "parameters": [
+            {
+              "name": "s",
+              "kind": "Scope",
+              "binding": "fresh"
+            }
+          ],
+          "type": {
+            "tag": "nominal",
+            "ref": "std:Own",
+            "args": [
+              {
+                "tag": "nominal",
+                "ref": "std:Scope",
+                "args": [
+                  {
+                    "tag": "param",
+                    "name": "s"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "effects": []
+      }
+    },
+    {
+      "name": "exists-port-output",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/PortOperation",
+      "expected": true,
+      "value": {
+        "name": "创建",
+        "input": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "output": {
+          "tag": "exists",
+          "parameters": [
+            {
+              "name": "s",
+              "kind": "Scope",
+              "binding": "fresh"
+            }
+          ],
+          "type": {
+            "tag": "nominal",
+            "ref": "std:Own",
+            "args": [
+              {
+                "tag": "nominal",
+                "ref": "std:Scope",
+                "args": [
+                  {
+                    "tag": "param",
+                    "name": "s"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "errors": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "effects": []
+      }
+    },
+    {
+      "name": "exists-record",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": true,
+      "value": {
+        "tag": "record",
+        "fields": {
+          "": {
+            "type": {
+              "tag": "exists",
+              "parameters": [
+                {
+                  "name": "s",
+                  "kind": "Scope",
+                  "binding": "fresh"
+                }
+              ],
+              "type": {
+                "tag": "nominal",
+                "ref": "std:Own",
+                "args": [
+                  {
+                    "tag": "nominal",
+                    "ref": "std:Scope",
+                    "args": [
+                      {
+                        "tag": "param",
+                        "name": "s"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "exists-original-reader-rejects",
+      "schema": "urn:gift:design-schema:universal-author-module-2#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Scope",
+            "binding": "fresh"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-missing-kind",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "binding": "fresh"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-missing-binding",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Scope"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-argument",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Scope",
+            "binding": "argument"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-type-kind",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Type",
+            "binding": "fresh"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-empty-binders",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exists-unknown-field",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Scope",
+            "binding": "fresh"
+          }
+        ],
+        "type": {
+          "tag": "nominal",
+          "ref": "std:Own",
+          "args": [
+            {
+              "tag": "nominal",
+              "ref": "std:Scope",
+              "args": [
+                {
+                  "tag": "param",
+                  "name": "s"
+                }
+              ]
+            }
+          ]
+        },
+        "pack": {}
+      }
+    },
+    {
+      "name": "exists-short-inner",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Scope",
+            "binding": "fresh"
+          }
+        ],
+        "type": "unit"
+      }
+    },
+    {
+      "name": "exists-missing-type",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s",
+            "kind": "Scope",
+            "binding": "fresh"
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-empty-definition",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": true,
+      "value": {
+        "schema": "gift.control-file/design-converged",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "definition",
+              "moduleId": "m",
+              "definitionId": ""
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-occurrence-unicode",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": true,
+      "value": {
+        "schema": "gift.control-file/design-converged",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "occurrence",
+              "moduleId": "m",
+              "definitionId": "审核/发布",
+              "occurrenceId": "u1"
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-occurrence-empty",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": true,
+      "value": {
+        "schema": "gift.control-file/design-converged",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "occurrence",
+              "moduleId": "m",
+              "definitionId": "",
+              "occurrenceId": "u1"
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-empty-occurrence-id",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.control-file/design-converged",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "occurrence",
+              "moduleId": "m",
+              "definitionId": "审核/发布",
+              "occurrenceId": ""
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-missing-definition",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.control-file/design-converged",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "definition",
+              "moduleId": "m"
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-empty-module-id",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.control-file/design-converged",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "definition",
+              "moduleId": "",
+              "definitionId": ""
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-root-id-unchanged",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.control-file/design-converged",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "product-root",
+              "rootRef": {
+                "rootId": ""
+              }
+            },
+            "target": "t",
+            "controlRef": "c",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-original-empty-rejects",
+      "schema": "urn:gift:design-schema:control-file-1",
+      "expected": false,
+      "value": {
+        "schema": "gift.control-file/1",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "definition",
+              "moduleId": "m",
+              "definitionId": ""
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-original-ascii-valid",
+      "schema": "urn:gift:design-schema:control-file-1",
+      "expected": true,
+      "value": {
+        "schema": "gift.control-file/1",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "definition",
+              "moduleId": "m",
+              "definitionId": "D"
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "control-old-marker-not-candidate",
+      "schema": "urn:gift:design-schema:control-file-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.control-file/1",
+        "projectId": "p",
+        "fileId": "c",
+        "records": [
+          {
+            "scopeRef": {
+              "kind": "definition",
+              "moduleId": "m",
+              "definitionId": ""
+            },
+            "controlRef": "control:strict",
+            "mode": "require",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "method-three-empty-exports",
+      "schema": "urn:gift:design-schema:method-supply-1-converged",
+      "expected": true,
+      "value": {
+        "schema": "gift.method-supply-manifest/design-converged",
+        "method": {
+          "id": "method",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules",
+              "export": ""
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": ""
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "producers",
+              "export": ""
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "method-exact-unicode-export",
+      "schema": "urn:gift:design-schema:method-supply-1-converged",
+      "expected": true,
+      "value": {
+        "schema": "gift.method-supply-manifest/design-converged",
+        "method": {
+          "id": "method",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules",
+              "export": "审核/发布"
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": ""
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "producers",
+              "export": ""
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "method-missing-export",
+      "schema": "urn:gift:design-schema:method-supply-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.method-supply-manifest/design-converged",
+        "method": {
+          "id": "method",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules"
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": ""
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "producers",
+              "export": ""
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "method-null-export",
+      "schema": "urn:gift:design-schema:method-supply-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.method-supply-manifest/design-converged",
+        "method": {
+          "id": "method",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules",
+              "export": ""
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": null
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "producers",
+              "export": ""
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "method-empty-id",
+      "schema": "urn:gift:design-schema:method-supply-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.method-supply-manifest/design-converged",
+        "method": {
+          "id": "",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules",
+              "export": ""
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": ""
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "producers",
+              "export": ""
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "method-empty-module",
+      "schema": "urn:gift:design-schema:method-supply-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.method-supply-manifest/design-converged",
+        "method": {
+          "id": "method",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules",
+              "export": ""
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": ""
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "",
+              "export": ""
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "method-original-empty-rejects",
+      "schema": "urn:gift:design-schema:method-supply-1",
+      "expected": false,
+      "value": {
+        "schema": "gift.method-supply-manifest/1",
+        "method": {
+          "id": "method",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules",
+              "export": ""
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": ""
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "producers",
+              "export": ""
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "method-original-ascii-valid",
+      "schema": "urn:gift:design-schema:method-supply-1",
+      "expected": true,
+      "value": {
+        "schema": "gift.method-supply-manifest/1",
+        "method": {
+          "id": "method",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "covers": [
+          {
+            "rule": {
+              "moduleId": "rules",
+              "export": "Rule"
+            },
+            "domainRef": {
+              "moduleId": "domains",
+              "export": "Domain"
+            }
+          }
+        ],
+        "targetRefs": [
+          {
+            "id": "target",
+            "revision": "1"
+          }
+        ],
+        "requires": {
+          "capabilities": [],
+          "effects": [],
+          "providerRefs": []
+        },
+        "contributes": [
+          {
+            "role": "source",
+            "producerRef": {
+              "moduleId": "producers",
+              "export": "Produce"
+            }
+          }
+        ],
+        "residuals": [],
+        "preserves": [
+          "meaning"
+        ],
+        "evidenceObligations": [
+          "source-correspondence"
+        ]
+      }
+    },
+    {
+      "name": "target-empty-lowering-export",
+      "schema": "urn:gift:design-schema:target-profile-1-converged",
+      "expected": true,
+      "value": {
+        "schema": "gift.target-profile-manifest/design-converged",
+        "profile": {
+          "id": "target",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "accepts": [
+          "function"
+        ],
+        "representation": {
+          "language": "ts",
+          "textIndexUnit": "utf16-code-unit",
+          "integerMode": "checked-int",
+          "exceptionModel": "result",
+          "moduleMode": "esm"
+        },
+        "loweringRefs": [
+          {
+            "moduleId": "lower",
+            "export": ""
+          }
+        ],
+        "toolchainRequirements": [
+          {
+            "id": "ts",
+            "revision": "fixed"
+          }
+        ],
+        "members": [
+          {
+            "role": "source",
+            "required": true,
+            "pathPattern": "out/index.ts"
+          }
+        ],
+        "host": {
+          "effects": [],
+          "runtimeRequirements": []
+        },
+        "compatibility": {
+          "policy": "exact",
+          "migrationRequired": false
+        },
+        "evidenceObligations": [
+          "correspondence"
+        ]
+      }
+    },
+    {
+      "name": "target-empty-profile-id",
+      "schema": "urn:gift:design-schema:target-profile-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.target-profile-manifest/design-converged",
+        "profile": {
+          "id": "",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "accepts": [
+          "function"
+        ],
+        "representation": {
+          "language": "ts",
+          "textIndexUnit": "utf16-code-unit",
+          "integerMode": "checked-int",
+          "exceptionModel": "result",
+          "moduleMode": "esm"
+        },
+        "loweringRefs": [
+          {
+            "moduleId": "lower",
+            "export": ""
+          }
+        ],
+        "toolchainRequirements": [
+          {
+            "id": "ts",
+            "revision": "fixed"
+          }
+        ],
+        "members": [
+          {
+            "role": "source",
+            "required": true,
+            "pathPattern": "out/index.ts"
+          }
+        ],
+        "host": {
+          "effects": [],
+          "runtimeRequirements": []
+        },
+        "compatibility": {
+          "policy": "exact",
+          "migrationRequired": false
+        },
+        "evidenceObligations": [
+          "correspondence"
+        ]
+      }
+    },
+    {
+      "name": "target-missing-export",
+      "schema": "urn:gift:design-schema:target-profile-1-converged",
+      "expected": false,
+      "value": {
+        "schema": "gift.target-profile-manifest/design-converged",
+        "profile": {
+          "id": "target",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "accepts": [
+          "function"
+        ],
+        "representation": {
+          "language": "ts",
+          "textIndexUnit": "utf16-code-unit",
+          "integerMode": "checked-int",
+          "exceptionModel": "result",
+          "moduleMode": "esm"
+        },
+        "loweringRefs": [
+          {
+            "moduleId": "lower"
+          }
+        ],
+        "toolchainRequirements": [
+          {
+            "id": "ts",
+            "revision": "fixed"
+          }
+        ],
+        "members": [
+          {
+            "role": "source",
+            "required": true,
+            "pathPattern": "out/index.ts"
+          }
+        ],
+        "host": {
+          "effects": [],
+          "runtimeRequirements": []
+        },
+        "compatibility": {
+          "policy": "exact",
+          "migrationRequired": false
+        },
+        "evidenceObligations": [
+          "correspondence"
+        ]
+      }
+    },
+    {
+      "name": "target-original-empty-rejects",
+      "schema": "urn:gift:design-schema:target-profile-1",
+      "expected": false,
+      "value": {
+        "schema": "gift.target-profile-manifest/1",
+        "profile": {
+          "id": "target",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "accepts": [
+          "function"
+        ],
+        "representation": {
+          "language": "ts",
+          "textIndexUnit": "utf16-code-unit",
+          "integerMode": "checked-int",
+          "exceptionModel": "result",
+          "moduleMode": "esm"
+        },
+        "loweringRefs": [
+          {
+            "moduleId": "lower",
+            "export": ""
+          }
+        ],
+        "toolchainRequirements": [
+          {
+            "id": "ts",
+            "revision": "fixed"
+          }
+        ],
+        "members": [
+          {
+            "role": "source",
+            "required": true,
+            "pathPattern": "out/index.ts"
+          }
+        ],
+        "host": {
+          "effects": [],
+          "runtimeRequirements": []
+        },
+        "compatibility": {
+          "policy": "exact",
+          "migrationRequired": false
+        },
+        "evidenceObligations": [
+          "correspondence"
+        ]
+      }
+    },
+    {
+      "name": "target-original-named-valid",
+      "schema": "urn:gift:design-schema:target-profile-1",
+      "expected": true,
+      "value": {
+        "schema": "gift.target-profile-manifest/1",
+        "profile": {
+          "id": "target",
+          "revision": "1"
+        },
+        "publisher": "design",
+        "accepts": [
+          "function"
+        ],
+        "representation": {
+          "language": "ts",
+          "textIndexUnit": "utf16-code-unit",
+          "integerMode": "checked-int",
+          "exceptionModel": "result",
+          "moduleMode": "esm"
+        },
+        "loweringRefs": [
+          {
+            "moduleId": "lower",
+            "export": "Lower"
+          }
+        ],
+        "toolchainRequirements": [
+          {
+            "id": "ts",
+            "revision": "fixed"
+          }
+        ],
+        "members": [
+          {
+            "role": "source",
+            "required": true,
+            "pathPattern": "out/index.ts"
+          }
+        ],
+        "host": {
+          "effects": [],
+          "runtimeRequirements": []
+        },
+        "compatibility": {
+          "policy": "exact",
+          "migrationRequired": false
+        },
+        "evidenceObligations": [
+          "correspondence"
+        ]
+      }
+    },
+    {
+      "name": "preview-source-pure",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": true,
+      "value": {
+        "source": "true",
+        "context": "context:fixed"
+      }
+    },
+    {
+      "name": "preview-source-identity",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": true,
+      "value": {
+        "source": "true",
+        "context": "context:fixed",
+        "requestId": "request:1"
+      }
+    },
+    {
+      "name": "preview-source-empty-id",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": false,
+      "value": {
+        "source": "true",
+        "context": "context:fixed",
+        "requestId": ""
+      }
+    },
+    {
+      "name": "preview-candidate-pure",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": true,
+      "value": {
+        "candidateRef": "candidate:1"
+      }
+    },
+    {
+      "name": "preview-candidate-identity",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": true,
+      "value": {
+        "candidateRef": "candidate:1",
+        "requestId": "request:1"
+      }
+    },
+    {
+      "name": "preview-candidate-empty-id",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": false,
+      "value": {
+        "candidateRef": "candidate:1",
+        "requestId": ""
+      }
+    },
+    {
+      "name": "preview-context-pure",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": true,
+      "value": {
+        "context": "context:fixed",
+        "entry": "main"
+      }
+    },
+    {
+      "name": "preview-context-identity",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": true,
+      "value": {
+        "context": "context:fixed",
+        "entry": "main",
+        "requestId": "request:1"
+      }
+    },
+    {
+      "name": "preview-context-empty-id",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": false,
+      "value": {
+        "context": "context:fixed",
+        "entry": "main",
+        "requestId": ""
+      }
+    },
+    {
+      "name": "preview-control-character-id",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": false,
+      "value": {
+        "source": "true",
+        "requestId": "r\n"
+      }
+    },
+    {
+      "name": "preview-unnegotiated-draft-still-rejected",
+      "schema": "urn:gift:design-schema:ai-tools-2-preview",
+      "expected": false,
+      "value": {
+        "draft": {
+          "kind": "anything"
+        },
+        "requestId": "r"
+      }
+    },
+    {
+      "name": "check-types-shape-no-effect-proof",
+      "schema": "urn:gift:design-schema:ai-tools-2-check",
+      "expected": true,
+      "value": {
+        "candidateRef": "c"
+      }
+    },
+    {
+      "name": "check-types-identity",
+      "schema": "urn:gift:design-schema:ai-tools-2-check",
+      "expected": true,
+      "value": {
+        "candidateRef": "c",
+        "requestId": "r"
+      }
+    },
+    {
+      "name": "check-types-empty-id",
+      "schema": "urn:gift:design-schema:ai-tools-2-check",
+      "expected": false,
+      "value": {
+        "candidateRef": "c",
+        "requestId": ""
+      }
+    },
+    {
+      "name": "check-cases-shape-no-effect-proof",
+      "schema": "urn:gift:design-schema:ai-tools-2-check",
+      "expected": true,
+      "value": {
+        "candidateRef": "c",
+        "artifactRef": "a",
+        "methods": [
+          "cases"
+        ],
+        "casesRef": "cases"
+      }
+    },
+    {
+      "name": "check-cases-identity",
+      "schema": "urn:gift:design-schema:ai-tools-2-check",
+      "expected": true,
+      "value": {
+        "candidateRef": "c",
+        "artifactRef": "a",
+        "methods": [
+          "cases"
+        ],
+        "casesRef": "cases",
+        "requestId": "r"
+      }
+    },
+    {
+      "name": "check-cases-empty-id",
+      "schema": "urn:gift:design-schema:ai-tools-2-check",
+      "expected": false,
+      "value": {
+        "candidateRef": "c",
+        "artifactRef": "a",
+        "methods": [
+          "cases"
+        ],
+        "casesRef": "cases",
+        "requestId": ""
+      }
+    },
+    {
+      "name": "ready-candidate-artifact-scope",
+      "schema": "urn:gift:design-schema:cli-session-1#/$defs/RequestScope",
+      "expected": true,
+      "value": {
+        "scopeRef": "scope:1",
+        "subjectRefs": [
+          {
+            "candidateRef": "c"
+          },
+          {
+            "artifactRef": "a"
+          }
+        ],
+        "retention": {
+          "untilUnixMs": 12345
+        },
+        "continuation": "reconnect"
+      }
+    },
+    {
+      "name": "ready-old-target-context-scope",
+      "schema": "urn:gift:design-schema:cli-session-1#/$defs/RequestScope",
+      "expected": true,
+      "value": {
+        "scopeRef": "scope:1",
+        "subjectRefs": [
+          {
+            "targetRef": "t"
+          },
+          {
+            "contextRef": "c"
+          }
+        ],
+        "retention": {
+          "untilUnixMs": 12345
+        },
+        "continuation": "reconnect"
+      }
+    },
+    {
+      "name": "ready-mixed-subject-rejected",
+      "schema": "urn:gift:design-schema:cli-session-1#/$defs/RequestScope",
+      "expected": false,
+      "value": {
+        "scopeRef": "scope:1",
+        "subjectRefs": [
+          {
+            "candidateRef": "c",
+            "artifactRef": "a"
+          }
+        ],
+        "retention": {
+          "untilUnixMs": 12345
+        },
+        "continuation": "reconnect"
+      }
+    },
+    {
+      "name": "ready-empty-subject-rejected",
+      "schema": "urn:gift:design-schema:cli-session-1#/$defs/RequestScope",
+      "expected": false,
+      "value": {
+        "scopeRef": "scope:1",
+        "subjectRefs": [
+          {
+            "candidateRef": ""
+          }
+        ],
+        "retention": {
+          "untilUnixMs": 12345
+        },
+        "continuation": "reconnect"
+      }
+    },
+    {
+      "name": "ready-request-id-not-subject",
+      "schema": "urn:gift:design-schema:cli-session-1#/$defs/RequestScope",
+      "expected": false,
+      "value": {
+        "scopeRef": "scope:1",
+        "subjectRefs": [
+          {
+            "requestId": "r"
+          }
+        ],
+        "retention": {
+          "untilUnixMs": 12345
+        },
+        "continuation": "reconnect"
+      }
+    },
+    {
+      "name": "generated-empty-member-insertion-shape",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": true,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "targetFiles": {
+          "out/empty.ts": "export {};\n"
+        }
+      }
+    },
+    {
+      "name": "generated-empty-afterimage-is-text",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": true,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "targetFiles": {
+          "out/empty.ts": ""
+        }
+      }
+    },
+    {
+      "name": "generated-null-not-deletion",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": false,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "targetFiles": {
+          "out/empty.ts": null
+        }
+      }
+    },
+    {
+      "name": "generated-no-empty-set",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": false,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "targetFiles": {}
+      }
+    },
+    {
+      "name": "generated-mixed-inputs",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": false,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "targetFiles": {
+          "out/empty.ts": "export {};\n"
+        },
+        "edits": [
+          {
+            "path": "out/empty.ts",
+            "old": "x",
+            "new": "y"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-missing-input",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": false,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0"
+      }
+    },
+    {
+      "name": "generated-missing-artifact",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": false,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "targetFiles": {
+          "out/empty.ts": "export {};\n"
+        }
+      }
+    },
+    {
+      "name": "generated-empty-path",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": false,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "targetFiles": {
+          "": "x"
+        }
+      }
+    },
+    {
+      "name": "generated-ordered-input-preserved",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": true,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "edits": [
+          {
+            "path": "out/a.ts",
+            "old": "10n",
+            "new": "12n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-empty-old-still-rejects",
+      "schema": "urn:gift:design-schema:generated-edit-1",
+      "expected": false,
+      "value": {
+        "kind": "generated-edit",
+        "base": "C1",
+        "artifactRef": "A0",
+        "edits": [
+          {
+            "path": "out/a.ts",
+            "old": "",
+            "new": "12n"
+          }
+        ]
+      }
+    }
+  ],
+  "roundtripWitness": {
+    "basis": {
+      "artifactRef": "A0",
+      "author": "C0",
+      "map": "M0",
+      "currentAuthor": "C1",
+      "G0": {
+        "out/empty.ts": "",
+        "out/keep.ts": "keep\n"
+      }
+    },
+    "request": {
+      "kind": "generated-edit",
+      "base": "C1",
+      "artifactRef": "A0",
+      "targetFiles": {
+        "out/empty.ts": "export {};\n"
+      }
+    },
+    "expectedTStar": {
+      "out/empty.ts": "export {};\n",
+      "out/keep.ts": "keep\n"
+    },
+    "claim": "I-R1 full-afterimage equation only, assuming real A0 provenance and existing textual members. Not an executed inverse mapping or adoption."
+  },
+  "noControlStringCases": [
+    {
+      "name": "normal-reference",
+      "value": "reference:u007f/0\\7",
+      "expected": true
+    },
+    {
+      "name": "unicode",
+      "value": "引用/名",
+      "expected": true
+    },
+    {
+      "name": "space-is-not-control",
+      "value": " ",
+      "expected": true
+    },
+    {
+      "name": "unicode-separators-not-C0",
+      "value": "\u0085\u2028\u2029",
+      "expected": true
+    },
+    {
+      "name": "empty",
+      "value": "",
+      "expected": false
+    },
+    {
+      "name": "trailing-LF",
+      "value": "r\n",
+      "expected": false
+    },
+    {
+      "name": "trailing-CRLF",
+      "value": "r\r\n",
+      "expected": false
+    },
+    {
+      "name": "leading-tab",
+      "value": "\tr",
+      "expected": false
+    },
+    {
+      "name": "embedded-NUL",
+      "value": "r\u0000s",
+      "expected": false
+    },
+    {
+      "name": "embedded-control",
+      "value": "r\u001fs",
+      "expected": false
+    },
+    {
+      "name": "DEL",
+      "value": "r",
+      "expected": false
+    }
+  ],
+  "noControlStringContracts": [
+    "urn:gift:design-schema:control-file-1#/properties/projectId",
+    "urn:gift:design-schema:control-file-1#/properties/fileId",
+    "urn:gift:design-schema:control-file-1#/properties/records/items/properties/scopeRef/oneOf/2/properties/moduleId",
+    "urn:gift:design-schema:control-file-1#/properties/records/items/properties/scopeRef/oneOf/3/properties/moduleId",
+    "urn:gift:design-schema:control-file-1#/properties/records/items/properties/scopeRef/oneOf/4/properties/moduleId",
+    "urn:gift:design-schema:control-file-1#/properties/records/items/properties/scopeRef/oneOf/4/properties/occurrenceId",
+    "urn:gift:design-schema:control-file-1#/properties/records/items/properties/target",
+    "urn:gift:design-schema:control-file-1#/properties/records/items/properties/controlRef",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/DefinitionRef/oneOf/0/properties/definitionId",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/DefinitionRef/oneOf/1/properties/import",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/DefinitionRef/oneOf/1/properties/export",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Value/oneOf/0/properties/parameter",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Value/oneOf/0/properties/path/items",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Value/oneOf/1/properties/subject",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Value/oneOf/1/properties/path/items",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Value/oneOf/2/properties/bound",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Value/oneOf/2/properties/path/items",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Term/oneOf/0/properties/arguments/propertyNames",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Term/oneOf/1/properties/fields/propertyNames",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Term/oneOf/2/properties/fields/propertyNames",
+    "urn:gift:design-schema:requirement-structure-1#/$defs/Quantifier/properties/bind",
+    "urn:gift:design-schema:requirement-structure-1#/properties/parameters/propertyNames",
+    "urn:gift:design-schema:requirement-structure-1#/properties/subjects/propertyNames",
+    "urn:gift:design-schema:requirement-structure-1#/properties/exposes/additionalProperties/oneOf/0/properties/parameter",
+    "urn:gift:design-schema:requirement-structure-1#/properties/exposes/additionalProperties/oneOf/0/properties/path/items",
+    "urn:gift:design-schema:requirement-structure-1#/properties/exposes/additionalProperties/oneOf/1/properties/subject",
+    "urn:gift:design-schema:requirement-structure-1#/properties/exposes/additionalProperties/oneOf/1/properties/path/items",
+    "urn:gift:design-schema:requirement-structure-1#/properties/exposes/propertyNames",
+    "urn:gift:design-schema:rule-call-observation-2#/properties/semantics/properties/progress/oneOf/0/properties/claimRef/properties/moduleId",
+    "urn:gift:design-schema:rule-call-observation-2#/properties/semantics/properties/progress/oneOf/0/properties/claimRef/properties/export",
+    "urn:gift:design-schema:rule-call-observation-2#/properties/semantics/properties/progress/oneOf/0/properties/checkerRef/properties/moduleId",
+    "urn:gift:design-schema:rule-call-observation-2#/properties/semantics/properties/progress/oneOf/0/properties/checkerRef/properties/export",
+    "urn:gift:design-schema:rule-call-observation-2#/properties/semantics/properties/progress/oneOf/1/properties/obligationRef/properties/moduleId",
+    "urn:gift:design-schema:rule-call-observation-2#/properties/semantics/properties/progress/oneOf/1/properties/obligationRef/properties/export",
+    "urn:gift:design-schema:binding-lock-1#/$defs/Node/properties/kind",
+    "urn:gift:design-schema:binding-lock-1#/$defs/Node/properties/subjectId",
+    "urn:gift:design-schema:binding-lock-1#/$defs/Node/properties/revision",
+    "urn:gift:design-schema:binding-lock-1#/$defs/Node/properties/dependencies/items",
+    "urn:gift:design-schema:binding-lock-1#/$defs/Node/properties/locationHint",
+    "urn:gift:design-schema:binding-lock-1#/$defs/Content/properties/format",
+    "urn:gift:design-schema:binding-lock-1#/$defs/ContentMember/properties/path",
+    "urn:gift:design-schema:binding-lock-1#/properties/projectId",
+    "urn:gift:design-schema:binding-lock-1#/properties/bindings/additionalProperties",
+    "urn:gift:design-schema:binding-lock-1#/properties/bindings/propertyNames",
+    "urn:gift:design-schema:binding-lock-1#/properties/nodes/propertyNames",
+    "urn:gift:design-schema:native-binding-selection-1#/properties/moduleId",
+    "urn:gift:design-schema:native-binding-selection-1#/properties/profileRef",
+    "urn:gift:design-schema:native-binding-selection-1#/properties/symbols/additionalProperties/properties/nativeExport",
+    "urn:gift:design-schema:native-binding-selection-1#/properties/symbols/propertyNames",
+    "urn:gift:design-schema:project-2#/$defs/SourceScope/properties/root",
+    "urn:gift:design-schema:project-2#/$defs/SourceScope/properties/include/items",
+    "urn:gift:design-schema:project-2#/$defs/SourceScope/properties/exclude/items",
+    "urn:gift:design-schema:project-2#/$defs/Target/properties/profileRef/oneOf/0",
+    "urn:gift:design-schema:project-2#/$defs/TargetProfileRequest/properties/id",
+    "urn:gift:design-schema:project-2#/$defs/TargetProfileRequest/properties/revision",
+    "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/moduleId",
+    "urn:gift:design-schema:project-2#/properties/projectId",
+    "urn:gift:design-schema:project-2#/properties/targets/propertyNames",
+    "urn:gift:design-schema:project-2#/properties/defaultTarget",
+    "urn:gift:design-schema:ai-tools-2-apply#/properties/candidateRef",
+    "urn:gift:design-schema:ai-tools-2-apply#/properties/targetRef",
+    "urn:gift:design-schema:ai-tools-2-apply#/properties/base",
+    "urn:gift:design-schema:ai-tools-2-apply#/properties/requestId",
+    "urn:gift:design-schema:ai-tools-2-apply#/properties/artifactRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Action/oneOf/0/properties/newName",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Action/oneOf/1/properties/newName",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Action/oneOf/5/properties/to",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Assist/properties/path",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistQuery/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistQuery/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AuthorEdit/properties/draft/properties/base",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AuthorEdit/properties/draft/properties/planRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Location/properties/sourceRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Location/properties/path",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/0/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/0/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/1/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/1/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/2/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/2/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/3/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/3/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/4/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/4/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/5/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/5/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/6/properties/candidateRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/AssistProjection/oneOf/6/properties/cursor",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_describe/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_describe/properties/detailRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_describe/properties/subjectRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_complete/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_complete/properties/detailRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_complete/properties/planRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_signature/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_signature/properties/detailRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_signature/properties/parameters/items/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_definition/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_definition/properties/detailRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_references/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_references/properties/detailRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_implementations/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_implementations/properties/detailRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_actions/properties/label",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_actions/properties/detailRef",
+    "urn:gift:design-schema:authoring-assist-1#/$defs/Item_actions/properties/planRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/BlueprintQuery/properties/at",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/BlueprintQuery/properties/find/properties/targetRootRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/BlueprintQuery/properties/find/properties/subjectRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/BlueprintQuery/properties/cursor",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/ref",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/role",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/label",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/contractRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/authorOwnerRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/plannedLocationRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/topologyRefs/items",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/dependencyRefs/items",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/originRefs/items",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Item/properties/evidenceRefs/items",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Need/properties/subjectRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Need/properties/diagnosticRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/Need/properties/nextActionRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/TargetProjectPlanProjection/properties/targetRootRef",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/TargetProjectPlanProjection/properties/basis",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/TargetProjectPlanProjection/properties/projectionRevision",
+    "urn:gift:design-schema:blueprint-read-1#/$defs/TargetProjectPlanProjection/properties/nextCursor",
+    "urn:gift:design-schema:ai-tools-2-check#/properties/candidateRef",
+    "urn:gift:design-schema:ai-tools-2-check#/properties/artifactRef",
+    "urn:gift:design-schema:ai-tools-2-check#/properties/casesRef",
+    "urn:gift:design-schema:check-method-1#/$defs/MethodCheck/properties/candidateRef",
+    "urn:gift:design-schema:check-method-1#/$defs/MethodCheck/properties/artifactRef",
+    "urn:gift:design-schema:check-method-1#/$defs/MethodCheck/properties/methodRef",
+    "urn:gift:design-schema:check-method-1#/$defs/MethodCheck/properties/requestId",
+    "urn:gift:design-schema:check-method-1#/$defs/MethodCheck/properties/claimRefs/items",
+    "urn:gift:design-schema:check-method-1#/$defs/MethodCheck/properties/methodInputsRef",
+    "urn:gift:design-schema:check-method-1#/$defs/MethodCheck/properties/coverageRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Subject/oneOf/0/properties/targetRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Subject/oneOf/1/properties/contextRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Subject/oneOf/2/properties/candidateRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Subject/oneOf/3/properties/artifactRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/RequestScope/properties/scopeRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Continuation/properties/scopeRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Continuation/properties/requestId",
+    "urn:gift:design-schema:cli-session-1#/$defs/Continuation/properties/operationRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Ready/properties/capabilities/additionalProperties",
+    "urn:gift:design-schema:cli-session-1#/$defs/Ready/properties/capabilities/propertyNames",
+    "urn:gift:design-schema:cli-session-1#/$defs/Ready/properties/initialContexts/items/properties/role",
+    "urn:gift:design-schema:cli-session-1#/$defs/Ready/properties/initialContexts/items/properties/contextRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/Call/properties/callId",
+    "urn:gift:design-schema:cli-session-1#/$defs/Result/properties/callId",
+    "urn:gift:design-schema:cli-session-1#/$defs/CallError/properties/callId",
+    "urn:gift:design-schema:cli-session-1#/$defs/CallError/properties/reason",
+    "urn:gift:design-schema:cli-session-1#/$defs/CallError/properties/requestId",
+    "urn:gift:design-schema:cli-session-1#/$defs/CallError/properties/operationRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/CallError/properties/scopeRef",
+    "urn:gift:design-schema:cli-session-1#/$defs/ProtocolError/properties/reason",
+    "urn:gift:design-schema:cli-session-1#/$defs/ProtocolError/properties/relatedCallId",
+    "urn:gift:design-schema:cli-session-1#/$defs/CancelCall/properties/callId",
+    "urn:gift:design-schema:cli-session-1#/$defs/CancelCall/properties/targetCallId",
+    "urn:gift:design-schema:cli-session-1#/$defs/CancelResult/properties/callId",
+    "urn:gift:design-schema:cli-session-1#/$defs/CancelResult/properties/targetCallId",
+    "urn:gift:design-schema:cli-session-1#/$defs/Close/properties/callId",
+    "urn:gift:design-schema:cli-session-1#/$defs/SessionEnded/properties/incompleteCallIds/items",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeBuild/properties/requestId",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeBuild/properties/artifactRef",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeRun/properties/requestId",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeRun/properties/artifactRef",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeRun/properties/entryRef",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeRun/properties/argumentsRef",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeRun/properties/observationRef",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/requestId",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/candidateRef",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/argumentsRef",
+    "urn:gift:design-schema:compute-run-1#/$defs/ComputeEval/properties/target",
+    "urn:gift:design-schema:compute-run-1#/$defs/SourceEntryRef/properties/moduleId",
+    "urn:gift:design-schema:debug-session-1#/$defs/Breakpoint/properties/sourceRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugLaunch/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugLaunch/properties/artifactRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugLaunch/properties/entryRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugLaunch/properties/argumentsRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugLaunch/properties/debugProfileRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugAttach/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugAttach/properties/runtimeTargetRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugAttach/properties/debugProfileRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugTargets/properties/find/properties/scopeRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugTargets/properties/cursor",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugStateProjection/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugStateProjection/properties/sessionRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugStateProjection/properties/stateRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugStateProjection/properties/configurationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugStateProjection/properties/pauseRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugStateProjection/properties/lastTrustedStateRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/DebugStateProjection/properties/pendingControlRequestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C0/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C0/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C0/properties/expectedStateRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C1/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C1/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C1/properties/expectedPauseRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C1/properties/threadRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C2/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C2/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C2/properties/expectedPauseRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C2/properties/threadRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C3/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C3/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C3/properties/expectedPauseRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C3/properties/threadRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C4/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C4/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C4/properties/expectedPauseRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C4/properties/threadRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C5/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C5/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C5/properties/expectedConfigurationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C5/properties/expectedPauseRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C6/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C6/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C6/properties/expectedStateRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C7/properties/operationRef",
+    "urn:gift:design-schema:debug-session-1#/$defs/C7/properties/requestId",
+    "urn:gift:design-schema:debug-session-1#/$defs/C7/properties/expectedStateRef",
+    "urn:gift:design-schema:generated-edit-1#/properties/base",
+    "urn:gift:design-schema:generated-edit-1#/properties/artifactRef",
+    "urn:gift:design-schema:input-preparation-1#/$defs/Ref",
+    "urn:gift:design-schema:input-preparation-1#/$defs/PassiveExpr/oneOf/1/properties/key",
+    "urn:gift:design-schema:input-preparation-1#/$defs/PassiveExpr/oneOf/1/properties/fields/items/properties/name",
+    "urn:gift:design-schema:input-preparation-1#/$defs/PassiveExpr/oneOf/2/properties/key",
+    "urn:gift:design-schema:input-preparation-1#/$defs/PassiveExpr/oneOf/3/properties/key",
+    "urn:gift:design-schema:input-preparation-1#/$defs/PassiveRecord/properties/key",
+    "urn:gift:design-schema:input-preparation-1#/$defs/PassiveRecord/properties/fields/items/properties/name",
+    "urn:gift:design-schema:input-preparation-1#/$defs/PassiveList/properties/key",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/Ref",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogQuery/properties/at",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogQuery/properties/cursor",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogQuery/properties/find/properties/scopeRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogQuery/properties/find/properties/domainRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceQuery/properties/at",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceQuery/properties/cursor",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceQuery/properties/find/properties/subjectRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceQuery/properties/find/properties/scopeRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceQuery/properties/find/properties/roleRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/IntentAction/properties/base",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/IntentAction/properties/facetRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogItem/properties/facetRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogItem/properties/basis",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogItem/properties/subjectRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogItem/properties/descriptorRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogItem/properties/explanationRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceItem/properties/occurrenceRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceItem/properties/subjectRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceItem/properties/facetRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceItem/properties/basis",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceItem/properties/authorRef",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogProjection/properties/basis",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/CatalogProjection/properties/nextCursor",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceProjection/properties/basis",
+    "urn:gift:design-schema:intent-authoring-1#/$defs/OccurrenceProjection/properties/nextCursor",
+    "urn:gift:design-schema:ai-tools-2-operation#/$defs/Ref",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/0/properties/sourceLanguage",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/0/properties/context",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/0/properties/target",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/0/properties/compareTo",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/1/properties/candidateRef",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/1/properties/entry",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/1/properties/target",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/1/properties/compareTo",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/2/properties/context",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/2/properties/entry",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/2/properties/target",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/2/properties/compareTo",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/3/properties/target",
+    "urn:gift:design-schema:ai-tools-2-preview#/oneOf/3/properties/compareTo",
+    "urn:gift:design-schema:ai-tools-2-propose#/allOf/0/then/properties/files/propertyNames",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/0/properties/sourceLanguage",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/0/properties/context",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/1/properties/base",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/2/properties/context",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/2/properties/entry",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/4/properties/context",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/4/properties/files/propertyNames",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/4/properties/base",
+    "urn:gift:design-schema:ai-tools-2-propose#/oneOf/5/properties/editRef",
+    "urn:gift:design-schema:ai-tools-2-query#/properties/at",
+    "urn:gift:design-schema:ai-tools-2-query#/properties/cursor",
+    "urn:gift:design-schema:tool-result-view-2#/properties/subjectRef",
+    "urn:gift:design-schema:tool-result-view-2#/properties/basis",
+    "urn:gift:design-schema:tool-result-view-2#/properties/coverage/properties/requested/items",
+    "urn:gift:design-schema:tool-result-view-2#/properties/coverage/properties/complete/items",
+    "urn:gift:design-schema:tool-result-view-2#/properties/coverage/properties/incomplete/items/properties/scope",
+    "urn:gift:design-schema:tool-result-view-2#/properties/coverage/properties/incomplete/items/properties/reason",
+    "urn:gift:design-schema:tool-result-view-2#/properties/results/items/oneOf/0/properties/role",
+    "urn:gift:design-schema:tool-result-view-2#/properties/results/items/oneOf/0/properties/ref",
+    "urn:gift:design-schema:tool-result-view-2#/properties/results/items/oneOf/1/properties/language",
+    "urn:gift:design-schema:tool-result-view-2#/properties/results/items/oneOf/2/properties/baseRef",
+    "urn:gift:design-schema:tool-result-view-2#/properties/results/items/oneOf/4/properties/claimRef",
+    "urn:gift:design-schema:tool-result-view-2#/properties/results/items/oneOf/4/properties/evidenceRefs/items",
+    "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics/items/properties/code",
+    "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics/items/properties/locations/items/properties/sourceRef",
+    "urn:gift:design-schema:tool-result-view-2#/properties/effectRef",
+    "urn:gift:design-schema:tool-result-view-2#/properties/next/items/properties/reason",
+    "urn:gift:design-schema:tool-result-view-2#/properties/next/items/properties/subjectRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Ref",
+    "urn:gift:design-schema:semantic-change-1#/$defs/EditValue/oneOf/2/properties/from",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/0/properties/node",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/0/properties/input",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/1/properties/at",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/2/properties/subject",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/3/properties/dialectRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/3/properties/bodySchemaRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/3/properties/bindingRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Precondition/oneOf/0/properties/subjectRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Precondition/oneOf/0/properties/revisionRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Precondition/oneOf/1/properties/subjectRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Precondition/oneOf/2/properties/subjectRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/Precondition/oneOf/2/properties/bindingRef",
+    "urn:gift:design-schema:semantic-change-1#/$defs/SemanticChange/properties/base",
+    "urn:gift:design-schema:semantic-change-1#/$defs/SemanticChange/properties/changeId",
+    "urn:gift:design-schema:semantic-change-1#/$defs/SemanticChange/properties/purpose",
+    "urn:gift:design-schema:structured-files-1#/properties/files/propertyNames",
+    "urn:gift:design-schema:structured-files-1#/properties/fileProfiles/additionalProperties",
+    "urn:gift:design-schema:structured-files-1#/properties/fileProfiles/propertyNames",
+    "urn:gift:design-schema:structured-files-1#/properties/context",
+    "urn:gift:design-schema:structured-files-1#/properties/base",
+    "urn:gift:design-schema:structured-files-1#/allOf/0/then/properties/files/propertyNames"
+  ]
+}

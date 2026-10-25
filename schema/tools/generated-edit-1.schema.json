@@ -8,8 +8,7 @@
   "required": [
     "kind",
     "base",
-    "artifactRef",
-    "edits"
+    "artifactRef"
   ],
   "properties": {
     "kind": {
@@ -18,12 +17,12 @@
     "base": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "artifactRef": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "edits": {
       "type": "array",
@@ -56,6 +55,40 @@
         "occurrence",
         "definition"
       ]
+    },
+    "targetFiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Exact complete text afterimages of existing members of the bound artifact G0. Unlisted members stay G0; empty string is an empty text afterimage, never deletion. New/deleted/moved/binary members require their own qualified source/asset route, not implicit permission here."
     }
-  }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "edits"
+      ],
+      "not": {
+        "required": [
+          "targetFiles"
+        ]
+      }
+    },
+    {
+      "required": [
+        "targetFiles"
+      ],
+      "not": {
+        "required": [
+          "edits"
+        ]
+      }
+    }
+  ]
 }

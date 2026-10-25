@@ -17,7 +17,7 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
-        "pattern": "^[a-z][A-Za-z0-9_]*$"
+        "pattern": "^[a-z][A-Za-z0-9_]*(?![\\s\\S])"
       },
       "additionalProperties": {
         "$ref": "#/$defs/role"
@@ -116,7 +116,7 @@
         },
         "contentDigest": {
           "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}(?![\\s\\S])"
         }
       }
     },
@@ -132,7 +132,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^[a-z][A-Za-z0-9_]*$"
+          "pattern": "^[a-z][A-Za-z0-9_]*(?![\\s\\S])"
         },
         "kind": {
           "enum": [

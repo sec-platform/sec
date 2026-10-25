@@ -19,7 +19,7 @@
     "moduleId": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "language": {
       "enum": [
@@ -30,14 +30,14 @@
     "profileRef": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "symbols": {
       "type": "object",
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "type": "object",
@@ -55,7 +55,7 @@
           "nativeExport": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           },
           "role": {
             "enum": [

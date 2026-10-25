@@ -13,7 +13,7 @@
     "projectId": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "sourceScopes": {
       "type": "array",
@@ -26,7 +26,7 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "$ref": "#/$defs/Target"
@@ -35,7 +35,7 @@
     "defaultTarget": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "annotations": {
       "type": "object",
@@ -89,7 +89,7 @@
         "root": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "kind": {
           "enum": [
@@ -108,7 +108,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         },
         "exclude": {
@@ -116,7 +116,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         }
       },
@@ -180,7 +180,7 @@
             {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             {
               "$ref": "#/$defs/TargetProfileRequest"
@@ -224,12 +224,12 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "revision": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -243,7 +243,7 @@
         "moduleId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "export": {
           "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier",
@@ -252,7 +252,7 @@
         "contextBindings": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessRoleActual"
@@ -261,7 +261,7 @@
         },
         "rootId": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])",
           "maxLength": 128,
           "description": "Stable identity of a selected output-root occurrence within one target. Current Writer requires it if more than one outputRoot is selected; single legacy root may be deterministically named main. Not a new Definition, global object, permissions grant, or shared component instance.",
           "minLength": 1

@@ -3,7 +3,7 @@
   "dialect": {
     "languageId": "gift.surface-convergence",
     "revision": "design-surface-boundaries",
-    "digest": "sha256:4b65afb6b3590894e1c7e71f51c4523603b72ea4548e7e52dc9ad924a3839171"
+    "digest": "sha256:e53e62978d8468e34d59aec4b762dec1df7434ad1842c0347d4d4db757542f4a"
   },
   "issuer": "design-specification-not-a-runtime-authority",
   "definitionKinds": [

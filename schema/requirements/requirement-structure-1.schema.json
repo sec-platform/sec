@@ -15,7 +15,7 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "$ref": "#/$defs/Parameter"
@@ -27,7 +27,7 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "type": "object",
@@ -48,7 +48,7 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "oneOf": [
@@ -62,14 +62,14 @@
               "parameter": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "path": {
                 "type": "array",
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
                 },
                 "minItems": 0
               }
@@ -85,14 +85,14 @@
               "subject": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "path": {
                 "type": "array",
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
                 },
                 "minItems": 0
               }
@@ -159,7 +159,7 @@
             "definitionId": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -174,12 +174,12 @@
             "import": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "export": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -244,14 +244,14 @@
             "parameter": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "path": {
               "type": "array",
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "minItems": 0
             }
@@ -267,14 +267,14 @@
             "subject": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "path": {
               "type": "array",
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "minItems": 0
             }
@@ -290,14 +290,14 @@
             "bound": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "path": {
               "type": "array",
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "minItems": 0
             }
@@ -663,7 +663,7 @@
               "propertyNames": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "additionalProperties": {
                 "$ref": "#/$defs/Value"
@@ -718,7 +718,7 @@
               "propertyNames": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "additionalProperties": {
                 "$ref": "#/$defs/Value"
@@ -750,7 +750,7 @@
               "propertyNames": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "additionalProperties": {
                 "$ref": "#/$defs/Value"
@@ -872,7 +872,7 @@
         "bind": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "in": {
           "$ref": "#/$defs/Value"

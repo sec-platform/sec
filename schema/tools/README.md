@@ -15,16 +15,22 @@
 | intent-authoring-1 | 可协商的 query intentCatalog/intentOccurrence 与 propose.draft(intent-action) 精确输入；Catalog/Occurrence 投影的封闭条目 | 描述符、源身份、角色/值 codec、默认、权限/披露、负依赖、操作实际写入资格；结构成立不产生Method或Effect |
 | query-2 | 基础 at/find/view/limit/cursor | find 的对象领域、引用/范围、当前披露、真实分页覆盖；Json 只证明载体形状 |
 | propose-2 | 六个互斥候选输入槽；无原作者前像的 source / files(new) 禁止 `return=diff`；files 保留现行 context | 源/路径角色、base 与前像、edits 唯一匹配、return=diff 的源基础、区域权限、形成候选的语义 |
-| preview-2 | source/candidate/context+entry/draft 四个槽及 compareTo 条件 | 固定解释、Target、Artifact 关联、真实 lowering 与范围 |
-| check-2 | types/cases 方法选择，cases 要求 artifactRef/casesRef | 真实方法执行、被测主体、独立期望、Evidence 资格与复用 |
+| preview-2 | source/candidate/context+entry/draft 四个槽、compareTo 条件与可选requestId | 纯路径可无操作；实际Effect前必须已有requestId、唯一scope映射和原Operation接纳记录；固定解释、Target、Artifact及真实lowering |
+| check-2 | types/cases 方法选择，cases 要求 artifactRef/casesRef，可选requestId | 实际运行/构建/fixture的事前身份与恢复、被测主体、独立期望、Evidence资格与复用 |
 | apply-2 | save-source/write-output；后者必需 artifactRef | 当前授权、准确前像、作用身份/去重、真实输出与持久 readback |
 | operation-2 | 原操作状态；带 controlRef 的控制；scopeRef+requestId 事前查回 | controlRef 的真实当前代/关联、查回先于新作用、原 Operation/Attempt 的未决和结算 |
-| generated-edit-1 | 仅在准确协商时接入显式 draft | Artifact/SourceMap、occurrence/definition 范围、保持与回源写权 |
+| generated-edit-1 | 仅在准确协商时接入显式 draft；edits/targetFiles恰选一 | G0已有文本成员/完整后像、真实Artifact/SourceMap、occurrence/definition范围、保持与回源写权；缺外部结果返回Need |
 | structured-files-1 | 可选 fileProfiles 扩展，不撤销旧 files/context；无作者base不得请求 diff | 映射只覆盖本批实际新角色、删除无 profile、已有角色不得借此迁移、引用可解析与路径安全 |
 | result-view-2 | 独立协商的紧凑结果投影；代码非空、Claim通过/失败有证据引用、字节范围成对 | requested/complete/incomplete 集合关系、各路径唯一及合法归属、真实 basis/引用/字节定位、Claim/Evidence资格、效果存在性与披露 |
 
 propose/preview 基础结构中 `draft:false` 是尚未装入任何已协商扩展时的拒绝槽。实际消费者从准确已锁定扩展注册表编译选择相应联合；不能以 false 声称所有 draft 已支持，也不能改成任意 JSON 放弃验证。intent-action、input-preparation、author-edit、compute-run、debug/process 等扩展仍由现行对应规范定义，未选择的能力明确拒绝。query 的新 view 同理不能直接混进基础枚举。
 
 所有结构先经过有界严格字节解码；解析器须在重复键被覆盖前拒绝，禁止非法 UTF-8、非有限数字、非法数值域和原型污染路径。JSON Schema 检查已解析值，不能补回这些已丢区别，也不能验证真实身份、权限、外部状态或副作用。缺失、null、未知和显式默认各按原合同解释。
+
+cli-session的requestScopes.subjectRefs准确区分target/context/candidate/artifact四种单字段主体；它与preview/check新增requestId及generated-edit后像分支均须协商各未发布草案的准确内容修订。有限静态向量见[开发面边界样本](../../examples/第一层作者/names-and-roots/developer-surface-cases.json)，不证明原Operation的持久保留、执行或真实回源。
+
+非空且禁止C0/DEL控制字符的字符串由各原Schema节点保留`type/minLength`并用无首尾断言的`not.pattern`排除任意位置的该字符集；不使用可能在尾LF前结束的`$`证明完整字符串合格。相同约束在工程/锁/控制/Requirement及观察合同中按同一含义修正，候选Name的独立域不被顺带收窄。边界样本列出实际节点与共享正反向输入，覆盖尾LF、CRLF、内嵌控制字符及合法Unicode；字节解码、引用存在性和身份资格仍由原owner负责。
+
+Identifier、数值词元、摘要、编码及JSON Pointer等本来要求全串匹配的节点，以`(?![\s\S])`断言实际串尾，保持原字符域、长度和空值规则；部分成熟验证后端的`$`允许尾LF前结束，不能据此扩大词法域。有意搜索子串的path检查不改；JSON Pointer中已经属于合法token的换行仍合法，不能统一禁止LF。[词法边界向量](../../examples/第一层作者/names-and-roots/lexical-boundary-cases.json)按19种原词法域列出98个真实节点与独立正反例，并保留候选Name的宽域对照。
 
 生成类型/静态结构校验、生产 decoder 加载、方法真实执行、当前采用、外部效果和系统符合性分别报告。当前只提供设计结构与其有限静态验证，生产进程加载及行为均为 UNVERIFIED。

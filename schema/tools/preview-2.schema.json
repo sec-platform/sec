@@ -21,17 +21,17 @@
         "sourceLanguage": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "context": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "target": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "return": {
           "enum": [
@@ -43,7 +43,11 @@
         "compareTo": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+        },
+        "requestId": {
+          "$ref": "urn:gift:design-schema:ai-tools-2-operation#/$defs/Ref",
+          "description": "Optional on pure preview. Before any external Effect, the original application/execution owner requires this prior logical identity and a client-held uniquely applicable request scope. Not a grant."
         }
       }
     },
@@ -57,17 +61,17 @@
         "candidateRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "entry": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "target": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "return": {
           "enum": [
@@ -79,7 +83,11 @@
         "compareTo": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+        },
+        "requestId": {
+          "$ref": "urn:gift:design-schema:ai-tools-2-operation#/$defs/Ref",
+          "description": "Optional on pure preview. Before any external Effect, the original application/execution owner requires this prior logical identity and a client-held uniquely applicable request scope. Not a grant."
         }
       }
     },
@@ -94,17 +102,17 @@
         "context": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "entry": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "target": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "return": {
           "enum": [
@@ -116,7 +124,11 @@
         "compareTo": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+        },
+        "requestId": {
+          "$ref": "urn:gift:design-schema:ai-tools-2-operation#/$defs/Ref",
+          "description": "Optional on pure preview. Before any external Effect, the original application/execution owner requires this prior logical identity and a client-held uniquely applicable request scope. Not a grant."
         }
       }
     },
@@ -131,7 +143,7 @@
         "target": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "return": {
           "enum": [
@@ -143,7 +155,11 @@
         "compareTo": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+        },
+        "requestId": {
+          "$ref": "urn:gift:design-schema:ai-tools-2-operation#/$defs/Ref",
+          "description": "Optional on pure preview. Before any external Effect, the original application/execution owner requires this prior logical identity and a client-held uniquely applicable request scope. Not a grant."
         }
       }
     }

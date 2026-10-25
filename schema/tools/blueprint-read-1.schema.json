@@ -19,7 +19,7 @@
         "at": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "find": {
           "type": "object",
@@ -36,7 +36,7 @@
             "targetRootRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "section": {
               "enum": [
@@ -54,7 +54,7 @@
             "subjectRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -66,7 +66,7 @@
         "cursor": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -82,17 +82,17 @@
         "ref": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "role": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -106,17 +106,17 @@
         "contractRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "authorOwnerRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "plannedLocationRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "topologyRefs": {
           "type": "array",
@@ -124,7 +124,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         },
         "dependencyRefs": {
@@ -133,7 +133,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         },
         "originRefs": {
@@ -142,7 +142,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         },
         "evidenceRefs": {
@@ -151,7 +151,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         }
       }
@@ -168,7 +168,7 @@
         "subjectRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "reason": {
           "enum": [
@@ -189,12 +189,12 @@
         "diagnosticRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "nextActionRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -220,7 +220,7 @@
         "targetRootRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "section": {
           "enum": [
@@ -238,12 +238,12 @@
         "basis": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "projectionRevision": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "viewState": {
           "enum": [
@@ -274,7 +274,7 @@
         "nextCursor": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       },
       "description": "Read-only projection over existing TargetProjectPlan and original authors. Planned members and locations never assert physical files, codegen success or acceptance."

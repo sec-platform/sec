@@ -1,0 +1,448 @@
+{
+  "scope": "Finite exact-string lexical witnesses across existing Schema nodes and their retained candidate counterparts. No whole-program, parser-byte, kind, binding or runtime proof.",
+  "families": [
+    {
+      "name": "sha256",
+      "contracts": [
+        "urn:gift:design-schema:author-dialect-supply-1#/properties/dialect/properties/digest"
+      ],
+      "valid": [
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "invalid": [
+        "",
+        "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+      ]
+    },
+    {
+      "name": "integer",
+      "contracts": [
+        "urn:gift:design-schema:shared-semantic-structure-1#/$defs/LiteralExpr/oneOf/1/properties/value",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Expr/oneOf/0/allOf/0/then/properties/value",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/DecimalLiteral/properties/coefficient",
+        "urn:gift:design-schema:convergence-examples#/properties/definitions/additionalProperties/oneOf/1/properties/core:constant/properties/literal/oneOf/0",
+        "urn:gift:design-schema:convergence-examples#/properties/definitions/additionalProperties/oneOf/1/properties/core:constant/properties/literal/oneOf/1/properties/numerator",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Rational/properties/n",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Term/oneOf/2/properties/int",
+        "urn:gift:design-schema:semantic-convergence#/$defs/ProgramTerm/oneOf/2/properties/int",
+        "urn:gift:design-schema:semantic-convergence#/$defs/State/properties/values/additionalProperties/oneOf/1",
+        "urn:gift:design-schema:semantic-convergence#/$defs/History/properties/initial/additionalProperties",
+        "urn:gift:design-schema:semantic-convergence#/$defs/History/properties/operations/items/oneOf/0/properties/value",
+        "urn:gift:design-schema:semantic-convergence#/$defs/History/properties/operations/items/oneOf/1/properties/value",
+        "urn:gift:design-schema:surface-convergence#/$defs/Value/oneOf/3/properties/literal/properties/value"
+      ],
+      "valid": [
+        "0",
+        "1",
+        "-12"
+      ],
+      "invalid": [
+        "",
+        "-0",
+        "01",
+        "1.0",
+        "0\n",
+        "0\r\n"
+      ]
+    },
+    {
+      "name": "identifier",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/RequirementLink/properties/roleBindings/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ComponentUse/properties/contextBindings/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/5/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/6/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/7/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/8/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/9/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/11/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/12/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/13/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/14/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/16/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/17/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/18/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Definition/oneOf/19/properties/body/properties/contextRoles/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessPredicateUse/properties/bindings/propertyNames",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/DefinitionUse/properties/bindings/propertyNames",
+        "urn:gift:design-schema:control-file-1#/properties/records/items/properties/scopeRef/oneOf/1/properties/rootRef/properties/rootId",
+        "urn:gift:design-schema:intent-body-1#/$defs/quantifier/properties/binder",
+        "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/contextBindings/propertyNames",
+        "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/rootId",
+        "urn:gift:design-schema:compute-run-1#/$defs/SourceEntryRef/properties/export",
+        "urn:gift:design-schema:intent-authoring-1#/$defs/IntentAction/properties/action",
+        "urn:gift:design-schema:intent-authoring-1#/$defs/IntentAction/properties/subjectBindings/propertyNames",
+        "urn:gift:design-schema:intent-authoring-1#/$defs/IntentAction/properties/values/propertyNames",
+        "urn:gift:design-schema:intent-authoring-1#/$defs/FacetDescriptor/properties/subjectRoles/propertyNames",
+        "urn:gift:design-schema:intent-authoring-1#/$defs/FacetDescriptor/properties/parameters/propertyNames",
+        "urn:gift:design-schema:intent-authoring-1#/$defs/FacetAction/properties/name",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Ident",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/0/properties/opId",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/1/properties/opId",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/2/properties/opId",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/2/properties/name",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Operation/oneOf/3/properties/opId",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Group/properties/groupId",
+        "urn:gift:design-schema:semantic-change-1#/$defs/Group/properties/opIds/items"
+      ],
+      "valid": [
+        "s",
+        "A_0"
+      ],
+      "invalid": [
+        "",
+        "0x",
+        "a-b",
+        "\u540d\u5b57",
+        "s\n",
+        "s\r\n"
+      ]
+    },
+    {
+      "name": "member-name",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/MemberName",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ComponentUse/properties/argumentBindings/propertyNames"
+      ],
+      "valid": [
+        "s",
+        "a-b"
+      ],
+      "invalid": [
+        "",
+        "0x",
+        "\u540d\u5b57",
+        "s\n",
+        "s\r\n"
+      ]
+    },
+    {
+      "name": "legacy-ref",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"
+      ],
+      "valid": [
+        "local:T",
+        "lib:T"
+      ],
+      "invalid": [
+        "",
+        "local:",
+        "x:y:z",
+        "\u5e93:T",
+        "local:T\n",
+        "local:T\r\n"
+      ]
+    },
+    {
+      "name": "natural",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Expr/oneOf/0/allOf/1/then/properties/value",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Type/oneOf/2/properties/universe",
+        "urn:gift:design-schema:semantic-convergence#/$defs/ProgramTerm/oneOf/23/properties/project/properties/index",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Game/properties/horizon",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Hybrid/properties/events/items/properties/priority",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Quantum/properties/dimension",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Objects/properties/patches/items/properties/generation",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/obligations/items/properties/deadline",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/obligations/items/properties/remedyDelay",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/events/items/oneOf/0/properties/time",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/events/items/oneOf/0/properties/generation",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/events/items/oneOf/1/properties/time",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/events/items/oneOf/2/properties/time",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/events/items/oneOf/3/properties/time",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Norm/properties/events/items/oneOf/4/properties/time",
+        "urn:gift:design-schema:semantic-convergence#/$defs/ObligationRef/oneOf/1/properties/deadline"
+      ],
+      "valid": [
+        "0",
+        "12"
+      ],
+      "invalid": [
+        "",
+        "-1",
+        "01",
+        "0\n",
+        "0\r\n"
+      ]
+    },
+    {
+      "name": "hex-bytes",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/Expr/oneOf/0/allOf/7/then/allOf/0/then/properties/value"
+      ],
+      "valid": [
+        "",
+        "00ff"
+      ],
+      "invalid": [
+        "0",
+        "FF",
+        "gg",
+        "\n",
+        "\r\n"
+      ]
+    },
+    {
+      "name": "positive-weight",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/QualityTerm/properties/weightDecimal"
+      ],
+      "valid": [
+        "1",
+        "1.0",
+        "0.01"
+      ],
+      "invalid": [
+        "",
+        "0",
+        "0.00",
+        "-1",
+        "1\n",
+        "1\r\n"
+      ]
+    },
+    {
+      "name": "decimal",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessQuantity/properties/magnitude"
+      ],
+      "valid": [
+        "0",
+        "-0",
+        "-12.5"
+      ],
+      "invalid": [
+        "",
+        "01",
+        "1.",
+        "+1",
+        "0\n",
+        "0\r\n"
+      ]
+    },
+    {
+      "name": "nonnegative-decimal",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/NonnegativeBusinessQuantity/properties/magnitude"
+      ],
+      "valid": [
+        "0",
+        "12.5"
+      ],
+      "invalid": [
+        "",
+        "-0",
+        "01",
+        "1.",
+        "0\n",
+        "0\r\n"
+      ]
+    },
+    {
+      "name": "json-pointer",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ValueSource/oneOf/1/properties/path",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ValueSource/oneOf/2/properties/path",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ValueSource/oneOf/3/properties/path",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ValueSource/oneOf/4/properties/path",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ValueSource/oneOf/5/properties/path",
+        "urn:gift:design-schema:universal-author-module-2#/$defs/ValueSource/oneOf/7/properties/path"
+      ],
+      "valid": [
+        "",
+        "/",
+        "/a~0b~1c",
+        "/x\n",
+        "/\u0000",
+        "/\u007f",
+        "/\u2028"
+      ],
+      "invalid": [
+        "x",
+        "/~2",
+        "~0",
+        "\n",
+        "\r\n"
+      ]
+    },
+    {
+      "name": "dialect-slug",
+      "contracts": [
+        "urn:gift:design-schema:universal-author-module-2#/properties/dialects/propertyNames"
+      ],
+      "valid": [
+        "x",
+        "x-0"
+      ],
+      "invalid": [
+        "",
+        "X",
+        "x_y",
+        "x\n",
+        "x\r\n"
+      ]
+    },
+    {
+      "name": "package-subpath",
+      "contracts": [
+        "urn:gift:design-schema:package-manifest-1#/properties/exports/propertyNames",
+        "urn:gift:design-schema:package-manifest-converged#/properties/exports/propertyNames"
+      ],
+      "valid": [
+        ".",
+        "./a-b/c_0"
+      ],
+      "invalid": [
+        "",
+        "a",
+        "./",
+        "./a/",
+        ".\n",
+        ".\r\n"
+      ]
+    },
+    {
+      "name": "role",
+      "contracts": [
+        "urn:gift:design-schema:intent-body-1#/properties/roles/propertyNames",
+        "urn:gift:design-schema:semantic-pattern-1#/$defs/variation/properties/name",
+        "urn:gift:design-schema:semantic-pattern-1#/properties/roles/propertyNames",
+        "urn:gift:design-schema:semantic-pattern-use-2#/properties/roleBindings/propertyNames",
+        "urn:gift:design-schema:semantic-pattern-use-2#/properties/variationSelections/propertyNames"
+      ],
+      "valid": [
+        "x",
+        "xA_0"
+      ],
+      "invalid": [
+        "",
+        "X",
+        "x-y",
+        "x\n",
+        "x\r\n"
+      ]
+    },
+    {
+      "name": "hex-digest-a-f",
+      "contracts": [
+        "urn:gift:design-schema:intent-local-replanning-contract-1#/properties/sourceInputs/items/properties/sha256",
+        "urn:gift:design-schema:intent-local-replanning-contract-1#/properties/methods/additionalProperties/properties/meaningImports/items/properties/contentDigest",
+        "urn:gift:design-schema:semantic-pattern-1#/$defs/import/properties/contentDigest"
+      ],
+      "valid": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "invalid": [
+        "",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+      ]
+    },
+    {
+      "name": "integer-noncapturing",
+      "contracts": [
+        "urn:gift:design-schema:intent-local-replanning-contract-1#/properties/methods/additionalProperties/properties/edits/items/oneOf/1/properties/delta"
+      ],
+      "valid": [
+        "0",
+        "-12"
+      ],
+      "invalid": [
+        "",
+        "-0",
+        "01",
+        "0\n",
+        "0\r\n"
+      ]
+    },
+    {
+      "name": "positive-integer",
+      "contracts": [
+        "urn:gift:design-schema:semantic-pattern-use-2#/$defs/roleBinding/oneOf/4/properties/members/items/properties/count",
+        "urn:gift:design-schema:convergence-examples#/properties/definitions/additionalProperties/oneOf/1/properties/core:constant/properties/literal/oneOf/1/properties/denominator",
+        "urn:gift:design-schema:semantic-convergence#/$defs/Rational/properties/d"
+      ],
+      "valid": [
+        "1",
+        "12"
+      ],
+      "invalid": [
+        "",
+        "0",
+        "-1",
+        "01",
+        "1\n",
+        "1\r\n"
+      ]
+    },
+    {
+      "name": "hex-digest-0-9",
+      "contracts": [
+        "urn:gift:design-schema:binding-lock-1#/$defs/Content/properties/digest",
+        "urn:gift:design-schema:binding-lock-1#/$defs/ContentMember/properties/digest"
+      ],
+      "valid": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "invalid": [
+        "",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"
+      ]
+    },
+    {
+      "name": "base64",
+      "contracts": [
+        "urn:gift:design-schema:input-preparation-1#/$defs/ProcessInputValues/oneOf/1/properties/data"
+      ],
+      "valid": [
+        "",
+        "YQ==",
+        "YWJj"
+      ],
+      "invalid": [
+        "a",
+        "YQ=",
+        "a===",
+        "\n",
+        "\r\n"
+      ]
+    }
+  ],
+  "integrationCases": [
+    {
+      "name": "exists-binder-tail-LF-rejected",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Type",
+      "expected": false,
+      "value": {
+        "tag": "exists",
+        "parameters": [
+          {
+            "name": "s\n",
+            "kind": "Scope",
+            "binding": "fresh"
+          }
+        ],
+        "type": {
+          "tag": "param",
+          "name": "s"
+        }
+      }
+    },
+    {
+      "name": "Name-domain-retains-newline",
+      "schema": "urn:gift:design-schema:first-layer-names#/$defs/Name",
+      "expected": true,
+      "value": "\u540d\u5b57\n"
+    }
+  ]
+}

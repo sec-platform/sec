@@ -64,7 +64,7 @@
             "newName": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"},
               "description": "Name in the fixed source language. Its actual Language/Native Provider checks lexical validity, scope, binding conflicts and capture; this shared transport does not impose the structured-author Identifier grammar on native languages."
             }
           }
@@ -83,7 +83,7 @@
             "newName": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"},
               "description": "Name in the fixed source language. Its actual Language/Native Provider checks lexical validity, scope, binding conflicts and capture; this shared transport does not impose the structured-author Identifier grammar on native languages."
             }
           }
@@ -138,7 +138,7 @@
             "to": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -167,7 +167,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "positionEncoding": {
           "enum": [
@@ -312,7 +312,7 @@
         "candidateRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "assist": {
           "$ref": "#/$defs/Assist"
@@ -325,7 +325,7 @@
         "cursor": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -351,12 +351,12 @@
             "base": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "planRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -382,12 +382,12 @@
         "sourceRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "path": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "positionEncoding": {
           "enum": [
@@ -417,7 +417,7 @@
             "candidateRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "kind": {
               "const": "describe"
@@ -437,7 +437,7 @@
             "cursor": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -455,7 +455,7 @@
             "candidateRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "kind": {
               "const": "complete"
@@ -475,7 +475,7 @@
             "cursor": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -493,7 +493,7 @@
             "candidateRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "kind": {
               "const": "signature"
@@ -513,7 +513,7 @@
             "cursor": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -531,7 +531,7 @@
             "candidateRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "kind": {
               "const": "definition"
@@ -551,7 +551,7 @@
             "cursor": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -569,7 +569,7 @@
             "candidateRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "kind": {
               "const": "references"
@@ -589,7 +589,7 @@
             "cursor": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -607,7 +607,7 @@
             "candidateRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "kind": {
               "const": "implementations"
@@ -627,7 +627,7 @@
             "cursor": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -645,7 +645,7 @@
             "candidateRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "kind": {
               "const": "actions"
@@ -665,7 +665,7 @@
             "cursor": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -682,7 +682,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -697,7 +697,7 @@
         "detailRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -705,7 +705,7 @@
         "subjectRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "typeText": {
           "type": "string"
@@ -742,7 +742,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -757,7 +757,7 @@
         "detailRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -765,7 +765,7 @@
         "planRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "locations": {
           "type": "array",
@@ -821,7 +821,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -836,7 +836,7 @@
         "detailRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -853,7 +853,7 @@
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "detail": {
                 "type": "string"
@@ -932,7 +932,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -947,7 +947,7 @@
         "detailRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -1026,7 +1026,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -1041,7 +1041,7 @@
         "detailRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -1123,7 +1123,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -1138,7 +1138,7 @@
         "detailRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -1214,7 +1214,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -1229,7 +1229,7 @@
         "detailRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -1247,7 +1247,7 @@
         "planRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "locations": {
           "type": "array",

@@ -8,11 +8,11 @@
     "Ref": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "Ident": {
       "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
     },
     "Json": {
       "oneOf": [
@@ -86,7 +86,7 @@
             "from": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -109,17 +109,17 @@
             },
             "opId": {
               "type": "string",
-              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
             },
             "node": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "input": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "value": {
               "$ref": "#/$defs/EditValue"
@@ -140,12 +140,12 @@
             },
             "opId": {
               "type": "string",
-              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
             },
             "at": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "value": {
               "$ref": "#/$defs/EditValue"
@@ -166,16 +166,16 @@
             },
             "opId": {
               "type": "string",
-              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
             },
             "subject": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "name": {
               "type": "string",
-              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
             }
           }
         },
@@ -195,22 +195,22 @@
             },
             "opId": {
               "type": "string",
-              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
             },
             "dialectRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "bodySchemaRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "bindingRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "payload": {
               "$ref": "#/$defs/Json"
@@ -237,12 +237,12 @@
             "subjectRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "revisionRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -260,7 +260,7 @@
             "subjectRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -279,12 +279,12 @@
             "subjectRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "bindingRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -301,7 +301,7 @@
       "properties": {
         "groupId": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
         },
         "opIds": {
           "type": "array",
@@ -309,7 +309,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           }
         },
         "relationship": {
@@ -335,17 +335,17 @@
         "base": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "changeId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "purpose": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "operations": {
           "type": "array",

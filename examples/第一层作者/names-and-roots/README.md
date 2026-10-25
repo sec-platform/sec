@@ -13,9 +13,13 @@
 | [结构向量](schema-cases.json) | Name/Ref、项目/包/原生选择、名称编辑、直接运行及递归被动输入的正向/负向结构边界；结果不证明名称解析或运行资格。 |
 | [完整底座向量](complete-base-cases.json) | 参数化后原/2完整模块与递归Body的正反例，包含perform操作、Requirement/shared及Pattern/Intent选择器；缺角色绑定、原串解释或外部库时仍不具有语义资格。向量不进入sourceScopes。 |
 | [短形展开与完整Body向量](codec-cases.json) | 独立给定S2/S3展开等式及S4正反期望；覆盖四类Requirement、递归字段、六模态、Type/Field、数据隔离、状态转移和歧义拒绝。纯展开测试与成熟Schema引擎分别消费；不证明S0词元无损、名义成员/方法资格或产品运行。 |
+| [开发面边界向量](developer-surface-cases.json) | Exists递归Type、控制/供给精确名称、preview/check请求身份、会话主体及生成物完整后像的独立结构期望，保留旧Reader对照；roundtripWitness仅给I-R1完整后像等式，实际来源、作用域冻结、恢复和逆向回源须由各owner验证。 |
+| [完整词法边界向量](lexical-boundary-cases.json) | Identifier、数字、编码、摘要和Pointer等19种原域的正常/拒绝值及98个真实节点；防止验证后端尾LF语义误收，保留Pointer内部换行、空bytes/base64及Name，不表示全工程等价。 |
 | [第二次修改](changes/rename-public.patch) | 共同修改公开名和项目selector，保持模块、被引Definition、rootId及其他出口；不在活动源里再保存一个后像工程。 |
 
 应用作者表达“输入是什么就返回什么”及公开出口选择；系统可以在已有库合同下形成这些结构。相等关系函数只判定给定input/outcome，回传函数才产生outcome；二者的正确关系可在固定Bool域逐值推导，但名称相近或同在一个文件不构成Method绑定。`需求`仍是独立Goal，选择函数根不自动证明系统已按Goal完成供给创作；若请求按Goal生成，需真实UseBinding、合格Method和相交证据。
+
+开发面边界向量的`noControlStringContracts`列出原Schema中326个实际非空/C0+DEL排除节点，`noControlStringCases`给共同机制的11种独立字符边界。消费者逐引用验证，并检查候选图中仍保留该域的对应节点；已被Name替换的选择器按Name验证，不错误施加旧限制。这是同一字符串约束的消费者覆盖，不是326项独立业务保证；不得按PASS数量推断整个语言或运行符合性。
 
 ## 根选择的正向结果
 

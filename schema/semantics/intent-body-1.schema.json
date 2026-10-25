@@ -12,7 +12,7 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
-        "pattern": "^[a-z][A-Za-z0-9_]*$"
+        "pattern": "^[a-z][A-Za-z0-9_]*(?![\\s\\S])"
       },
       "additionalProperties": {
         "$ref": "#/$defs/role"
@@ -420,7 +420,7 @@
         },
         "binder": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
         },
         "domainRef": {
           "type": "string",

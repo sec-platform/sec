@@ -12,12 +12,12 @@
     "candidateRef": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "artifactRef": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "methods": {
       "type": "array",
@@ -33,7 +33,11 @@
     "casesRef": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+    },
+    "requestId": {
+      "$ref": "urn:gift:design-schema:ai-tools-2-operation#/$defs/Ref",
+      "description": "Optional for a pure check; mandatory before external runner/case effects. The original Operation owns deduplication, attempts, retained inputs and recovery."
     }
   },
   "allOf": [

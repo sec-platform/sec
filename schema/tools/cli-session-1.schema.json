@@ -170,7 +170,7 @@
             "targetRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         },
@@ -184,7 +184,35 @@
             "contextRef": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifactRef"
+          ],
+          "properties": {
+            "artifactRef": {
+              "type": "string",
+              "minLength": 1,
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             }
           }
         }
@@ -203,7 +231,7 @@
         "scopeRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "subjectRefs": {
           "type": "array",
@@ -245,17 +273,17 @@
         "scopeRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "requestId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "operationRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "retentionUntilUnixMs": {
           "type": "integer",
@@ -292,12 +320,12 @@
           "propertyNames": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           },
           "additionalProperties": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           },
           "description": "Exact selected capability revision map for this immutable session, not an offered-version catalog. Strict byte decoding rejects duplicate decoded keys. Each revision binds actual decoder and consumer contracts; it does not grant authority."
         },
@@ -314,12 +342,12 @@
               "role": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               },
               "contextRef": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
               }
             }
           }
@@ -402,7 +430,7 @@
         "callId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "tool": {
           "enum": [
@@ -437,7 +465,7 @@
         "callId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "result": {
           "$ref": "#/$defs/Json"
@@ -460,12 +488,12 @@
         "callId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "reason": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -473,17 +501,17 @@
         "requestId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "operationRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "scopeRef": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -502,7 +530,7 @@
         "reason": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "diagnostics": {
           "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
@@ -510,7 +538,7 @@
         "relatedCallId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -529,12 +557,12 @@
         "callId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "targetCallId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -554,12 +582,12 @@
         "callId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "targetCallId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "state": {
           "enum": [
@@ -585,7 +613,7 @@
         "callId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -614,7 +642,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           },
           "uniqueItems": true
         },

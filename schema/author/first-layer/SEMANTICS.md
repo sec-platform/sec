@@ -23,6 +23,8 @@
 
 Name、SourceRef与仅含三个互斥对象的StructuredSourceRef见[names.schema.json](names.schema.json)；其标量合法性仍在无损读取层检查。完整模块如何递归提升旧Ref/MemberName、保留独立旧串的原解析空间、闭合Requirement/shared/pattern-use的名字选择器，以及哪些Identifier与专业Body保持原义，唯一由[完整候选文法](../../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)及其[参数表](codec-parameters.json)规定。旧DefinitionRef保留形状，候选中的definitionId/import/export改用Name；改名为空或含分隔符时，递归声明引用共同更新，不因原Body的旧minLength拒绝已接受名字。新完整Body不得无条件交给只认识旧Ref的Reader；有限专业样本Schema不代替完整文法。工程根、包出口、源码直接运行/输入、原生选择及名称重构分别消费该同一名称域，不仅改模块声明。
 
+控制及Method/Target供给的实际名称选择器也消费上述参数图，准确标记、迁移和真实消费者分别由[控制owner](../../../docs/作者/组合/稀疏控制与目标限定.md#converged-control-selectors)与[供给owner](../../../docs/编译/实现选择与设计搜索.md#converged-supply-selectors)承担。完整Type另接入[原Region/Scope存在类型](../../../docs/作者/组合/参数包与类型级值.md)的exists编码；本目录不复制其引入/消去和逃逸算法，不把专业模型中的数学存在量词当作运行资源见证。
+
 <a id="legacy"></a>
 ## 旧需求声明的单源承接
 

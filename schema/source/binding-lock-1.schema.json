@@ -15,7 +15,7 @@
     "projectId": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "resolutionInputs": {
       "type": "object",
@@ -28,12 +28,12 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       }
     },
     "nodes": {
@@ -41,7 +41,7 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "$ref": "#/$defs/Node"
@@ -101,17 +101,17 @@
         "kind": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "subjectId": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "revision": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "content": {
           "$ref": "#/$defs/Content"
@@ -122,13 +122,13 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           }
         },
         "locationHint": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         }
       }
     },
@@ -147,7 +147,7 @@
         },
         "digest": {
           "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
         },
         "byteLength": {
           "type": "integer",
@@ -157,7 +157,7 @@
         "format": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "manifest": {
           "type": "array",
@@ -180,7 +180,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
         },
         "byteLength": {
           "type": "integer",
@@ -192,7 +192,7 @@
         },
         "digest": {
           "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
         }
       }
     }

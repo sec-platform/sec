@@ -15,7 +15,7 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "oneOf": [
@@ -34,24 +34,24 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "additionalProperties": {
         "type": "string",
         "minLength": 1,
-        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
       },
       "minProperties": 0
     },
     "context": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "base": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "return": {
       "enum": [
@@ -77,7 +77,7 @@
             "propertyNames": {
               "type": "string",
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
             },
             "additionalProperties": {
               "type": "string"

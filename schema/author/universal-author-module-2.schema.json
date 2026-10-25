@@ -26,7 +26,7 @@
       "type": "object",
       "minProperties": 0,
       "propertyNames": {
-        "pattern": "^[a-z][a-z0-9-]*$"
+        "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])"
       },
       "additionalProperties": {
         "type": "object",
@@ -132,17 +132,17 @@
   "$defs": {
     "Identifier": {
       "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])",
       "minLength": 1
     },
     "MemberName": {
       "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?![\\s\\S])",
       "description": "Record field and variant case name, shared by declarations, construction, access and matching. Definition and binder names retain Identifier."
     },
     "Ref": {
       "type": "string",
-      "pattern": "^(local|[A-Za-z_][A-Za-z0-9_]*):[A-Za-z_][A-Za-z0-9_]*$"
+      "pattern": "^(local|[A-Za-z_][A-Za-z0-9_]*):[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
     },
     "String": {
       "type": "string",
@@ -330,7 +330,7 @@
         "roleBindings": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/BusinessRoleActual"
@@ -1007,7 +1007,7 @@
                 "properties": {
                   "value": {
                     "type": "string",
-                    "pattern": "^(0|-?[1-9][0-9]*)$"
+                    "pattern": "^(0|-?[1-9][0-9]*)(?![\\s\\S])"
                   }
                 }
               }
@@ -1038,7 +1038,7 @@
                 "properties": {
                   "value": {
                     "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$"
+                    "pattern": "^(0|[1-9][0-9]*)(?![\\s\\S])"
                   }
                 }
               }
@@ -1245,7 +1245,7 @@
                     "then": {
                       "properties": {
                         "value": {
-                          "pattern": "^(?:[0-9a-f]{2})*$"
+                          "pattern": "^(?:[0-9a-f]{2})*(?![\\s\\S])"
                         }
                       }
                     }
@@ -2744,7 +2744,7 @@
         },
         "weightDecimal": {
           "type": "string",
-          "pattern": "^(?:0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\\.[0-9]+)?)$",
+          "pattern": "^(?:0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\\.[0-9]+)?)(?![\\s\\S])",
           "description": "Positive finite exact decimal weight for an explicit normalized soft cost; never a weight for hard feasibility or a proxy for another stakeholder's authority."
         },
         "scoreRef": {
@@ -2943,7 +2943,7 @@
         "argumentBindings": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "oneOf": [
@@ -2960,7 +2960,7 @@
         "contextBindings": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/BusinessRoleActual"
@@ -3324,7 +3324,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3400,7 +3400,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3469,7 +3469,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3533,7 +3533,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3594,7 +3594,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3692,7 +3692,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3756,7 +3756,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3847,7 +3847,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -3908,7 +3908,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -4055,7 +4055,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -4110,7 +4110,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -4323,7 +4323,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -4473,7 +4473,7 @@
                 "contextRoles": {
                   "type": "object",
                   "propertyNames": {
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                   },
                   "additionalProperties": {
                     "$ref": "#/$defs/ContextRole"
@@ -4784,7 +4784,7 @@
       "properties": {
         "magnitude": {
           "type": "string",
-          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?(?![\\s\\S])"
         },
         "unitRef": {
           "type": "string",
@@ -4803,7 +4803,7 @@
       "properties": {
         "magnitude": {
           "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?(?![\\s\\S])"
         },
         "unitRef": {
           "type": "string",
@@ -4983,7 +4983,7 @@
         "bindings": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/BusinessRoleActual"
@@ -5267,7 +5267,7 @@
         "bindings": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
           },
           "additionalProperties": {
             "$ref": "#/$defs/BusinessRoleActual"
@@ -5676,7 +5676,7 @@
             },
             "path": {
               "type": "string",
-              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*(?![\\s\\S])",
               "description": "JSON Pointer within the declared, typed payload; not a string-evaluation expression."
             }
           },
@@ -5698,7 +5698,7 @@
             },
             "path": {
               "type": "string",
-              "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*(?![\\s\\S])"
             }
           },
           "description": "Context role resolved for this selected root and component occurrence."
@@ -5720,7 +5720,7 @@
             },
             "path": {
               "type": "string",
-              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*(?![\\s\\S])",
               "description": "JSON Pointer within the declared, typed payload; not a string-evaluation expression."
             },
             "readPolicyRef": {
@@ -5746,7 +5746,7 @@
             },
             "path": {
               "type": "string",
-              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*(?![\\s\\S])",
               "description": "JSON Pointer within the declared, typed payload; not a string-evaluation expression."
             }
           },
@@ -5769,7 +5769,7 @@
             },
             "path": {
               "type": "string",
-              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*(?![\\s\\S])",
               "description": "JSON Pointer in the original typed completion frame, such as /value or /error; never executable code or a projection-result self-reference."
             }
           },
@@ -5813,7 +5813,7 @@
             },
             "path": {
               "type": "string",
-              "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*(?![\\s\\S])"
             }
           },
           "description": "Pending value of a concrete input/editor node in the same qualified UI occurrence. Allowed at UI action payload/activation binding; not a globally readable value or secret bypass."
@@ -6422,7 +6422,7 @@
       "properties": {
         "coefficient": {
           "type": "string",
-          "pattern": "^(0|-?[1-9][0-9]*)$",
+          "pattern": "^(0|-?[1-9][0-9]*)(?![\\s\\S])",
           "description": "Canonical exact integral coefficient, not a host floating JSON number. Zero has coefficient '0', preserving chosen scale separately."
         },
         "scale": {

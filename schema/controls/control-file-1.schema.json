@@ -18,12 +18,12 @@
     "projectId": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "fileId": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
     },
     "records": {
       "type": "array",
@@ -71,7 +71,7 @@
                     "properties": {
                       "rootId": {
                         "type": "string",
-                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])",
                         "minLength": 1,
                         "maxLength": 128
                       }
@@ -94,7 +94,7 @@
                   "moduleId": {
                     "type": "string",
                     "minLength": 1,
-                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
                   }
                 }
               },
@@ -113,7 +113,7 @@
                   "moduleId": {
                     "type": "string",
                     "minLength": 1,
-                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
                   },
                   "definitionId": {
                     "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"
@@ -136,7 +136,7 @@
                   "moduleId": {
                     "type": "string",
                     "minLength": 1,
-                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
                   },
                   "definitionId": {
                     "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"
@@ -144,7 +144,7 @@
                   "occurrenceId": {
                     "type": "string",
                     "minLength": 1,
-                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
                   }
                 }
               }
@@ -153,12 +153,12 @@
           "target": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           },
           "controlRef": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
           },
           "mode": {
             "enum": [
