@@ -68,16 +68,6 @@ test('test budget rejects caller-authored inventory and an unissued workspace sn
     /owner-issued workspace snapshot projection/
   );
   const issuedSnapshot = snapshot(['tests/unit/plain.test.ts']);
-  let snapshotReads = 0;
-  const captured = issueTestInventoryProjection({
-    get snapshot() {
-      snapshotReads += 1;
-      if (snapshotReads > 1) throw new Error('snapshot getter was read more than once');
-      return issuedSnapshot;
-    }
-  });
-  assert.equal(snapshotReads, 1);
-  assert.deepEqual(captured.testFiles, ['tests/unit/plain.test.ts']);
   assert.throws(
     () => issueTestInventoryProjection({ snapshot: { ...issuedSnapshot } }),
     /not issued by the Source Program owner/

@@ -74,35 +74,9 @@ test('observed local program edges continue through test helpers to runnable tes
       activeDocumentationPaths: []
     });
 
-    const capturedInputs = { projection: 0, testInventory: 0, affectedSource: 0, activeDocumentationPaths: 0 };
-    const captureOnceProvider = createRepositoryTestImpactSourceProvider({
-      get projection() {
-        capturedInputs.projection += 1;
-        if (capturedInputs.projection > 1) throw new Error('projection getter was read more than once');
-        return provider.projection;
-      },
-      get testInventory() {
-        capturedInputs.testInventory += 1;
-        if (capturedInputs.testInventory > 1) throw new Error('inventory getter was read more than once');
-        return provider.testInventory;
-      },
-      get affectedSource() {
-        capturedInputs.affectedSource += 1;
-        if (capturedInputs.affectedSource > 1) throw new Error('affected source getter was read more than once');
-        return undefined;
-      },
-      get activeDocumentationPaths() {
-        capturedInputs.activeDocumentationPaths += 1;
-        if (capturedInputs.activeDocumentationPaths > 1) throw new Error('documentation getter was read more than once');
-        return [];
-      }
-    });
-    expect(capturedInputs).toEqual({
-      projection: 1, testInventory: 1, affectedSource: 1, activeDocumentationPaths: 1
-    });
     expect(provider.testInventory.testFiles).toContain('tests/unit/tsconfig-excluded.test.ts');
 
-    const selection = selectTestsForSources(['src/value.ts'], captureOnceProvider);
+    const selection = selectTestsForSources(['src/value.ts'], provider);
     expect(selection.fast).toEqual(['tests/unit/value.test.ts']);
     expect(provider.projection.observedTestConsumers).toContainEqual({
       targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts'

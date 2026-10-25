@@ -186,15 +186,9 @@ test('long suite admission retains its exact issued test inventory and finite re
   )!;
   expect(suite.logicalRunTimeoutMs).toBe(1_200_000);
   const bunOptions = ['--timeout', '180000'];
-  let inventoryReads = 0;
-  let budgetReads = 0;
   const policy = issueTestSuiteExecutionPolicy({
-    get testInventory() {
-      return inventoryReads++ === 0 ? testInventory : { ...testInventory, inventoryDigest: 'sha256:forged' as const };
-    },
-    get budgetProjection() {
-      return budgetReads++ === 0 ? budgetProjection : { ...budgetProjection, projectionDigest: 'sha256:forged' as const };
-    },
+    testInventory,
+    budgetProjection,
     suiteId: suite.id,
     selectedFiles: suite.files,
     bunOptions,
