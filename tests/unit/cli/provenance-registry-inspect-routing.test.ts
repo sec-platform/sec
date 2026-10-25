@@ -5,7 +5,7 @@ import path from 'node:path';
 import { resolveWorkspaceProvenancePath } from '../../../src/adapters/workspace-context.ts';
 import { projectProvenanceRegistryInspect } from '../../../src/application/provenance-registry-inspect.ts';
 import { formatProvenanceRegistry } from '../../../src/entry/cli/provenance-registry-inspect.ts';
-import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliSuccess, runCliInProcess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 test('provenance inspection routes text through application and entry while preserving raw JSON', async () => {
@@ -145,6 +145,11 @@ test('provenance inspection routes text through application and entry while pres
     expect(text).not.toContain('later');
   }
   await withTempWorkspace(async (workspaceRoot) => {
+    const missing = await runCliInProcess(workspaceRoot, ['provenance']);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain('not found');
+    expect(missing.stderr).not.toContain('commander.');
+
     const provenance = {
       formatVersion: '1',
       artifacts: [
@@ -182,7 +187,7 @@ test('provenance inspection routes text through application and entry while pres
     expect(generated).toMatch(/origin=generated:generated:a(?=$|[\s;,()])/u);
     expect(generated).toMatch(/verifiedBy=none(?=$|[\s;,()])/u);
 
-    const rawJson = await expectCliJson<typeof provenance>(workspaceRoot, ['provenance', '--json']);
+    const rawJson = await expectCliJson<typeof provenance>(workspaceRoot, ['provenance', 'registry', '--json']);
     expect(rawJson).toEqual(provenance);
   });
 });

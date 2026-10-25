@@ -88,7 +88,7 @@ test('runtime inspection routes text through application and entry while preserv
 
     const text = await expectCliSuccess(workspaceRoot, ['runtime']);
     expectLine(text.stdout, 'Runtime report failed', []);
-    const rawJson = await expectCliJson<typeof report>(workspaceRoot, ['runtime', '--json']);
+    const rawJson = await expectCliJson<typeof report>(workspaceRoot, ['runtime', 'report', '--json']);
     expect(rawJson).toEqual(report);
 
     const stepsText = await expectCliSuccess(workspaceRoot, ['runtime', 'steps']);

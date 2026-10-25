@@ -27,7 +27,9 @@ test('demo CLI preserves missing and present checklists in text, JSON and compac
     expect(present.missingCount).toBe(0);
     expect(present.items.every(item => item.status === 'passed')).toBe(true);
     expect(present.nextCommand).toBe('bun run demo:closed-loop');
-    const { stdout } = await expectCliSuccess(root, ['demo', 'checklist']);
+    // The implicit text route and explicit JSON route share this independent
+    // present-checklist oracle, including the public default alias.
+    const { stdout } = await expectCliSuccess(root, ['demo']);
     const lines = stdout.split(/\r?\n/u);
     const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     const field = (value: string) => new RegExp(`(?:^|[\\s;,])${escape(value)}\\s*(?=$|[;,])`, 'u');

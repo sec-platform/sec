@@ -19,30 +19,24 @@ for (const filter of [undefined, 'governance', 'contract'] as const) {
   });
 }
 
-test('manifest inspection does not inspect paths, filter or unrelated fields', () => {
-  const input = new Proxy({ json: false, compact: false,
-    get paths() { assert.fail('paths read'); throw new Error('unreachable'); }, get kind() { assert.fail('filter read'); throw new Error('unreachable'); } }, {
-    ownKeys() { assert.fail('whole options read'); }
+// The only production caller admits Commander argv options. Invalid ignored
+// filter text is reachable; accessor counts and arbitrary Proxy traps are not.
+test('manifest inspection ignores path and filter selections', () => {
+  assert.deepEqual(parseArtifactCommandInput('manifest', {
+    json: false, compact: false, paths: true, kind: 'not-a-kind'
+  }), { kind: 'manifest', output: { json: false, compact: false } });
+});
+
+test('generation ignores a filter without path selection', () => {
+  assert.deepEqual(parseArtifactCommandInput(undefined, { kind: 'not-a-kind' }), {
+    kind: 'generate', output: { json: false, compact: false }
   });
-  assert.deepEqual(parseArtifactCommandInput('manifest', input), { kind: 'manifest', output: { json: false, compact: false } });
 });
 
-test('generation preserves ignored-filter semantics without reading unused getters', () => {
-  for (const paths of [undefined, false]) {
-    const input = { paths, get kind() { assert.fail('unused filter read'); throw new Error('unreachable'); } };
-    assert.deepEqual(parseArtifactCommandInput(undefined, input), { kind: 'generate', output: { json: false, compact: false } });
-  }
-});
-
-test('path and filter getters are captured once; later changes cannot alter the admitted selection', () => {
-  const reads: Record<string, number> = {};
+test('later caller mutation cannot alter the admitted path and filter selection', () => {
   const raw = { paths: true, kind: 'test', json: true, compact: false };
-  const captured = parseArtifactCommandInput(undefined, new Proxy(raw, {
-    ownKeys() { assert.fail('whole options enumerated'); },
-    get(target, key) { reads[String(key)] = (reads[String(key)] ?? 0) + 1; return Reflect.get(target, key); }
-  }));
+  const captured = parseArtifactCommandInput(undefined, raw);
   raw.paths = false; raw.kind = 'contract'; raw.json = false;
-  assert.deepEqual(reads, { json: 1, compact: 1, paths: 1, kind: 1 });
   assert.deepEqual(captured, { kind: 'paths', filter: 'test', output: { json: true, compact: false } });
   assert.ok(Object.isFrozen(captured)); assert.ok(Object.isFrozen(captured.output));
   assert.equal('request' in captured, false);

@@ -7,7 +7,7 @@ import { projectPolicyReportInspect, projectPolicyReportInspection } from '../..
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { formatPolicyReport } from '../../../src/entry/cli/policy-report-inspection.ts';
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
-import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliSuccess, runCliInProcess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 // Compare complete semantic fields and list members, not prose spacing or
@@ -80,6 +80,11 @@ test('policy inspection routes retained report through application summary proje
     }
   }
   await withTempWorkspace(async (workspaceRoot) => {
+    const missing = await runCliInProcess(workspaceRoot, ['policy']);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain('not found');
+    expect(missing.stderr).not.toContain('commander.');
+
     const report: PolicyReport = {
       status: 'skipped',
       official: { policies: [], sources: [], violations: [] },
@@ -108,7 +113,7 @@ test('policy inspection routes retained report through application summary proje
     expectRecord(lines.find(line => line.startsWith('Sources:')), ['Sources: 0']);
     expectRecord(lines.find(line => line.startsWith('Severity:')), ['Severity: none']);
 
-    const json = await expectCliJson(workspaceRoot, ['policy', '--json']);
+    const json = await expectCliJson(workspaceRoot, ['policy', 'report', '--json']);
     expect(json).toEqual(report);
   });
 });

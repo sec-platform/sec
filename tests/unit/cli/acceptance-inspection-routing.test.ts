@@ -136,7 +136,7 @@ test('acceptance inspection routes retained coverage through application and ent
     expectFields(targetsText.stdout, ['Target alpha', 'declared=1', 'coveredBy=acceptance:a', 'uncovered=false']);
     expectFields(targetsText.stdout, ['Target beta', 'declared=2', 'coveredBy=none', 'uncovered=true']);
 
-    const json = await expectCliJson(workspaceRoot, ['acceptance', '--json']);
+    const json = await expectCliJson(workspaceRoot, ['acceptance', 'coverage', '--json']);
     expect(json).toEqual(report);
   });
 });

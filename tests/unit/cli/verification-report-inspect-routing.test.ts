@@ -92,7 +92,7 @@ test('verification inspection renders report text while preserving raw JSON', as
     const { stdout } = await expectCliSuccess(workspaceRoot, ['verification']);
     expectFailureSummary(stdout);
 
-    const rawJson = await expectCliJson<typeof report>(workspaceRoot, ['verification', '--json']);
+    const rawJson = await expectCliJson<typeof report>(workspaceRoot, ['verification', 'report', '--json']);
     expect(rawJson).toEqual(report);
   });
 });
