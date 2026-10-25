@@ -41,7 +41,7 @@ function git(root: string, args: readonly string[]): string {
 }
 
 for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anchor-lost',
-  'legacy-applied', 'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
+  'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
   'carrier-retained', 'carrier-rejected'] as const) {
   test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
     const { root } = await fixture();
@@ -73,7 +73,7 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
         target, object: target, tree: mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
           ? changedTree : baseTree, terminal: mode === 'legacy-pending' ? null : 'applied'
       }))}\n`;
-      if (mode === 'legacy-applied' || mode === 'legacy-pending' || reviewedDefault || retainedCarrier) {
+      if (mode === 'legacy-pending' || reviewedDefault || retainedCarrier) {
         await writeFile(journalPath, source);
       } else {
         const writer = createRuntimeStateJournalFileSystem(

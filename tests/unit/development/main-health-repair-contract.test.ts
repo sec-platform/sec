@@ -105,8 +105,6 @@ test('exact-main repair routing binds valid and refreshed identity while rejecti
     .toMatchObject({ status: 'blocked', reasonCode: 'repair-ledger-identity-drift' });
   expect(decide({ malformed: true }))
     .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-invalid' });
-  expect(() => ledger({ repairWorkPackage: 'not/a/manifest' }))
-    .toThrow('repair Work Package identity is not canonical');
 });
 
 test('hosted provider absence, transport failure, and invalidity remain distinct locked states', () => {

@@ -262,12 +262,14 @@ test('MainHealth rejects invalid producer provenance and status invariants', () 
     ['degraded missing owner', { ...degradedInput(), owner: null }],
     ['degraded ordinary lane', degradedInput({ allowedLanes: ['ordinary'] })],
     ['degraded missing repair', degradedInput({ repairWorkPackage: null })],
-    ['degraded noncanonical repair', degradedInput({ repairWorkPackage: 'config/repository/work-packages/repair-v1.md' })],
     ['locked lane', lockedInput({ allowedLanes: ['repair'] })]
   ];
   for (const [label, candidate] of invalid) {
     expect(() => createMainHealthLedger(candidate), label).toThrow();
   }
+  expect(() => createMainHealthLedger(degradedInput({
+    repairWorkPackage: 'config/repository/work-packages/repair-v1.md'
+  }))).toThrow('repair Work Package identity is not canonical');
   expect(() => createMainHealthLedger(healthyInput({
     expiresAt: '2026-08-09T00:00:00.000Z'
   }))).toThrow('after observedAt');
