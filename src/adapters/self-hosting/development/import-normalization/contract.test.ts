@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { rawSha256 } from '../../../../contracts/canonical.ts';
 import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../providers/git-read/runtime/session.ts';
@@ -50,7 +51,7 @@ async function commitFixture(
   projectConfig = '{"compilerOptions":{"noEmit":true}}\n'
 ): Promise<string> {
   await mkdir(path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization'), { recursive: true });
-  await Promise.all([
+  const writes = await Promise.allSettled([
     writeFile(path.join(root, 'tsconfig.json'), projectConfig),
     writeFile(path.join(root, 'note.txt'), `${note}\n`),
     writeFile(path.join(root, 'src', 'subject.ts'), 'export const subject = true;\n'),
@@ -71,6 +72,11 @@ async function commitFixture(
       })}\n`
     )
   ]);
+  const failures = writes.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Import normalization fixture writes failed', { cause: failures[0] });
+  }
   git(root, ['add', '--all']);
   git(root, ['commit', '--quiet', '-m', note]);
   return git(root, ['rev-parse', 'HEAD']);
@@ -102,7 +108,7 @@ async function subject(root: string, commitSha: string) {
 
 test('subject compiler owns producer, exact-tree, config and toolchain identity', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-subject-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -161,9 +167,7 @@ test('subject compiler owns producer, exact-tree, config and toolchain identity'
     expect(producerChanged.producerClosureDigest).not.toBe(first.producerClosureDigest);
     expect(compileCandidateNormalizationActionKey(producerChanged).actionKey)
       .not.toBe(firstAction.actionKey);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('empty owner selection settles before project parsing', () => {
@@ -183,7 +187,7 @@ test('empty owner selection settles before project parsing', () => {
 
 test('staged normalization shares the Source Program input boundary for template files', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-template-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -221,14 +225,12 @@ test('staged normalization shares the Source Program input boundary for template
     expect(await readFile(indexPath)).toEqual(indexBefore);
     expect(await readFile(path.join(root, sourcePath))).toEqual(sourceBefore);
     expect((await stat(path.join(root, sourcePath))).mtimeMs).toBe(sourceStatBefore.mtimeMs);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('canonical immutable candidate receives an owner terminal', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-terminal-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -249,14 +251,12 @@ test('canonical immutable candidate receives an owner terminal', async () => {
     });
     expect(['executed', 'reused']).toContain(terminal.disposition);
     expect(terminal.terminal?.status).toBe('passed');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('terminal observes candidate A instead of staged index B', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-exact-subject-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -292,14 +292,12 @@ test('terminal observes candidate A instead of staged index B', async () => {
     });
     expect(['executed', 'reused']).toContain(outcome.disposition);
     expect(outcome.terminal?.status).toBe('failed');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('candidate configuration is immutable when the working tree config drifts', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-config-drift-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -327,14 +325,12 @@ test('candidate configuration is immutable when the working tree config drifts',
       candidateCommit
     });
     expect(outcome.terminal?.status).toBe('failed');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('empty staged selection issues opaque not-applicable admission before reading unrelated source blobs', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-staged-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -372,7 +368,5 @@ test('empty staged selection issues opaque not-applicable admission before readi
       expect(await checkStagedCandidateImportNormalization({ session, candidateBase: baseCommit }))
         .toMatchObject({ status: 'canonical', files: [] });
     });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
