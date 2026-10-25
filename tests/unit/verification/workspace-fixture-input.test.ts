@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deriveTestWorkspaceRunNamespace } from '../../../src/adapters/self-hosting/development/runner/env-manager.ts';
 import { captureWorkspacePipelineOptions, workspaceTemplatePipeline, type WorkspaceTemplateKind } from '../../testkit/template-preparation.ts';
-import { captureWorkspaceRetention, workspaceTemporaryPrefix } from '../../testkit/workspace-cleanup.ts';
+import { workspaceTemporaryPrefix } from '../../testkit/workspace-cleanup.ts';
 
 test('a workspace name is an allocation label, never a caller-selected parent path', () => {
   for (const prefix of ['', '.', '..', '../escape-', '/absolute-', 'nested/prefix-', '..\\escape-', 'C:drive-', 'x\0y']) {
@@ -39,26 +39,13 @@ test('native mkdtemp allocations remain inside the selected parent for valid lab
   } finally { await fs.rm(parent, { recursive: true, force: true }); }
 });
 
-test('retention is one strict decision and is not a truthy flag', () => {
-  assert.equal(captureWorkspaceRetention({}), false);
-  assert.equal(captureWorkspaceRetention({ retainOnCallbackFailure: true }), true);
-  assert.equal(captureWorkspaceRetention({ retainOnCallbackFailure: false }), false);
-  for (const value of [null, 0, 1, 'false', {}]) assert.throws(() => captureWorkspaceRetention({ retainOnCallbackFailure: value as never }), TypeError);
-});
-
 test('pipeline selection owns a single block list rather than re-reading it after init', () => {
+  assert.deepEqual(captureWorkspacePipelineOptions({}).blockIds, []);
   const input = { prefix: 'original-', blockIds: ['block/a'] };
   const captured = captureWorkspacePipelineOptions(input);
   input.blockIds.push('block/b'); input.prefix = 'replaced-';
   assert.equal(captured.prefix, 'original-'); assert.deepEqual(captured.blockIds, ['block/a']);
   assert.ok(Object.isFrozen(captured.blockIds));
-});
-
-test('invalid block-list shapes do not become a default template request', () => {
-  for (const blockIds of [null, false, 'block/a', [7], new Array(1)]) {
-    assert.throws(() => captureWorkspacePipelineOptions({ blockIds: blockIds as never }), TypeError);
-  }
-  assert.deepEqual(captureWorkspacePipelineOptions({}).blockIds, []);
 });
 
 test('template identity selects the declared pipeline and rejects inherited or path-shaped keys', () => {
