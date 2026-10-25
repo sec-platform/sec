@@ -30,9 +30,13 @@ test('isolated runner bundle loader single-flights and returns defensive bytes',
 
   const first = load();
   const second = load();
-  await Promise.resolve();
-  expect(builds).toBe(1);
-  release.resolve();
+  try {
+    await Promise.resolve();
+    expect(builds).toBe(1);
+  } finally {
+    release.resolve();
+    await Promise.allSettled([first, second]);
+  }
 
   const [firstBytes, secondBytes] = await Promise.all([first, second]);
   expect(firstBytes).toEqual(new Uint8Array([1, 2, 3]));
