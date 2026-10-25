@@ -70,10 +70,11 @@ test('PR plan rejects provider-linked issues and malformed or duplicate control 
     body: body(), linkedClosingIssues: [] })).toThrow('requires one tracking Issue');
 });
 
-test('absence of an independently sourced completion assessment can only compile progress', () => {
-  const disposition = compileIssueDisposition({ plan: plan(), currentSpecRevision: DIGEST_B,
+test('completion absence, stale provider state, and progress-only plans cannot mint an effect', () => {
+  const input = { plan: plan(), currentSpecRevision: DIGEST_B,
     acceptanceIds: acceptanceIds(), newMainSha: SHA_A, newMainTreeSha: SHA_B,
-    evidenceRefs: [DIGEST_C], expectedProviderState: 'OPEN' });
+    evidenceRefs: [DIGEST_C], expectedProviderState: 'OPEN' as const };
+  const disposition = compileIssueDisposition(input);
   expect(disposition.kind).toBe('progressed');
   expect(disposition.issueNumber).toBe(352);
   expect(disposition.completionAssessment).toBe('unavailable');
@@ -83,19 +84,13 @@ test('absence of an independently sourced completion assessment can only compile
     'trusted-completion-assessment-unavailable'
   ]);
 
-  const staleState = compileIssueDisposition({ plan: plan(), currentSpecRevision: DIGEST_B,
-    acceptanceIds: acceptanceIds(), newMainSha: SHA_A, newMainTreeSha: SHA_B,
-    evidenceRefs: [DIGEST_C], expectedProviderState: 'CLOSED' });
+  const staleState = compileIssueDisposition({ ...input, expectedProviderState: 'CLOSED' });
   expect(staleState.kind).toBe('progressed');
   expect(staleState.blockers).toContain('expected-provider-state-not-open');
-});
 
-test('progress plan cannot mint an effect even when every fact is satisfied', () => {
-  const disposition = compileIssueDisposition({ plan: plan('progress-only'),
-    currentSpecRevision: DIGEST_B, acceptanceIds: acceptanceIds(), newMainSha: SHA_A,
-    newMainTreeSha: SHA_B, evidenceRefs: [DIGEST_C], expectedProviderState: 'OPEN' });
-  expect(disposition.kind).toBe('progressed');
-  expect(disposition.blockers).toContain('plan-progress-only');
+  const progressOnly = compileIssueDisposition({ ...input, plan: plan('progress-only') });
+  expect(progressOnly.kind).toBe('progressed');
+  expect(progressOnly.blockers).toContain('plan-progress-only');
 });
 
 test('unexpected reopen is authorized only by the exact PR merge closer', () => {

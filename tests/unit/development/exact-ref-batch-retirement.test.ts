@@ -52,14 +52,13 @@ test('fixed batch preparation rejects changed plans, duplicate refs and incomple
   expect(() => parsePlannedRefSupersessionReview({ ...review, issueNumber: 313 })).toThrow();
   expect(() => parseExactRefRetirement({ classification: 'reviewed-plan-superseded',
     branches: ['fix/other'], expectedHeadSha: HEAD, review })).toThrow('differs');
-  const changed = preparation();
-  changed.refs[0]!.expectedHeadSha = MAIN;
+  const changed = { ...prepared, refs: [{ ...prepared.refs[0]!, expectedHeadSha: MAIN }] };
   expect(() => parseExactRemoteRefBatchRecoveryPreparation(changed)).toThrow('differs');
-  const duplicated = preparation();
-  duplicated.retirements.push(duplicated.retirements[0]!);
-  duplicated.refs.push(duplicated.refs[0]!);
+  const duplicated = { ...prepared,
+    retirements: [prepared.retirements[0]!, prepared.retirements[0]!],
+    refs: [prepared.refs[0]!, prepared.refs[0]!] };
   expect(() => parseExactRemoteRefBatchRecoveryPreparation(duplicated)).toThrow('duplicate');
-  expect(() => parseExactRemoteRefBatchRecoveryPreparation({ ...preparation(), requestDigest: `sha256:${'3'.repeat(64)}` }))
+  expect(() => parseExactRemoteRefBatchRecoveryPreparation({ ...prepared, requestDigest: `sha256:${'3'.repeat(64)}` }))
     .toThrow('fixed dispatch');
 });
 

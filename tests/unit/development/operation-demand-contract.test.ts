@@ -59,7 +59,7 @@ test('dependency setup is the only operation that can demand managed Git hooks',
   expect(nestedHook.verificationObligations).not.toContain('git-hook-lifecycle');
 });
 
-test('demand identity is order-independent and forged ambient demand is rejected', () => {
+test('canonical demand rejects forged capabilities and cannot bootstrap an undemanded compiler', async () => {
   const graph = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: ['issue-271', 'issue-186']
@@ -81,11 +81,6 @@ test('demand identity is order-independent and forged ambient demand is rejected
     ...graph,
     capabilityDemands: ['compiler-dependency-tree']
   })).toThrow('differs from the canonical compiler output');
-});
-
-test('dependency bootstrap rejects a valid graph that does not demand compiler dependencies', async () => {
-  await expect(ensureOperationDependencies(compileOperationDemandGraph({
-    operation: 'work-selection-observe',
-    terminalWorkIds: []
-}))).rejects.toThrow('requires an operation demand for compiler-dependency-tree');
+  await expect(ensureOperationDependencies(graph))
+    .rejects.toThrow('requires an operation demand for compiler-dependency-tree');
 });
