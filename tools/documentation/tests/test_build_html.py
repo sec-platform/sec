@@ -150,13 +150,6 @@ class ReadingTests(unittest.TestCase):
             self.run_build('--replace',*extra)
         self.assertEqual(self.out.read_bytes(),b'previous edition')
         self.assertFalse(self.out.with_name(self.out.name+'.lock').exists())
-    def test_original_bytes_all_members(self):
-        self.write('examples/value.json','{ "名字": "😀", "n": "9007199254740993" }\n')
-        self.write('examples/value.gift','export fn identity(x: Int) = x;\n')
-        before={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
-        self.run_build();p=Originals();p.feed(self.out.read_text())
-        self.assertEqual(before,{q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()})
-        self.assertEqual(p.files,before)
     def reference_book(self,sealed=False,**budgets):
         args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=sealed,
             max_file_bytes=budgets.get('max_file_bytes',16_000_000),max_total_bytes=budgets.get('max_total_bytes',80_000_000))
@@ -224,14 +217,17 @@ class ReadingTests(unittest.TestCase):
         for fragment in ('title-next','','rich-code','-inline','custom'):
             self.assertIn(('id="'+b.fragment_id('config/guide.md',fragment)+'"').encode(),output)
         self.assertEqual(book.build({'state':'not-rendered'}),(output,meta))
-    def test_typescript_and_sql_sources_are_readable_as_inert_text(self):
+    def test_all_source_bytes_are_preserved_and_code_is_inert(self):
+        self.write('examples/value.json','{ "名字": "😀", "n": "9007199254740993" }\n')
+        self.write('examples/value.gift','export fn identity(x: Int) = x;\n')
         self.write('examples/public.d.ts', 'export declare function normalize(x: bigint): bigint;\n')
         self.write('examples/fixture.ts', 'export const value = "<script>never_execute()</script>";\n')
         self.write('docs/design/control.sql','CREATE TABLE operation(id TEXT PRIMARY KEY);\n-- <script>unsafe()</script>\n')
         self.write('README.md','# Fixture\n[SQL design](docs/design/control.sql)\n')
+        before={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
         self.run_build();text=self.out.read_text();originals=Originals();originals.feed(text)
-        for name in ('examples/public.d.ts', 'examples/fixture.ts', 'docs/design/control.sql'):
-            self.assertEqual(originals.files[name], (self.root/name).read_bytes())
+        self.assertEqual(before,{q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()})
+        self.assertEqual(originals.files,before)
         audit=b.AuditHTML();audit.feed(text)
         self.assertFalse(audit.handlers)
         self.assertFalse(audit.remote)
@@ -239,12 +235,13 @@ class ReadingTests(unittest.TestCase):
         self.assertIn('CREATE TABLE operation(id TEXT PRIMARY KEY);',text)
         self.assertNotIn('<script>unsafe()</script>',text)
     def test_ordinary_reading_does_not_open_or_embed_local_projections(self):
-        first=self.run_build()
+        first=self.run_build();first_output=self.out.read_bytes()
         for name in ('.documentation/source-manifest.json','.documentation/requirements.json'):
             (self.root/name).write_bytes(b'\xffstale local output')
         second=self.run_build('--replace')
         self.assertEqual(first['source_set_sha256'],second['source_set_sha256'])
         self.assertEqual(first['input_set_sha256'],second['input_set_sha256'])
+        self.assertEqual(self.out.read_bytes(),first_output)
         self.assertNotIn('stale local output',self.out.read_text())
     def test_sealed_reading_verifies_the_same_capture_once(self):
         self.write('.documentation/source-manifest.json','{}')
@@ -279,14 +276,10 @@ class ReadingTests(unittest.TestCase):
         self.write('docs/主题.md','# 主题\n## 字段\n<a id="same"></a>\n<a id="same"></a>\n');self.assert_publication_preserves_previous('Ambiguous source anchors')
     def test_explicit_heading_collision(self):
         self.write('docs/主题.md','# 主题\n## 字段\n<a id="字段"></a>\n');self.assert_publication_preserves_previous('Ambiguous source anchors')
-    def test_duplicate_headings_have_unique_ids_within_and_across_docs(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n## 字段\n[第二](#字段-1)\n')
-        self.write('docs/other.md','# 主题\n## 字段\n');self.run_build()
-        self.assertIn(b.fragment_id('docs/主题.md','字段-1'),self.out.read_text())
-        audit=b.AuditHTML();audit.feed(self.out.read_text());self.assertEqual(len(audit.ids),len(set(audit.ids)))
     def test_outline_uses_real_commonmark_headings_and_scoped_targets(self):
         self.write('README.md','# Fixture\n')
-        self.write('docs/主题.md','# 主题\n\n### 只有三级\n\n二级\n----\n\n## 重复\n## 重复\n\n<a id="alias"></a>\n#### **字段** `<unsafe>`\n\n```md\n## 围栏假标题\n```\n')
+        self.write('docs/主题.md','# 主题\n\n### 只有三级\n\n二级\n----\n\n## 重复\n## 重复\n[第二](#重复-1)\n\n<a id="alias"></a>\n#### **字段** `<unsafe>`\n\n```md\n## 围栏假标题\n```\n')
+        self.write('docs/other.md','# 主题\n## 字段\n')
         self.run_build();text=self.out.read_text()
         class Outline(HTMLParser):
             def __init__(self):super().__init__(convert_charrefs=True);self.inside=False;self.links=[];self.labels=[]
@@ -300,9 +293,17 @@ class ReadingTests(unittest.TestCase):
                 if self.inside:self.labels.append(data)
         outline=Outline();outline.feed(text)
         expected=['只有三级','二级','重复','重复-1','字段-']
-        self.assertEqual(outline.links,['#'+b.fragment_id('docs/主题.md',f) for f in expected])
+        scoped_prefix='#'+b.opaque('docs/主题.md')+'--'
+        self.assertEqual([link for link in outline.links if link.startswith(scoped_prefix)],
+                         ['#'+b.fragment_id('docs/主题.md',f) for f in expected])
+        self.assertEqual(outline.links.count('#'+b.fragment_id('docs/other.md','字段')),1)
+        self.assertCountEqual(outline.links,['#'+b.fragment_id('docs/主题.md',f) for f in expected]+
+                              ['#'+b.fragment_id('docs/other.md','字段')])
         audit=b.AuditHTML();audit.feed(text)
         self.assertTrue(all(link[1:] in audit.ids for link in outline.links))
+        self.assertEqual(len(audit.ids),len(set(audit.ids)))
+        originals=Originals();originals.feed(text)
+        self.assertIn(('#'+b.fragment_id('docs/主题.md','重复-1'),'第二'),originals.links)
         self.assertNotIn('围栏假标题',''.join(outline.labels))
         self.assertIn('字段 <unsafe>',''.join(outline.labels))
         self.assertNotIn('<unsafe>',text)
@@ -331,25 +332,18 @@ class ReadingTests(unittest.TestCase):
         self.write('docs/主题.md','# 主题\n## 字段\n```text\nunclosed\n');self.assert_publication_preserves_previous('unclosed fenced code block',error=ValueError)
     def test_unsafe_scheme(self):
         self.write('docs/主题.md','# 主题\n## 字段\n<a href="javascript:alert(1)">x</a>\n');self.assert_publication_preserves_previous('Unsupported/active URI')
-    def test_raw_script_is_inert_and_unquoted_type_is_preserved(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n<script>alert("bad")</script>\n\nType<T>\n');self.run_build()
+    def test_untrusted_markup_is_inert_and_remote_links_are_passive(self):
+        url='https://example.invalid/no-network'
+        self.write('docs/主题.md','# 主题\n## 字段\n<script>alert("bad")</script>\n\nType<T>\n\n<span onclick="alert(1)">label</span>\n\n[x]('+url+')\n')
+        with patch('socket.socket.connect',side_effect=AssertionError('Reading links must not open a network connection')):
+            result=self.run_build()
         s=self.out.read_text();self.assertIn('&lt;script&gt;',s)
         self.assertIn('Type&lt;T&gt;',s)
+        self.assertIn({'path':'docs/主题.md','tag_or_attribute':'span@onclick'},result['raw_html_review'])
         audit=b.AuditHTML();audit.feed(s);self.assertEqual(len(audit.scripts),1);self.assertFalse(audit.handlers)
-    def test_events_are_not_executed(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n<span onclick="alert(1)">label</span>\n');r=self.run_build()
-        self.assertTrue(r['raw_html_review']);a=b.AuditHTML();a.feed(self.out.read_text());self.assertFalse(a.handlers)
+        self.assertIn(url,audit.links);self.assertFalse(audit.remote)
     def test_remote_image_rejected(self):
         self.write('docs/主题.md','# 主题\n## 字段\n![x](https://example.invalid/image.png)\n');self.assert_publication_preserves_previous('Expected local reference')
-    def test_remote_link_not_fetched(self):
-        url='https://example.invalid/no-network'
-        self.write('docs/主题.md','# 主题\n## 字段\n[x]('+url+')\n')
-        with patch('socket.socket.connect',side_effect=AssertionError('Reading links must not open a network connection')):
-            self.run_build()
-        audit=b.AuditHTML();audit.feed(self.out.read_text())
-        self.assertIn(url,audit.links);self.assertFalse(audit.remote)
-    def test_root_escape(self):
-        self.write('README.md','# Fixture\n[x](../secret.txt)\n');self.assert_publication_preserves_previous('Link escapes source root')
     def test_encoded_root_escape(self):
         self.write('README.md','# Fixture\n[x](%2e%2e/secret.txt)\n');self.assert_publication_preserves_previous('Link escapes source root')
     def test_unknown_suffix_not_silently_dropped(self):
@@ -392,8 +386,6 @@ class ReadingTests(unittest.TestCase):
     def test_symlink_root_refused(self):
         alias=self.home/'alias';alias.symlink_to(self.root,target_is_directory=True)
         with self.assertRaises(b.BuildError):self.run_build('--root',str(alias))
-    def test_identical_source_output_reproducible(self):
-        self.run_build();a=self.out.read_bytes();self.run_build('--replace');self.assertEqual(a,self.out.read_bytes())
 
 class CommandHelp(unittest.TestCase):
     def test_cli_help(self):

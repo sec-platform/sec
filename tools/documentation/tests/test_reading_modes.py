@@ -37,7 +37,10 @@ class Modes(unittest.TestCase):
   for encoding in ('zlib+base64','base64'):
    with self.subTest(encoding=encoding):
     self.cache(encoding=encoding)
-    with patch.object(b,'IsolatedRenderer',side_effect=AssertionError('No headless renderer on default path')):r=self.run_('--replace')
+    with patch.object(b,'IsolatedRenderer',side_effect=AssertionError('No headless renderer on default path')):
+     r=self.run_('--replace')
+     if encoding=='zlib+base64':
+      first_output=self.out.read_bytes();self.run_('--replace');self.assertEqual(self.out.read_bytes(),first_output)
     self.assertEqual((r['rendered'],r['pending']),(1,0))
     self.assertIn('data:image/svg+xml;base64,'+base64.b64encode(self.svg).decode(),self.out.read_text())
  def test_missing_cache_rejects(self):self.bad('Current diagram cache incomplete')
@@ -129,7 +132,6 @@ class Modes(unittest.TestCase):
    self.assertNotIn('implementation_sha256',first)
    second=b.renderer_environment(args)
   self.assertNotEqual(first['core_sha256'],second['core_sha256'])
- def test_cache_mode_reproducible(self):self.cache();self.run_();x=self.out.read_bytes();self.run_('--replace');self.assertEqual(x,self.out.read_bytes())
  def test_diagram_callback_rejected_before_cache(self):
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n click A callback\n```\n');self.bad('Diagram-local configuration/callback','--diagrams','browser')
  def test_required_failure_preserves_successful_cache_and_resumes_only_missing_sources(self):
