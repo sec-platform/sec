@@ -143,7 +143,7 @@ function state(overrides: Partial<VerificationActionProviderStateInput> = {}): V
     actionKey: ACTION,
     candidateSha: HEAD,
     executionEnvironmentRevision: ENVIRONMENT,
-    statusReadback: readback([]),
+    statusReadback: overrides.statusReadback ?? readback([]),
     startObservations: [],
     terminalObservations: [],
     terminalAnchorObservations: [],

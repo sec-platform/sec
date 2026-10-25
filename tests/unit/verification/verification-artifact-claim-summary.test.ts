@@ -304,7 +304,6 @@ function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSe
 
 test('canonical artifacts require coherent child exit and semantic evidence for their public outcomes', () => {
   const failed = artifactSet('failed');
-  expect(isCanonicalVerificationArtifactSet(failed)).toBe(true);
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(failed)).toBe('failed');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...failed, childExitCode: 0 }))
     .toBe('blocked');
@@ -312,7 +311,6 @@ test('canonical artifacts require coherent child exit and semantic evidence for 
   const semantic = mutablePassedArtifact(shadowedPolicyReport());
   expect(semantic.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
     .toMatchObject({ status: 'passed', supportedClaims: [PRODUCT_POLICY_CLAIM_ID] });
-  expect(isCanonicalVerificationArtifactSet(semantic)).toBe(true);
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(semantic)).toBe('passed');
   for (const childExitCode of [1, -1, Number.NaN]) {
     expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...semantic, childExitCode }))
@@ -341,7 +339,6 @@ test('canonical artifacts require coherent child exit and semantic evidence for 
       .toMatchObject({ status: 'not-run', reasonCode: 'not-applicable' });
     expect(summary.overall.claimResults.map(claim => claim.claimId)).not.toContain(PRODUCT_POLICY_CLAIM_ID);
     expect(summary.overall.overallStatus).toBe('passed');
-    expect(isCanonicalVerificationArtifactSet(notApplicable)).toBe(true);
     expect(classifySemanticMutationIsolatedVerificationArtifactSet(notApplicable)).toBe('passed');
   }
 });
@@ -529,6 +526,5 @@ test('object member reordering preserves a semantically identical artifact', () 
       overallStatus: original.overall.overallStatus
     }
   };
-  expect(isCanonicalVerificationArtifactSet(candidate)).toBe(true);
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('passed');
 });

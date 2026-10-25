@@ -303,11 +303,9 @@ test('full plan binds every expensive gate to the complete cheap-preflight closu
 });
 
 test('dev-runner target projection accepts a producer-owned member and rejects a valid foreign plan', () => {
-  const closure = buildCiVerificationActionPlanClosure({
-    candidate,
-    gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false })
-      .map(ciVerificationGateStep)
-  });
+  const gates = buildCiQuickGatePlan({ includeImports: true, includeDocs: false })
+    .map(ciVerificationGateStep);
+  const closure = buildCiVerificationActionPlanClosure({ candidate, gates });
   const typecheck = closure.actions.find((plan) => plan.action.operation.identity === 'typecheck')!;
   expect(resolveCiVerificationDevRunnerTarget({
     plan: typecheck,
@@ -318,8 +316,7 @@ test('dev-runner target projection accepts a producer-owned member and rejects a
   });
   const foreignClosure = buildCiVerificationActionPlanClosure({
     candidate: { ...candidate, headTreeSha: '5'.repeat(40) },
-    gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false })
-      .map(ciVerificationGateStep)
+    gates
   });
   const foreign = foreignClosure.actions.find((plan) => plan.action.operation.identity === 'typecheck')!;
   expect(() => resolveCiVerificationDevRunnerTarget({
@@ -452,12 +449,10 @@ test('source analysis action identity excludes later author input but preserves 
     approvalObservationDigest: digest('2'), approvalDigest: digest('3') };
   const laterAuthor = { ...source, payloadDigest: digest('4'),
     approvalObservationDigest: digest('5'), approvalDigest: digest('6') };
+  const quickGates = buildCiQuickGatePlan({ includeImports: false, includeDocs: false }).map(ciVerificationGateStep);
   const compile = (binding: typeof source | typeof firstAuthor, subject = candidate) =>
     buildCiVerificationActionPlanClosure({ candidate: subject,
-      gates: [
-        ...buildCiQuickGatePlan({ includeImports: false, includeDocs: false }).map(ciVerificationGateStep),
-        ciVerificationGateStep(sourceProgramTransitionGate(binding))
-      ] });
+      gates: [...quickGates, ciVerificationGateStep(sourceProgramTransitionGate(binding))] });
   const initial = compile(source);
   for (const binding of [firstAuthor, laterAuthor]) {
     const gate = sourceProgramTransitionGate(binding);
