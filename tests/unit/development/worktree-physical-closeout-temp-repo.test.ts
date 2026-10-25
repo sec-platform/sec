@@ -197,22 +197,23 @@ async function persistRetiredPhaseForCrash(authorization: Awaited<ReturnType<typ
     tombstoneName: authorization.tombstoneName
   });
   const lease = await acquireWorkspaceWriteLease(tombstone);
-  const proofParent = inspectNoFollowDirectoryChain(authorization.proofRoot.path, 'crash phase proof parent').target;
-  let retirementReceipt;
-  try {
-    retirementReceipt = await lease.retireOwnedNamespace(detailDigest({
+  let retired = false;
+  const retirementReceipt = await settleWorkspaceCallback(async () => {
+    const proofParent = inspectNoFollowDirectoryChain(authorization.proofRoot.path, 'crash phase proof parent').target;
+    const receipt = await lease.retireOwnedNamespace(detailDigest({
       authorizationDigest: authorization.authorizationDigest,
       tombstoneName: authorization.tombstoneName,
       phase: 'fixture-retirement'
     }), proofParent);
+    // Successful namespace retirement has already closed this lease handle.
+    retired = true;
     recoverWorkspaceWriteLeaseRetirement({
       workspaceRoot: tombstone,
-      intentDigest: retirementReceipt.intentDigest,
+      intentDigest: receipt.intentDigest,
       proofParent
     });
-  } finally {
-    await lease.release().catch(() => undefined);
-  }
+    return receipt;
+  }, async () => { if (!retired) await lease.release(); });
   const material = {
     schema: 'sec-worktree-closeout-retired-phase-v1' as const,
     authorizationDigest: authorization.authorizationDigest,
