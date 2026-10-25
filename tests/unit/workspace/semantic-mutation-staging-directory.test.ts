@@ -1,5 +1,4 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -16,17 +15,19 @@ import { semanticMutationTransactionRoot } from '../../../src/adapters/mutation/
 import { sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
 
 const fence = async (): Promise<void> => {};
-function fixture() {
+type StagingDirectoryFixture = { workspace: string; transactionRoot: string; stage: string };
+
+async function fixture(run: (f: StagingDirectoryFixture) => Promise<void>) {
   const workspace = mkdtempSync(path.join(os.tmpdir(), 'sec-staging-directory-'));
-  const transactionRoot = semanticMutationTransactionRoot(workspace, sha256('staging-directory-fixture'));
-  return { workspace, transactionRoot, stage: path.join(transactionRoot, 'workspace') };
+  await settleWorkspaceCallback(async () => {
+    const transactionRoot = semanticMutationTransactionRoot(workspace, sha256('staging-directory-fixture'));
+    await run({ workspace, transactionRoot, stage: path.join(transactionRoot, 'workspace') });
+  }, async () => { rmSync(workspace, { recursive: true, force: true }); });
 }
-const create = (f: ReturnType<typeof fixture>) => createSemanticMutationTransactionDirectory(f.workspace, f.transactionRoot, fence);
-const cleanup = (f: ReturnType<typeof fixture>) => rmSync(f.workspace, { recursive: true, force: true });
+const create = (f: StagingDirectoryFixture) => createSemanticMutationTransactionDirectory(f.workspace, f.transactionRoot, fence);
 
 test('mutation directory allocation is no-follow, reusable and keeps a distinct path-proof child', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const transaction = await create(f);
     const proof = await createSemanticMutationPathProofDirectory(transaction, fence);
     expect(transaction.path).toBe(f.transactionRoot);
@@ -35,14 +36,13 @@ test('mutation directory allocation is no-follow, reusable and keeps a distinct 
     expect((await createSemanticMutationPathProofDirectory(transaction, fence)).objectId).toBe(proof.objectId);
     await retireSemanticMutationStagingWorkspace(transaction, fence);
     expect(readdirSync(f.transactionRoot)).toEqual(['path-proof']);
-  } finally { cleanup(f); }
+  });
 });
 
 
 test('journal directory allocation uses the retained no-follow owner and is reusable', async () => {
-  const f = fixture();
-  const requestIdentityDigest = path.basename(f.transactionRoot);
-  try {
+  await fixture(async f => {
+    const requestIdentityDigest = path.basename(f.transactionRoot);
     const records = await createSemanticMutationRecoveryRecordsDirectory(
       f.transactionRoot,
       `sha256:${requestIdentityDigest}`,
@@ -67,42 +67,39 @@ test('journal directory allocation uses the retained no-follow owner and is reus
       `sha256:${requestIdentityDigest}`,
       fence
     )).objectId).toBe(terminalOrder.objectId);
-  } finally { cleanup(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')(
   'journal directory allocation never follows a substituted namespace ancestor',
   async () => {
-    const f = fixture();
     let outside: string | undefined;
     await settleWorkspaceCallback(async () => {
-      outside = mkdtempSync(path.join(os.tmpdir(), 'sec-journal-outside-'));
-      const requestIdentityDigest = `sha256:${path.basename(f.transactionRoot)}`;
-      mkdirSync(path.join(f.workspace, '.sec'));
-      symlinkSync(outside, path.join(f.workspace, '.sec', 'semantic-mutation'));
-      await expect(createSemanticMutationRecoveryRecordsDirectory(
-        f.transactionRoot,
-        requestIdentityDigest,
-        fence
-      )).rejects.toThrow();
-      await expect(createSemanticMutationTerminalOrderDirectory(
-        f.transactionRoot,
-        requestIdentityDigest,
-        fence
-      )).rejects.toThrow();
-      expect(readdirSync(outside)).toEqual([]);
+      await fixture(async f => {
+        outside = mkdtempSync(path.join(os.tmpdir(), 'sec-journal-outside-'));
+        const requestIdentityDigest = `sha256:${path.basename(f.transactionRoot)}`;
+        mkdirSync(path.join(f.workspace, '.sec'));
+        symlinkSync(outside, path.join(f.workspace, '.sec', 'semantic-mutation'));
+        await expect(createSemanticMutationRecoveryRecordsDirectory(
+          f.transactionRoot,
+          requestIdentityDigest,
+          fence
+        )).rejects.toThrow();
+        await expect(createSemanticMutationTerminalOrderDirectory(
+          f.transactionRoot,
+          requestIdentityDigest,
+          fence
+        )).rejects.toThrow();
+        expect(readdirSync(outside)).toEqual([]);
+      });
     }, async () => {
-      settleResources({ cleanup: [
-        { label: 'staging fixture root', settle: () => cleanup(f) },
-        { label: 'external fixture root', settle: () => { if (outside !== undefined) rmSync(outside, { recursive: true, force: true }); } }
-      ] });
+      if (outside !== undefined) rmSync(outside, { recursive: true, force: true });
     });
   }
 );
 
 test('staging retirement removes its exact child including a large sparse leaf and preserves artifacts and path proof', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const transaction = await create(f);
     await createSemanticMutationPathProofDirectory(transaction, fence);
     writeFileSync(path.join(f.transactionRoot, 'original.backup'), 'retained backup');
@@ -115,36 +112,33 @@ test('staging retirement removes its exact child including a large sparse leaf a
     expect(existsSync(f.stage)).toBe(false);
     expect(readFileSync(path.join(f.transactionRoot, 'original.backup'), 'utf8')).toBe('retained backup');
     expect(existsSync(path.join(f.transactionRoot, 'path-proof'))).toBe(true);
-  } finally { cleanup(f); }
+  });
 });
 
 test('a failed staging retirement fence preserves the admitted tree', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const transaction = await create(f);
     mkdirSync(f.stage);
     writeFileSync(path.join(f.stage, 'source.yaml'), 'preserve');
     const failure = new Error('write lease rejected');
     await expect(retireSemanticMutationStagingWorkspace(transaction, async () => { throw failure; })).rejects.toBe(failure);
     expect(readFileSync(path.join(f.stage, 'source.yaml'), 'utf8')).toBe('preserve');
-  } finally { cleanup(f); }
+  });
 });
 
 test('a staging directory that appears across an absence fence is not adopted for cleanup', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const transaction = await create(f);
     await expect(retireSemanticMutationStagingWorkspace(transaction, async () => {
       mkdirSync(f.stage);
       writeFileSync(path.join(f.stage, 'foreign'), 'keep');
     })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' });
     expect(readFileSync(path.join(f.stage, 'foreign'), 'utf8')).toBe('keep');
-  } finally { cleanup(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('staging retirement rejects a replaced root across an awaited fence', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const transaction = await create(f);
     mkdirSync(f.stage);
     writeFileSync(path.join(f.stage, 'original'), 'original');
@@ -155,12 +149,11 @@ test.skipIf(process.platform !== 'linux')('staging retirement rejects a replaced
     })).rejects.toThrow();
     expect(readFileSync(path.join(f.stage, 'foreign'), 'utf8')).toBe('foreign');
     expect(readFileSync(path.join(`${f.stage}-displaced`, 'original'), 'utf8')).toBe('original');
-  } finally { cleanup(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('staging retirement unlinks descendant aliases but never traverses them', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const transaction = await create(f);
     const outside = path.join(f.workspace, 'outside');
     mkdirSync(outside);
@@ -173,12 +166,11 @@ test.skipIf(process.platform !== 'linux')('staging retirement unlinks descendant
     symlinkSync(outside, f.stage);
     await expect(retireSemanticMutationStagingWorkspace(transaction, fence)).rejects.toThrow();
     expect(readFileSync(path.join(outside, 'keep'), 'utf8')).toBe('outside');
-  } finally { cleanup(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('staging retirement restores only owned directory permissions required for deletion', async () => {
-  const f = fixture();
-  try {
+  await fixture(async f => {
     const transaction = await create(f);
     const nested = path.join(f.stage, 'nested');
     mkdirSync(nested, { recursive: true });
@@ -187,5 +179,5 @@ test.skipIf(process.platform !== 'linux')('staging retirement restores only owne
     chmodSync(nested, 0o555);
     await retireSemanticMutationStagingWorkspace(transaction, fence);
     expect(existsSync(f.stage)).toBe(false);
-  } finally { cleanup(f); }
+  });
 });

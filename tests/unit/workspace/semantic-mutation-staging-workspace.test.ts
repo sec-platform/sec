@@ -1,5 +1,4 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,9 +19,11 @@ import {
   SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION
 } from '../../../src/semantics/mutation/types.ts';
 
-async function fixture(mode = 0o640) {
+type StagingFixture = Omit<Parameters<typeof prepareSemanticMutationStagingWorkspace>[0], 'commitFence'> & { sourcePath: string };
+
+async function fixture(run: (f: StagingFixture) => Promise<void>, mode = 0o640) {
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'sec-staging-workspace-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, sha256('staging-workspace-request'));
     const relativePath = 'source/model/item.yaml';
     const sourcePath = path.join(workspaceRoot, relativePath);
@@ -68,21 +69,15 @@ async function fixture(mode = 0o640) {
       rollbackManifestDigest: manifest.rollbackManifestDigest
     } as const;
     const plan = { ...planBody, editPlanRevision: semanticMutationSourceEditPlanRevision(planBody) };
-    return { workspaceRoot, transactionRoot, plan, manifest, originalBytes, stagedBytes, sourcePath };
-  } catch (error) {
-    settleResources({ primary: { label: 'workspace fixture construction', error },
-      cleanup: [{ label: 'workspace fixture root', settle: () => rmSync(workspaceRoot, { recursive: true, force: true }) }] });
-    throw error;
-  }
+    await run({ workspaceRoot, transactionRoot, plan, manifest, originalBytes, stagedBytes, sourcePath });
+  }, async () => { rmSync(workspaceRoot, { recursive: true, force: true }); });
 }
 
-const prepare = (f: Awaited<ReturnType<typeof fixture>>, commitFence = async (): Promise<void> => {}) =>
+const prepare = (f: StagingFixture, commitFence = async (): Promise<void> => {}) =>
   prepareSemanticMutationStagingWorkspace({ ...f, commitFence });
-const close = (f: Awaited<ReturnType<typeof fixture>>) => rmSync(f.workspaceRoot, { recursive: true, force: true });
 
 test('staging edits only the isolated copy and preserves source bytes and exact permissions', async () => {
-  const f = await fixture(0o444);
-  try {
+  await fixture(async f => {
     const sourceBefore = statSync(f.sourcePath, { bigint: true });
     const root = await prepare(f);
     const stagedPath = path.join(root, f.plan.relativePath);
@@ -91,23 +86,21 @@ test('staging edits only the isolated copy and preserves source bytes and exact 
     expect(statSync(f.sourcePath, { bigint: true }).ino).toBe(sourceBefore.ino);
     if (process.platform === 'linux') expect(statSync(stagedPath).mode & 0o7777).toBe(f.manifest.fileMode);
     else expect(await readSemanticMutationWindowsFileAttributes(stagedPath)).toEqual(f.manifest.windowsFileAttributes);
-  } finally { close(f); }
+  }, 0o444);
 });
 
 test('staging snapshots caller byte buffers before its first awaited fence', async () => {
-  const f = await fixture();
-  const expectedOriginal = Buffer.from(f.originalBytes);
-  const expectedStaged = Buffer.from(f.stagedBytes);
-  try {
+  await fixture(async f => {
+    const expectedOriginal = Buffer.from(f.originalBytes);
+    const expectedStaged = Buffer.from(f.stagedBytes);
     const root = await prepare(f, async () => { f.originalBytes.fill(0); f.stagedBytes.fill(0); });
     expect(readFileSync(path.join(root, f.plan.relativePath))).toEqual(expectedStaged);
     expect(readFileSync(f.sourcePath)).toEqual(expectedOriginal);
-  } finally { close(f); }
+  });
 });
 
 test('staging retires an old snapshot through the bounded metadata route before rebuilding', async () => {
-  const f = await fixture();
-  try {
+  await fixture(async f => {
     const previous = path.join(f.transactionRoot, 'workspace');
     mkdirSync(path.join(previous, 'old'), { recursive: true });
     const residue = path.join(previous, 'old', 'large-sparse-residue');
@@ -116,30 +109,27 @@ test('staging retires an old snapshot through the bounded metadata route before 
     const root = await prepare(f);
     expect(existsSync(path.join(root, 'old'))).toBe(false);
     expect(readFileSync(path.join(root, f.plan.relativePath))).toEqual(f.stagedBytes);
-  } finally { close(f); }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('staging refuses a symlink root rather than deleting or traversing its target', async () => {
-  const f = await fixture();
   let outside: string | undefined;
   await settleWorkspaceCallback(async () => {
-    outside = mkdtempSync(path.join(tmpdir(), 'sec-staging-outside-'));
-    writeFileSync(path.join(outside, 'sentinel'), 'keep');
-    symlinkSync(outside, path.join(f.transactionRoot, 'workspace'), 'dir');
-    await expect(prepare(f)).rejects.toBeDefined();
-    expect(readFileSync(path.join(outside, 'sentinel'), 'utf8')).toBe('keep');
-    expect(readFileSync(f.sourcePath)).toEqual(f.originalBytes);
+    await fixture(async f => {
+      outside = mkdtempSync(path.join(tmpdir(), 'sec-staging-outside-'));
+      writeFileSync(path.join(outside, 'sentinel'), 'keep');
+      symlinkSync(outside, path.join(f.transactionRoot, 'workspace'), 'dir');
+      await expect(prepare(f)).rejects.toBeDefined();
+      expect(readFileSync(path.join(outside, 'sentinel'), 'utf8')).toBe('keep');
+      expect(readFileSync(f.sourcePath)).toEqual(f.originalBytes);
+    });
   }, async () => {
-    settleResources({ cleanup: [
-      { label: 'staging fixture root', settle: () => close(f) },
-      { label: 'external fixture root', settle: () => { if (outside !== undefined) rmSync(outside, { recursive: true, force: true }); } }
-    ] });
+    if (outside !== undefined) rmSync(outside, { recursive: true, force: true });
   });
 });
 
 test('staging never copies excluded Git or package-manager roots', async () => {
-  const f = await fixture();
-  try {
+  await fixture(async f => {
     for (const directory of ['.git', 'node_modules', '.shared-deps']) {
       mkdirSync(path.join(f.workspaceRoot, directory));
       writeFileSync(path.join(f.workspaceRoot, directory, 'excluded'), 'not a staging input');
@@ -147,26 +137,24 @@ test('staging never copies excluded Git or package-manager roots', async () => {
     const root = await prepare(f);
     for (const directory of ['.git', 'node_modules', '.shared-deps']) expect(existsSync(path.join(root, directory))).toBe(false);
     expect(existsSync(path.join(root, '.sec', 'semantic-mutation'))).toBe(false);
-  } finally { close(f); }
+  });
 });
 
 test('staging refuses invalid bytes before invoking an authority fence', async () => {
-  const f = await fixture();
-  let calls = 0;
-  try {
+  await fixture(async f => {
+    let calls = 0;
     f.stagedBytes.fill(0);
     await expect(prepare(f, async () => { calls += 1; })).rejects.toBeDefined();
     expect(calls).toBe(0);
     expect(readFileSync(f.sourcePath)).toEqual(f.originalBytes);
-  } finally { close(f); }
+  });
 });
 
 test('staging propagates a revoked authority without modifying the live source', async () => {
-  const f = await fixture();
-  const failure = new Error('revoked');
-  try {
+  await fixture(async f => {
+    const failure = new Error('revoked');
     await expect(prepare(f, async () => { throw failure; })).rejects.toBe(failure);
     expect(readFileSync(f.sourcePath)).toEqual(f.originalBytes);
     expect(existsSync(path.join(f.transactionRoot, 'workspace'))).toBe(false);
-  } finally { close(f); }
+  });
 });
