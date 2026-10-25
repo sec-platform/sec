@@ -28,10 +28,13 @@ test('already cancelled admission executes no task-array getter or iterator', as
   await assert.rejects(runTaskGroup(tasks, { signal: controller.signal }), error => error === 'stop');
 });
 
-test('dense task identity is captured independently of a replacement iterator', async () => {
-  const tasks = [async () => 7];
+test('dense task identity ignores a replacement iterator and synthetic events leave the queue open', async () => {
+  const tasks = [
+    async (signal: AbortSignal) => { signal.dispatchEvent(new Event('abort')); return 7; },
+    async () => 8
+  ];
   tasks[Symbol.iterator] = () => [async () => assert.fail('substituted task')].values();
-  assert.deepEqual(await runTaskGroup(tasks), [7]);
+  assert.deepEqual(await runTaskGroup(tasks, { concurrency: 1 }), [7, 8]);
 });
 
 test('all tasks are admitted before any task executes and accessors are not invoked', async () => {
@@ -39,13 +42,6 @@ test('all tasks are admitted before any task executes and accessors are not invo
   Object.defineProperty(tasks, 1, { get() { assert.fail('task getter'); } });
   await assert.rejects(runTaskGroup(tasks), TypeError);
   await assert.rejects(runTaskGroup(new Array(1)), TypeError);
-});
-
-test('synthetic abort events leave later tasks eligible', async () => {
-  const result = await runTaskGroup([
-    async signal => { signal.dispatchEvent(new Event('abort')); return 1; }, async () => 2
-  ], { concurrency: 1 });
-  assert.deepEqual(result, [1, 2]);
 });
 
 test('cancellation waits for an uncooperative started task and rejects only after it settles', async () => {
