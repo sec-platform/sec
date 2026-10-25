@@ -6,7 +6,24 @@ import type { ErrorProtocolContract } from '../../../src/application/error-proto
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 
-test('public error codes retain their independent recovery contract', () => {
+test('error-contract CLI exposes the stable protocol boundary', async () => {
+  // This in-process cwd is request data only; no selected reader opens it.
+  const workspaceRoot = path.resolve('/cli-input-only');
+  await expectCliText(workspaceRoot, ['contract', 'errors'], [
+    'Error protocol active',
+    'Example usage-error; code=CLI-USAGE-001',
+    'Example verify-acceptance-error; code=VERIFY-ACCEPTANCE-003',
+    'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016'
+  ]);
+  const contract = await expectCliJson<ErrorProtocolContract>(
+    workspaceRoot, ['contract', 'errors', '--json', '--compact'],
+    {
+      status: 'active',
+      command: 'bun run sec -- contract errors --json',
+      issueTypes: ['composition', 'kernel', 'spec', 'usage']
+    },
+    { compact: true }
+  );
   const cases = [
     {
       code: 'UPGRADE-NOOP-001',
@@ -73,32 +90,18 @@ test('public error codes retain their independent recovery contract', () => {
   ] as const;
 
   for (const { code, expected } of cases) {
-    const result = buildErrorProtocol({ code, message: 'fixture' });
+    // Catalog examples already pass through the real protocol owner. Only
+    // pipeline codes absent from that catalog need a direct invocation here.
+    const result = code.startsWith('PIPELINE-')
+      ? buildErrorProtocol({ code, message: 'fixture' })
+      : contract.examples.find((example) => example.output.code === code)?.output;
+    expect(result, code).toBeDefined();
     expect(result, code).toMatchObject(expected);
     if ('suggestedActions' in expected) {
-      expect(result.suggestedActions, code).toEqual(expected.suggestedActions);
+      expect(result!.suggestedActions, code).toEqual(expected.suggestedActions);
     }
   }
-});
 
-test('error-contract CLI exposes the stable protocol boundary', async () => {
-  // This in-process cwd is request data only; no selected reader opens it.
-  const workspaceRoot = path.resolve('/cli-input-only');
-  await expectCliText(workspaceRoot, ['contract', 'errors'], [
-    'Error protocol active',
-    'Example usage-error; code=CLI-USAGE-001',
-    'Example verify-acceptance-error; code=VERIFY-ACCEPTANCE-003',
-    'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016'
-  ]);
-  const contract = await expectCliJson<ErrorProtocolContract>(
-    workspaceRoot, ['contract', 'errors', '--json', '--compact'],
-    {
-      status: 'active',
-      command: 'bun run sec -- contract errors --json',
-      issueTypes: ['composition', 'kernel', 'spec', 'usage']
-    },
-    { compact: true }
-  );
   const rollback = contract.examples.find((example) => example.id === 'upgrade-rollback-error')!;
   const expectedDetails = {
     migrationId: 'mig-customer-normalizer-file',
