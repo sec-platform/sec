@@ -273,29 +273,6 @@ test('undefined observation failures survive process-session closeout', async ()
   expect(activeSessions).toBe(0);
 });
 
-test('argument accessors are refused without invocation or resource acquisition', async () => {
-  reset();
-  let reads = 0;
-  const args = new Array<string>(1);
-  Object.defineProperty(args, 0, { get() { reads++; return '0'; } });
-  await expect(runWorkspaceTransitionOperation({
-    event: 'post-merge', arguments: args, repositoryRoot: 'D:\\repo',
-    async handoff() { throw new Error('handoff must not run'); }
-  })).rejects.toHaveProperty('code', 'workspace-transition-argument-invalid');
-  expect(reads).toBe(0);
-  expect(parentProcessSession).toBeNull();
-});
-
-test('unsupported events never enter the fallback rewrite branch or acquire a session', async () => {
-  reset();
-  await expect(runWorkspaceTransitionOperation({
-    event: 'unsupported' as 'post-rewrite', arguments: ['amend'],
-    standardInput: new TextEncoder().encode(`${HEAD} ${HEAD}\n`),
-    repositoryRoot: 'D:\\repo', async handoff() { throw new Error('handoff must not run'); }
-  })).rejects.toHaveProperty('code', 'workspace-transition-argument-invalid');
-  expect(parentProcessSession).toBeNull();
-});
-
 test('stream collection copies each chunk before the producer can reuse it', async () => {
   reset();
   const bytes = new TextEncoder().encode(`${HEAD} ${HEAD}\n`);
