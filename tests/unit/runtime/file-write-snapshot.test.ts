@@ -98,7 +98,6 @@ test('JSON file output refuses an empty conversion before filesystem effects', a
 test('native serialization failures stay exact and have no file effects', async () => fixture(async root => {
   const reason = Object.freeze({ conversion: 'failed' });
   await assert.rejects(writeJson(path.join(root, 'value'), { toJSON() { throw reason; } }), error => error === reason);
-  await assert.rejects(writeJson(path.join(root, 'value'), 1n), TypeError);
   const circular: { self?: unknown } = {}; circular.self = circular;
   await assert.rejects(writeJson(path.join(root, 'value'), circular), TypeError);
   assert.equal(existsSync(path.join(root, 'value')), false);

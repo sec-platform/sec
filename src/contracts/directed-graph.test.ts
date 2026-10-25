@@ -3,10 +3,16 @@ import assert from 'node:assert/strict';
 
 import { compileClosedDirectedGraphStrongComponents as scc, type DirectedGraphEdge } from './directed-graph.ts';
 
-function chain(size: number): { nodes: string[]; edges: DirectedGraphEdge[] } {
-  const nodes = Array.from({ length: size }, (_, index) => String(index).padStart(6, '0'));
-  const edges = nodes.slice(1).map((to, index) => ({ from: nodes[index]!, to }));
-  return { nodes, edges };
+type DeepGraphInput = Readonly<{ nodes: readonly string[]; edges: readonly DirectedGraphEdge[] }>;
+let deepGraphInput: DeepGraphInput | undefined;
+
+function deepChain(): DeepGraphInput {
+  if (deepGraphInput === undefined) {
+    const nodes = Object.freeze(Array.from({ length: 30_000 }, (_, index) => String(index).padStart(6, '0')));
+    const edges = Object.freeze(nodes.slice(1).map((to, index) => Object.freeze({ from: nodes[index]!, to })));
+    deepGraphInput = Object.freeze({ nodes, edges });
+  }
+  return deepGraphInput;
 }
 
 test('empty directed graph returns an empty partition', () => {
@@ -61,7 +67,7 @@ test('SCC orders Unicode and special strings by code units without prototype ali
 });
 
 test('SCC processes a 30000-node chain without native call-stack dependence', () => {
-  const { nodes, edges } = chain(30_000);
+  const { nodes, edges } = deepChain();
   const components = scc(nodes, edges);
   assert.equal(components.length, nodes.length);
   for (let index = 0; index < nodes.length; index += 1) {
@@ -70,9 +76,8 @@ test('SCC processes a 30000-node chain without native call-stack dependence', ()
 });
 
 test('SCC processes a 30000-node cycle without native call-stack dependence', () => {
-  const { nodes, edges } = chain(30_000);
-  edges.push({ from: nodes[nodes.length - 1]!, to: nodes[0]! });
-  const components = scc(nodes, edges);
+  const { nodes, edges } = deepChain();
+  const components = scc(nodes, [...edges, { from: nodes[nodes.length - 1]!, to: nodes[0]! }]);
   assert.equal(components.length, 1);
   assert.deepEqual(components[0], nodes);
 });

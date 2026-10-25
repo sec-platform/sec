@@ -18,7 +18,7 @@ import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_S
 import { buildCiQuickGatePlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../src/assurance/verification/contract/revision.ts';
-import { sha256 as canonicalSha256, rawSha256 } from '../../../src/contracts/canonical.ts';
+import { deepFreeze, sha256 as canonicalSha256, rawSha256 } from '../../../src/contracts/canonical.ts';
 
 type HostedObservation = ReturnType<typeof CodexDevelopmentFinalizeHostedActionRawResult>;
 
@@ -337,7 +337,9 @@ test('physical command authorization and PASS settlement reject recomputed contr
 
 // Synthetic historical records exercise codecs only. They cannot mint a live
 // native unit, an authenticated GitHub origin, or qualified runtime evidence.
+let historicalNativeReceiptData: ReturnType<typeof createHostedJobRuntimeReceipt> | undefined;
 function nativeRuntimeReceiptData() {
+  if (historicalNativeReceiptData !== undefined) return historicalNativeReceiptData;
   const innerSupervisor = { operationIdentityDigest: digest('c'), boundAttemptDigest: digest('d'),
     deadlineAtUnixMs: 90_000, requirementId: 'ci.hosted-sut-supervisor-process' as const,
     requirementContractDigest: digest('e'), resourceCeilingIdentityDigest: digest('f'), settlementReceiptDigest: digest('0') };
@@ -372,7 +374,7 @@ function nativeRuntimeReceiptData() {
   const observedUnitBody = { ...unitBody, execution: { ...unitBody.execution,
     stdoutDigest: rawSha256(control), stdoutBytes: Buffer.byteLength(control) } };
   const nativeUnit = { ...observedUnitBody, receiptDigest: canonicalDigest(observedUnitBody) };
-  return createHostedJobRuntimeReceipt({ providerRevision: 'historical-native-environment-fixture',
+  historicalNativeReceiptData = deepFreeze(createHostedJobRuntimeReceipt({ providerRevision: 'historical-native-environment-fixture',
     origin: { repository: 'sec-platform/sec', repositoryId: '1', workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowSha: git.baseSha, trustedSourceSha: git.baseSha, trustedSourceTreeSha: git.baseTreeSha,
       runId: '2', runAttempt: 1, jobId: '3', checkRunId: '4',
@@ -384,7 +386,8 @@ function nativeRuntimeReceiptData() {
     execution: { started: true, settled: true, exitCode: 0, stdoutBytes: 3, stderrBytes: 0,
       outputDigest: rawSha256('{}\n'), outputTruncated: false, sandboxObservationDigest: digest('9') },
     cleanup: { providerScopeSettled: true, sessionSettlementDigest: digest('a'), processSettlementDigest: digest('b'),
-      outputSettled: true, ownedSourcesReleased: true, innerSupervisorSettled: true } });
+      outputSettled: true, ownedSourcesReleased: true, innerSupervisorSettled: true } }));
+  return historicalNativeReceiptData;
 }
 
 function rehashRuntimeReceipt(value: ReturnType<typeof nativeRuntimeReceiptData>) {
