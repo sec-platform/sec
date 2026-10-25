@@ -37,9 +37,8 @@ function membership(ownerByRoot: Readonly<Record<string, string>>): RepositoryMo
 
 function compileFacts(
   sources: Readonly<Record<string, string>>,
-  ownerByRoot: Readonly<Record<string, string>>
+  moduleMembership: RepositoryModuleMembership
 ) {
-  const moduleMembership = membership(ownerByRoot);
   const files = Object.entries(sources).map(([path, source]) => Object.freeze({
     path,
     source,
@@ -61,10 +60,10 @@ test('equal declaration bytes without an owner responsibility remain heuristic u
     'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
-  }, {
+  }, membership({
     'src/identity': 'identity-owner',
     'src/consumer': 'consumer-owner'
-  });
+  }));
   const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
@@ -104,20 +103,8 @@ test('equal public-operation declarations still require an exact evolution oblig
     'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
   };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'identity',
@@ -137,11 +124,6 @@ test('contract codecs crossing durable recovery boundaries require migration ins
     'src/codec-a/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n',
     'src/codec-b/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n'
   };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
   const descriptors = moduleMembership.descriptors.map((descriptor) => Object.freeze({
     ...descriptor,
     capabilityProviders: Object.freeze([Object.freeze({
@@ -175,15 +157,8 @@ test('contract codecs crossing durable recovery boundaries require migration ins
     ...moduleMembership,
     descriptors
   });
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithObligations
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, membershipWithObligations)
-  });
+  const { model, ownerIntents } = compileFacts(sources, membershipWithObligations);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'transition-algebra',
@@ -209,20 +184,9 @@ test('capability effects belong to declaration spans rather than every export in
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = "import { spawnSync } from 'node:child_process';\nexport function pureValue(): number { return 1; }\nexport function runProcess(command: string) { return spawnSync(command); }\n";
-  const files = [Object.freeze({
-    path: 'src/process/operations.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const sources = { 'src/process/operations.ts': source };
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const pureUnit = compilation.units.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:process.operations:pureValue'
   ));
@@ -254,20 +218,9 @@ test('exact call closure propagates capabilities while module initialization rem
       })])
     }));
     const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
-    const files = [Object.freeze({
-      path: 'src/process/operations.ts',
-      source,
-      contentDigest: rawSha256(source)
-    })];
-    const model = compileRepositorySourceProgramModel({
-      sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-      files,
-      moduleMembership
-    });
-    return compileSourceProgramImplementationDominance({
-      model,
-      ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-    });
+    const sources = { 'src/process/operations.ts': source };
+    const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+    return compileSourceProgramImplementationDominance({ model, ownerIntents });
   };
   const delegated = compileOperation(
     "import { spawnSync } from 'node:child_process';\nfunction invoke(command: string) { return spawnSync(command); }\nexport function runProcess(command: string) { return invoke(command); }\n",
@@ -306,17 +259,7 @@ test('codec-shaped names remain unknown when the compiler cannot prove one gramm
     'src/manual/decode.ts': 'export function decodePayload(value: string): unknown { return JSON.parse(value); }\n',
     'src/schema/decode.ts': 'const payloadSchema = { parse: (value: string): unknown => JSON.parse(value) };\nexport function decodePayload(value: string): unknown { return payloadSchema.parse(value); }\n'
   };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithCodec
-  });
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, membershipWithCodec);
+  const { model, ownerIntents } = compileFacts(sources, membershipWithCodec);
   const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
@@ -331,7 +274,7 @@ test('codec-shaped names remain unknown when the compiler cannot prove one gramm
 test('a direct process wrapper remains protected by its external provider frontier', () => {
   const { model, ownerIntents } = compileFacts({
     'src/process/run.ts': "import { spawnSync } from 'node:child_process';\nexport function run(command: string) { return spawnSync(command); }\n"
-  }, { 'src/process': 'process-consumer' });
+  }, membership({ 'src/process': 'process-consumer' }));
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const externalUnits = compilation.units.filter(({ kind }) => kind === 'external-capability-candidate');
 
@@ -379,17 +322,7 @@ test('duplicate completion candidates without an owner readback fact cannot sign
     'src/effect-a/publish.ts': 'export function publish(): void {}\n',
     'src/effect-b/publish.ts': 'export function publish(): void {}\n'
   };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithEffect
-  });
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, membershipWithEffect);
+  const { model, ownerIntents } = compileFacts(sources, membershipWithEffect);
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
   expect(compilation.units).toContainEqual(expect.objectContaining({
@@ -441,20 +374,9 @@ test('consumer-zero cannot orphan an owner-authorized obligation that is not mat
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = 'export function deliver(): string { return "pending"; }\n';
-  const files = [Object.freeze({
-    path: 'src/planned/deliver.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const sources = { 'src/planned/deliver.ts': source };
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const finding = compilation.findings.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:planned.delivery:deliver'
   ));
@@ -496,20 +418,9 @@ test('a public capability without an evolution obligation requires an owner deci
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = '// Maintainer accepted this future operation in chat.\nexport function requiredUnmaterializedDelivery(): string { return "unused"; }\n';
-  const files = [Object.freeze({
-    path: 'src/planned/deliver.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const sources = { 'src/planned/deliver.ts': source };
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const finding = compilation.findings.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:planned.delivery:requiredUnmaterializedDelivery'
   ));
@@ -535,20 +446,9 @@ test('unresolved runtime closure remains unknown without an owner-issued obligat
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = 'export async function deliver(target: string): Promise<unknown> { return import(target); }\n';
-  const files = [Object.freeze({
-    path: 'src/planned/deliver.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const sources = { 'src/planned/deliver.ts': source };
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const finding = compilation.findings.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:planned.delivery:deliver'
   ));

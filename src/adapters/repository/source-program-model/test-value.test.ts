@@ -425,38 +425,27 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     retainedPath
   ];
   const baselineSources = [
-    Object.freeze({
+    {
       path: baselinePaths[0]!,
-      source: "import { test } from 'bun:test';\ntest('orphan assertion', () => expect(1).toBe(1));\n",
-      contentDigest: rawSha256("import { test } from 'bun:test';\ntest('orphan assertion', () => expect(1).toBe(1));\n")
-    }),
-    Object.freeze({
+      source: "import { test } from 'bun:test';\ntest('orphan assertion', () => expect(1).toBe(1));\n"
+    },
+    {
       path: baselinePaths[1]!,
       source: [
         "import { test } from 'bun:test';",
         "import { value } from '../../src/example/index.ts';",
         "test('business behavior', () => expect(value).toBe(1));"
-      ].join('\n'),
-      contentDigest: rawSha256([
-        "import { test } from 'bun:test';",
-        "import { value } from '../../src/example/index.ts';",
-        "test('business behavior', () => expect(value).toBe(1));"
-      ].join('\n'))
-    }),
-    Object.freeze({
+      ].join('\n')
+    },
+    {
       path: baselinePaths[2]!,
       source: [
         "import { test } from 'bun:test';",
         "import fs from 'node:fs/promises';",
         "test('provider behavior', async () => fs.readFile('x'));"
-      ].join('\n'),
-      contentDigest: rawSha256([
-        "import { test } from 'bun:test';",
-        "import fs from 'node:fs/promises';",
-        "test('provider behavior', async () => fs.readFile('x'));"
-      ].join('\n'))
-    })
-  ];
+      ].join('\n')
+    }
+  ].map(({ path, source }) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
   baselineSources.push(Object.freeze({
     path: retainedPath, source: retainedSource, contentDigest: rawSha256(retainedSource)
   }));
