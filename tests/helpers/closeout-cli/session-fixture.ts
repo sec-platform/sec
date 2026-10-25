@@ -290,8 +290,11 @@ function expectTypedProviderSchemaUnsupported(observation: GitHubReviewBarrierOb
 }
 
 let privateGhProxySuiteRoot = '';
+let privateGhProxyRetentionReason: string | undefined;
+const unsettledCompilationRuntimes: ReturnType<typeof createRawTestExecutableFixture>[] = [];
 
 function privateGhProxyRoot(): string {
+  if (privateGhProxyRetentionReason !== undefined) throw new Error(privateGhProxyRetentionReason);
   if (privateGhProxySuiteRoot !== '') return privateGhProxySuiteRoot;
   const root = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-token-'));
   try {
@@ -299,18 +302,20 @@ function privateGhProxyRoot(): string {
     const output = path.join(root, process.platform === 'win32' ? 'gh.exe' : 'gh');
     writeFileSync(source, `if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1); process.stdout.write('ghp_private_fixture_token_000000000000');`, 'utf8');
     const runtime = createRawTestExecutableFixture();
-    let primary;
     try {
       const compiled = spawnSync(runtime.command, ['build','--compile',`--compile-executable-path=${runtime.command}`,source,'--outfile',output],
         {cwd:root,encoding:'utf8',windowsHide:true,timeout:30_000});
-      if (compiled.status !== 0) throw new Error('Private credential fixture compilation failed');
+      if (compiled.status !== 0 || compiled.error !== undefined) {
+        throw new Error('Private credential fixture compilation failed', { cause: compiled.error });
+      }
     } catch (error) {
-      primary = { label: 'private-credential-compilation', error };
-    } finally {
-      settleResources({ primary,
-        cleanup: [{ label: 'private-credential-runtime', settle: () => runtime.dispose() }] });
+      unsettledCompilationRuntimes.push(runtime);
+      privateGhProxyRetentionReason = `Credential compilation did not establish successful completion; retained ${root}`;
+      throw new Error(privateGhProxyRetentionReason, { cause: error });
     }
+    runtime.dispose();
   } catch (error) {
+    if (privateGhProxyRetentionReason !== undefined) throw error;
     settleResources({ primary: { label: 'private-credential-fixture-construction', error },
       cleanup: [{ label: 'private-credential-fixture-root',
         settle: () => rmSync(root, { recursive: true, force: true }) }] });
@@ -340,14 +345,21 @@ async function withPrivateGitHubHttp<T>(
       return new Response(typeof value === 'string' ? value : JSON.stringify(value),
         {status:200,headers:{'content-type':'application/json'}});
     }) as typeof fetch;
-    return operation(root);
+    try {
+      return await operation(root);
+    } catch (error) {
+      privateGhProxyRetentionReason = `Credential operation failed with no exposed settlement witness; retained HTTP cwd ${root} and credential shim ${proxyRoot}`;
+      throw new Error(privateGhProxyRetentionReason, { cause: error });
+    }
   }, async () => {
     settleResources({ cleanup: [
       { label: 'private-github-fetch', settle: () => { globalThis.fetch = previousFetch; } },
       { label: 'private-github-path', settle: () => {
         if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
       } },
-      { label: 'private-github-http-root', settle: () => rmSync(root, { recursive: true, force: true }) }
+      { label: 'private-github-http-root', settle: () => {
+        if (privateGhProxyRetentionReason === undefined) rmSync(root, { recursive: true, force: true });
+      } }
     ] });
   });
 }
@@ -803,6 +815,7 @@ async function reducerFixture(options: {
 
 
 return { BASE, FakeTransport, HEAD, MERGE_AT, PAGE, ReducerTransport, V6_MANIFEST_PATH, VERIFIED_AT, actionDependencyBlobs, actionsIssueComment, botIssueComment, changedTransition, createPureHostedEnvelopeFixture, defaultReviewWakeupBody, expectTypedProviderSchemaUnsupported, fakeGitHubClient, mainHealthCheck, maintainerIssueComment, observe, observePrivateClearReviewBarrier, observePrivateGhProviderBarrier, observePrivateMergedCandidate, page, reducerFixture, workflowRun, dispose: () => {
+  if (privateGhProxyRetentionReason !== undefined) throw new Error(privateGhProxyRetentionReason);
   if (privateGhProxySuiteRoot !== '') {
     rmSync(privateGhProxySuiteRoot, { recursive: true, force: true });
     privateGhProxySuiteRoot = '';
