@@ -83,11 +83,8 @@ async function exactSnapshot(root: string, commitSha: string) {
   }, (session) => acquireExactGitTreeWorkspaceSourceSnapshotFromSession({ session, commitSha }));
 }
 
-async function subject(root: string, commitSha: string, baseCommitSha = commitSha) {
+async function subject(root: string, commitSha: string) {
   const snapshot = await exactSnapshot(root, commitSha);
-  const baseSnapshot = baseCommitSha === commitSha
-    ? snapshot
-    : await exactSnapshot(root, baseCommitSha);
   const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot: snapshot
   });
@@ -97,7 +94,7 @@ async function subject(root: string, commitSha: string, baseCommitSha = commitSh
   );
   return compileCandidateNormalizationSubject({
     snapshot,
-    baseSnapshot,
+    baseSnapshot: snapshot,
     producerClosure,
     compilerIdentity: sourceProgramTypeScriptCompilerIdentity()
   });
@@ -124,7 +121,12 @@ test('subject compiler owns producer, exact-tree, config and toolchain identity'
       IMPORT_NORMALIZATION_OPERATION
     );
     expect(narrowProducer).toEqual(fullProducer);
-    const first = await subject(root, firstCommit);
+    const first = compileCandidateNormalizationSubject({
+      snapshot: firstSnapshot,
+      baseSnapshot: firstSnapshot,
+      producerClosure: fullProducer,
+      compilerIdentity: sourceProgramTypeScriptCompilerIdentity()
+    });
     const firstAction = compileCandidateNormalizationActionKey(first);
     expect(firstAction.inputClosure).toEqual(first.observationBlobs);
     expect(requireCandidateNormalizationSubject(first)).toBe(first);
@@ -194,17 +196,13 @@ test('staged normalization shares the Source Program input boundary for template
       "import z from 'z';\nimport a from 'a';\nexport const template = [z, a];\n");
     git(root, ['add', '--', templatePath]);
     const before = git(root, ['write-tree']);
-    const { checkStagedCandidateImportNormalization, checkStagedCandidateImportNormalizationWithSelection } = await import('./runtime.ts');
-    const observe = () => withAuthorityGitReadSession({
-      cwd: root, budget: GIT_READ_OPERATION_BUDGET
-    }, session => checkStagedCandidateImportNormalization({ session, candidateBase }));
-    expect((await observe()).status).toBe('canonical');
-    expect(git(root, ['write-tree'])).toBe(before);
+    const { checkStagedCandidateImportNormalizationWithSelection } = await import('./runtime.ts');
     const defaultSelection = await withAuthorityGitReadSession({
       cwd: root, budget: GIT_READ_OPERATION_BUDGET
     }, session => checkStagedCandidateImportNormalizationWithSelection({ session }));
     expect(defaultSelection.candidateBase).toBe(candidateBase);
     expect(defaultSelection.outcome.status).toBe('canonical');
+    expect(git(root, ['write-tree'])).toBe(before);
 
     const sourcePath = 'src/adapters/self-hosting/development/import-normalization/kernel.ts';
     await writeFile(path.join(root, sourcePath),

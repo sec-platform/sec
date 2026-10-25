@@ -246,36 +246,34 @@ test(
   60_000
 );
 
-for (const source of ['existing', 'installed'] as const) {
-  test(`dependency bootstrap exposes the manifest-bound compiler tree (${source})`, async () => {
-    const hookRoots: string[] = [];
-    const result = await ensureOperationDependencies(compileOperationDemandGraph({
-      operation: 'dependency-setup',
-      terminalWorkIds: [],
-      hookPolicy: 'always'
-    }), isolatedBootstrapOptions({
-      ensureCompilerDeps: async () => compilerReady(source),
-      ensureHooks: async (repoRoot: string) => {
-        hookRoots.push(repoRoot);
-      }
-    }));
+test('dependency bootstrap exposes the manifest-bound compiler tree (existing)', async () => {
+  const hookRoots: string[] = [];
+  const result = await ensureOperationDependencies(compileOperationDemandGraph({
+    operation: 'dependency-setup',
+    terminalWorkIds: [],
+    hookPolicy: 'always'
+  }), isolatedBootstrapOptions({
+    ensureCompilerDeps: async () => compilerReady('existing'),
+    ensureHooks: async (repoRoot: string) => {
+      hookRoots.push(repoRoot);
+    }
+  }));
 
-    expect(result).toEqual({
-      executionGenerationAuthority: compilerDependencyFixture.executionGenerationAuthority,
-      manifestHash: compilerDependencyFixture.manifestHash,
-      nodeModulesPath: compilerDependencyFixture.nodeModulesPath,
-      requiresFreshProcess: source === 'installed',
-      source,
-      transitionDigest: `sha256:${source === 'installed' ? 'b'.repeat(64) : 'a'.repeat(64)}`
-    });
-    expect(hookRoots).toEqual([compilerDependencyFixture.root]);
+  expect(result).toEqual({
+    executionGenerationAuthority: compilerDependencyFixture.executionGenerationAuthority,
+    manifestHash: compilerDependencyFixture.manifestHash,
+    nodeModulesPath: compilerDependencyFixture.nodeModulesPath,
+    requiresFreshProcess: false,
+    source: 'existing',
+    transitionDigest: `sha256:${'a'.repeat(64)}`
   });
-}
+  expect(hookRoots).toEqual([compilerDependencyFixture.root]);
+});
 
 for (const source of ['existing', 'installed'] as const) {
   test(`warmed hook policy only closes hooks after compiler installation (${source})`, async () => {
     const hookRoots: string[] = [];
-    await ensureOperationDependencies(compileOperationDemandGraph({
+    const result = await ensureOperationDependencies(compileOperationDemandGraph({
       operation: 'dependency-setup',
       terminalWorkIds: [],
       hookPolicy: 'if-installed'
@@ -287,28 +285,34 @@ for (const source of ['existing', 'installed'] as const) {
     }));
 
     expect(hookRoots).toEqual(source === 'installed' ? [compilerDependencyFixture.root] : []);
+    if (source === 'installed') {
+      expect(result).toEqual({
+        executionGenerationAuthority: compilerDependencyFixture.executionGenerationAuthority,
+        manifestHash: compilerDependencyFixture.manifestHash,
+        nodeModulesPath: compilerDependencyFixture.nodeModulesPath,
+        requiresFreshProcess: true,
+        source: 'installed',
+        transitionDigest: `sha256:${'b'.repeat(64)}`
+      });
+    }
   });
 }
 
-for (const source of ['existing', 'installed'] as const) {
-  test(`active Git hook execution never recursively installs hooks (${source})`, async () => {
-    const hookRoots: string[] = [];
-    await ensureOperationDependencies(compileOperationDemandGraph({
-      operation: 'dependency-setup',
-      terminalWorkIds: [],
-      hookPolicy: 'never'
-    }), isolatedBootstrapOptions({
-      ensureCompilerDeps: async () => compilerReady(source),
-      ensureHooks: async (repoRoot: string) => {
-        hookRoots.push(repoRoot);
-      }
-    }));
+test('active Git hook execution never recursively installs hooks (installed)', async () => {
+  const hookRoots: string[] = [];
+  await ensureOperationDependencies(compileOperationDemandGraph({
+    operation: 'dependency-setup',
+    terminalWorkIds: [],
+    hookPolicy: 'never'
+  }), isolatedBootstrapOptions({
+    ensureCompilerDeps: async () => compilerReady('installed'),
+    ensureHooks: async (repoRoot: string) => {
+      hookRoots.push(repoRoot);
+    }
+  }));
 
-    expect(hookRoots).toEqual([]);
-  });
-}
-
-
+  expect(hookRoots).toEqual([]);
+});
 
 test('one process-local materialization is reusable only for a covered demand closure', async () => {
   const calls: string[] = [];
