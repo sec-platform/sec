@@ -33,7 +33,7 @@ async function invoke(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
 }
 
 test.each(['codex-development-work-package-v1', 'codex-development-work-package-v3'] as const)(
-  '%s upstream handoff becomes managed local continuation until explicit external boundaries', async (schema) => {
+  '%s upstream handoff preserves managed admission, resume and ownership', async (schema) => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'sec-managed-continuation-'));
   const repositoryRoot = path.join(fixtureRoot, 'repo');
   const stateRoot = path.join(fixtureRoot, 'state');
@@ -99,19 +99,21 @@ tests:
     });
     writeFileSync(handoffPath, `${encodeVerificationActionData(checkpoint)}\n`, 'utf8');
 
-    if (process.platform !== 'win32') {
+    if (schema === 'codex-development-work-package-v3' && process.platform !== 'win32') {
       const aliasPath = path.join(fixtureRoot, 'handoff-link.json');
       symlinkSync(handoffPath, aliasPath, 'file');
       expect((await invoke(repositoryRoot, env, '--handoff', aliasPath)).code).not.toBe(0);
       rmSync(aliasPath, { force: true });
     }
-    const oversizedHandoffPath = path.join(fixtureRoot, 'handoff-oversized.json');
-    writeFileSync(
-      oversizedHandoffPath,
-      ' '.repeat(LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES + 1),
-      'utf8'
-    );
-    expect((await invoke(repositoryRoot, env, '--handoff', oversizedHandoffPath)).code).not.toBe(0);
+    if (schema === 'codex-development-work-package-v3') {
+      const oversizedHandoffPath = path.join(fixtureRoot, 'handoff-oversized.json');
+      writeFileSync(
+        oversizedHandoffPath,
+        ' '.repeat(LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES + 1),
+        'utf8'
+      );
+      expect((await invoke(repositoryRoot, env, '--handoff', oversizedHandoffPath)).code).not.toBe(0);
+    }
 
     const imported = await invoke(repositoryRoot, env, '--handoff', handoffPath);
     expect(imported.code).toBe(0);
@@ -135,10 +137,12 @@ tests:
     expect(localEditValue.localState).toBe('local-candidate-diverged');
     expect((localEditValue.invalidation as Record<string, unknown>).remoteOwners).toEqual([]);
 
-    const reviewBoundary = await invoke(repositoryRoot, env, '--boundary', 'review');
-    expect(reviewBoundary.code).toBe(0);
-    const reviewValue = JSON.parse(reviewBoundary.stdout) as Record<string, unknown>;
-    expect((reviewValue.invalidation as Record<string, unknown>).remoteOwners).toEqual(['review']);
+    if (schema === 'codex-development-work-package-v3') {
+      const reviewBoundary = await invoke(repositoryRoot, env, '--boundary', 'review');
+      expect(reviewBoundary.code).toBe(0);
+      const reviewValue = JSON.parse(reviewBoundary.stdout) as Record<string, unknown>;
+      expect((reviewValue.invalidation as Record<string, unknown>).remoteOwners).toEqual(['review']);
+    }
 
     writeFileSync(path.join(repositoryRoot, 'README.md'), 'forbidden local edit\n', 'utf8');
     const forbiddenDirty = await invoke(repositoryRoot, env);
@@ -147,6 +151,11 @@ tests:
     expect(forbiddenDirtyValue.localState).toBe('control-drift');
     expect((forbiddenDirtyValue.invalidation as Record<string, unknown>).disposition)
       .toBe('invalidate-control');
+
+    // Both manifest versions have exercised native admission, persisted resume
+    // and changed-record ownership. The checkpoint/store/invalidation protocol
+    // below has no Work Package schema branch; keep its real lifecycle on V3.
+    if (schema === 'codex-development-work-package-v1') return;
 
     rmSync(path.join(repositoryRoot, 'README.md'), { force: true });
     git(repositoryRoot, 'restore', '--source=HEAD', '--staged', '--worktree', '--', 'src/value.ts');
