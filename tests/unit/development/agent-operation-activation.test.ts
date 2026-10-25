@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -304,7 +305,7 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
   installFake('git', gitExecutionSentinel);
   installFake('gh', ghExecutionSentinel);
 
-  try {
+  await settleWorkspaceCallback(async () => {
     const runner = path.resolve(import.meta.dir, '../../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts');
     const result = await runRetainedBunTestCommand([
       runner,
@@ -331,9 +332,9 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
     });
     expect(existsSync(gitExecutionSentinel)).toBe(false);
     expect(existsSync(ghExecutionSentinel)).toBe(false);
-  } finally {
+  }, async () => {
     rmSync(binHome, { recursive: true, force: true });
-  }
+  });
 });
 
 test('V3 activation reader preserves exact trusted bytes and missing-ref rejection under ambient Git state', async () => {

@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
@@ -215,7 +216,7 @@ async function persistRetiredPhaseForCrash(authorization: Awaited<ReturnType<typ
 
 test.skipIf(process.platform !== 'linux')('Unicode Git admin and tracked backslash leaf settle one native closeout', async () => {
   const value = fixture({ targetName: '开发分支', trackedBackslash: true });
-  try {
+  await settleWorkspaceCallback(async () => {
     expect(readdirSync(path.join(value.repository, '.git', 'worktrees'))).toContain('开发分支');
     expect(existsSync(path.join(value.target, 'a\\b'))).toBeTrue();
     const authorization = await prepareWorktreePhysicalCloseout({
@@ -237,12 +238,14 @@ test.skipIf(process.platform !== 'linux')('Unicode Git admin and tracked backsla
     expect(receipt.readback.registryPresent).toBeFalse();
     expect(receipt.readback.physicalPresent).toBeFalse();
     expect(existsSync(value.target)).toBeFalse();
-  } finally { rmSync(value.root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(value.root, { recursive: true, force: true });
+  });
 }, 30_000);
 
 test('real registered worktree reaches registry and physical absence under one durable receipt', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: new WorktreePhysicalCloseoutConsumptionToken(),
       repositoryRoot: value.repository,
@@ -300,14 +303,14 @@ test('real registered worktree reaches registry and physical absence under one d
         authorizationPath: authorization.authorizationPath
       })).receiptDigest
     ).toBe(receipt.receiptDigest);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('completed worktree evidence is retained while the branch is live and reclaimed after ref settlement', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -345,14 +348,14 @@ test('completed worktree evidence is retained while the branch is live and recla
     expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
     expect(existsSync(path.dirname(path.dirname(authorization.authorizationPath)))).toBeFalse();
     expect(existsSync(authorization.proofRoot.path)).toBeFalse();
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('common-dir writer excludes worktree unregister and evidence retirement until released', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -392,9 +395,9 @@ test('common-dir writer excludes worktree unregister and evidence retirement unt
     }
     expect((await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository)).retiredOperationIds)
       .toEqual([authorization.operationId]);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('empty ignored documentation coordination retirement requires native writer exclusion', async () => {
@@ -440,7 +443,7 @@ test('empty ignored documentation coordination retirement requires native writer
 test('nonempty documentation coordination state rejects closeout without deleting the leaf', async () => {
   const value = fixture({ documentationCoordination: true });
   const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(path.dirname(lock));
     writeFileSync(lock, 'x');
     await expect(prepareWorktreePhysicalCloseout({
@@ -453,15 +456,15 @@ test('nonempty documentation coordination state rejects closeout without deletin
     }, worktreePhysicalCloseoutOperations)).rejects.toThrow('refuses nonempty state');
     expect(readFileSync(lock, 'utf8')).toBe('x');
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('non-file documentation coordination state rejects closeout without deleting the leaf', async () => {
   const value = fixture({ documentationCoordination: true });
   const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(lock, { recursive: true });
     await expect(prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
@@ -473,14 +476,14 @@ test('non-file documentation coordination state rejects closeout without deletin
     }, worktreePhysicalCloseoutOperations)).rejects.toThrow();
     expect(existsSync(lock)).toBeTrue();
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('completed worktree GC rejects unknown operation evidence instead of deleting it', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -507,9 +510,9 @@ test('completed worktree GC rejects unknown operation evidence instead of deleti
     expect(existsSync(unknown)).toBeTrue();
     expect(existsSync(operationRoot)).toBeTrue();
     expect(existsSync(authorization.proofRoot.path)).toBeTrue();
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('one branch settlement retires completed current worktree evidence it makes eligible', async () => {
@@ -600,7 +603,7 @@ test('one branch settlement retires completed current worktree evidence it makes
 
 test('prepared worktree evidence remains a recovery root', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -619,14 +622,14 @@ test('prepared worktree evidence remains a recovery root', async () => {
     expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
     expect(existsSync(authorization.proofRoot.path)).toBeTrue();
     expect(existsSync(value.target)).toBeTrue();
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('fieldless historical proofless residue converges only from exact durable absence readback', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const prepared = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -849,15 +852,15 @@ test('fieldless historical proofless residue converges only from exact durable a
     expect(gc.retained).toEqual([]);
     expect(gc.ownerRetired).toBeTrue();
     expect(existsSync(operationRoot)).toBeFalse();
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test.skipIf(process.platform !== 'win32')('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
   const value = fixture();
   const externalTarget = path.join(value.root, 'external-junction-target');
-  try {
+  await settleWorkspaceCallback(async () => {
     const junctionPath = path.join(value.target, 'tracked-junction');
     mkdirSync(junctionPath);
     writeFileSync(path.join(junctionPath, 'sentinel.txt'), 'external target survives\n');
@@ -924,9 +927,9 @@ test.skipIf(process.platform !== 'win32')('authorized externally unregistered wo
       device: externalTargetIdentity.device,
       inode: externalTargetIdentity.inode
     });
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test.each([false, true])('closeout composes provider retirement for an automatically reused dependency locator (detached=%s)', async (detached) => {
@@ -1115,7 +1118,7 @@ test.skipIf(process.platform !== 'win32')('Windows real closeout streams a large
 test('first same-branch completed token remains target-valid after a second registered worktree closes', async () => {
   const value = fixture();
   const secondTarget = path.join(value.root, 'candidate-second');
-  try {
+  await settleWorkspaceCallback(async () => {
     // Git normally refuses a second checkout of the same branch.  This is the
     // real registry shape that exercises historical target-specific tokens:
     // both registrations name the same branch/head/tree but have independent
@@ -1159,9 +1162,9 @@ test('first same-branch completed token remains target-valid after a second regi
     }).receiptDigest).toBe(firstReceipt.receiptDigest);
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(secondTarget)}`);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test('dependency owner retires settled compiler staging intents in a linked worktree', async () => {
@@ -1301,7 +1304,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
 
 test('self-signed unregister receipt cannot elevate a token without this-process retained admin effect', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const prepared = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1354,15 +1357,15 @@ test('self-signed unregister receipt cannot elevate a token without this-process
     })).toThrow('did not witness this process-held retirement, admin effect, and completed receipt issuance');
     void ignoredSchema;
     void ignoredDigest;
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test('dirty untracked and ignored targets block before durable authorization or unregister', async () => {
   for (const kind of ['dirty', 'untracked', 'ignored'] as const) {
     const value = fixture();
-    try {
+    await settleWorkspaceCallback(async () => {
       if (kind === 'dirty') writeFileSync(path.join(value.target, 'tracked.txt'), 'dirty\n', 'utf8');
       if (kind === 'untracked') writeFileSync(path.join(value.target, 'untracked.txt'), 'unknown\n', 'utf8');
       if (kind === 'ignored') {
@@ -1385,15 +1388,15 @@ test('dirty untracked and ignored targets block before durable authorization or 
       ).rejects.toThrow('working-state-not-clean');
       expect(existsSync(value.target)).toBe(true);
       expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-    } finally {
+    }, async () => {
       rmSync(value.root, { recursive: true, force: true });
-    }
+    });
   }
 }, 60_000);
 
 test('an unregistered physical orphan cannot be adopted or removed', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     git(value.repository, ['worktree', 'remove', value.target]);
     mkdirSync(value.target);
     writeFileSync(path.join(value.target, 'orphan.txt'), 'orphan\n', 'utf8');
@@ -1408,14 +1411,14 @@ test('an unregistered physical orphan cannot be adopted or removed', async () =>
       }, worktreePhysicalCloseoutOperations)
     ).rejects.toThrow('unknown historical orphans cannot be adopted');
     expect(existsSync(value.target)).toBe(true);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('prepared token cannot be promoted by a caller-completed public retirement phase and receipt chain', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const prepared = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1438,14 +1441,14 @@ test('prepared token cannot be promoted by a caller-completed public retirement 
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
     })).toThrow('did not witness this process-held retirement');
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('trusted closeout consumption rejects a deleted or replaced retained proof ledger', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const prepared = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1475,14 +1478,14 @@ test('trusted closeout consumption rejects a deleted or replaced retained proof 
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
     })).toThrow();
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('foreign retained-proof content blocks execute and leaves the retirement fence intact', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1499,14 +1502,14 @@ test('foreign retained-proof content blocks execute and leaves the retirement fe
     expect(receipt.terminal).toBe('blocked');
     expect(receipt.blockers.some((blocker) => blocker.startsWith('retirement-proof-final-readback-invalid:'))).toBe(true);
     expect(readdirSync(path.dirname(value.target)).some((name) => /^\.workspace-write-lease-retired-[0-9a-f]{64}\.json$/u.test(name))).toBe(true);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test.skipIf(process.platform !== 'win32')('physical residue retry advances immutable receipt generation without erasing the first attempt', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -1572,14 +1575,14 @@ test.skipIf(process.platform !== 'win32')('physical residue retry advances immut
       generation: `receipt-${second.receiptDigest.slice('sha256:'.length)}.json`,
       receiptDigest: second.receiptDigest
     });
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test('execute resumes an exact operation tombstone and never deletes a rebuilt original path', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1619,15 +1622,15 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
       expect(blocked.terminal).toBe('blocked');
       expect(readFileSync(path.join(second.target, 'new-owner.txt'), 'utf8')).toBe('must survive\n');
     } finally { rmSync(second.root, { recursive: true, force: true }); }
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test('retired target phase resumes before unregister and rejects registry disappearance without an effect witness', async () => {
   for (const crashBoundary of ['before-unregister', 'after-unregister'] as const) {
     const value = fixture();
-    try {
+    await settleWorkspaceCallback(async () => {
       const authorization = await prepareWorktreePhysicalCloseout({
         repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
         expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1656,15 +1659,15 @@ test('retired target phase resumes before unregister and rejects registry disapp
         expect(existsSync(tombstone)).toBe(false);
       }
       expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
-    } finally {
+    }, async () => {
       rmSync(value.root, { recursive: true, force: true });
-    }
+    });
   }
 }, 60_000);
 
 test('a rebuilt original path survives retained registry-admin deletion without a Git path effect', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1682,14 +1685,14 @@ test('a rebuilt original path survives retained registry-admin deletion without 
     expect(existsSync(path.join(value.target, 'new-owner.txt'))).toBe(true);
     expect(existsSync(tombstone)).toBe(false);
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test('locked worktree and target-root replacement fail closed before unregister', async () => {
   const locked = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     git(locked.repository, ['worktree', 'lock', locked.target]);
     await expect(
       prepareWorktreePhysicalCloseout({
@@ -1702,9 +1705,9 @@ test('locked worktree and target-root replacement fail closed before unregister'
       }, worktreePhysicalCloseoutOperations)
     ).rejects.toThrow('target-is-locked');
     expect(gitPath(git(locked.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(locked.target)}`);
-  } finally {
+  }, async () => {
     rmSync(locked.root, { recursive: true, force: true });
-  }
+  });
 
   const replaced = fixture();
   const outside = mkdtempSync(path.join(tmpdir(), 'sec-worktree-outside-sentinel-'));

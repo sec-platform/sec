@@ -166,7 +166,7 @@ describe('import organizer selection', () => {
 
 test('candidate and full scopes compile different immutable exact plans', async () => {
     const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-base-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       const git = (args: readonly string[]): string => {
         const result = spawnSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
         if (result.status !== 0) throw new Error(result.stderr);
@@ -250,9 +250,9 @@ test('candidate and full scopes compile different immutable exact plans', async 
       git(['update-ref', '-d', 'refs/remotes/origin/main']);
       expect(() => resolveCandidateImportBase(repoRoot, undefined, {}))
         .toThrow('Candidate import base is unavailable');
-    } finally {
+    }, async () => {
       await rm(repoRoot, { recursive: true, force: true });
-    }
+    });
   });
 });
 

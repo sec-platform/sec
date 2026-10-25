@@ -146,7 +146,7 @@ test('tracked candidate drift retains both the candidate and owner marker at clo
 
 test.skipIf(process.platform !== 'linux')('settled native checkout failure cannot be adopted without exact candidate readback', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const blob = git(value.root, 'rev-parse', 'HEAD:source.txt');
     const treeResult = spawnSync('git', ['mktree'], {
       cwd: value.root, env: canonicalGitChildEnvironment(), encoding: 'utf8',
@@ -165,7 +165,9 @@ test.skipIf(process.platform !== 'linux')('settled native checkout failure canno
     const registered = git(value.root, 'worktree', 'list', '--porcelain').includes(`worktree ${target}\n`);
     expect(registered).toBe(existsSync(target));
     if (registered) expect(git(target, 'status', '--porcelain=v1')).not.toBe('');
-  } finally { rmSync(value.ownedRoot, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(value.ownedRoot, { recursive: true, force: true });
+  });
 }, 30_000);
 
 test('prepared acquisition failure remains retryable with native reuse and exact closeout', async () => {

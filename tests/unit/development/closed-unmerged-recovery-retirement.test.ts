@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -262,7 +263,7 @@ async function retireWithGitHubObservation(
 
 test('closed-unmerged terminal retires its exact recovery family and default empty root', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const settlement = await completed(value);
     const result = await retireWithGitHubObservation(value, settlement);
     expect(result.status).toBe('completed');
@@ -281,14 +282,14 @@ test('closed-unmerged terminal retires its exact recovery family and default emp
       failure: null
     });
     expect(existsSync(value.recoveryRoot)).toBe(false);
-  } finally {
+  }, async () => {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('completed native main absorption retires its proof and preparation without a bundle checksum', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const mainSha = value.inventory.main.remoteSha!;
     const headSha = value.inventory.pullRequests[0]!.headSha!;
     git(value.root, ['update-ref', 'refs/remotes/origin/main', mainSha]);
@@ -318,14 +319,14 @@ test('completed native main absorption retires its proof and preparation without
     expect(result.status).toBe('completed');
     expect(result.retired).toEqual([recovery.path, `${recovery.path}.preparation.json`]);
     expect(existsSync(value.recoveryRoot)).toBe(false);
-  } finally {
+  }, async () => {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('retirement rejects copied settlement and unknown family consumer before the first delete', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const settlement = await completed(value);
     for (const mode of ['copy', 'sidecar'] as const) {
       if (mode === 'sidecar') writeFileSync(`${value.bundlePath}.consumer.json`, '{}\n', 'utf8');
@@ -339,14 +340,14 @@ test('retirement rejects copied settlement and unknown family consumer before th
       expect(existsSync(`${value.bundlePath}.sha256`)).toBe(true);
       expect(existsSync(`${value.bundlePath}.preparation.json`)).toBe(true);
     }
-  } finally {
+  }, async () => {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('ordered partial retirement resumes safely and preserves an explicit shared root', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const settlement = await completed(value);
     unlinkSync(value.bundlePath);
     const result = await retireWithGitHubObservation(value, {
@@ -360,14 +361,14 @@ test('ordered partial retirement resumes safely and preserves an explicit shared
     expect(result.retained).toEqual([]);
     expect(result.recoveryRootRetired).toBe(false);
     expect(existsSync(value.recoveryRoot)).toBe(true);
-  } finally {
+  }, async () => {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('matching unknown journal preserves recovery before and after an absent-root continuation', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const settlement = await completed(value);
     const headSha = value.inventory.pullRequests[0]!.headSha;
     if (headSha === null) throw new Error('fixture PR head is absent');
@@ -401,14 +402,14 @@ test('matching unknown journal preserves recovery before and after an absent-roo
     await expect(retireWithGitHubObservation(value, settlement))
       .rejects.toThrow(/nonterminal or unknown journal consumers/u);
     expect(existsSync(journalPath)).toBe(true);
-  } finally {
+  }, async () => {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('non-origin prepared remote tracking ref blocks journal and recovery retirement', async () => {
   const value = fixture('upstream');
-  try {
+  await settleWorkspaceCallback(async () => {
     const settlement = await completed(value);
     const headSha = value.inventory.pullRequests[0]!.headSha;
     if (headSha === null) throw new Error('fixture PR head is absent');
@@ -431,7 +432,7 @@ test('non-origin prepared remote tracking ref blocks journal and recovery retire
       .rejects.toThrow(/remote-tracking ref consumer/u);
     expect(existsSync(journalPath)).toBe(true);
     expect(existsSync(value.bundlePath)).toBe(true);
-  } finally {
+  }, async () => {
     rmSync(path.dirname(value.root), { recursive: true, force: true });
-  }
+  });
 }, 30_000);

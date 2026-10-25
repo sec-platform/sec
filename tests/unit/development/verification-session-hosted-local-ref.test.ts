@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -22,7 +23,7 @@ test('hosted local ref consumer admits the native Git delete transaction', async
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-local-ref-'));
   const repositoryRoot = path.join(root, 'repository');
   mkdirSync(repositoryRoot);
-  try {
+  await settleWorkspaceCallback(async () => {
     git(repositoryRoot, ['init', '-b', 'main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
     git(repositoryRoot, ['config', 'user.email', 'sec@example.invalid']);
@@ -64,7 +65,7 @@ test('hosted local ref consumer admits the native Git delete transaction', async
       cwd: repositoryRoot, windowsHide: true
     }).status).toBe(1);
     expect(git(repositoryRoot, ['rev-parse', 'HEAD'])).toBe(headSha);
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);

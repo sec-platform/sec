@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,7 +44,7 @@ tests:
   const put = (name: string, text: string | Uint8Array) => {
     mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), text);
   };
-  try {
+  await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet', '--initial-branch=main']);
     git(root, ['config', 'user.email', 'fixture@example.invalid']); git(root, ['config', 'user.name', 'Fixture']);
     put('README.md', '# fixture\n'); git(root, ['add', '.']); git(root, ['commit', '--quiet', '-m', 'seed']);
@@ -91,7 +92,9 @@ matchingDefaultBlob: none
     git(root, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);
     if (!active) git(root, ['switch', '--quiet', '-c', 'transport/old']);
     await operation(root, mainSha);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 }
 function capability(mainSha: string, requests: string[], afterEffect: () => void = () => {}) {
   return issueGitHubApiTestCapability({ repository: 'sec-platform/sec', token: 'test-session-token-0123456789',

@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -340,7 +341,7 @@ test('read capability observes a closed PR and maintainer v2 comment before issu
 
 test('review issuance rejects a local repository bound to another GitHub origin', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-supersession-foreign-origin-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet', '--initial-branch=main']);
     git(root, ['remote', 'add', 'origin', 'https://github.com/other/repository.git']);
     // Origin admission precedes object and delta reads, so this rejection does
@@ -356,9 +357,9 @@ test('review issuance rejects a local repository bound to another GitHub origin'
     await expect(observe({ fixture, source: reviewSource(fixture) })).rejects.toThrow(
       'Local origin remote differs from the authenticated GitHub repository'
     );
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 

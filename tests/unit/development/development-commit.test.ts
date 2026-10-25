@@ -681,7 +681,7 @@ for (const mode of [
 ] as const) {
   test(`development.commit reads the exact native reflog transition: ${mode}`, async () => {
     const { root } = await fixture();
-    try {
+    await settleWorkspaceCallback(async () => {
       const preimage = git(root, ['rev-parse', 'HEAD']);
       const ref = git(root, ['symbolic-ref', 'HEAD']);
       const tree = git(root, ['write-tree']);
@@ -756,9 +756,9 @@ for (const mode of [
       } finally {
         await hostSession.close?.();
       }
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   });
 }
 

@@ -2286,7 +2286,7 @@ if (process.platform === 'win32') {
   test('Windows terminal-Q cleanup rejects a NEXT that appears after tuple classification', async () => {
     const prepared = await prepareIndexPublishTupleFixture();
     let injected = false;
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(freezeDocumentControlPlane({
         cwd: prepared.fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2312,9 +2312,9 @@ if (process.platform === 'win32') {
       expect(after.tuple.target).toEqual(before.tuple.target);
       expect(after.tuple.next.bytes).toBe(prepared.next.toString('base64'));
       expect(after.tuple.quarantine.present).toBe(false);
-    } finally {
+    }, async () => {
       await prepared.fixture.dispose();
-    }
+    });
   }, 60_000);
 
   test('Windows W3 preserves a later active NEXT without cleanup or publisher effects', async () => {
@@ -2355,7 +2355,7 @@ if (process.platform === 'win32') {
     const pointerStages: DurabilityEvent['stage'][] = [];
     let replacementPath: string | undefined;
     let heldPublishedPath: string | undefined;
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2384,9 +2384,9 @@ if (process.platform === 'win32') {
       expect(await readFile(heldPublishedPath!)).toEqual(Buffer.from(journal.files.pointer.next, 'base64'));
       expect(pointerStages).toEqual(['renamed']);
       expect(pointerRenameLabels).toEqual(['Active pointer PRE quarantine', 'Active pointer NEXT install']);
-    } finally {
+    }, async () => {
       await fixture.dispose();
-    }
+    });
   }, 60_000);
 }
 
@@ -2737,7 +2737,7 @@ if (process.platform === 'linux') {
     const fixture = await createFreezeFixture();
     const fault = new Error('Injected Linux journal S1 fault');
     let selectedHooks = 0;
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2787,16 +2787,16 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    } finally {
+    }, async () => {
       await fixture.dispose();
-    }
+    });
   }, 60_000);
 
   test('Linux S1 pointer projection proves target identity and rolls the writeAtomicCas family forward', async () => {
     const fixture = await createFreezeFixture();
     const fault = new Error('Injected Linux pointer S1 fault');
     let selectedHooks = 0;
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2843,16 +2843,16 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    } finally {
+    }, async () => {
       await fixture.dispose();
-    }
+    });
   }, 60_000);
 
   test('Linux S1 Git index recovery preserves PRE identity and completes without a competing projection', async () => {
     const fixture = await createFreezeFixture();
     const fault = new Error('Injected Linux Git index S1 fault');
     let selectedHooks = 0;
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2902,9 +2902,9 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    } finally {
+    }, async () => {
       await fixture.dispose();
-    }
+    });
   }, 60_000);
 
   test('Linux S1 terminal journal witness remains in-progress and recovers the same operation idempotently', async () => {
@@ -3143,7 +3143,7 @@ if (process.platform === 'linux') {
 
 test('read-only status isolates hostile ambient Git state and preserves the exact raw index', async () => {
   const fixture = await createFreezeFixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3266,9 +3266,9 @@ test('read-only status isolates hostile ambient Git state and preserves the exac
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
     expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  } finally {
+  }, async () => {
     await fixture.dispose();
-  }
+  });
 }, 60_000);
 
 test('same-tree raw index stat drift is a semantic NOOP without effects', async () => {
@@ -3468,7 +3468,7 @@ test('journal residue census blocks an unbound direct entry beside canonical ter
 test('journal residue census double-read blocks a raced residue replacement and preserves its bytes', async () => {
   const fixture = await createFreezeFixture();
   const replacement = Buffer.from('raced replacement residue bytes\n', 'utf8');
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3502,9 +3502,9 @@ test('journal residue census double-read blocks a raced residue replacement and 
     expect(raced).toBe(true);
     expect(await readFile(residuePath)).toEqual(replacement);
     if (process.platform === 'linux') expect(await readFile(companionPath)).toEqual(Buffer.from(original));
-  } finally {
+  }, async () => {
     await fixture.dispose();
-  }
+  });
 }, 60_000);
 
 test('closed-world transaction census blocks an orphan partial temporary index without journal authority', async () => {
@@ -4139,7 +4139,7 @@ test('entry CAS preserves a target materialized after PRE quarantine', async () 
   let nextSourcePath: string | undefined;
   const preRecoveryPaths: string[] = [];
   let injected = false;
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4168,9 +4168,9 @@ test('entry CAS preserves a target materialized after PRE quarantine', async () 
     for (const recoveryPath of preRecoveryPaths) {
       expect(await readFile(recoveryPath)).toEqual(pre);
     }
-  } finally {
+  }, async () => {
     await fixture.dispose();
-  }
+  });
 }, 60_000);
 
 if (process.platform === 'linux') {
@@ -4179,7 +4179,7 @@ if (process.platform === 'linux') {
     const unknown = Buffer.from('unknown Linux source collision bytes\n', 'utf8');
     let originalNextPath: string | undefined;
     let heldNextPath: string | undefined;
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -4200,9 +4200,9 @@ if (process.platform === 'linux') {
         'utf8'
       )) as { files: { pointer: { next: string } } };
       expect(await readFile(heldNextPath!)).toEqual(Buffer.from(journal.files.pointer.next, 'base64'));
-    } finally {
+    }, async () => {
       await fixture.dispose();
-    }
+    });
   }, 60_000);
 }
 
@@ -4211,7 +4211,7 @@ test('journal entry CAS preserves a concurrently materialized unknown canonical 
   const unknown = Buffer.from('unknown canonical journal collision\n', 'utf8');
   let journalPath: string | undefined;
   let nextPath: string | undefined;
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4228,9 +4228,9 @@ test('journal entry CAS preserves a concurrently materialized unknown canonical 
     expect(nextPath).toBeDefined();
     expect(await readFile(journalPath!)).toEqual(unknown);
     expect(JSON.parse(await readFile(nextPath!, 'utf8'))).toMatchObject({ phase: 'prepared' });
-  } finally {
+  }, async () => {
     await fixture.dispose();
-  }
+  });
 }, 60_000);
 
 test('journal entry CAS blocks a name-swapped temporary NEXT source and preserves both entries', async () => {
@@ -4239,7 +4239,7 @@ test('journal entry CAS blocks a name-swapped temporary NEXT source and preserve
   let journalPath: string | undefined;
   let nextPath: string | undefined;
   let heldPath: string | undefined;
-  try {
+  await settleWorkspaceCallback(async () => {
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4260,9 +4260,9 @@ test('journal entry CAS blocks a name-swapped temporary NEXT source and preserve
     await expect(readFile(journalPath!)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(nextPath!)).toEqual(unknown);
     expect(JSON.parse(await readFile(heldPath!, 'utf8'))).toMatchObject({ phase: 'prepared' });
-  } finally {
+  }, async () => {
     await fixture.dispose();
-  }
+  });
 }, 60_000);
 
 if (process.platform === 'win32') {
@@ -4272,7 +4272,7 @@ if (process.platform === 'win32') {
     let cleanupPath: string | undefined;
     let heldPath: string | undefined;
     let heldBytes: Buffer | undefined;
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -4290,9 +4290,9 @@ if (process.platform === 'win32') {
       expect(heldPath).toBeDefined();
       expect(await readFile(cleanupPath!)).toEqual(unknown);
       expect((await readFile(heldPath!)).equals(heldBytes!)).toBe(true);
-    } finally {
+    }, async () => {
       await fixture.dispose();
-    }
+    });
   }, 60_000);
 }
 
@@ -4589,7 +4589,7 @@ if (process.platform === 'win32') {
 
 test('freeze preserves untracked work and joins directory, publication and parent barriers', async () => {
   const fixture = await createFreezeFixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     await rm(path.join(fixture.repositoryRoot, '.tmp'), { recursive: true, force: true });
     await writeFile(path.join(fixture.repositoryRoot, 'user-notes.txt'), 'preserve me\n', 'utf8');
     const orderedEvents: string[] = [];
@@ -4662,9 +4662,9 @@ test('freeze preserves untracked work and joins directory, publication and paren
         expect(path.relative(renamed.targetPath, event.targetPath)).toBe('');
       }
     }
-  } finally {
+  }, async () => {
     await fixture.dispose();
-  }
+  });
 }, 30_000);
 
 test('unsupported parent barrier fails typed before index advancement and remains recoverable', async () => {

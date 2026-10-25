@@ -110,7 +110,7 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
 
 test('trusted Git reads isolate ambient config and alternate index injection', async () => {
   const root = await createRepository('sec-dev-git-config-isolation-');
-  try {
+  await settleWorkspaceCallback(async () => {
     const alternateIndex = path.join(root, '.git', 'outside.index');
     const hostileEnvironment = { ...process.env, GIT_INDEX_FILE: alternateIndex };
     const emptyIndex = spawnSync('git', ['read-tree', '--empty'], {
@@ -157,9 +157,9 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
     });
     expect(await fs.readFile(alternateIndex)).toEqual(alternateIndexBytes);
     expect(await fs.readFile(path.join(root, '.git', 'index'))).toEqual(canonicalIndexBytes);
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('exact committed blobs and attribute policy are isolated from .git/info/attributes overrides', async () => {
@@ -283,7 +283,7 @@ test('worktree settlement distinguishes settled, dirty, and untracked without fa
 
 test('repository mutation fence preserves dirty candidates and detects tracked, index, and untracked changes', async () => {
   const root = await createRepository('sec-dev-mutation-fence-');
-  try {
+  await settleWorkspaceCallback(async () => {
     const changed = await withRepositoryFinalStateObservation(
       root,
       compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
@@ -313,9 +313,9 @@ test('repository mutation fence preserves dirty candidates and detects tracked, 
     expect(current.receipt.providerIdentityDigest).toStartWith('sha256:');
     expect(current.receipt.repositoryRootIdentityDigest).toStartWith('sha256:');
     expect(current.receipt.commonDirectoryIdentityDigest).toStartWith('sha256:');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform === 'win32')(
@@ -324,7 +324,7 @@ test.skipIf(process.platform === 'win32')(
     const root = await createRepository('sec-dev-observer-unavailable-');
     const diagnostics: string[] = [];
     let called = false;
-    try {
+    await settleWorkspaceCallback(async () => {
       const result = await runRepositoryZeroWriteOperation('test:unsupported', async () => {
         called = true;
         return 0;
@@ -342,9 +342,9 @@ test.skipIf(process.platform === 'win32')(
       expect(diagnostics[0]).toContain(`(${reason})`);
       expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8'))
         .toBe('export const committed = true;\n');
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }
 );
 
@@ -352,7 +352,7 @@ test.skipIf(process.platform !== 'win32')('repository mutation operation fence t
   const root = await createRepository('sec-dev-mutation-operation-');
   const diagnostics: string[] = [];
   let operationCallCount = 0;
-  try {
+  await settleWorkspaceCallback(async () => {
     const result = await runRepositoryZeroWriteOperation(
       'test:fixture',
       async () => {
@@ -384,9 +384,9 @@ test.skipIf(process.platform !== 'win32')('repository mutation operation fence t
     expect(['added', 'modified']).toContain(diagnostic.firstEvent.action);
     expect(diagnostic.observationDigest).toStartWith('sha256:');
     expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8')).toBe('export const escaped = true;\n');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('repository observer diagnostics preserve non-event failure boundaries without invented paths', () => {
@@ -404,7 +404,7 @@ test('repository observer diagnostics preserve non-event failure boundaries with
 
 test.skipIf(process.platform !== 'win32')('repository mutation fence shares one process ledger with a nested Git admission', async () => {
   const root = await createRepository('sec-dev-mutation-shared-ledger-');
-  try {
+  await settleWorkspaceCallback(async () => {
     const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
     let nestedSessionReady = false;
     const result = await runRepositoryZeroWriteOperation(
@@ -431,9 +431,9 @@ test.skipIf(process.platform !== 'win32')('repository mutation fence shares one 
     );
     expect(result).toBe(0);
     expect(nestedSessionReady).toBe(true);
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform === 'win32')('tracked governed symlink cannot be followed and reported as settled', async () => {
