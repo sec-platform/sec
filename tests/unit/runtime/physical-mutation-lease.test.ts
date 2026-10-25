@@ -191,18 +191,22 @@ for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaim
 
 test('coordinator exit cannot reclaim an external lease or independently owned surviving provider resources', async () => {
   const { root, parent } = fixture();
-  const leaseName = 'materialization-lease.json';
-  const candidate = path.join(parent.path, 'candidate');
-  mkdirSync(candidate);
-  const marker = path.join(candidate, 'partial-layer');
-  const stop = path.join(root, 'stop');
-  const executable = createRawTestExecutableFixture();
-  const effectTimeoutMs = DEFAULT_TEST_TIMEOUT_MS - TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS -
-    EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS;
-  const deadlineAtMs = performance.now() + effectTimeoutMs;
-  const remainingMs = () => Math.max(1, Math.ceil(deadlineAtMs - performance.now()));
-  const childPath = path.join(root, 'survivor.ts');
-  writeFileSync(childPath, `
+  let constructionExecutable: ReturnType<typeof createRawTestExecutableFixture> | undefined;
+  let providerStarted = false;
+  await settleWorkspaceCallback(async () => {
+    const leaseName = 'materialization-lease.json';
+    const candidate = path.join(parent.path, 'candidate');
+    mkdirSync(candidate);
+    const marker = path.join(candidate, 'partial-layer');
+    const stop = path.join(root, 'stop');
+    const executable = createRawTestExecutableFixture();
+    constructionExecutable = executable;
+    const effectTimeoutMs = DEFAULT_TEST_TIMEOUT_MS - TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS -
+      EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS;
+    const deadlineAtMs = performance.now() + effectTimeoutMs;
+    const remainingMs = () => Math.max(1, Math.ceil(deadlineAtMs - performance.now()));
+    const childPath = path.join(root, 'survivor.ts');
+    writeFileSync(childPath, `
     import { existsSync, writeFileSync } from 'node:fs';
     let n = 0;
     writeFileSync(${JSON.stringify(marker)}, String(++n));
@@ -212,40 +216,44 @@ test('coordinator exit cannot reclaim an external lease or independently owned s
       await Bun.sleep(10);
     }
   `);
-  const leaseUrl = pathToFileURL(path.resolve(import.meta.dir, '../../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts')).href;
-  const physicalUrl = pathToFileURL(path.resolve(import.meta.dir, '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts')).href;
-  let signalStarted!: () => void;
-  const started = new Promise<void>(resolve => { signalStarted = resolve; });
-  let providerOutput = '';
-  let providerStderr = '';
-  // The provider has its own retained process owner. This witnesses external
-  // effects outliving a coordinator, without claiming OS orphan survival.
-  const provider = runObservedCommand(executable.command, ['--no-env-file', childPath], {
-    cwd: root, timeoutMs: remainingMs(), maxObservedOutputBytes: 4096,
-    onOutput: (stream, bytes) => {
-      if (stream === 'stdout') {
-        providerOutput += Buffer.from(bytes).toString('utf8');
-        if (providerOutput.includes('provider-started\n')) signalStarted();
-      } else providerStderr += Buffer.from(bytes).toString('utf8');
-    }
-  });
-  let providerSettled = false;
-  const waitFor = async (condition: () => boolean): Promise<void> => {
-    while (!condition()) {
-      if (performance.now() >= deadlineAtMs) throw new Error('Provider observation exhausted the canonical test budget');
-      await Bun.sleep(10);
-    }
-  };
-  let hasPrimary = false;
-  let primary: unknown;
-  try {
-    const startup = await Promise.race([
-      started.then(() => ({ status: 'started' as const })),
-      provider.then(outcome => ({ status: 'ended' as const, outcome }))
-    ]);
-    expect(startup).toEqual({ status: 'started' });
-    let coordinatorStderr = '';
-    const coordinator = await runObservedCommand(executable.command, ['--no-env-file', '-e', `
+    const leaseUrl = pathToFileURL(path.resolve(import.meta.dir, '../../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts')).href;
+    const physicalUrl = pathToFileURL(path.resolve(import.meta.dir, '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts')).href;
+    let signalStarted!: () => void;
+    const started = new Promise<void>(resolve => { signalStarted = resolve; });
+    let providerOutput = '';
+    let providerStderr = '';
+    // The provider has its own retained process owner. This witnesses external
+    // effects outliving a coordinator, without claiming OS orphan survival.
+    const providerCommand = executable.command;
+    providerStarted = true;
+    const provider = runObservedCommand(providerCommand, ['--no-env-file', childPath], {
+      cwd: root, timeoutMs: remainingMs(), maxObservedOutputBytes: 4096,
+      onOutput: (stream, bytes) => {
+        if (stream === 'stdout') {
+          providerOutput += Buffer.from(bytes).toString('utf8');
+          if (providerOutput.includes('provider-started\n')) signalStarted();
+        } else providerStderr += Buffer.from(bytes).toString('utf8');
+      }
+    });
+    let providerSettled = false;
+    let coordinatorSettled = true;
+    const waitFor = async (condition: () => boolean): Promise<void> => {
+      while (!condition()) {
+        if (performance.now() >= deadlineAtMs) throw new Error('Provider observation exhausted the canonical test budget');
+        await Bun.sleep(10);
+      }
+    };
+    let hasPrimary = false;
+    let primary: unknown;
+    try {
+      const startup = await Promise.race([
+        started.then(() => ({ status: 'started' as const })),
+        provider.then(outcome => ({ status: 'ended' as const, outcome }))
+      ]);
+      expect(startup).toEqual({ status: 'started' });
+      let coordinatorStderr = '';
+      coordinatorSettled = false;
+      const coordinator = await runObservedCommand(executable.command, ['--no-env-file', '-e', `
     import { acquirePhysicalMutationLease } from ${JSON.stringify(leaseUrl)};
     import { inspectNoFollowDirectoryChain } from ${JSON.stringify(physicalUrl)};
     const parent = inspectNoFollowDirectoryChain(${JSON.stringify(parent.path)}).target;
@@ -254,48 +262,61 @@ test('coordinator exit cannot reclaim an external lease or independently owned s
     console.log(JSON.stringify(lease.owner));
     process.exit(0);
   `], { cwd: root, timeoutMs: remainingMs(), maxObservedOutputBytes: 4096,
-      onOutput: (stream, bytes) => { if (stream === 'stderr') coordinatorStderr += Buffer.from(bytes).toString('utf8'); } });
-    expect(coordinator).toMatchObject({ status: 'exited', exitCode: 0,
-      termination: { childCloseObserved: true, streamsDrained: true, treeClosed: true } });
-    expect(coordinatorStderr).toBe('');
-    const before = readFileSync(path.join(parent.path, leaseName));
-    await waitFor(() => existsSync(marker));
-    const first = readFileSync(marker, 'utf8');
-    await waitFor(() => readFileSync(marker, 'utf8') !== first);
-    let probes = 0;
-    expect(acquirePhysicalMutationLease(parent, leaseName, { now: () => Date.now() + 60000,
-      processAlive: () => { probes += 1; return 'dead'; }
-    })).toBeNull();
-    expect(probes).toBe(0);
-    expect(readFileSync(path.join(parent.path, leaseName))).toEqual(before);
-    expect(existsSync(candidate)).toBe(true);
-    expect(existsSync(marker)).toBe(true);
-  } catch (error) {
-    hasPrimary = true;
-    primary = error;
-  } finally {
-    const settlementFailures: unknown[] = [];
-    try { writeFileSync(stop, 'stop'); } catch (error) { settlementFailures.push(error); }
-    try {
-      const terminal = await provider;
-      providerSettled = terminal.termination.childCloseObserved &&
-        terminal.termination.streamsDrained && terminal.termination.treeClosed;
-      expect(terminal).toMatchObject({ status: 'exited', exitCode: 0,
+        onOutput: (stream, bytes) => { if (stream === 'stderr') coordinatorStderr += Buffer.from(bytes).toString('utf8'); } });
+      coordinatorSettled = coordinator.termination.treeClosed && coordinator.termination.streamsDrained &&
+        (!coordinator.started || coordinator.termination.childCloseObserved);
+      expect(coordinator).toMatchObject({ status: 'exited', exitCode: 0,
         termination: { childCloseObserved: true, streamsDrained: true, treeClosed: true } });
-      expect(providerStderr).toBe('');
-    } catch (settlement) {
-      settlementFailures.push(settlement);
+      expect(coordinatorStderr).toBe('');
+      const before = readFileSync(path.join(parent.path, leaseName));
+      await waitFor(() => existsSync(marker));
+      const first = readFileSync(marker, 'utf8');
+      await waitFor(() => readFileSync(marker, 'utf8') !== first);
+      let probes = 0;
+      expect(acquirePhysicalMutationLease(parent, leaseName, { now: () => Date.now() + 60000,
+        processAlive: () => { probes += 1; return 'dead'; }
+      })).toBeNull();
+      expect(probes).toBe(0);
+      expect(readFileSync(path.join(parent.path, leaseName))).toEqual(before);
+      expect(existsSync(candidate)).toBe(true);
+      expect(existsSync(marker)).toBe(true);
+    } catch (error) {
+      hasPrimary = true;
+      primary = error;
+    } finally {
+      const settlementFailures: unknown[] = [];
+      try { writeFileSync(stop, 'stop'); } catch (error) { settlementFailures.push(error); }
+      try {
+        const terminal = await provider;
+        providerSettled = terminal.termination.childCloseObserved &&
+          terminal.termination.streamsDrained && terminal.termination.treeClosed;
+        expect(terminal).toMatchObject({ status: 'exited', exitCode: 0,
+          termination: { childCloseObserved: true, streamsDrained: true, treeClosed: true } });
+        expect(providerStderr).toBe('');
+      } catch (settlement) {
+        settlementFailures.push(settlement);
+      }
+      if (providerSettled && coordinatorSettled) {
+        try { executable.dispose(); } catch (error) { settlementFailures.push(error); }
+        try { rmSync(root, { recursive: true, force: true }); } catch (error) { settlementFailures.push(error); }
+      }
+      if (!providerSettled || !coordinatorSettled) {
+        settlementFailures.push(new Error(`Provider or coordinator termination is unresolved; root retained: ${root}`));
+      }
+      if (settlementFailures.length > 0) {
+        throw new AggregateError(hasPrimary ? [primary, ...settlementFailures] : settlementFailures,
+          'Provider fixture observation or settlement failed.', hasPrimary ? { cause: primary } : undefined);
+      }
     }
-    if (providerSettled) {
-      try { executable.dispose(); } catch (error) { settlementFailures.push(error); }
-      try { rmSync(root, { recursive: true, force: true }); } catch (error) { settlementFailures.push(error); }
+    if (hasPrimary) throw primary;
+  }, async () => {
+    if (!providerStarted) {
+      settleResources({ cleanup: [
+        { label: 'unstarted provider executable', settle: () => constructionExecutable?.dispose() },
+        { label: 'unstarted provider root', settle: () => rmSync(root, { recursive: true, force: true }) }
+      ] });
     }
-    if (settlementFailures.length > 0) {
-      throw new AggregateError(hasPrimary ? [primary, ...settlementFailures] : settlementFailures,
-        'Provider fixture observation or settlement failed.', hasPrimary ? { cause: primary } : undefined);
-    }
-  }
-  if (hasPrimary) throw primary;
+  });
 }, DEFAULT_TEST_TIMEOUT_MS);
 
 test.skipIf(process.platform !== 'win32')('physical CAS recovers after native child exit at each durable transition', async () => {
@@ -305,6 +326,7 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
     ['after-candidate-publication', 'new\n', 'completed']
   ] as const) {
     const { root, parent } = fixture();
+    let rootMayBeRetired = true;
     await settleWorkspaceCallback(async () => {
       const finalPath = path.join(parent.path, 'owner.json');
       writeFileSync(finalPath, 'old\n');
@@ -320,17 +342,30 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
           windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(${JSON.stringify(point)}, () => process.exit(73)) });
         throw new Error('Native exit point was not reached');
       `);
+      rootMayBeRetired = false;
       const child = Bun.spawn([process.execPath, '--no-env-file', scriptPath], {
         cwd: root, stdout: 'pipe', stderr: 'pipe', signal: AbortSignal.timeout(20_000)
       });
-      const [code, stdout, stderr] = await Promise.all([
+      const [exit, stdout, stderr] = await Promise.allSettled([
         child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
       ]);
-      expect({ code, stdout, stderr }).toEqual({ code: 73, stdout: '', stderr: '' });
+      // This original CAS-only child does not start descendants. Join both pipe
+      // readers before releasing its root; a rejected exit observation is unknown.
+      rootMayBeRetired = exit.status === 'fulfilled';
+      settleResources({ cleanup: [exit, stdout, stderr].flatMap((result, index) =>
+        result.status === 'rejected'
+          ? [{ label: `CAS child observation ${index}`, settle: () => { throw result.reason; } }]
+          : []) });
+      if (exit.status !== 'fulfilled' || stdout.status !== 'fulfilled' || stderr.status !== 'fulfilled') {
+        throw new Error('CAS child observation did not settle successfully.');
+      }
+      expect({ code: exit.value, stdout: stdout.value, stderr: stderr.value })
+        .toEqual({ code: 73, stdout: '', stderr: '' });
       expect(recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }).status).toBe(status);
       expect(readFileSync(finalPath, 'utf8')).toBe(expected);
       expect(readdirSync(parent.path)).toEqual(['owner.json']);
     }, async () => {
+      if (!rootMayBeRetired) throw new Error(`CAS child termination is unresolved; root retained: ${root}`);
       rmSync(root, { recursive: true, force: true });
     });
   }
@@ -370,9 +405,9 @@ for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaim
 test('terminal journal resources do not exhaust the original physical census after 129 scoped attempts', async () => {
   const { root, parent } = fixture();
   const directory = path.join(parent.path, 'journals');
-  mkdirSync(directory);
-  const fs = createRuntimeStateJournalFileSystem(parent);
   await settleWorkspaceCallback(async () => {
+    mkdirSync(directory);
+    const fs = createRuntimeStateJournalFileSystem(parent);
     await withWorkspaceWriteLease(parent.path, undefined, async token => {
       for (let index = 0; index < 129; index += 1) {
         const file = path.join(directory, `${index.toString(16).padStart(64, '0')}.json`);
@@ -405,7 +440,8 @@ for (const point of ['after-retirement-fence', 'after-payload-removal', 'after-r
     const sourceRoot = path.resolve(import.meta.dir, '../../../src/adapters');
     const url = (name: string) => pathToFileURL(path.join(sourceRoot, name)).href;
     const script = path.join(root, 'retirement-child.ts');
-    writeFileSync(script, `
+    await settleWorkspaceCallback(async () => {
+      writeFileSync(script, `
       import { inspectNoFollowDirectoryChain } from ${JSON.stringify(url('runtime-state/physical/runtime/physical-no-follow.ts'))};
       import { createRuntimeStateJournalFileSystem, prepareRuntimeStateJournalMutation } from ${JSON.stringify(url('runtime-state/workspace-state/journal-filesystem.ts'))};
       import { createJournalRetirementInterruptionActorForTests } from ${JSON.stringify(url('runtime-state/physical/runtime/mutation-lease.ts'))};
@@ -420,7 +456,6 @@ for (const point of ['after-retirement-fence', 'after-payload-removal', 'after-r
       });
       throw new Error('Native retirement interruption was not reached');
     `);
-    await settleWorkspaceCallback(async () => {
       const child = Bun.spawnSync([process.execPath, '--no-env-file', script], {
         cwd: root, stdout: 'pipe', stderr: 'pipe'
       });
