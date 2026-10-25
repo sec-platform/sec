@@ -8,6 +8,7 @@ from .fixtures import declaration
 from source_inventory import (
     load,
     refresh_source_manifest,
+    requirement_projection,
     source_files,
 )
 
@@ -95,15 +96,19 @@ class SourceBoundary(unittest.TestCase):
                                      separators=(',', ':'), allow_nan=False).encode('utf-8')
         expected_digest = hashlib.sha256(encoded_members).hexdigest()
         source_before = {name: (self.root / name).read_bytes() for name in expected_names}
+        projection_names = ('.documentation/source-manifest.json', '.documentation/requirements.json')
+        for name in projection_names:
+            (self.root / name).write_text('{ forged derived content', encoding='utf-8')
         result = refresh_source_manifest(self.root)
         manifest = load(self.root / '.documentation/source-manifest.json')
         baseline = load(self.root / '.documentation/baseline.json')
         self.assertEqual(manifest['members'], expected_members)
         self.assertEqual(manifest['source_set_sha256'], expected_digest)
+        self.assertEqual(load(self.root / '.documentation/requirements.json'),
+                         requirement_projection(self.root))
         self.assertNotIn('source_set_sha256', baseline)
         self.assertEqual(result['source_members'], 3)
         self.assertFalse(result['boundary_written'])
-        projection_names = ('.documentation/source-manifest.json', '.documentation/requirements.json')
         first = {name: (self.root / name).read_bytes() for name in projection_names}
         refresh_source_manifest(self.root)
         self.assertEqual(first, {name: (self.root / name).read_bytes() for name in projection_names})

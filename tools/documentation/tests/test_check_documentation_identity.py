@@ -70,15 +70,6 @@ class DocumentationIdentity(TestCase):
         self.assertEqual(self.capture(), before)
         self.assertNotIn(self.root / s.CACHE_PATH, s.documentation_files(self.root))
 
-    def test_corrupt_derived_indices_never_become_authority(self):
-        before = self.capture()
-        for name in s.PROJECTION_PATHS:
-            self.write(name, '{ forged derived content')
-        self.assertEqual(self.capture(), before)
-        s.refresh_source_manifest(self.root)
-        self.assertEqual(s.load(self.root / s.MANIFEST_PATH), before)
-        self.assertEqual(s.load(self.root / s.REQUIREMENTS_PATH), s.requirement_projection(self.root))
-
     def test_boundary_change_invalidates_identity_even_if_members_are_same(self):
         before = self.capture()
         value = s.load(self.root / s.BASELINE_PATH)

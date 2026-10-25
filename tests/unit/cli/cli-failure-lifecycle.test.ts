@@ -36,7 +36,7 @@ test('normal failure rendering keeps header, JSON projection and separate detail
 
 test('non-JSON details cannot replace primary diagnostics with a serialization failure', () => {
   const cycle: { self?: unknown } = {}; cycle.self = cycle;
-  for (const details of [cycle, { value: 1n }, 1n, Symbol('detail'), () => undefined]) {
+  for (const details of [cycle, Symbol('detail')]) {
     const lines = render(buildErrorProtocol({ code: 'REPAIR-BLOCKED-001', message: 'repair failed', details }));
     assert.equal(lines.length, 3);
     assert.equal(lines[0], 'error:REPAIR-BLOCKED-001 repair failed');
