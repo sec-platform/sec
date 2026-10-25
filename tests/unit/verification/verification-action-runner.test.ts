@@ -52,8 +52,9 @@ import {
   issueProviderSettlementReceipt,
   issueSemanticOperationAttemptContext
 } from '../../../src/execution/operation/semantic.ts';
-import { runRetainedBunTestProcess } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestCommand, runRetainedBunTestProcess } from '../../testkit/process-resource.ts';
 import { retainedCommandFailureTreeClosed } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
+import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
@@ -273,6 +274,7 @@ function fixtureRunner(): VerificationActionRunner {
   return runner;
 }
 
+const repositoryRoots = new Set<string>();
 const runtimeRoots = new Set<string>();
 const actionJournalRoots = new Set<string>();
 const machineCutoverReceiptPaths = new Set<string>();
@@ -310,7 +312,7 @@ async function fixtureLocalDag(...input: Parameters<typeof executeLocalVerificat
 }
 
 afterEach(async () => {
-  // Journal/runtime roots remain owned until every admitted runner has closed.
+  // Repository, journal and runtime roots stay owned until every admitted runner closes.
   await settleResourcesAsync({ cleanup: [...fixtureRunners].map(runner => ({
     label: 'Action runner fixture',
     settle: async () => {
@@ -336,6 +338,8 @@ afterEach(async () => {
   touchedActionKeys.clear();
   for (const runtimeRoot of runtimeRoots) rmSync(runtimeRoot, { recursive: true, force: true });
   runtimeRoots.clear();
+  for (const repositoryRoot of repositoryRoots) rmSync(repositoryRoot, { recursive: true, force: true });
+  repositoryRoots.clear();
 });
 
 function root(): string {
@@ -351,6 +355,7 @@ function root(): string {
     ));
     runtimeRoots.add(workspaceStateRoot);
     mkdirSync(workspaceStateRoot, { recursive: true });
+    repositoryRoots.add(repositoryRoot);
     return repositoryRoot;
   } catch (error) {
     settleResources({ primary: { label: 'Action root construction', error }, cleanup: [
@@ -474,47 +479,37 @@ test('concurrent callers in different execution domains join one physical execut
     expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('terminal');
   } finally {
     release();
-    await settleResourcesAsync({ cleanup: [
-      { label: 'Action runner fixture', settle: () => runner.close() },
-      { label: 'Action runner fixture', settle: () => secondRunner.close() }
-    ] });
-    rmSync(repositoryRoot, { recursive: true, force: true });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('runner completes machine cutover before reusing a workspace terminal without execution', async () => {
   const repositoryRoot = root();
   const runner = fixtureRunner();
-  try {
-    const key = preflightAction('tests/unit/workspace-terminal-cutover.ts');
-    const legacyFs = workspaceJournalFs(repositoryRoot);
-    appendJournalEvent({ fs: legacyFs, action: key, state: 'queued' });
-    appendJournalEvent({ fs: legacyFs, action: key, state: 'running' });
-    appendJournalEvent({
-      fs: legacyFs,
-      action: key,
-      state: 'terminal',
-      terminal: issuedSettlement(key).terminal
-    });
-    let invocations = 0;
-    const result = await runner.execute({
-      repositoryRoot,
-      action: key,
-      plan: cheapPlan(key),
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    });
-    expect(result.disposition).toBe('reused');
-    expect(invocations).toBe(0);
-    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
-      .toBe('terminal');
-    expect(readJournal(legacyFs, key.actionKey).latestState).toBe('terminal');
-  } finally {
-    await runner.close();
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const key = preflightAction('tests/unit/workspace-terminal-cutover.ts');
+  const legacyFs = workspaceJournalFs(repositoryRoot);
+  appendJournalEvent({ fs: legacyFs, action: key, state: 'queued' });
+  appendJournalEvent({ fs: legacyFs, action: key, state: 'running' });
+  appendJournalEvent({
+    fs: legacyFs,
+    action: key,
+    state: 'terminal',
+    terminal: issuedSettlement(key).terminal
+  });
+  let invocations = 0;
+  const result = await runner.execute({
+    repositoryRoot,
+    action: key,
+    plan: cheapPlan(key),
+    executor: () => {
+      invocations += 1;
+      return issuedSettlement(key);
+    }
+  });
+  expect(result.disposition).toBe('reused');
+  expect(invocations).toBe(0);
+  expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
+    .toBe('terminal');
+  expect(readJournal(legacyFs, key.actionKey).latestState).toBe('terminal');
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('equal ActionKeys in distinct workspaces join one machine-global physical claim and terminal', async () => {
@@ -558,12 +553,6 @@ test('equal ActionKeys in distinct workspaces join one machine-global physical c
     expect(secondReadback.terminal).toEqual(firstReadback.terminal);
   } finally {
     release();
-    await settleResourcesAsync({ cleanup: [
-      { label: 'Action runner fixture', settle: () => firstRunner.close() },
-      { label: 'Action runner fixture', settle: () => secondRunner.close() }
-    ] });
-    rmSync(firstRepositoryRoot, { recursive: true, force: true });
-    rmSync(secondRepositoryRoot, { recursive: true, force: true });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -572,47 +561,38 @@ test('distinct ActionKeys retain independent machine-global physical claims', as
   const secondRepositoryRoot = root();
   const firstRunner = fixtureRunner();
   const secondRunner = fixtureRunner();
-  try {
-    const firstKey = preflightAction('tests/unit/global-action-a.ts');
-    const secondKey = preflightAction('tests/unit/global-action-b.ts');
-    let firstInvocations = 0;
-    let secondInvocations = 0;
-    const [first, second] = await Promise.all([
-      firstRunner.execute({
-        repositoryRoot: firstRepositoryRoot,
-        action: firstKey,
-        plan: cheapPlan(firstKey),
-        executor: () => {
-          firstInvocations += 1;
-          return issuedSettlement(firstKey);
-        }
-      }),
-      secondRunner.execute({
-        repositoryRoot: secondRepositoryRoot,
-        action: secondKey,
-        plan: cheapPlan(secondKey),
-        executor: () => {
-          secondInvocations += 1;
-          return issuedSettlement(secondKey);
-        }
-      })
-    ]);
-    expect(firstInvocations).toBe(1);
-    expect(secondInvocations).toBe(1);
-    expect(first.disposition).toBe('executed');
-    expect(second.disposition).toBe('executed');
-    expect(first.terminal?.status).toBe('passed');
-    expect(second.terminal?.status).toBe('passed');
-    expect(readVerificationActionJournal(firstRepositoryRoot, firstKey.actionKey).filePath)
-      .not.toBe(readVerificationActionJournal(secondRepositoryRoot, secondKey.actionKey).filePath);
-  } finally {
-    await settleResourcesAsync({ cleanup: [
-      { label: 'Action runner fixture', settle: () => firstRunner.close() },
-      { label: 'Action runner fixture', settle: () => secondRunner.close() }
-    ] });
-    rmSync(firstRepositoryRoot, { recursive: true, force: true });
-    rmSync(secondRepositoryRoot, { recursive: true, force: true });
-  }
+  const firstKey = preflightAction('tests/unit/global-action-a.ts');
+  const secondKey = preflightAction('tests/unit/global-action-b.ts');
+  let firstInvocations = 0;
+  let secondInvocations = 0;
+  const [first, second] = await Promise.all([
+    firstRunner.execute({
+      repositoryRoot: firstRepositoryRoot,
+      action: firstKey,
+      plan: cheapPlan(firstKey),
+      executor: () => {
+        firstInvocations += 1;
+        return issuedSettlement(firstKey);
+      }
+    }),
+    secondRunner.execute({
+      repositoryRoot: secondRepositoryRoot,
+      action: secondKey,
+      plan: cheapPlan(secondKey),
+      executor: () => {
+        secondInvocations += 1;
+        return issuedSettlement(secondKey);
+      }
+    })
+  ]);
+  expect(firstInvocations).toBe(1);
+  expect(secondInvocations).toBe(1);
+  expect(first.disposition).toBe('executed');
+  expect(second.disposition).toBe('executed');
+  expect(first.terminal?.status).toBe('passed');
+  expect(second.terminal?.status).toBe('passed');
+  expect(readVerificationActionJournal(firstRepositoryRoot, firstKey.actionKey).filePath)
+    .not.toBe(readVerificationActionJournal(secondRepositoryRoot, secondKey.actionKey).filePath);
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('an expired global claim observed from another workspace blocks blind restart', async () => {
@@ -621,515 +601,479 @@ test('an expired global claim observed from another workspace blocks blind resta
   const key = preflightAction('tests/unit/global-expired-claim.ts');
   const ownerFs = journalFs(ownerRepositoryRoot);
   const runner = fixtureRunner();
-  try {
-    expect(acquireVerificationActionClaim({
-      fs: ownerFs,
-      action: key,
-      ownerToken: 'lost-global-owner',
-      now: '2026-08-09T00:00:00.000Z',
-      leaseDurationMs: 1_000
-    }).disposition).toBe('acquired');
-    let invocations = 0;
-    const result = await runner.execute({
-      repositoryRoot: contenderRepositoryRoot,
-      action: key,
-      plan: cheapPlan(key),
-      recordedAt: () => '2026-08-09T00:00:02.000Z',
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    });
-    expect(result.disposition).toBe('blocked');
-    expect(result.reason).toContain('expired physical owner');
-    expect(invocations).toBe(0);
-    expect(readVerificationActionClaim(ownerFs, key.actionKey)?.ownerToken).toBe('lost-global-owner');
-    expect(readVerificationActionJournal(ownerRepositoryRoot, key.actionKey).filePath)
-      .toBe(readVerificationActionJournal(contenderRepositoryRoot, key.actionKey).filePath);
-  } finally {
-    await runner.close();
-    rmSync(ownerRepositoryRoot, { recursive: true, force: true });
-    rmSync(contenderRepositoryRoot, { recursive: true, force: true });
-  }
+  expect(acquireVerificationActionClaim({
+    fs: ownerFs,
+    action: key,
+    ownerToken: 'lost-global-owner',
+    now: '2026-08-09T00:00:00.000Z',
+    leaseDurationMs: 1_000
+  }).disposition).toBe('acquired');
+  let invocations = 0;
+  const result = await runner.execute({
+    repositoryRoot: contenderRepositoryRoot,
+    action: key,
+    plan: cheapPlan(key),
+    recordedAt: () => '2026-08-09T00:00:02.000Z',
+    executor: () => {
+      invocations += 1;
+      return issuedSettlement(key);
+    }
+  });
+  expect(result.disposition).toBe('blocked');
+  expect(result.reason).toContain('expired physical owner');
+  expect(invocations).toBe(0);
+  expect(readVerificationActionClaim(ownerFs, key.actionKey)?.ownerToken).toBe('lost-global-owner');
+  expect(readVerificationActionJournal(ownerRepositoryRoot, key.actionKey).filePath)
+    .toBe(readVerificationActionJournal(contenderRepositoryRoot, key.actionKey).filePath);
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('durable cross-process join waits for the authenticated owner terminal without a second execution', async () => {
   const repositoryRoot = root();
-  try {
-    const key = preflightAction('tests/unit/durable-join.ts');
-    const fs = journalFs(repositoryRoot);
-    const ownerToken = 'durable-owner';
-    const now = new Date().toISOString();
-    const claim = acquireVerificationActionClaim({
+  const key = preflightAction('tests/unit/durable-join.ts');
+  const fs = journalFs(repositoryRoot);
+  const ownerToken = 'durable-owner';
+  const now = new Date().toISOString();
+  const claim = acquireVerificationActionClaim({
+    fs,
+    action: key,
+    ownerToken,
+    now,
+    leaseDurationMs: 5_000
+  });
+  expect(claim.disposition).toBe('acquired');
+  appendJournalEvent({ fs, action: key, state: 'queued', recordedAt: now });
+  appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
+  let physicalExecutions = 0;
+  const joined = fixtureRunner().execute({
+    repositoryRoot,
+    action: key,
+    plan: cheapPlan(key),
+    deadlineAtUnixMs: Date.now() + 4_000,
+    executor: () => {
+      physicalExecutions += 1;
+      return issuedSettlement(key);
+    }
+  });
+  const terminal = issuedSettlement(key);
+  const publish = setTimeout(() => {
+    commitVerificationActionTerminalUnderClaim({
       fs,
       action: key,
       ownerToken,
-      now,
-      leaseDurationMs: 5_000
+      now: new Date().toISOString(),
+      terminal: terminal.terminal,
+      note: 'producer-owned-settlement'
     });
-    expect(claim.disposition).toBe('acquired');
-    appendJournalEvent({ fs, action: key, state: 'queued', recordedAt: now });
-    appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
-    let physicalExecutions = 0;
-    const joined = fixtureRunner().execute({
-      repositoryRoot,
-      action: key,
-      plan: cheapPlan(key),
-      deadlineAtUnixMs: Date.now() + 4_000,
-      executor: () => {
-        physicalExecutions += 1;
-        return issuedSettlement(key);
-      }
-    });
-    const terminal = issuedSettlement(key);
-    const publish = setTimeout(() => {
-      commitVerificationActionTerminalUnderClaim({
-        fs,
-        action: key,
-        ownerToken,
-        now: new Date().toISOString(),
-        terminal: terminal.terminal,
-        note: 'producer-owned-settlement'
-      });
-    }, 500);
-    publish.unref();
+  }, 500);
+  publish.unref();
 
-    let result: Awaited<typeof joined>;
-    try {
-      result = await joined;
-    } finally {
-      clearTimeout(publish);
-    }
-    expect(result).toMatchObject({
-      disposition: 'joined',
-      state: 'terminal',
-      terminal: { status: 'passed' },
-      physicalExecution: false,
-      subordinateSettlement: 'producer-owned-settlement'
-    });
-    expect(physicalExecutions).toBe(0);
+  let result: Awaited<typeof joined>;
+  try {
+    result = await joined;
   } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    clearTimeout(publish);
   }
+  expect(result).toMatchObject({
+    disposition: 'joined',
+    state: 'terminal',
+    terminal: { status: 'passed' },
+    physicalExecution: false,
+    subordinateSettlement: 'producer-owned-settlement'
+  });
+  expect(physicalExecutions).toBe(0);
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('durable cross-process join deadline blocks without polling or a second execution', async () => {
   const repositoryRoot = root();
-  try {
-    const key = preflightAction('tests/unit/durable-join-deadline.ts');
-    const fs = journalFs(repositoryRoot);
-    const now = new Date().toISOString();
-    expect(acquireVerificationActionClaim({
-      fs,
-      action: key,
-      ownerToken: 'durable-owner',
-      now,
-      leaseDurationMs: 5_000
-    }).disposition).toBe('acquired');
-    appendJournalEvent({ fs, action: key, state: 'queued', recordedAt: now });
-    appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
-    let physicalExecutions = 0;
+  const key = preflightAction('tests/unit/durable-join-deadline.ts');
+  const fs = journalFs(repositoryRoot);
+  const now = new Date().toISOString();
+  expect(acquireVerificationActionClaim({
+    fs,
+    action: key,
+    ownerToken: 'durable-owner',
+    now,
+    leaseDurationMs: 5_000
+  }).disposition).toBe('acquired');
+  appendJournalEvent({ fs, action: key, state: 'queued', recordedAt: now });
+  appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
+  let physicalExecutions = 0;
 
-    const result = await fixtureRunner().execute({
-      repositoryRoot,
-      action: key,
-      plan: cheapPlan(key),
-      deadlineAtUnixMs: Date.now() + 50,
-      executor: () => {
-        physicalExecutions += 1;
-        return issuedSettlement(key);
-      }
-    });
+  const result = await fixtureRunner().execute({
+    repositoryRoot,
+    action: key,
+    plan: cheapPlan(key),
+    deadlineAtUnixMs: Date.now() + 50,
+    executor: () => {
+      physicalExecutions += 1;
+      return issuedSettlement(key);
+    }
+  });
 
-    expect(result).toMatchObject({
-      disposition: 'blocked',
-      state: null,
-      terminal: null,
-      physicalExecution: false,
-      reason: 'joined durable Action wait exhausted its absolute deadline'
-    });
-    expect(physicalExecutions).toBe(0);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  expect(result).toMatchObject({
+    disposition: 'blocked',
+    state: null,
+    terminal: null,
+    physicalExecution: false,
+    reason: 'joined durable Action wait exhausted its absolute deadline'
+  });
+  expect(physicalExecutions).toBe(0);
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('independent processes in distinct workspaces share one machine-global physical start', async () => {
   const firstRepositoryRoot = root();
   const secondRepositoryRoot = root();
   const markerPath = path.join(firstRepositoryRoot, 'physical-start.marker');
-  try {
-    const command = [
-      process.execPath,
-      'test',
-      fileURLToPath(import.meta.url),
-      '--test-name-pattern',
-      '^independent process child competes for one durable missing ActionKey claim$'
-    ];
-    const environment = {
-      ...process.env,
-      SEC_VERIFICATION_ACTION_CHILD_MARKER: markerPath
-    };
-    const first = Bun.spawn(command, {
-      cwd: process.cwd(),
-      env: {
-        ...environment,
-        SEC_VERIFICATION_ACTION_CHILD_ROOT: firstRepositoryRoot
-      },
-      stdout: 'pipe',
-      stderr: 'pipe'
-    });
-    const second = Bun.spawn(command, {
-      cwd: process.cwd(),
-      env: {
-        ...environment,
-        SEC_VERIFICATION_ACTION_CHILD_ROOT: secondRepositoryRoot
-      },
-      stdout: 'pipe',
-      stderr: 'pipe'
-    });
-    const firstExit = await first.exited;
-    const secondExit = await second.exited;
-    const firstOutput = `${await new Response(first.stdout).text()}${await new Response(first.stderr).text()}`;
-    const secondOutput = `${await new Response(second.stdout).text()}${await new Response(second.stderr).text()}`;
-    expect(firstExit, firstOutput).toBe(0);
-    expect(secondExit, secondOutput).toBe(0);
-    expect(existsSync(markerPath)).toBe(true);
-    const actionKey = preflightAction('tests/unit/cross-process-action.ts').actionKey;
-    const firstReadback = readVerificationActionJournal(firstRepositoryRoot, actionKey);
-    const secondReadback = readVerificationActionJournal(secondRepositoryRoot, actionKey);
-    expect(firstReadback.filePath).toBe(secondReadback.filePath);
-    expect(firstReadback.latestState).toBe('terminal');
-    expect(secondReadback.terminal).toEqual(firstReadback.terminal);
-  } finally {
-    rmSync(firstRepositoryRoot, { recursive: true, force: true });
-    rmSync(secondRepositoryRoot, { recursive: true, force: true });
-  }
+  const command = [
+    'test',
+    fileURLToPath(import.meta.url),
+    '--test-name-pattern',
+    '^independent process child competes for one durable missing ActionKey claim$'
+  ];
+  const environment = {
+    ...process.env,
+    SEC_VERIFICATION_ACTION_CHILD_MARKER: markerPath
+  };
+  const children = await Promise.allSettled([firstRepositoryRoot, secondRepositoryRoot].map(async repositoryRoot => {
+    const invocation = {};
+    unsettledFixtureScopes.add(invocation);
+    const env = { ...environment, SEC_VERIFICATION_ACTION_CHILD_ROOT: repositoryRoot };
+    if (process.platform === 'linux' || process.platform === 'win32') {
+      try {
+        const result = await runRetainedBunTestCommand(command, { cwd: process.cwd(), env });
+        unsettledFixtureScopes.delete(invocation);
+        return { exitCode: result.terminal.exitCode, output: `${result.stdout}${result.stderr}` };
+      } catch (error) {
+        if (retainedCommandFailureTreeClosed(error) === true) unsettledFixtureScopes.delete(invocation);
+        throw error;
+      }
+    }
+    // Preserve the existing raw-test qualification on other hosts. This fixed
+    // child runs only the non-process executor above; exit 0 includes its
+    // afterEach runner.close(). This is not a general process-tree witness.
+    const executable = createRawTestExecutableFixture();
+    try {
+      const child = Bun.spawn([executable.command, ...command], {
+        cwd: process.cwd(), env, stdout: 'pipe', stderr: 'pipe'
+      });
+      const joined = await Promise.allSettled([
+        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
+      ] as const);
+      const [exit, stdout, stderr] = joined;
+      if (exit.status === 'rejected') throw exit.reason;
+      if (stdout.status === 'rejected') throw stdout.reason;
+      if (stderr.status === 'rejected') throw stderr.reason;
+      if (exit.value === 0) unsettledFixtureScopes.delete(invocation);
+      return { exitCode: exit.value, output: `${stdout.value}${stderr.value}` };
+    } finally {
+      executable.dispose();
+    }
+  }));
+  // Join both admissions even if either spawn, transport or stream fails.
+  const first = children[0]!;
+  const second = children[1]!;
+  if (first.status === 'rejected') throw first.reason;
+  if (second.status === 'rejected') throw second.reason;
+  const { exitCode: firstExit, output: firstOutput } = first.value;
+  const { exitCode: secondExit, output: secondOutput } = second.value;
+  expect(firstExit, firstOutput).toBe(0);
+  expect(secondExit, secondOutput).toBe(0);
+  expect(existsSync(markerPath)).toBe(true);
+  const actionKey = preflightAction('tests/unit/cross-process-action.ts').actionKey;
+  const firstReadback = readVerificationActionJournal(firstRepositoryRoot, actionKey);
+  const secondReadback = readVerificationActionJournal(secondRepositoryRoot, actionKey);
+  expect(firstReadback.filePath).toBe(secondReadback.filePath);
+  expect(firstReadback.latestState).toBe('terminal');
+  expect(secondReadback.terminal).toEqual(firstReadback.terminal);
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('caller-forged terminal-passed state without a journal fact cannot start an expensive action', async () => {
   const repositoryRoot = root();
-  try {
-    const key = action('missing-machine-preflight-fact');
-    let invocations = 0;
-    const result = await fixtureRunner().execute({
-      repositoryRoot,
-      action: key,
-      plan: runnablePlan(key),
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    });
-    expect(result.disposition).toBe('blocked');
-    expect(result.reason).toContain('is unknown');
-    expect(invocations).toBe(0);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const key = action('missing-machine-preflight-fact');
+  let invocations = 0;
+  const result = await fixtureRunner().execute({
+    repositoryRoot,
+    action: key,
+    plan: runnablePlan(key),
+    executor: () => {
+      invocations += 1;
+      return issuedSettlement(key);
+    }
+  });
+  expect(result.disposition).toBe('blocked');
+  expect(result.reason).toContain('is unknown');
+  expect(invocations).toBe(0);
 });
 
 test('fresh terminal success reuses without execution and terminal failure never becomes PASS', async () => {
   const repositoryRoot = root();
-  try {
-    const runner = fixtureRunner();
-    const passed = action('passed-action');
-    let passedInvocations = 0;
-    const first = await runner.execute({
-      repositoryRoot,
-      action: passed,
-      plan: runnablePlan(passed, repositoryRoot),
-      executor: () => {
-        passedInvocations += 1;
-        return issuedSettlement(passed);
-      }
-    });
-    const reused = await runner.execute({
-      repositoryRoot,
-      action: passed,
-      plan: runnablePlan(passed, repositoryRoot),
-      executor: () => {
-        passedInvocations += 1;
-        return issuedSettlement(passed);
-      }
-    });
-    expect(first.disposition).toBe('executed');
-    expect(reused.disposition).toBe('reused');
-    expect(passedInvocations).toBe(1);
+  const runner = fixtureRunner();
+  const passed = action('passed-action');
+  let passedInvocations = 0;
+  const first = await runner.execute({
+    repositoryRoot,
+    action: passed,
+    plan: runnablePlan(passed, repositoryRoot),
+    executor: () => {
+      passedInvocations += 1;
+      return issuedSettlement(passed);
+    }
+  });
+  const reused = await runner.execute({
+    repositoryRoot,
+    action: passed,
+    plan: runnablePlan(passed, repositoryRoot),
+    executor: () => {
+      passedInvocations += 1;
+      return issuedSettlement(passed);
+    }
+  });
+  expect(first.disposition).toBe('executed');
+  expect(reused.disposition).toBe('reused');
+  expect(passedInvocations).toBe(1);
 
-    const failed = action('failed-action');
-    let failedInvocations = 0;
-    await runner.execute({
-      repositoryRoot,
-      action: failed,
-      plan: runnablePlan(failed, repositoryRoot),
-      executor: () => {
-        failedInvocations += 1;
-        return issuedSettlement(failed, 'failed');
-      }
-    });
-    const failedReuse = await runner.execute({
-      repositoryRoot,
-      action: failed,
-      plan: runnablePlan(failed, repositoryRoot),
-      executor: () => {
-        failedInvocations += 1;
-        return issuedSettlement(failed);
-      }
-    });
-    expect(failedReuse.disposition).toBe('reused');
-    expect(failedReuse.terminal?.status).toBe('failed');
-    expect(failedReuse.reason).toContain('never projected as PASS');
-    expect(failedInvocations).toBe(1);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const failed = action('failed-action');
+  let failedInvocations = 0;
+  await runner.execute({
+    repositoryRoot,
+    action: failed,
+    plan: runnablePlan(failed, repositoryRoot),
+    executor: () => {
+      failedInvocations += 1;
+      return issuedSettlement(failed, 'failed');
+    }
+  });
+  const failedReuse = await runner.execute({
+    repositoryRoot,
+    action: failed,
+    plan: runnablePlan(failed, repositoryRoot),
+    executor: () => {
+      failedInvocations += 1;
+      return issuedSettlement(failed);
+    }
+  });
+  expect(failedReuse.disposition).toBe('reused');
+  expect(failedReuse.terminal?.status).toBe('failed');
+  expect(failedReuse.reason).toContain('never projected as PASS');
+  expect(failedInvocations).toBe(1);
 });
 
 test('identity execution derives one plan and reuses its terminal without physical execution', async () => {
   const repositoryRoot = root();
-  try {
-    const runner = fixtureRunner();
-    const actionInput: VerificationActionKeyInput = {
-      actionKind: 'identity-runner-test',
-      producer: { identity: 'runner-test', revision: 'identity-executor' },
-      operation: {
-        identity: 'identity-runner',
-        revision: 'identity-normalizer',
-        semanticDigest: DIGEST_A,
-        workingDirectory: '.',
-        declaredEnvironment: [{ name: 'provider', digest: DIGEST_A }]
-      },
-      inputClosure: [{ path: 'tests/unit/verification/verification-action-runner.test.ts', digest: DIGEST_A }],
-      environment: {
-        toolchainRevision: 'bun',
-        providerRevision: 'native-checker',
-        contractRevision: 'identity-runner'
-      },
-      requiredCheapPreflightActionKeys: [],
-      upstreamActionKeys: [],
-      resultSchemaRevision: 'identity-terminal'
-    };
-    let invocations = 0;
-    const execute = () => runner.executeIdentity({
-      repositoryRoot,
-      actionInput,
-      executionClass: 'cheap-preflight',
-      executor: ({ action }) => {
-        invocations += 1;
-        return issuedSettlement(action);
-      }
-    });
-    const first = await execute();
-    const second = await execute();
-    expect(first.disposition).toBe('executed');
-    expect(second.disposition).toBe('reused');
-    expect(second.physicalExecution).toBe(false);
-    expect(second.terminal?.status).toBe('passed');
-    expect(second.subordinateSettlement).toBeNull();
-    expect(invocations).toBe(1);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const runner = fixtureRunner();
+  const actionInput: VerificationActionKeyInput = {
+    actionKind: 'identity-runner-test',
+    producer: { identity: 'runner-test', revision: 'identity-executor' },
+    operation: {
+      identity: 'identity-runner',
+      revision: 'identity-normalizer',
+      semanticDigest: DIGEST_A,
+      workingDirectory: '.',
+      declaredEnvironment: [{ name: 'provider', digest: DIGEST_A }]
+    },
+    inputClosure: [{ path: 'tests/unit/verification/verification-action-runner.test.ts', digest: DIGEST_A }],
+    environment: {
+      toolchainRevision: 'bun',
+      providerRevision: 'native-checker',
+      contractRevision: 'identity-runner'
+    },
+    requiredCheapPreflightActionKeys: [],
+    upstreamActionKeys: [],
+    resultSchemaRevision: 'identity-terminal'
+  };
+  let invocations = 0;
+  const execute = () => runner.executeIdentity({
+    repositoryRoot,
+    actionInput,
+    executionClass: 'cheap-preflight',
+    executor: ({ action }) => {
+      invocations += 1;
+      return issuedSettlement(action);
+    }
+  });
+  const first = await execute();
+  const second = await execute();
+  expect(first.disposition).toBe('executed');
+  expect(second.disposition).toBe('reused');
+  expect(second.physicalExecution).toBe(false);
+  expect(second.terminal?.status).toBe('passed');
+  expect(second.subordinateSettlement).toBeNull();
+  expect(invocations).toBe(1);
 });
 
 test('producer subordinate settlement is atomically journaled and replayed without execution', async () => {
   const repositoryRoot = root();
-  try {
-    const runner = fixtureRunner();
-    const key = action('subordinate-settlement');
-    const subordinate = JSON.stringify({
-      setup: { status: 'complete' },
-      execution: { status: 'failed', reason: 'process-exit', exitCode: 2 },
-      cleanup: { status: 'physically-clean' },
-      readback: { status: 'current' }
-    });
-    let invocations = 0;
-    const execute = () => runner.execute({
-      repositoryRoot,
-      action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: ({ action, recordSubordinateSettlement }) => {
-        invocations += 1;
-        recordSubordinateSettlement(subordinate);
-        return issuedSettlement(action, 'failed');
-      }
-    });
+  const runner = fixtureRunner();
+  const key = action('subordinate-settlement');
+  const subordinate = JSON.stringify({
+    setup: { status: 'complete' },
+    execution: { status: 'failed', reason: 'process-exit', exitCode: 2 },
+    cleanup: { status: 'physically-clean' },
+    readback: { status: 'current' }
+  });
+  let invocations = 0;
+  const execute = () => runner.execute({
+    repositoryRoot,
+    action: key,
+    plan: runnablePlan(key, repositoryRoot),
+    executor: ({ action, recordSubordinateSettlement }) => {
+      invocations += 1;
+      recordSubordinateSettlement(subordinate);
+      return issuedSettlement(action, 'failed');
+    }
+  });
 
-    const first = await execute();
-    expect(first.disposition).toBe('executed');
-    expect(first.subordinateSettlement).toBe(subordinate);
-    const journal = readVerificationActionJournal(repositoryRoot, key.actionKey);
-    expect(journal.latestState).toBe('terminal');
-    expect(journal.events.at(-1)?.note).toBe(subordinate);
+  const first = await execute();
+  expect(first.disposition).toBe('executed');
+  expect(first.subordinateSettlement).toBe(subordinate);
+  const journal = readVerificationActionJournal(repositoryRoot, key.actionKey);
+  expect(journal.latestState).toBe('terminal');
+  expect(journal.events.at(-1)?.note).toBe(subordinate);
 
-    const reused = await execute();
-    expect(reused.disposition).toBe('reused');
-    expect(reused.subordinateSettlement).toBe(subordinate);
-    expect(invocations).toBe(1);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const reused = await execute();
+  expect(reused.disposition).toBe('reused');
+  expect(reused.subordinateSettlement).toBe(subordinate);
+  expect(invocations).toBe(1);
 });
 
 test('executor failure is durably cancelled and its diagnostic is bounded', async () => {
   const repositoryRoot = root();
-  try {
-    const key = action('diagnostic-action');
-    const result = await fixtureRunner().execute({
-      repositoryRoot,
-      action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: () => {
-        throw new Error(`line one\nline two\t${'x'.repeat(2000)}`);
-      }
-    });
-    expect(result.disposition).toBe('blocked');
-    expect(result.physicalExecution).toBe(true);
-    expect(result.state).toBe('cancelled');
-    expect(result.terminal).toBeNull();
-    expect(result.reason).toContain('executor threw: line one line two');
-    expect(result.reason).toContain('durably cancelled');
-    const journal = readVerificationActionJournal(repositoryRoot, key.actionKey);
-    expect(journal.latestState).toBe('cancelled');
-    expect(journal.events.at(-1)?.note).toBe(result.reason);
-    expect(Buffer.byteLength(result.reason ?? '', 'utf8')).toBeLessThanOrEqual(1024);
-    expect(result.reason).not.toMatch(/[\u0000-\u001f]/u);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const key = action('diagnostic-action');
+  const result = await fixtureRunner().execute({
+    repositoryRoot,
+    action: key,
+    plan: runnablePlan(key, repositoryRoot),
+    executor: () => {
+      throw new Error(`line one\nline two\t${'x'.repeat(2000)}`);
+    }
+  });
+  expect(result.disposition).toBe('blocked');
+  expect(result.physicalExecution).toBe(true);
+  expect(result.state).toBe('cancelled');
+  expect(result.terminal).toBeNull();
+  expect(result.reason).toContain('executor threw: line one line two');
+  expect(result.reason).toContain('durably cancelled');
+  const journal = readVerificationActionJournal(repositoryRoot, key.actionKey);
+  expect(journal.latestState).toBe('cancelled');
+  expect(journal.events.at(-1)?.note).toBe(result.reason);
+  expect(Buffer.byteLength(result.reason ?? '', 'utf8')).toBeLessThanOrEqual(1024);
+  expect(result.reason).not.toMatch(/[\u0000-\u001f]/u);
 });
 
 test('cheap preflight failure prevents physical execution', async () => {
   const repositoryRoot = root();
-  try {
-    const runner = fixtureRunner();
-    const key = action('expensive-action');
-    const dependency = preflightAction();
-    seedFailedPreflight(repositoryRoot);
-    const plan = createVerificationActionPlan({
-      action: key,
-      executionClass: 'expensive',
-      dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
-    });
-    let invocations = 0;
-    const result = await runner.execute({
-      repositoryRoot,
-      action: key,
-      plan,
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    });
-    expect(result.disposition).toBe('blocked');
-    expect(result.terminal).toBeNull();
-    expect(invocations).toBe(0);
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const runner = fixtureRunner();
+  const key = action('expensive-action');
+  const dependency = preflightAction();
+  seedFailedPreflight(repositoryRoot);
+  const plan = createVerificationActionPlan({
+    action: key,
+    executionClass: 'expensive',
+    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
+  });
+  let invocations = 0;
+  const result = await runner.execute({
+    repositoryRoot,
+    action: key,
+    plan,
+    executor: () => {
+      invocations += 1;
+      return issuedSettlement(key);
+    }
+  });
+  expect(result.disposition).toBe('blocked');
+  expect(result.terminal).toBeNull();
+  expect(invocations).toBe(0);
 });
 
 test('dependency closure is re-read after execution and unstable closure discards physical result', async () => {
   const repositoryRoot = root();
-  try {
-    const runner = fixtureRunner();
-    const key = action('dependency-race-action');
-    let invocations = 0;
-    const result = await runner.execute({
-      repositoryRoot,
-      action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: () => {
-        invocations += 1;
-        runner.invalidateIfDependent({
-          repositoryRoot,
-          action: preflightAction(),
-          changedInputPaths: null,
-          note: 'preflight changed during action'
-        });
-        return issuedSettlement(key);
-      }
-    });
-    expect(invocations).toBe(1);
-    expect(result.disposition).toBe('blocked');
-    expect(result.physicalExecution).toBe(true);
-    expect(result.reason).toContain('dependency closure');
-    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('invalidated');
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  const runner = fixtureRunner();
+  const key = action('dependency-race-action');
+  let invocations = 0;
+  const result = await runner.execute({
+    repositoryRoot,
+    action: key,
+    plan: runnablePlan(key, repositoryRoot),
+    executor: () => {
+      invocations += 1;
+      runner.invalidateIfDependent({
+        repositoryRoot,
+        action: preflightAction(),
+        changedInputPaths: null,
+        note: 'preflight changed during action'
+      });
+      return issuedSettlement(key);
+    }
+  });
+  expect(invocations).toBe(1);
+  expect(result.disposition).toBe('blocked');
+  expect(result.physicalExecution).toBe(true);
+  expect(result.reason).toContain('dependency closure');
+  expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('invalidated');
 });
 
 test('input invalidation discards an in-flight physical result', async () => {
   const repositoryRoot = root();
+  const runner = fixtureRunner();
+  const key = action('invalidated-action');
+  let release!: () => void;
+  let markStarted!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const running = runner.execute({
+    repositoryRoot,
+    action: key,
+    plan: runnablePlan(key, repositoryRoot),
+    executor: async () => {
+      markStarted();
+      await held;
+      return issuedSettlement(key);
+    }
+  });
+  let result: Awaited<typeof running>;
   try {
-    const runner = fixtureRunner();
-    const key = action('invalidated-action');
-    let release!: () => void;
-    let markStarted!: () => void;
-    const held = new Promise<void>((resolve) => { release = resolve; });
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
-    const running = runner.execute({
+    await started;
+    const invalidated = runner.invalidateIfDependent({
       repositoryRoot,
       action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: async () => {
-        markStarted();
-        await held;
-        return issuedSettlement(key);
-      }
+      changedInputPaths: ['scripts/codex/example.ts']
     });
-    let result: Awaited<typeof running>;
-    try {
-      await started;
-      const invalidated = runner.invalidateIfDependent({
-        repositoryRoot,
-        action: key,
-        changedInputPaths: ['scripts/codex/example.ts']
-      });
-      expect(invalidated.latestState).toBe('invalidated');
-      release();
-      result = await running;
-    } finally {
-      release();
-      await Promise.allSettled([running]);
-    }
-    expect(result.disposition).toBe('blocked');
-    expect(result.terminal).toBeNull();
-    expect(result.physicalExecution).toBe(true);
+    expect(invalidated.latestState).toBe('invalidated');
+    release();
+    result = await running;
   } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    release();
+    await Promise.allSettled([running]);
   }
+  expect(result.disposition).toBe('blocked');
+  expect(result.terminal).toBeNull();
+  expect(result.physicalExecution).toBe(true);
 });
 
 test('persisted running and queued actions without a live owner are durably cancelled', async () => {
   for (const [state, kind] of [['running', 'orphaned-action'], ['queued', 'queued-orphaned-action']] as const) {
     const repositoryRoot = root();
-    try {
-      const key = action(kind);
-      appendVerificationActionJournalEvent({ repositoryRoot, action: key, state: 'queued' });
-      if (state === 'running') {
-        appendVerificationActionJournalEvent({ repositoryRoot, action: key, state: 'running' });
-      }
-      let invocations = 0;
-      const result = await fixtureRunner().execute({
-        repositoryRoot,
-        action: key,
-        plan: runnablePlan(key, repositoryRoot),
-        executor: () => {
-          invocations += 1;
-          return issuedSettlement(key);
-        }
-      });
-      expect(result.disposition).toBe('blocked');
-      expect(result.reason).toContain('durably cancelled');
-      expect(invocations).toBe(0);
-      expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
-        .toBe('cancelled');
-    } finally {
-      rmSync(repositoryRoot, { recursive: true, force: true });
+    const key = action(kind);
+    appendVerificationActionJournalEvent({ repositoryRoot, action: key, state: 'queued' });
+    if (state === 'running') {
+      appendVerificationActionJournalEvent({ repositoryRoot, action: key, state: 'running' });
     }
+    let invocations = 0;
+    const result = await fixtureRunner().execute({
+      repositoryRoot,
+      action: key,
+      plan: runnablePlan(key, repositoryRoot),
+      executor: () => {
+        invocations += 1;
+        return issuedSettlement(key);
+      }
+    });
+    expect(result.disposition).toBe('blocked');
+    expect(result.reason).toContain('durably cancelled');
+    expect(invocations).toBe(0);
+    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
+      .toBe('cancelled');
   }
 });
 
@@ -1179,109 +1123,97 @@ test.skipIf(process.platform !== 'win32')(
   'local quick DAG keeps journal authority separate from the detached candidate executor and reuses terminals',
   async () => {
   const authorityRoot = root();
-  let candidateCleanupRoot: string | undefined;
-  await settleWorkspaceCallback(async () => {
-    const candidateRoot = root();
-    candidateCleanupRoot = candidateRoot;
-    const fixture = localDagFixture();
-    let physicalExecutions = 0;
-    const inspectRepository = (repositoryRoot: string) => ({
-      headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
-      headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
-      trackedClean: true,
-      gitCommonDirectory: authorityRoot
-    });
-    const first = await fixtureLocalDag({
-      authorityRoot,
-      candidateRoot,
-      actionPlanClosure: fixture.closure,
-      executionEnvironment: fixture.environment,
-      inspectRepository,
-      testProcessIssuer: TEST_PROCESS_ISSUER,
-      testProcessProvider: async (_operation, process) => {
-        physicalExecutions += 1;
-        const result = await fixtureNativeProcess(process, candidateRoot, {
-          script: "console.log('recoverable stdout'); console.error('recoverable stderr')"
-        });
-        expect(process.session.observeNativeResourceCapacity()).toEqual({
-          maximum: 1, admitted: 1, remaining: 0, root: 1, stdinWorker: 0, helper: 0
-        });
-        return result;
-      },
-    });
-    const reused = await fixtureLocalDag({
-      authorityRoot,
-      candidateRoot,
-      actionPlanClosure: fixture.closure,
-      executionEnvironment: fixture.environment,
-      inspectRepository,
-      testProcessIssuer: TEST_PROCESS_ISSUER,
-      testProcessProvider: (_operation, process) => {
-        physicalExecutions += 1;
-        return fixtureNativeProcess(process, candidateRoot);
-      },
-    });
-    expect(first.status).toBe('passed');
-    expect(first.actionResults[0]?.disposition).toBe('executed');
-    const terminal = first.actionResults[0]?.terminal;
-    expect(terminal?.diagnosticObjects.map(({ receipt }) => receipt.stream))
-      .toEqual(['stderr', 'stdout']);
-    expect(terminal?.boundAttemptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(terminal?.diagnosticObjects.every(({ receipt }) => (
-      receipt.subjectDigest === fixture.closure.actions[0]!.action.actionKey
-      && receipt.boundAttemptDigest === terminal?.boundAttemptDigest
-    ))).toBe(true);
-    expect(new Set(
-      terminal?.diagnosticObjects.map(({ receipt }) => receipt.settlementDigest)
-    ).size).toBe(1);
-    expect(reused.actionResults[0]?.disposition).toBe('reused');
-    expect(reused.actionResults[0]?.terminal).toEqual(terminal);
-    expect(reused.terminalDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(physicalExecutions).toBe(1);
-    expect(readVerificationActionJournal(
-      authorityRoot,
-      fixture.closure.actions[0]!.action.actionKey
-    ).latestState).toBe('terminal');
-    if (terminal === undefined || terminal === null) {
-      throw new Error('Expected persisted terminal diagnostics');
-    }
-    expect(() => createVerificationActionTerminal({
-      ...terminal,
-      diagnosticObjects: terminal.diagnosticObjects.map((entry, index) => index === 0
-        ? { ...entry, readback: { ...entry.readback, readbackDigest: DIGEST_A } }
-        : entry)
-    })).toThrow('does not bind the exact diagnostic object');
-    const readAuthority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: authorityRoot });
-    try {
-      const store = createBoundedProcessDiagnosticObjectStore({
-        authority: readAuthority,
-        repositoryRoot: authorityRoot
-      });
-      const readOperation = diagnosticReadOperation();
-      const outputs: Record<string, string> = {};
-      for (const { receipt } of terminal.diagnosticObjects) {
-        const readback = await store.read({ ...readOperation, receipt });
-        expect(readback.status).toBe('available');
-        if (readback.status === 'available') {
-          outputs[receipt.stream] = new TextDecoder().decode(readback.bytes).trim();
-        }
-      }
-      expect(outputs).toEqual({
-        stderr: 'recoverable stderr',
-        stdout: 'recoverable stdout'
-      });
-    } finally {
-      await readAuthority.release();
-    }
-  }, async () => {
-    assertFixtureScopesSettled();
-    settleResources({ cleanup: [
-      { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
-      { label: 'Action candidate root', settle: () => {
-        if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
-      } }
-    ] });
+  const candidateRoot = root();
+  const fixture = localDagFixture();
+  let physicalExecutions = 0;
+  const inspectRepository = (repositoryRoot: string) => ({
+    headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
+    headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
+    trackedClean: true,
+    gitCommonDirectory: authorityRoot
   });
+  const first = await fixtureLocalDag({
+    authorityRoot,
+    candidateRoot,
+    actionPlanClosure: fixture.closure,
+    executionEnvironment: fixture.environment,
+    inspectRepository,
+    testProcessIssuer: TEST_PROCESS_ISSUER,
+    testProcessProvider: async (_operation, process) => {
+      physicalExecutions += 1;
+      const result = await fixtureNativeProcess(process, candidateRoot, {
+        script: "console.log('recoverable stdout'); console.error('recoverable stderr')"
+      });
+      expect(process.session.observeNativeResourceCapacity()).toEqual({
+        maximum: 1, admitted: 1, remaining: 0, root: 1, stdinWorker: 0, helper: 0
+      });
+      return result;
+    },
+  });
+  const reused = await fixtureLocalDag({
+    authorityRoot,
+    candidateRoot,
+    actionPlanClosure: fixture.closure,
+    executionEnvironment: fixture.environment,
+    inspectRepository,
+    testProcessIssuer: TEST_PROCESS_ISSUER,
+    testProcessProvider: (_operation, process) => {
+      physicalExecutions += 1;
+      return fixtureNativeProcess(process, candidateRoot);
+    },
+  });
+  expect(first.status).toBe('passed');
+  expect(first.actionResults[0]?.disposition).toBe('executed');
+  const terminal = first.actionResults[0]?.terminal;
+  expect(terminal?.diagnosticObjects.map(({ receipt }) => receipt.stream))
+    .toEqual(['stderr', 'stdout']);
+  expect(terminal?.boundAttemptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(terminal?.diagnosticObjects.every(({ receipt }) => (
+    receipt.subjectDigest === fixture.closure.actions[0]!.action.actionKey
+    && receipt.boundAttemptDigest === terminal?.boundAttemptDigest
+  ))).toBe(true);
+  expect(new Set(
+    terminal?.diagnosticObjects.map(({ receipt }) => receipt.settlementDigest)
+  ).size).toBe(1);
+  expect(reused.actionResults[0]?.disposition).toBe('reused');
+  expect(reused.actionResults[0]?.terminal).toEqual(terminal);
+  expect(reused.terminalDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  expect(physicalExecutions).toBe(1);
+  expect(readVerificationActionJournal(
+    authorityRoot,
+    fixture.closure.actions[0]!.action.actionKey
+  ).latestState).toBe('terminal');
+  if (terminal === undefined || terminal === null) {
+    throw new Error('Expected persisted terminal diagnostics');
+  }
+  expect(() => createVerificationActionTerminal({
+    ...terminal,
+    diagnosticObjects: terminal.diagnosticObjects.map((entry, index) => index === 0
+      ? { ...entry, readback: { ...entry.readback, readbackDigest: DIGEST_A } }
+      : entry)
+  })).toThrow('does not bind the exact diagnostic object');
+  const readAuthority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: authorityRoot });
+  try {
+    const store = createBoundedProcessDiagnosticObjectStore({
+      authority: readAuthority,
+      repositoryRoot: authorityRoot
+    });
+    const readOperation = diagnosticReadOperation();
+    const outputs: Record<string, string> = {};
+    for (const { receipt } of terminal.diagnosticObjects) {
+      const readback = await store.read({ ...readOperation, receipt });
+      expect(readback.status).toBe('available');
+      if (readback.status === 'available') {
+        outputs[receipt.stream] = new TextDecoder().decode(readback.bytes).trim();
+      }
+    }
+    expect(outputs).toEqual({
+      stderr: 'recoverable stderr',
+      stdout: 'recoverable stdout'
+    });
+  } finally {
+    await readAuthority.release();
+  }
   }
 );
 
@@ -1290,57 +1222,46 @@ test.skipIf(process.platform !== 'win32')(
   async () => {
     for (const mode of ['deadline', 'cancel'] as const) {
       const authorityRoot = root();
-      let candidateCleanupRoot: string | undefined;
-      await settleWorkspaceCallback(async () => {
-        const candidateRoot = root();
-        candidateCleanupRoot = candidateRoot;
-        const modeHeadSha = mode === 'deadline' ? HEAD_SHA : '5'.repeat(40);
-        const fixture = localDagFixture(undefined, { headSha: modeHeadSha });
-        const controller = new AbortController();
-        const result = await fixtureLocalDag({
-          authorityRoot,
-          candidateRoot,
-          actionPlanClosure: fixture.closure,
-          executionEnvironment: fixture.environment,
-          deadlineAtUnixMs: mode === 'deadline' ? Date.now() + 1_000 : undefined,
-          signal: controller.signal,
-          inspectRepository: (repositoryRoot) => ({
-            headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
-            headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
-            trackedClean: true,
-            gitCommonDirectory: authorityRoot
-          }),
-          testProcessIssuer: TEST_PROCESS_ISSUER,
-          testProcessProvider: async (_operation, process) => {
-            const cancellation = mode === 'cancel'
-              ? setTimeout(() => controller.abort(), 50)
-              : undefined;
-            try {
-              return await fixtureNativeProcess(
-                process,
-                candidateRoot,
-                { script: 'setInterval(() => {}, 1_000)' }
-              );
-            } finally {
-              if (cancellation !== undefined) clearTimeout(cancellation);
-            }
+      const candidateRoot = root();
+      const modeHeadSha = mode === 'deadline' ? HEAD_SHA : '5'.repeat(40);
+      const fixture = localDagFixture(undefined, { headSha: modeHeadSha });
+      const controller = new AbortController();
+      const result = await fixtureLocalDag({
+        authorityRoot,
+        candidateRoot,
+        actionPlanClosure: fixture.closure,
+        executionEnvironment: fixture.environment,
+        deadlineAtUnixMs: mode === 'deadline' ? Date.now() + 1_000 : undefined,
+        signal: controller.signal,
+        inspectRepository: (repositoryRoot) => ({
+          headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
+          headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
+          trackedClean: true,
+          gitCommonDirectory: authorityRoot
+        }),
+        testProcessIssuer: TEST_PROCESS_ISSUER,
+        testProcessProvider: async (_operation, process) => {
+          const cancellation = mode === 'cancel'
+            ? setTimeout(() => controller.abort(), 50)
+            : undefined;
+          try {
+            return await fixtureNativeProcess(
+              process,
+              candidateRoot,
+              { script: 'setInterval(() => {}, 1_000)' }
+            );
+          } finally {
+            if (cancellation !== undefined) clearTimeout(cancellation);
           }
-        });
-        expect(result.status).toBe('blocked');
-        expect(result.actionResults[0]?.terminal).toBeNull();
-        expect(result.actionResults[0]?.reason).toContain(
-          'executor ended without an owner-issued terminal; action durably cancelled'
-        );
-        expect(result.actionResults[0]?.reason).toMatch(/timed-out|termination-unproven|deadline|aborted/u);
-      }, async () => {
-        assertFixtureScopesSettled();
-        settleResources({ cleanup: [
-          { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
-          { label: 'Action candidate root', settle: () => {
-            if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
-          } }
-        ] });
+        }
       });
+      expect(result.status).toBe('blocked');
+      expect(result.actionResults[0]?.terminal).toBeNull();
+      expect(result.actionResults[0]?.reason).toContain(
+        'executor ended without an owner-issued terminal; action durably cancelled'
+      );
+      expect(result.actionResults[0]?.reason).toMatch(/timed-out|termination-unproven|deadline|aborted/u);
+      assertFixtureScopesSettled();
     }
   },
   30_000
@@ -1350,43 +1271,31 @@ test.skipIf(process.platform !== 'win32')(
   'local quick DAG records a failed process terminal',
   async () => {
     const authorityRoot = root();
-    let candidateCleanupRoot: string | undefined;
-    await settleWorkspaceCallback(async () => {
-      const candidateRoot = root();
-      candidateCleanupRoot = candidateRoot;
-      const modeHeadSha = `6${HEAD_SHA.slice(1)}`;
-      const modeHeadTreeSha = `7${HEAD_TREE_SHA.slice(1)}`;
-      const fixture = localDagFixture(undefined, {
-        headSha: modeHeadSha,
-        headTreeSha: modeHeadTreeSha
-      });
-      const result = await fixtureLocalDag({
-        authorityRoot,
-        candidateRoot,
-        actionPlanClosure: fixture.closure,
-        executionEnvironment: fixture.environment,
-        inspectRepository: (repositoryRoot) => ({
-          headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
-          headTreeSha: repositoryRoot === candidateRoot ? modeHeadTreeSha : BASE_TREE_SHA,
-          trackedClean: true,
-          gitCommonDirectory: authorityRoot
-        }),
-        testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: (_operation, process) => fixtureNativeProcess(
-          process, candidateRoot, { script: 'process.exit(7)' }
-        )
-      });
-      expect(result.status).toBe('failed');
-      expect(result.actionResults[0]?.terminal?.status).toBe('failed');
-    }, async () => {
-      assertFixtureScopesSettled();
-      settleResources({ cleanup: [
-        { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
-        { label: 'Action candidate root', settle: () => {
-          if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
-        } }
-      ] });
+    const candidateRoot = root();
+    const modeHeadSha = `6${HEAD_SHA.slice(1)}`;
+    const modeHeadTreeSha = `7${HEAD_TREE_SHA.slice(1)}`;
+    const fixture = localDagFixture(undefined, {
+      headSha: modeHeadSha,
+      headTreeSha: modeHeadTreeSha
     });
+    const result = await fixtureLocalDag({
+      authorityRoot,
+      candidateRoot,
+      actionPlanClosure: fixture.closure,
+      executionEnvironment: fixture.environment,
+      inspectRepository: (repositoryRoot) => ({
+        headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
+        headTreeSha: repositoryRoot === candidateRoot ? modeHeadTreeSha : BASE_TREE_SHA,
+        trackedClean: true,
+        gitCommonDirectory: authorityRoot
+      }),
+      testProcessIssuer: TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) => fixtureNativeProcess(
+        process, candidateRoot, { script: 'process.exit(7)' }
+      )
+    });
+    expect(result.status).toBe('failed');
+    expect(result.actionResults[0]?.terminal?.status).toBe('failed');
   }
 );
 
@@ -1394,59 +1303,47 @@ test.skipIf(process.platform !== 'win32')(
   'local quick DAG refuses candidate readback drift',
   async () => {
     const authorityRoot = root();
-    let candidateCleanupRoot: string | undefined;
-    await settleWorkspaceCallback(async () => {
-      const candidateRoot = root();
-      candidateCleanupRoot = candidateRoot;
-      const modeHeadSha = `8${HEAD_SHA.slice(1)}`;
-      const modeHeadTreeSha = `9${HEAD_TREE_SHA.slice(1)}`;
-      const fixture = localDagFixture(undefined, {
-        headSha: modeHeadSha,
-        headTreeSha: modeHeadTreeSha
-      });
-      let candidateObservations = 0;
-      const inspectRepository = (repositoryRoot: string) => {
-        if (repositoryRoot === authorityRoot) {
-          return {
-            headSha: BASE_SHA,
-            headTreeSha: BASE_TREE_SHA,
-            trackedClean: true,
-            gitCommonDirectory: authorityRoot
-          };
-        }
-        candidateObservations += 1;
+    const candidateRoot = root();
+    const modeHeadSha = `8${HEAD_SHA.slice(1)}`;
+    const modeHeadTreeSha = `9${HEAD_TREE_SHA.slice(1)}`;
+    const fixture = localDagFixture(undefined, {
+      headSha: modeHeadSha,
+      headTreeSha: modeHeadTreeSha
+    });
+    let candidateObservations = 0;
+    const inspectRepository = (repositoryRoot: string) => {
+      if (repositoryRoot === authorityRoot) {
         return {
-          headSha: modeHeadSha,
-          headTreeSha: candidateObservations > 1 ? `5${modeHeadTreeSha.slice(1)}` : modeHeadTreeSha,
+          headSha: BASE_SHA,
+          headTreeSha: BASE_TREE_SHA,
           trackedClean: true,
           gitCommonDirectory: authorityRoot
         };
+      }
+      candidateObservations += 1;
+      return {
+        headSha: modeHeadSha,
+        headTreeSha: candidateObservations > 1 ? `5${modeHeadTreeSha.slice(1)}` : modeHeadTreeSha,
+        trackedClean: true,
+        gitCommonDirectory: authorityRoot
       };
-      const result = await fixtureLocalDag({
-        authorityRoot,
-        candidateRoot,
-        actionPlanClosure: fixture.closure,
-        executionEnvironment: fixture.environment,
-        inspectRepository,
-        testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: (_operation, process) => fixtureNativeProcess(process, candidateRoot)
-      });
-      expect(result.status).toBe('blocked');
-      expect(result.actionResults[0]?.terminal).toBeNull();
-      expect(result.actionResults[0]?.reason).toContain('candidate readback drifted');
-      expect(readVerificationActionJournal(
-        authorityRoot,
-        fixture.closure.actions[0]!.action.actionKey
-      ).latestState).toBe('invalidated');
-    }, async () => {
-      assertFixtureScopesSettled();
-      settleResources({ cleanup: [
-        { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
-        { label: 'Action candidate root', settle: () => {
-          if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
-        } }
-      ] });
+    };
+    const result = await fixtureLocalDag({
+      authorityRoot,
+      candidateRoot,
+      actionPlanClosure: fixture.closure,
+      executionEnvironment: fixture.environment,
+      inspectRepository,
+      testProcessIssuer: TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) => fixtureNativeProcess(process, candidateRoot)
     });
+    expect(result.status).toBe('blocked');
+    expect(result.actionResults[0]?.terminal).toBeNull();
+    expect(result.actionResults[0]?.reason).toContain('candidate readback drifted');
+    expect(readVerificationActionJournal(
+      authorityRoot,
+      fixture.closure.actions[0]!.action.actionKey
+    ).latestState).toBe('invalidated');
   }
 );
 
@@ -1457,139 +1354,134 @@ test.skipIf(process.platform !== 'win32')(
   const authorityRoot = path.join(workspaceRoot, 'authority');
   const candidateRoot = path.join(workspaceRoot, 'candidate');
   const decoyRoot = path.join(workspaceRoot, 'decoy');
+  git(workspaceRoot, ['init', authorityRoot]);
+  git(authorityRoot, ['config', 'user.name', 'SEC Runner']);
+  git(authorityRoot, ['config', 'user.email', 'sec-runner@example.invalid']);
+  writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
+  writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'candidate\n', 'utf8');
+  git(authorityRoot, ['add', '.gitignore', 'tracked.txt']);
+  git(authorityRoot, ['commit', '-m', 'candidate']);
+  const headSha = git(authorityRoot, ['rev-parse', 'HEAD']);
+  const headTreeSha = git(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+  git(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
+  const originalBranch = git(authorityRoot, ['symbolic-ref', '--short', 'HEAD']);
+  git(authorityRoot, ['switch', '-c', 'replacement-view']);
+  writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'replacement\n', 'utf8');
+  git(authorityRoot, ['add', 'tracked.txt']);
+  git(authorityRoot, ['commit', '-m', 'replacement object view']);
+  const replacementCommit = git(authorityRoot, ['rev-parse', 'HEAD']);
+  git(authorityRoot, ['switch', originalBranch]);
+  git(authorityRoot, ['replace', headSha, replacementCommit]);
+  expect(git(authorityRoot, ['rev-parse', 'HEAD^{tree}'])).not.toBe(headTreeSha);
+  expect(git(authorityRoot, ['show', `${headSha}:tracked.txt`])).toBe('replacement');
+  const canonicalBlob = spawnSync('git', ['show', `${headSha}:tracked.txt`], {
+    cwd: authorityRoot,
+    encoding: 'buffer',
+    windowsHide: true,
+    env: createBranchLifecycleGitChildEnvironment(process.env)
+  });
+  expect(canonicalBlob.status).toBe(0);
+  expect(canonicalBlob.stdout.toString('utf8').trim()).toBe('candidate');
+
+  git(workspaceRoot, ['init', decoyRoot]);
+  git(decoyRoot, ['config', 'user.name', 'SEC Decoy']);
+  git(decoyRoot, ['config', 'user.email', 'sec-decoy@example.invalid']);
+  writeFileSync(path.join(decoyRoot, 'decoy.txt'), 'decoy\n', 'utf8');
+  git(decoyRoot, ['add', 'decoy.txt']);
+  git(decoyRoot, ['commit', '-m', 'decoy']);
+  const decoyGitDirectory = git(decoyRoot, [
+    'rev-parse', '--path-format=absolute', '--absolute-git-dir'
+  ]);
+  const decoyIndex = git(decoyRoot, [
+    'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ]);
+  const authorityIndex = git(authorityRoot, [
+    'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ]);
+  const candidateIndex = git(candidateRoot, [
+    'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ]);
+  const snapshot = (indexPath: string) => {
+    const stat = statSync(indexPath);
+    return Object.freeze({
+      bytes: readFileSync(indexPath),
+      dev: stat.dev,
+      ino: stat.ino,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs
+    });
+  };
+  const authorityBefore = snapshot(authorityIndex);
+  const candidateBefore = snapshot(candidateIndex);
+  const future = new Date(Date.now() + 5_000);
+  utimesSync(path.join(candidateRoot, 'tracked.txt'), future, future);
+
+  const hostileEnvironment: Readonly<Record<string, string>> = {
+    GIT_DIR: decoyGitDirectory,
+    GIT_WORK_TREE: decoyRoot,
+    GIT_COMMON_DIR: decoyGitDirectory,
+    GIT_INDEX_FILE: decoyIndex,
+    GIT_OBJECT_DIRECTORY: path.join(decoyGitDirectory, 'objects'),
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.worktree',
+    GIT_CONFIG_VALUE_0: decoyRoot
+  };
+  const priorEnvironment = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(hostileEnvironment)) {
+    priorEnvironment.set(name, process.env[name]);
+    process.env[name] = value;
+  }
   await settleWorkspaceCallback(async () => {
-    git(workspaceRoot, ['init', authorityRoot]);
-    git(authorityRoot, ['config', 'user.name', 'SEC Runner']);
-    git(authorityRoot, ['config', 'user.email', 'sec-runner@example.invalid']);
-    writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
-    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'candidate\n', 'utf8');
-    git(authorityRoot, ['add', '.gitignore', 'tracked.txt']);
-    git(authorityRoot, ['commit', '-m', 'candidate']);
-    const headSha = git(authorityRoot, ['rev-parse', 'HEAD']);
-    const headTreeSha = git(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
-    git(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
-    const originalBranch = git(authorityRoot, ['symbolic-ref', '--short', 'HEAD']);
-    git(authorityRoot, ['switch', '-c', 'replacement-view']);
-    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'replacement\n', 'utf8');
-    git(authorityRoot, ['add', 'tracked.txt']);
-    git(authorityRoot, ['commit', '-m', 'replacement object view']);
-    const replacementCommit = git(authorityRoot, ['rev-parse', 'HEAD']);
-    git(authorityRoot, ['switch', originalBranch]);
-    git(authorityRoot, ['replace', headSha, replacementCommit]);
-    expect(git(authorityRoot, ['rev-parse', 'HEAD^{tree}'])).not.toBe(headTreeSha);
-    expect(git(authorityRoot, ['show', `${headSha}:tracked.txt`])).toBe('replacement');
-    const canonicalBlob = spawnSync('git', ['show', `${headSha}:tracked.txt`], {
-      cwd: authorityRoot,
-      encoding: 'buffer',
-      windowsHide: true,
-      env: createBranchLifecycleGitChildEnvironment(process.env)
+    const fixture = localDagFixture(undefined, {
+      baseSha: headSha,
+      baseTreeSha: headTreeSha,
+      headSha,
+      headTreeSha
     });
-    expect(canonicalBlob.status).toBe(0);
-    expect(canonicalBlob.stdout.toString('utf8').trim()).toBe('candidate');
-
-    git(workspaceRoot, ['init', decoyRoot]);
-    git(decoyRoot, ['config', 'user.name', 'SEC Decoy']);
-    git(decoyRoot, ['config', 'user.email', 'sec-decoy@example.invalid']);
-    writeFileSync(path.join(decoyRoot, 'decoy.txt'), 'decoy\n', 'utf8');
-    git(decoyRoot, ['add', 'decoy.txt']);
-    git(decoyRoot, ['commit', '-m', 'decoy']);
-    const decoyGitDirectory = git(decoyRoot, [
-      'rev-parse', '--path-format=absolute', '--absolute-git-dir'
-    ]);
-    const decoyIndex = git(decoyRoot, [
-      'rev-parse', '--path-format=absolute', '--git-path', 'index'
-    ]);
-    const authorityIndex = git(authorityRoot, [
-      'rev-parse', '--path-format=absolute', '--git-path', 'index'
-    ]);
-    const candidateIndex = git(candidateRoot, [
-      'rev-parse', '--path-format=absolute', '--git-path', 'index'
-    ]);
-    const snapshot = (indexPath: string) => {
-      const stat = statSync(indexPath);
-      return Object.freeze({
-        bytes: readFileSync(indexPath),
-        dev: stat.dev,
-        ino: stat.ino,
-        size: stat.size,
-        mtimeMs: stat.mtimeMs
-      });
-    };
-    const authorityBefore = snapshot(authorityIndex);
-    const candidateBefore = snapshot(candidateIndex);
-    const future = new Date(Date.now() + 5_000);
-    utimesSync(path.join(candidateRoot, 'tracked.txt'), future, future);
-
-    const hostileEnvironment: Readonly<Record<string, string>> = {
-      GIT_DIR: decoyGitDirectory,
-      GIT_WORK_TREE: decoyRoot,
-      GIT_COMMON_DIR: decoyGitDirectory,
-      GIT_INDEX_FILE: decoyIndex,
-      GIT_OBJECT_DIRECTORY: path.join(decoyGitDirectory, 'objects'),
-      GIT_CONFIG_COUNT: '1',
-      GIT_CONFIG_KEY_0: 'core.worktree',
-      GIT_CONFIG_VALUE_0: decoyRoot
-    };
-    const priorEnvironment = new Map<string, string | undefined>();
-    for (const [name, value] of Object.entries(hostileEnvironment)) {
-      priorEnvironment.set(name, process.env[name]);
-      process.env[name] = value;
+    const result = await fixtureLocalDag({
+      authorityRoot,
+      candidateRoot,
+      actionPlanClosure: fixture.closure,
+      executionEnvironment: fixture.environment,
+      inspectRepository,
+      testProcessIssuer: TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) =>
+        fixtureNativeProcess(process, candidateRoot)
+    });
+    expect(result.status).toBe('passed');
+    writeFileSync(path.join(candidateRoot, 'tracked.txt'), 'dirty\n', 'utf8');
+    // The observed dirty candidate is rejected before the DAG creates its runner.
+    await expect(executeLocalVerificationActionDag({
+      authorityRoot,
+      candidateRoot,
+      actionPlanClosure: fixture.closure,
+      executionEnvironment: fixture.environment,
+      inspectRepository,
+      testProcessIssuer: TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) =>
+        fixtureNativeProcess(process, candidateRoot)
+    })).rejects.toThrow('exact clean candidate head and tree');
+    for (const [indexPath, before] of [
+      [authorityIndex, authorityBefore],
+      [candidateIndex, candidateBefore]
+    ] as const) {
+      const after = snapshot(indexPath);
+      expect(after.bytes).toEqual(before.bytes);
+      expect({ dev: after.dev, ino: after.ino, size: after.size, mtimeMs: after.mtimeMs })
+        .toEqual({
+          dev: before.dev,
+          ino: before.ino,
+          size: before.size,
+          mtimeMs: before.mtimeMs
+        });
     }
-    await settleWorkspaceCallback(async () => {
-      const fixture = localDagFixture(undefined, {
-        baseSha: headSha,
-        baseTreeSha: headTreeSha,
-        headSha,
-        headTreeSha
-      });
-      const result = await fixtureLocalDag({
-        authorityRoot,
-        candidateRoot,
-        actionPlanClosure: fixture.closure,
-        executionEnvironment: fixture.environment,
-        inspectRepository,
-        testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: (_operation, process) =>
-          fixtureNativeProcess(process, candidateRoot)
-      });
-      expect(result.status).toBe('passed');
-      writeFileSync(path.join(candidateRoot, 'tracked.txt'), 'dirty\n', 'utf8');
-      // The observed dirty candidate is rejected before the DAG creates its runner.
-      await expect(executeLocalVerificationActionDag({
-        authorityRoot,
-        candidateRoot,
-        actionPlanClosure: fixture.closure,
-        executionEnvironment: fixture.environment,
-        inspectRepository,
-        testProcessIssuer: TEST_PROCESS_ISSUER,
-        testProcessProvider: (_operation, process) =>
-          fixtureNativeProcess(process, candidateRoot)
-      })).rejects.toThrow('exact clean candidate head and tree');
-      for (const [indexPath, before] of [
-        [authorityIndex, authorityBefore],
-        [candidateIndex, candidateBefore]
-      ] as const) {
-        const after = snapshot(indexPath);
-        expect(after.bytes).toEqual(before.bytes);
-        expect({ dev: after.dev, ino: after.ino, size: after.size, mtimeMs: after.mtimeMs })
-          .toEqual({
-            dev: before.dev,
-            ino: before.ino,
-            size: before.size,
-            mtimeMs: before.mtimeMs
-          });
-      }
-    }, async () => {
-      settleResources({ cleanup: [...priorEnvironment].map(([name, value]) => ({
-        label: `restore ${name}`, settle: () => {
-          if (value === undefined) delete process.env[name];
-          else process.env[name] = value;
-        }
-      })) });
-    });
   }, async () => {
-    assertFixtureScopesSettled();
-    rmSync(workspaceRoot, { recursive: true, force: true });
+    settleResources({ cleanup: [...priorEnvironment].map(([name, value]) => ({
+      label: `restore ${name}`, settle: () => {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    })) });
   });
   },
   180_000
@@ -1597,40 +1489,28 @@ test.skipIf(process.platform !== 'win32')(
 
 test('local quick DAG rejects hosted/environment drift and distinct environments produce disjoint ActionKeys', async () => {
   const authorityRoot = root();
-  let candidateCleanupRoot: string | undefined;
-  await settleWorkspaceCallback(async () => {
-    const candidateRoot = root();
-    candidateCleanupRoot = candidateRoot;
-    const local = localDagFixture();
-    const secondLocal = localDagFixture();
-    const hosted = localDagFixture(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT);
-    expect(local.closure.actions[0]!.action.actionKey).toBe(secondLocal.closure.actions[0]!.action.actionKey);
-    expect(local.closure.actions[0]!.action.actionKey).not.toBe(hosted.closure.actions[0]!.action.actionKey);
-    // A hosted environment is rejected before any runner or provider is admitted.
-    await expect(executeLocalVerificationActionDag({
-      authorityRoot,
-      candidateRoot,
-      actionPlanClosure: hosted.closure,
-      executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
-      inspectRepository: () => ({
-        headSha: HEAD_SHA,
-        headTreeSha: HEAD_TREE_SHA,
-        trackedClean: true,
-        gitCommonDirectory: authorityRoot
-      }),
-      testProcessIssuer: TEST_PROCESS_ISSUER,
-      testProcessProvider: (_operation, process) =>
-        fixtureNativeProcess(process, candidateRoot)
-    })).rejects.toThrow('canonical local execution environment');
-  }, async () => {
-    assertFixtureScopesSettled();
-    settleResources({ cleanup: [
-      { label: 'Action authority root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) },
-      { label: 'Action candidate root', settle: () => {
-        if (candidateCleanupRoot !== undefined) rmSync(candidateCleanupRoot, { recursive: true, force: true });
-      } }
-    ] });
-  });
+  const candidateRoot = root();
+  const local = localDagFixture();
+  const secondLocal = localDagFixture();
+  const hosted = localDagFixture(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT);
+  expect(local.closure.actions[0]!.action.actionKey).toBe(secondLocal.closure.actions[0]!.action.actionKey);
+  expect(local.closure.actions[0]!.action.actionKey).not.toBe(hosted.closure.actions[0]!.action.actionKey);
+  // A hosted environment is rejected before any runner or provider is admitted.
+  await expect(executeLocalVerificationActionDag({
+    authorityRoot,
+    candidateRoot,
+    actionPlanClosure: hosted.closure,
+    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    inspectRepository: () => ({
+      headSha: HEAD_SHA,
+      headTreeSha: HEAD_TREE_SHA,
+      trackedClean: true,
+      gitCommonDirectory: authorityRoot
+    }),
+    testProcessIssuer: TEST_PROCESS_ISSUER,
+    testProcessProvider: (_operation, process) =>
+      fixtureNativeProcess(process, candidateRoot)
+  })).rejects.toThrow('canonical local execution environment');
 });
 
 // The warm runner reads closed state before inspecting claim resources. Keep
@@ -1647,36 +1527,31 @@ for (const [state, residue] of [['invalidated', false], ['cancelled', true]] as 
       plan: cheapPlan(key),
       executor: () => { invocations += 1; return issuedSettlement(key); }
     };
-    try {
-      expect((await runner.execute(input)).disposition).toBe('executed');
-      if (state === 'invalidated') runner.invalidate(repositoryRoot, key, 'closed-state fixture');
-      else runner.cancel(repositoryRoot, key, 'closed-state fixture');
-      const journalRoot = path.join(resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).stateRoot,
-        VERIFICATION_ACTION_JOURNAL_DIRECTORY);
-      const journalPath = path.join(journalRoot, `${key.actionKey.slice('sha256:'.length)}.jsonl`);
-      if (residue) {
-        writeFileSync(`${journalPath}.claim.json`, 'unknown prior claim bytes\n');
-        writeFileSync(`${journalPath}.claim-recovery.lock`, 'unknown prior recovery bytes\n');
-      }
-      const snapshot = () => readdirSync(journalRoot).sort().map(name => {
-        const file = path.join(journalRoot, name);
-        const identity = statSync(file, { bigint: true });
-        return { name, device: String(identity.dev), inode: String(identity.ino),
-          modified: String(identity.mtimeNs), changed: String(identity.ctimeNs),
-          bytes: readFileSync(file).toString('hex') };
-      });
-      const before = snapshot();
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const result = await runner.execute(input);
-        expect(result).toMatchObject({ disposition: 'blocked', state, terminal: null,
-          physicalExecution: false,
-          reason: `action is already ${state}; delete the disposable V2 journal to execute cleanly` });
-        expect(invocations).toBe(1);
-        expect(snapshot()).toEqual(before);
-      }
-    } finally {
-      await runner.close();
-      rmSync(repositoryRoot, { recursive: true, force: true });
+    expect((await runner.execute(input)).disposition).toBe('executed');
+    if (state === 'invalidated') runner.invalidate(repositoryRoot, key, 'closed-state fixture');
+    else runner.cancel(repositoryRoot, key, 'closed-state fixture');
+    const journalRoot = path.join(resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).stateRoot,
+      VERIFICATION_ACTION_JOURNAL_DIRECTORY);
+    const journalPath = path.join(journalRoot, `${key.actionKey.slice('sha256:'.length)}.jsonl`);
+    if (residue) {
+      writeFileSync(`${journalPath}.claim.json`, 'unknown prior claim bytes\n');
+      writeFileSync(`${journalPath}.claim-recovery.lock`, 'unknown prior recovery bytes\n');
+    }
+    const snapshot = () => readdirSync(journalRoot).sort().map(name => {
+      const file = path.join(journalRoot, name);
+      const identity = statSync(file, { bigint: true });
+      return { name, device: String(identity.dev), inode: String(identity.ino),
+        modified: String(identity.mtimeNs), changed: String(identity.ctimeNs),
+        bytes: readFileSync(file).toString('hex') };
+    });
+    const before = snapshot();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await runner.execute(input);
+      expect(result).toMatchObject({ disposition: 'blocked', state, terminal: null,
+        physicalExecution: false,
+        reason: `action is already ${state}; delete the disposable V2 journal to execute cleanly` });
+      expect(invocations).toBe(1);
+      expect(snapshot()).toEqual(before);
     }
   });
 }
