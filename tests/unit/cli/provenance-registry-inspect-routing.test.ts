@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceProvenancePath } from '../../../src/adapters/workspace-context.ts';
 import { projectProvenanceRegistryInspect } from '../../../src/application/provenance-registry-inspect.ts';
@@ -128,8 +127,7 @@ test('provenance inspection routes text through application and entry while pres
     expect(missing.stderr).not.toContain('commander.');
 
     const provenancePath = await resolveWorkspaceProvenancePath(workspaceRoot);
-    await fs.mkdir(path.dirname(provenancePath), { recursive: true });
-    await fs.writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, 'utf8');
+    await writeJson(provenancePath, provenance);
 
     const { stdout: text } = await expectCliSuccess(workspaceRoot, ['provenance']);
     for (const count of [/\bartifacts=5(?=$|[\s;,()])/u, /\bregistry=1(?=$|[\s;,()])/u, /\boverrides=1(?=$|[\s;,()])/u, /\bunverified=3(?=$|[\s;,()])/u]) {

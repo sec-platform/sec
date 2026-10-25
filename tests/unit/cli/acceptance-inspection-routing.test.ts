@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import {
@@ -112,8 +111,7 @@ test('acceptance inspection routes retained coverage through application and ent
       uncoveredBlocks: ['beta']
     };
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage);
-    await fs.mkdir(path.dirname(reportPath), { recursive: true });
-    await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(reportPath, report);
 
     const coverageText = await expectCliSuccess(workspaceRoot, ['acceptance']);
     const targetsText = await expectCliSuccess(workspaceRoot, ['acceptance', 'blocks']);

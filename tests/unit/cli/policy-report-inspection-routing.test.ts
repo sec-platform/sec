@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { projectPolicyReportInspect } from '../../../src/application/policy-report-inspection.ts';
@@ -95,8 +94,7 @@ test('policy inspection routes retained report through application summary proje
     };
 
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
-    await fs.mkdir(path.dirname(reportPath), { recursive: true });
-    await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(reportPath, report);
 
     // Projector/formatter meaning was independently verified with the
     // nonempty fixture above. The skipped report's real CLI output is a

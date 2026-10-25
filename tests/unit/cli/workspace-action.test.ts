@@ -12,9 +12,9 @@ import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progr
 import { registerWorkspaceAction } from '../../../src/entry/cli/workspace-action.ts';
 
 function program() { return new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} }); }
-async function capture(run: () => Promise<unknown>) {
+async function capture(run: () => Promise<unknown>, write?: typeof console.log) {
   const original = console.log, lines: unknown[][] = [];
-  console.log = (...values) => { lines.push(values); };
+  console.log = write ?? ((...values) => { lines.push(values); });
   try { await run(); return lines; } finally { console.log = original; }
 }
 
@@ -52,10 +52,10 @@ for (const phase of ['decode', 'execute-sync', 'execute-async', 'view-sync', 'vi
       view: (value) => { events.push('view'); if (phase === 'view-sync') throw reason; if (phase === 'view-async') return Promise.reject(reason);
         return commandValue(value, () => { events.push('format'); if (phase === 'format') throw reason; return 'ok'; }); }
     });
-    const log = console.log;
-    if (phase === 'sink') console.log = () => { throw reason; };
-    try { await assert.rejects(root.parseAsync(['sample'], { from: 'user' }), (error) => error === reason); }
-    finally { console.log = log; }
+    await capture(
+      () => assert.rejects(root.parseAsync(['sample'], { from: 'user' }), (error) => error === reason),
+      phase === 'sink' ? () => { throw reason; } : undefined
+    );
     assert.equal(new Set(events).size, events.length);
     assert.equal(events[0], 'decode');
     assert.equal(events.includes('execute'), phase !== 'decode');

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 
 import { projectCiArtifactManifest } from '../../../src/application/ci-artifact-manifest-inspect.ts';
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
@@ -36,8 +36,7 @@ test('artifact manifest inspection routes retained manifest through application 
     };
 
     const manifestPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.artifactManifest);
-    await fs.mkdir(path.dirname(manifestPath), { recursive: true });
-    await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    await writeJson(manifestPath, manifest);
 
     const { stdout } = await expectCliSuccess(workspaceRoot, ['artifacts', 'manifest']);
     expect(stdout).toMatch(/Artifact manifest\s+passed(?=$|[\s;,()])/u);

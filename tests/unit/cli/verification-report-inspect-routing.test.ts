@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -86,8 +85,7 @@ test('verification inspection renders report text while preserving raw JSON', as
     expect(report).toEqual(beforeRender);
 
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
-    await fs.mkdir(path.dirname(reportPath), { recursive: true });
-    await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(reportPath, report);
 
     const { stdout } = await expectCliSuccess(workspaceRoot, ['verification']);
     expectFailureSummary(stdout);

@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { projectPolicySources } from '../../../src/application/policy-source-inspection.ts';
@@ -74,8 +73,7 @@ test('policy sources routes retained policy evidence through application and ent
       }
     };
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
-    await fs.mkdir(path.dirname(reportPath), { recursive: true });
-    await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(reportPath, report);
 
     const { stdout } = await expectCliSuccess(workspaceRoot, ['policy', 'sources']);
     const lines = stdout.trimEnd().split(/\r?\n/u);

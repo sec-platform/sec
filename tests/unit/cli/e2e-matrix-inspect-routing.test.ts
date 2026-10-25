@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -26,8 +25,7 @@ test('review matrix routes adapter result through application and entry while pr
   await withTempWorkspace(async (workspaceRoot) => {
     const summary = await buildReviewSummaryFromInputs(workspaceRoot);
     const summaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
-    await fs.mkdir(path.dirname(summaryPath), { recursive: true });
-    await fs.writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+    await writeJson(summaryPath, summary);
 
     const matrix = buildE2eMatrix(summary);
 

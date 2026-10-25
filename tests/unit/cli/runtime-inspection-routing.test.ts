@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { projectRuntimeInspection } from '../../../src/application/runtime-inspection.ts';
@@ -83,8 +82,7 @@ test('runtime inspection routes text through application and entry while preserv
 
   await withTempWorkspace(async (workspaceRoot) => {
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport);
-    await fs.mkdir(path.dirname(reportPath), { recursive: true });
-    await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await writeJson(reportPath, report);
 
     const text = await expectCliSuccess(workspaceRoot, ['runtime']);
     expectLine(text.stdout, 'Runtime report failed', []);

@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { projectExplainGraphInspect } from '../../../src/application/explain-graph-inspect.ts';
@@ -33,8 +32,7 @@ test('explain inspect preserves historical pin graph JSON through reading, count
       }
     } as const;
     const graphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
-    await fs.mkdir(path.dirname(graphPath), { recursive: true });
-    await fs.writeFile(graphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
+    await writeJson(graphPath, graph);
 
     const { stdout } = await expectCliSuccess(workspaceRoot, ['explain', 'graph']);
     expect(stdout).toMatch(/\b4 nodes(?=$|[\s;,()])/u);
