@@ -118,12 +118,6 @@ test('validator rejects unknown schema', () => {
   expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/schema must be/);
 });
 
-test('validator rejects missing required field', () => {
-  const input = minimalValidInput();
-  const { gateId, ...withoutGateId } = input;
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ schema: VERIFICATION_GATE_RESULT_SCHEMA, ...withoutGateId })).toThrow(/unknown or missing fields/);
-});
-
 test('validator rejects invalid digest format', () => {
   const input = minimalValidInput();
   const bad = { schema: VERIFICATION_GATE_RESULT_SCHEMA, ...input, inputDigest: 'not-a-digest' } as unknown as VerificationGateResult;
@@ -760,6 +754,8 @@ test('aggregate assertion rejects empty, control, and missing identities at ever
   candidates.push(controlGate);
   const missingGate = canonicalAggregateFixture();
   delete (missingGate.gates[0] as unknown as Record<string, unknown>).gateId;
+  expect(() => CodexDevelopmentAssertVerificationGateResultV1(missingGate.gates[0]))
+    .toThrow(/unknown or missing fields/);
   candidates.push(missingGate);
 
   const emptyContributor = canonicalAggregateFixture();
@@ -815,6 +811,19 @@ test('aggregate assertion rejects unknown contributors, incomplete passed covera
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
     contradictoryOverall.overall,
     aggregateInput(contradictoryOverall)
+  )).toThrow(/does not exactly match the canonical aggregate writer output/);
+
+  // Independent wire data also covers the unsafe opposite direction: the
+  // required gate never ran, so an overall PASS cannot override its claim.
+  const forgedPass = canonicalAggregateFixture();
+  forgedPass.gates = [];
+  Object.assign(forgedPass.overall.claimResults[0]!, {
+    status: 'not-run', reasonCode: 'not-dispatched',
+    contributingGateIds: [], coverageComplete: false
+  });
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    forgedPass.overall,
+    aggregateInput(forgedPass)
   )).toThrow(/does not exactly match the canonical aggregate writer output/);
 });
 

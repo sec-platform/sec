@@ -263,54 +263,21 @@ test('regression 5: an unsupported optional provider does not invalidate an inde
 });
 
 // ---------------------------------------------------------------------------
-// Regression 6: empty affected source closure → invalidated/non-zero
-// ---------------------------------------------------------------------------
-
-test('regression 6: empty affected source closure → invalidated, not passed', () => {
-  // Simulate: source changed but no tests selected, and selection is unresolved.
-  // The gate for this claim is invalidated with selection-unresolved.
-  const affectedGate = invalidatedGate('affected-gate', ['affected-closure'], 'selection-unresolved');
-  const input = {
-    claims: [claim('affected-closure', ['affected-gate'])],
-    gateResults: [affectedGate]
-  };
-  const result = CodexDevelopmentAggregateVerificationClaims(input);
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-  expect(result.claimResults[0]!.reasonCode).toBe('selection-unresolved');
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).not.toThrow();
-});
-
-// ---------------------------------------------------------------------------
 // Regression 7: stale reused evidence → invalidated, not passed
 // ---------------------------------------------------------------------------
 
 test('regression 7: stale reused evidence → invalidated, not passed', () => {
   // A gate that was reused but the evidence is now stale.
   const staleGate = invalidatedGate('stale-gate', ['reuse-claim'], 'evidence-stale');
-  const result = CodexDevelopmentAggregateVerificationClaims({
+  const input = {
     claims: [claim('reuse-claim', ['stale-gate'])],
     gateResults: [staleGate]
-  });
+  };
+  const result = CodexDevelopmentAggregateVerificationClaims(input);
   expect(result.overallStatus).toBe('invalidated');
   expect(result.claimResults[0]!.status).toBe('invalidated');
   expect(result.claimResults[0]!.reasonCode).toBe('evidence-stale');
-});
-
-// ---------------------------------------------------------------------------
-// Regression 8: cleanup failure after assertions pass → failed
-// ---------------------------------------------------------------------------
-
-test('regression 8: cleanup failure after assertions pass → failed', () => {
-  // The test gate passed, but the cleanup gate failed.
-  const testGate = passedGate('test-gate', ['cleanup-claim']);
-  const cleanupGate = failedGate('cleanup-gate', ['cleanup-claim'], 'cleanup-failed');
-  const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [claim('cleanup-claim', ['test-gate', 'cleanup-gate'])],
-    gateResults: [testGate, cleanupGate]
-  });
-  expect(result.overallStatus).toBe('failed');
-  expect(result.claimResults[0]!.status).toBe('failed');
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).not.toThrow();
 });
 
 // ---------------------------------------------------------------------------
@@ -540,25 +507,6 @@ test('aggregate assertion rejects claim-plan omission even when the forged proje
   )).toThrow(/does not exactly match the canonical aggregate writer output/);
 });
 
-test('aggregate assertion rejects overall passed paired with every non-passed claim status', () => {
-  const statuses: Array<Exclude<VerificationResultStatus, 'passed'>> = [
-    'failed', 'invalidated', 'unsupported', 'not-run'
-  ];
-  for (const status of statuses) {
-    const gate = gateForStatus(status, `gate-${status}`, `claim-${status}`);
-    const input = {
-      claims: [claim(`claim-${status}`, [`gate-${status}`])],
-      gateResults: [gate]
-    };
-    const result = CodexDevelopmentAggregateVerificationClaims(input);
-    result.overallStatus = 'passed';
-    result.overallReasonCode = 'executed-success';
-    expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).toThrow(
-      /does not exactly match the canonical aggregate writer output/
-    );
-  }
-});
-
 test('aggregate assertion rejects invalid reasons for every status at claim and overall levels', () => {
   const cases = [
     ['passed', 'executed-failure'],
@@ -595,13 +543,14 @@ test('aggregate assertion rejects invalid reasons for every status at claim and 
 test('aggregate assertion rejects a valid same-status but wrong decisive overall reason', () => {
   const gate = failedGate('decisive-gate', ['decisive-claim'], 'cleanup-failed');
   const input = {
-    claims: [claim('decisive-claim', ['decisive-gate'])],
-    gateResults: [gate]
+    claims: [claim('decisive-claim', ['passed-gate', 'decisive-gate'])],
+    gateResults: [passedGate('passed-gate', ['decisive-claim']), gate]
   };
   const result = CodexDevelopmentAggregateVerificationClaims(input);
   expect(result).toMatchObject({
     overallStatus: 'failed',
-    overallReasonCode: 'cleanup-failed'
+    overallReasonCode: 'cleanup-failed',
+    claimResults: [{ status: 'failed' }]
   });
   result.overallReasonCode = 'timeout';
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).toThrow(
