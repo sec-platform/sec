@@ -236,11 +236,11 @@ describe('provider-neutral trusted runtime container', () => {
       executionId: 'historical-native-main-health', observedAt: '2026-10-04T00:00:00.000Z',
       actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({ command, unitReceipt: historicalNativeUnit(index) })) });
     const receipt = createTrustedRuntimeNativeMainHealthReceipt(request);
-    expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
+    const parsed = parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt));
+    expect(parsed).toEqual(receipt);
     expect(trustedRuntimeMainHealthReceiptReference(receipt)).toBe(
       `live-receipt:trusted-main-health/v4/${receipt.mainSha}/${receipt.receiptDigest.slice(7)}`
     );
-    const parsed = parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt));
     const projected = createTrustedRuntimeMainHealthInput({
       schema: 'sec-trusted-runtime-main-health-observation-v1',
       repository: parsed.repository, mainSha: parsed.mainSha, mainTreeSha: parsed.mainTreeSha,
@@ -260,7 +260,7 @@ describe('provider-neutral trusted runtime container', () => {
     expect(receipt.actionResults[0]!.unitReceipt.inputs.dependencyContentDigest).toBeNull();
     expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
       receiptDigest: `sha256:${'f'.repeat(64)}` })).toThrow('canonical subject, plan or result bytes');
-    for (const unqualified of [receipt, { ...receipt }, parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))]) {
+    for (const unqualified of [receipt, { ...receipt }, parsed]) {
       expect(() => assertTrustedRuntimeMainHealthQualification({ receipt: unqualified,
         repositoryRoot: process.cwd(), repository: receipt.repository, mainSha: receipt.mainSha,
         mainTreeSha: receipt.mainTreeSha })).toThrow('current live production execution qualification');

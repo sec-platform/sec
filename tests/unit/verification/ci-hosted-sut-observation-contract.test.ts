@@ -444,14 +444,14 @@ test('native hosted receipt rejects recomputed source, attempt and output contra
 });
 
 test('native hosted receipt never restores live unit authority from parsed complete data', () => {
-  const parsed = parseHostedJobRuntimeReceipt(nativeRuntimeReceiptData());
+  const data = nativeRuntimeReceiptData();
+  const parsed = parseHostedJobRuntimeReceipt(data);
   expect(hostedJobRuntimeReceiptComplete(parsed)).toBe(true);
-  assertHostedJobRuntimeReceiptOutput(nativeRuntimeReceiptData(), '{}\n');
-  expect(() => assertHostedJobRuntimeReceiptOutput(nativeRuntimeReceiptData(), '{"changed":true}\n')).toThrow();
-  expect(() => assertLinuxVerificationUnitResult({ receipt: nativeRuntimeReceiptData().nativeUnit, stdout: new Uint8Array(),
+  assertHostedJobRuntimeReceiptOutput(data, '{}\n');
+  expect(() => assertHostedJobRuntimeReceiptOutput(data, '{"changed":true}\n')).toThrow();
+  expect(() => assertLinuxVerificationUnitResult({ receipt: data.nativeUnit, stdout: new Uint8Array(),
     stderr: new Uint8Array(), outputFiles: {} } as unknown as Parameters<typeof assertLinuxVerificationUnitResult>[0],
     {} as Parameters<typeof assertLinuxVerificationUnitResult>[1])).toThrow();
-  const data = nativeRuntimeReceiptData();
   const incomplete = structuredClone(data) as unknown as Record<string, unknown>;
   incomplete.cleanup = { ...data.cleanup, ownedSourcesReleased: false };
   expect(() => parseHostedJobRuntimeReceipt(incomplete)).toThrow();
