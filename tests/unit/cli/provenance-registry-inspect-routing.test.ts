@@ -10,116 +10,128 @@ import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 test('provenance inspection routes text through application and entry while preserving raw JSON', async () => {
   // Source attribution, verification gaps and snapshot isolation are independent obligations.
-  {
-    const source = {
-      artifacts: [
-        {
-          path: 'src/block-a.ts',
-          originType: 'block',
-          originId: 'block-a',
-          registrySourceId: 'official',
-          verifiedBy: ['verify:a'],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'src/block-b.ts',
-          originType: 'block',
-          originId: 'block-b',
-          verifiedBy: [] as string[],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'src/override.ts',
-          originType: 'override',
-          originId: 'override-a',
-          verifiedBy: ['verify:o'],
-          overrideStatus: 'project'
-        },
-        {
-          path: 'src/generated-a.ts',
-          originType: 'generated',
-          originId: 'generated-a',
-          generatedByPass: 'emit',
-          verifiedBy: [] as string[],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'src/generated-b.ts',
-          originType: 'generated',
-          originId: 'generated-b',
-          generatedByPass: 'compose',
-          verifiedBy: [] as string[],
-          overrideStatus: 'none'
-        }
-      ]
-    };
-    const view = projectProvenanceRegistryInspect(source);
-    source.artifacts[0]!.verifiedBy.push('later');
+  const source = {
+    artifacts: [
+      {
+        path: 'src/block-a.ts',
+        originType: 'block',
+        originId: 'block-a',
+        registrySourceId: 'official',
+        verifiedBy: ['verify:a'],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'src/block-b.ts',
+        originType: 'block',
+        originId: 'block-b',
+        verifiedBy: [] as string[],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'src/override.ts',
+        originType: 'override',
+        originId: 'override-a',
+        verifiedBy: ['verify:o'],
+        overrideStatus: 'project'
+      },
+      {
+        path: 'src/generated-a.ts',
+        originType: 'generated',
+        originId: 'generated-a',
+        generatedByPass: 'emit',
+        verifiedBy: [] as string[],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'src/generated-b.ts',
+        originType: 'generated',
+        originId: 'generated-b',
+        generatedByPass: 'compose',
+        verifiedBy: [] as string[],
+        overrideStatus: 'none'
+      }
+    ]
+  };
+  // Persist the original evidence, not the later source mutation.
+  const provenance = { formatVersion: '1', artifacts: structuredClone(source.artifacts) };
+  const view = projectProvenanceRegistryInspect(source);
+  source.artifacts[0]!.verifiedBy.push('later');
 
-    expect(view).toEqual({
-      artifactCount: 5,
-      registryArtifactCount: 1,
-      overrideArtifactCount: 1,
-      unverifiedArtifactCount: 3,
-      originTypeCounts: [
-        { id: 'block', count: 2 },
-        { id: 'generated', count: 2 },
-        { id: 'override', count: 1 }
-      ],
-      registrySourceCounts: [{ id: 'official', count: 1 }],
-      generatedPasses: ['compose', 'emit'],
-      samples: [
-        {
-          path: 'src/block-a.ts',
-          originType: 'block',
-          originId: 'block-a',
-          registrySourceId: 'official',
-          verifiedBy: ['verify:a'],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'src/block-b.ts',
-          originType: 'block',
-          originId: 'block-b',
-          verifiedBy: [] as string[],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'src/override.ts',
-          originType: 'override',
-          originId: 'override-a',
-          verifiedBy: ['verify:o'],
-          overrideStatus: 'project'
-        },
-        {
-          path: 'src/generated-a.ts',
-          originType: 'generated',
-          originId: 'generated-a',
-          verifiedBy: [] as string[],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'src/generated-b.ts',
-          originType: 'generated',
-          originId: 'generated-b',
-          verifiedBy: [] as string[],
-          overrideStatus: 'none'
-        }
-      ]
-    });
+  expect(view).toEqual({
+    artifactCount: 5,
+    registryArtifactCount: 1,
+    overrideArtifactCount: 1,
+    unverifiedArtifactCount: 3,
+    originTypeCounts: [
+      { id: 'block', count: 2 },
+      { id: 'generated', count: 2 },
+      { id: 'override', count: 1 }
+    ],
+    registrySourceCounts: [{ id: 'official', count: 1 }],
+    generatedPasses: ['compose', 'emit'],
+    samples: [
+      {
+        path: 'src/block-a.ts',
+        originType: 'block',
+        originId: 'block-a',
+        registrySourceId: 'official',
+        verifiedBy: ['verify:a'],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'src/block-b.ts',
+        originType: 'block',
+        originId: 'block-b',
+        verifiedBy: [] as string[],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'src/override.ts',
+        originType: 'override',
+        originId: 'override-a',
+        verifiedBy: ['verify:o'],
+        overrideStatus: 'project'
+      },
+      {
+        path: 'src/generated-a.ts',
+        originType: 'generated',
+        originId: 'generated-a',
+        verifiedBy: [] as string[],
+        overrideStatus: 'none'
+      },
+      {
+        path: 'src/generated-b.ts',
+        originType: 'generated',
+        originId: 'generated-b',
+        verifiedBy: [] as string[],
+        overrideStatus: 'none'
+      }
+    ]
+  });
 
-    const text = formatProvenanceRegistry(view);
-    // A generated artifact without a declared producing pass is not an
-    // empty-string pass. Retain this absence boundary next to the real CLI
-    // consumer instead of a separate projection-only registration.
-    const unboundPass = projectProvenanceRegistryInspect({ artifacts: [{
-      path: 'src/no-pass.ts', originType: 'generated', originId: 'unbound',
-      verifiedBy: [], overrideStatus: 'none'
-    }] });
-    expect(unboundPass.generatedPasses).toEqual([]);
-    const absentPasses = formatProvenanceRegistry(unboundPass).split('\n')
-      .find(line => line.startsWith('Generated passes:'));
-    expect(absentPasses).toContain('none');
+  // A generated artifact without a declared producing pass is not an
+  // empty-string pass. Retain this absence boundary next to the real CLI
+  // consumer instead of a separate projection-only registration.
+  const unboundPass = projectProvenanceRegistryInspect({ artifacts: [{
+    path: 'src/no-pass.ts', originType: 'generated', originId: 'unbound',
+    verifiedBy: [], overrideStatus: 'none'
+  }] });
+  expect(unboundPass.generatedPasses).toEqual([]);
+  const absentPasses = formatProvenanceRegistry(unboundPass).split('\n')
+    .find(line => line.startsWith('Generated passes:'));
+  expect(absentPasses).toContain('none');
+
+  await withTempWorkspace(async (workspaceRoot) => {
+    const missing = await runCliInProcess(workspaceRoot, ['provenance']);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain('not found');
+    expect(missing.stderr).not.toContain('commander.');
+
+    const provenancePath = await resolveWorkspaceProvenancePath(workspaceRoot);
+    await fs.mkdir(path.dirname(provenancePath), { recursive: true });
+    await fs.writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, 'utf8');
+
+    const { stdout: text } = await expectCliSuccess(workspaceRoot, ['provenance']);
     for (const count of [/\bartifacts=5(?=$|[\s;,()])/u, /\bregistry=1(?=$|[\s;,()])/u, /\boverrides=1(?=$|[\s;,()])/u, /\bunverified=3(?=$|[\s;,()])/u]) {
       expect(text).toMatch(count);
     }
@@ -143,49 +155,6 @@ test('provenance inspection routes text through application and entry while pres
       for (const field of fields) expect(row).toMatch(new RegExp(`${field}(?=$|[\\s;,()])`, 'u'));
     }
     expect(text).not.toContain('later');
-  }
-  await withTempWorkspace(async (workspaceRoot) => {
-    const missing = await runCliInProcess(workspaceRoot, ['provenance']);
-    expect(missing.code).toBe(1);
-    expect(missing.stderr).toContain('not found');
-    expect(missing.stderr).not.toContain('commander.');
-
-    const provenance = {
-      formatVersion: '1',
-      artifacts: [
-        {
-          path: 'src/block.ts',
-          originType: 'block',
-          originId: 'block:a',
-          registrySourceId: 'official',
-          verifiedBy: ['verify:a'],
-          overrideStatus: 'none'
-        },
-        {
-          path: 'src/generated.ts',
-          originType: 'generated',
-          originId: 'generated:a',
-          generatedByPass: 'emit',
-          verifiedBy: [],
-          overrideStatus: 'none'
-        }
-      ]
-    };
-    const provenancePath = await resolveWorkspaceProvenancePath(workspaceRoot);
-    await fs.mkdir(path.dirname(provenancePath), { recursive: true });
-    await fs.writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, 'utf8');
-
-    const { stdout } = await expectCliSuccess(workspaceRoot, ['provenance']);
-    expect(stdout).toMatch(/\bartifacts=2(?=$|[\s;,()])/u);
-    expect(stdout).toMatch(/\bregistry=1(?=$|[\s;,()])/u);
-    expect(stdout).toMatch(/\bunverified=1(?=$|[\s;,()])/u);
-    const block = stdout.split('\n').find((line) => /src\/block\.ts(?=$|[\s;,()])/u.test(line));
-    expect(block).toMatch(/origin=block:block:a(?=$|[\s;,()])/u);
-    expect(block).toMatch(/registry=official(?=$|[\s;,()])/u);
-    expect(block).toMatch(/verifiedBy=verify:a(?=$|[\s;,()])/u);
-    const generated = stdout.split('\n').find((line) => /src\/generated\.ts(?=$|[\s;,()])/u.test(line));
-    expect(generated).toMatch(/origin=generated:generated:a(?=$|[\s;,()])/u);
-    expect(generated).toMatch(/verifiedBy=none(?=$|[\s;,()])/u);
 
     const rawJson = await expectCliJson<typeof provenance>(workspaceRoot, ['provenance', 'registry', '--json']);
     expect(rawJson).toEqual(provenance);

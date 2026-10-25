@@ -6,7 +6,6 @@ import path from 'node:path';
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import { isSlowTestFile, type TestBudgetContract } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { expectCliJson } from '../../testkit/cli.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 function currentSlowTestFiles(): string[] {
   const repositoryRoot = path.resolve(import.meta.dir, '../../..');
@@ -38,44 +37,44 @@ function currentSlowTestFiles(): string[] {
 }
 
 test('test-budget CLI preserves current repository membership and consistent suite ownership', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const contract = await expectCliJson<TestBudgetContract>(
-      workspaceRoot,
-      ['test', 'budget', '--json', '--compact'],
-      {
-        command: 'bun run sec -- test budget --json',
-        runnerCommand: 'bun run test:budget',
-        defaultLane: 'fast',
-        laneCount: 3,
-        slowLaneCount: 2,
-        slowLaneIds: ['runtime', 'all']
-      },
-      { compact: true }
-    );
+  // This in-process cwd is request data only; no selected reader opens it.
+  const workspaceRoot = path.resolve('/cli-input-only');
+  const contract = await expectCliJson<TestBudgetContract>(
+    workspaceRoot,
+    ['test', 'budget', '--json', '--compact'],
+    {
+      command: 'bun run sec -- test budget --json',
+      runnerCommand: 'bun run test:budget',
+      defaultLane: 'fast',
+      laneCount: 3,
+      slowLaneCount: 2,
+      slowLaneIds: ['runtime', 'all']
+    },
+    { compact: true }
+  );
 
-    expect(contract.lanes.map(({ id }) => id)).toEqual(['fast', 'runtime', 'all']);
-    expect(contract.fastTestHostRequirements).toEqual([
-      { file: 'tests/unit/verification/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
-    ]);
+  expect(contract.lanes.map(({ id }) => id)).toEqual(['fast', 'runtime', 'all']);
+  expect(contract.fastTestHostRequirements).toEqual([
+    { file: 'tests/unit/verification/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
+  ]);
 
-    // The compiler repository has slow suites; empty output is not a complete inventory.
-    expect(contract.slowTestFiles.length).toBeGreaterThan(0);
-    expect(contract.slowTestFiles).toEqual(currentSlowTestFiles());
-    expect(contract.slowTestFiles).toEqual([...contract.slowTestFiles].sort());
-    expect(new Set(contract.slowTestFiles).size).toBe(contract.slowTestFiles.length);
-    expect(contract.slowTestFileCount).toBe(contract.slowTestFiles.length);
-    expect(contract.slowSuiteCount).toBe(contract.slowSuites.length);
-    expect(contract.slowSuites.flatMap(({ files }) => files).sort()).toEqual([
-      ...contract.slowTestFiles
-    ]);
-    expect(contract.slowSuites.every(({ owner, logicalRunTimeoutMs, files }) =>
-      owner.length > 0 && logicalRunTimeoutMs > 0 && files.length > 0)).toBe(true);
-    // Cover the actual issued CLI budget rather than re-evaluating this
-    // resource-class membership through an independent slow graph fixture.
-    const runtimeHeavy = contract.slowSuites.filter(suite => suite.resourceClass === 'runtime-heavy');
-    expect(runtimeHeavy.length).toBeGreaterThan(0);
-    expect(runtimeHeavy.every(suite => suite.files.length > 0)).toBe(true);
-    expect(runtimeHeavy.some(suite => suite.parallelSafe)).toBe(true);
-    expect(runtimeHeavy.some(suite => !suite.parallelSafe)).toBe(true);
-  });
+  // The compiler repository has slow suites; empty output is not a complete inventory.
+  expect(contract.slowTestFiles.length).toBeGreaterThan(0);
+  expect(contract.slowTestFiles).toEqual(currentSlowTestFiles());
+  expect(contract.slowTestFiles).toEqual([...contract.slowTestFiles].sort());
+  expect(new Set(contract.slowTestFiles).size).toBe(contract.slowTestFiles.length);
+  expect(contract.slowTestFileCount).toBe(contract.slowTestFiles.length);
+  expect(contract.slowSuiteCount).toBe(contract.slowSuites.length);
+  expect(contract.slowSuites.flatMap(({ files }) => files).sort()).toEqual([
+    ...contract.slowTestFiles
+  ]);
+  expect(contract.slowSuites.every(({ owner, logicalRunTimeoutMs, files }) =>
+    owner.length > 0 && logicalRunTimeoutMs > 0 && files.length > 0)).toBe(true);
+  // Cover the actual issued CLI budget rather than re-evaluating this
+  // resource-class membership through an independent slow graph fixture.
+  const runtimeHeavy = contract.slowSuites.filter(suite => suite.resourceClass === 'runtime-heavy');
+  expect(runtimeHeavy.length).toBeGreaterThan(0);
+  expect(runtimeHeavy.every(suite => suite.files.length > 0)).toBe(true);
+  expect(runtimeHeavy.some(suite => suite.parallelSafe)).toBe(true);
+  expect(runtimeHeavy.some(suite => !suite.parallelSafe)).toBe(true);
 }, { timeout: 15_000 });

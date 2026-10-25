@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
-import { projectPolicyReportInspect, projectPolicyReportInspection } from '../../../src/application/policy-report-inspection.ts';
+import { projectPolicyReportInspect } from '../../../src/application/policy-report-inspection.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { formatPolicyReport } from '../../../src/entry/cli/policy-report-inspection.ts';
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
@@ -98,10 +98,6 @@ test('policy inspection routes retained report through application summary proje
     await fs.mkdir(path.dirname(reportPath), { recursive: true });
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
-    const projected = projectPolicyReportInspection(report);
-    expect(projected.status).toBe('skipped');
-    expect(projected.policies).toEqual([]);
-    expect(projected.violations).toEqual([]);
     // Projector/formatter meaning was independently verified with the
     // nonempty fixture above. The skipped report's real CLI output is a
     // separate source-backed witness, not a second formatter echo.
