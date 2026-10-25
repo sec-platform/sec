@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
+import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
 import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES, CI_ARTIFACT_PATHS } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
@@ -18,16 +19,7 @@ test('provenance is readable before explain and artifact inventory diagnoses mis
       'Origins: block=',
       'Registry sources: official='
     ]);
-    const provenance = await expectCliJson<{
-      formatVersion: string;
-      artifacts: Array<{
-        path: string;
-        originType: string;
-        registrySourceId?: string;
-        verifiedBy: string[];
-        overrideStatus: string;
-      }>;
-    }>(workspaceRoot, ['provenance', 'registry', '--json', '--compact'], {
+    const provenance = await expectCliJson<ProvenanceFile>(workspaceRoot, ['provenance', 'registry', '--json', '--compact'], {
       formatVersion: '1',
       artifacts: expect.any(Array)
     }, { compact: true });

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import type { ExplainSummarySource } from '../../../src/application/explain-summary.ts';
 import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
@@ -32,82 +33,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
       'Impacted: 3 blocks,',
       'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
     ]);
-    const payload = await expectCliJson<{
-      graph: { nodes: Array<{ id: string; type: string }>; edges: unknown[] };
-      e2eMatrix: {
-        status: string;
-        rowCount: number;
-        rows: Array<{
-          stage: string;
-          status: string;
-          detail: string;
-          evidenceCount: number;
-          evidence: string[];
-        }>;
-      };
-      reviewSummary: {
-        formatVersion: string;
-        ciSummary: { status: string; failureCount: number };
-        chainSummary: {
-          status: string;
-          stageCount: number;
-          passedStageCount: number;
-          attentionStageCount: number;
-          failedStageCount: number;
-          stageSummaries: Array<{ id: string; status: string; detail: string }>;
-        };
-        coverageSummary?: {
-          status: string;
-          acceptancePassedCount: number;
-          blockCount: number;
-          coveredBlockCount: number;
-          uncoveredBlockCount: number;
-          blockSummaries: Array<{ id: string; coveredByCount: number; coveredBy: string[] }>;
-        };
-        provenanceSummary?: {
-          artifactCount: number;
-          overrideArtifactCount: number;
-          registryArtifactCount: number;
-          generatedArtifactCount: number;
-          unverifiedArtifactCount: number;
-          originSummaryCount: number;
-          originSummaries: Array<{ originType: string; count: number; paths: string[] }>;
-          overrideSummaryCount: number;
-          overrideSummaries: Array<{ overrideStatus: string; count: number; paths: string[] }>;
-          registrySummaryCount: number;
-          registrySummaries: Array<{ registrySourceId: string; count: number; paths: string[] }>;
-          generatedPassSummaries: Array<{ pass: string; count: number; paths: string[] }>;
-        };
-        policySummary?: {
-          status: string;
-          officialPolicyCount: number;
-          projectPolicyCount: number;
-          mergedPolicyCount: number;
-          sourceCount: number;
-          violationCount: number;
-          sourceSummaries: Array<{ scope: string; path: string; policyIds: string[] }>;
-          mergedSummaries: Array<{ id: string; targetCount: number; targets: string[] }>;
-        };
-        changeSourceCount: number;
-        runtimeEntryCount: number;
-        installImpactCount: number;
-        installImpacts: Array<{
-          blockId: string;
-          actionKinds: string[];
-          runtimeEntries: string[];
-          targetPaths: string[];
-        }>;
-        installImpactSummary: {
-          impactCount: number;
-          blockCount: number;
-          actionKinds: string[];
-          runtimeEntryCount: number;
-          targetPathCount: number;
-        };
-        impactedBlocks: string[];
-        failurePoints: unknown[];
-      };
-    }>(workspaceRoot, ['explain', '--json', '--compact'], undefined, { compact: true });
+    const payload = await expectCliJson<ExplainSummarySource>(workspaceRoot, ['explain', '--json', '--compact'], undefined, { compact: true });
     expect(payload.reviewSummary.formatVersion).toBe('2');
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
     expect(payload.graph.edges.length).toBeGreaterThan(0);
