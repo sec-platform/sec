@@ -1,3 +1,4 @@
+import { settleResources, settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
@@ -129,7 +130,7 @@ test.skipIf(CROSS_PROCESS_CHILD_ROOT === undefined || CROSS_PROCESS_CHILD_MARKER
   'independent process child competes for one durable missing ActionKey claim',
   async () => {
     const key = preflightAction('tests/unit/cross-process-action.ts');
-    const result = await new VerificationActionRunner().execute({
+    const result = await fixtureRunner().execute({
       repositoryRoot: CROSS_PROCESS_CHILD_ROOT!,
       action: key,
       plan: cheapPlan(key),
@@ -263,12 +264,27 @@ function cheapPlan(key: ReturnType<typeof preflightAction>) {
   });
 }
 
+const fixtureRunners = new Set<VerificationActionRunner>();
+function fixtureRunner(): VerificationActionRunner {
+  const runner = new VerificationActionRunner();
+  fixtureRunners.add(runner);
+  return runner;
+}
+
 const runtimeRoots = new Set<string>();
 const actionJournalRoots = new Set<string>();
 const machineCutoverReceiptPaths = new Set<string>();
 const touchedActionKeys = new Set<VerificationActionKeyDigest>();
 
-afterEach(() => {
+afterEach(async () => {
+  // Journal/runtime roots remain owned until every admitted runner has closed.
+  await settleResourcesAsync({ cleanup: [...fixtureRunners].map(runner => ({
+    label: 'Action runner fixture',
+    settle: async () => {
+      await runner.close();
+      fixtureRunners.delete(runner);
+    }
+  })) });
   for (const journalRoot of actionJournalRoots) {
     for (const actionKey of touchedActionKeys) {
       const actionPath = path.join(
@@ -290,17 +306,24 @@ afterEach(() => {
 
 function root(): string {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-runner-v2-'));
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot });
-  const workspaceStateRoot = roots.workspaceStateRoot;
-  const actionJournalRoot = path.join(roots.stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY);
-  actionJournalRoots.add(actionJournalRoot);
-  machineCutoverReceiptPaths.add(path.join(
-    actionJournalRoot,
-    VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
-  ));
-  mkdirSync(workspaceStateRoot, { recursive: true });
-  runtimeRoots.add(workspaceStateRoot);
-  return repositoryRoot;
+  try {
+    const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot });
+    const workspaceStateRoot = roots.workspaceStateRoot;
+    const actionJournalRoot = path.join(roots.stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY);
+    actionJournalRoots.add(actionJournalRoot);
+    machineCutoverReceiptPaths.add(path.join(
+      actionJournalRoot,
+      VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
+    ));
+    runtimeRoots.add(workspaceStateRoot);
+    mkdirSync(workspaceStateRoot, { recursive: true });
+    return repositoryRoot;
+  } catch (error) {
+    settleResources({ primary: { label: 'Action root construction', error }, cleanup: [
+      { label: 'repository fixture root', settle: () => rmSync(repositoryRoot, { recursive: true, force: true }) }
+    ] });
+    throw error;
+  }
 }
 
 function diagnosticReadOperation() {
@@ -366,7 +389,7 @@ function inspectRepository(repositoryRoot: string) {
 }
 
 test('closed runner rejects new execution before acquiring runtime resources', async () => {
-  const runner = new VerificationActionRunner();
+  const runner = fixtureRunner();
   await runner.close();
   await runner.close();
   const key = preflightAction('closed-runner-admission');
@@ -380,13 +403,13 @@ test('closed runner rejects new execution before acquiring runtime resources', a
 
 test('concurrent callers in different execution domains join one physical executor invocation', async () => {
   const repositoryRoot = root();
-  const runner = new VerificationActionRunner();
-  const secondRunner = new VerificationActionRunner();
+  const runner = fixtureRunner();
+  const secondRunner = fixtureRunner();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
   try {
     const key = action();
     let invocations = 0;
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => { release = resolve; });
     const executor = async () => {
       invocations += 1;
       await held;
@@ -416,14 +439,18 @@ test('concurrent callers in different execution domains join one physical execut
     expect([firstResult, secondResult].every(({ terminal }) => terminal?.status === 'passed')).toBeTrue();
     expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('terminal');
   } finally {
-    await Promise.all([runner.close(), secondRunner.close()]);
+    release();
+    await settleResourcesAsync({ cleanup: [
+      { label: 'Action runner fixture', settle: () => runner.close() },
+      { label: 'Action runner fixture', settle: () => secondRunner.close() }
+    ] });
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('runner completes machine cutover before reusing a workspace terminal without execution', async () => {
   const repositoryRoot = root();
-  const runner = new VerificationActionRunner();
+  const runner = fixtureRunner();
   try {
     const key = preflightAction('tests/unit/workspace-terminal-cutover.ts');
     const legacyFs = workspaceJournalFs(repositoryRoot);
@@ -459,13 +486,13 @@ test('runner completes machine cutover before reusing a workspace terminal witho
 test('equal ActionKeys in distinct workspaces join one machine-global physical claim and terminal', async () => {
   const firstRepositoryRoot = root();
   const secondRepositoryRoot = root();
-  const firstRunner = new VerificationActionRunner();
-  const secondRunner = new VerificationActionRunner();
+  const firstRunner = fixtureRunner();
+  const secondRunner = fixtureRunner();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
   try {
     const key = action();
     let invocations = 0;
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => { release = resolve; });
     const execute = (
       runner: VerificationActionRunner,
       repositoryRoot: string,
@@ -496,7 +523,11 @@ test('equal ActionKeys in distinct workspaces join one machine-global physical c
     expect(firstReadback.latestState).toBe('terminal');
     expect(secondReadback.terminal).toEqual(firstReadback.terminal);
   } finally {
-    await Promise.all([firstRunner.close(), secondRunner.close()]);
+    release();
+    await settleResourcesAsync({ cleanup: [
+      { label: 'Action runner fixture', settle: () => firstRunner.close() },
+      { label: 'Action runner fixture', settle: () => secondRunner.close() }
+    ] });
     rmSync(firstRepositoryRoot, { recursive: true, force: true });
     rmSync(secondRepositoryRoot, { recursive: true, force: true });
   }
@@ -505,8 +536,8 @@ test('equal ActionKeys in distinct workspaces join one machine-global physical c
 test('distinct ActionKeys retain independent machine-global physical claims', async () => {
   const firstRepositoryRoot = root();
   const secondRepositoryRoot = root();
-  const firstRunner = new VerificationActionRunner();
-  const secondRunner = new VerificationActionRunner();
+  const firstRunner = fixtureRunner();
+  const secondRunner = fixtureRunner();
   try {
     const firstKey = preflightAction('tests/unit/global-action-a.ts');
     const secondKey = preflightAction('tests/unit/global-action-b.ts');
@@ -541,7 +572,10 @@ test('distinct ActionKeys retain independent machine-global physical claims', as
     expect(readVerificationActionJournal(firstRepositoryRoot, firstKey.actionKey).filePath)
       .not.toBe(readVerificationActionJournal(secondRepositoryRoot, secondKey.actionKey).filePath);
   } finally {
-    await Promise.all([firstRunner.close(), secondRunner.close()]);
+    await settleResourcesAsync({ cleanup: [
+      { label: 'Action runner fixture', settle: () => firstRunner.close() },
+      { label: 'Action runner fixture', settle: () => secondRunner.close() }
+    ] });
     rmSync(firstRepositoryRoot, { recursive: true, force: true });
     rmSync(secondRepositoryRoot, { recursive: true, force: true });
   }
@@ -552,7 +586,7 @@ test('an expired global claim observed from another workspace blocks blind resta
   const contenderRepositoryRoot = root();
   const key = preflightAction('tests/unit/global-expired-claim.ts');
   const ownerFs = journalFs(ownerRepositoryRoot);
-  const runner = new VerificationActionRunner();
+  const runner = fixtureRunner();
   try {
     expect(acquireVerificationActionClaim({
       fs: ownerFs,
@@ -603,7 +637,7 @@ test('durable cross-process join waits for the authenticated owner terminal with
     appendJournalEvent({ fs, action: key, state: 'queued', recordedAt: now });
     appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
     let physicalExecutions = 0;
-    const joined = new VerificationActionRunner().execute({
+    const joined = fixtureRunner().execute({
       repositoryRoot,
       action: key,
       plan: cheapPlan(key),
@@ -662,7 +696,7 @@ test('durable cross-process join deadline blocks without polling or a second exe
     appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
     let physicalExecutions = 0;
 
-    const result = await new VerificationActionRunner().execute({
+    const result = await fixtureRunner().execute({
       repositoryRoot,
       action: key,
       plan: cheapPlan(key),
@@ -744,7 +778,7 @@ test('caller-forged terminal-passed state without a journal fact cannot start an
   try {
     const key = action('missing-machine-preflight-fact');
     let invocations = 0;
-    const result = await new VerificationActionRunner().execute({
+    const result = await fixtureRunner().execute({
       repositoryRoot,
       action: key,
       plan: runnablePlan(key),
@@ -764,7 +798,7 @@ test('caller-forged terminal-passed state without a journal fact cannot start an
 test('fresh terminal success reuses without execution and terminal failure never becomes PASS', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunner();
+    const runner = fixtureRunner();
     const passed = action('passed-action');
     let passedInvocations = 0;
     const first = await runner.execute({
@@ -821,7 +855,7 @@ test('fresh terminal success reuses without execution and terminal failure never
 test('identity execution derives one plan and reuses its terminal without physical execution', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunner();
+    const runner = fixtureRunner();
     const actionInput: VerificationActionKeyInput = {
       actionKind: 'identity-runner-test',
       producer: { identity: 'runner-test', revision: 'identity-executor' },
@@ -868,7 +902,7 @@ test('identity execution derives one plan and reuses its terminal without physic
 test('producer subordinate settlement is atomically journaled and replayed without execution', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunner();
+    const runner = fixtureRunner();
     const key = action('subordinate-settlement');
     const subordinate = JSON.stringify({
       setup: { status: 'complete' },
@@ -908,7 +942,7 @@ test('executor failure is durably cancelled and its diagnostic is bounded', asyn
   const repositoryRoot = root();
   try {
     const key = action('diagnostic-action');
-    const result = await new VerificationActionRunner().execute({
+    const result = await fixtureRunner().execute({
       repositoryRoot,
       action: key,
       plan: runnablePlan(key, repositoryRoot),
@@ -935,7 +969,7 @@ test('executor failure is durably cancelled and its diagnostic is bounded', asyn
 test('cheap preflight failure prevents physical execution', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunner();
+    const runner = fixtureRunner();
     const key = action('expensive-action');
     const dependency = preflightAction();
     seedFailedPreflight(repositoryRoot);
@@ -965,7 +999,7 @@ test('cheap preflight failure prevents physical execution', async () => {
 test('dependency closure is re-read after execution and unstable closure discards physical result', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunner();
+    const runner = fixtureRunner();
     const key = action('dependency-race-action');
     let invocations = 0;
     const result = await runner.execute({
@@ -996,7 +1030,7 @@ test('dependency closure is re-read after execution and unstable closure discard
 test('input invalidation discards an in-flight physical result', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunner();
+    const runner = fixtureRunner();
     const key = action('invalidated-action');
     let release!: () => void;
     let markStarted!: () => void;
@@ -1012,15 +1046,21 @@ test('input invalidation discards an in-flight physical result', async () => {
         return issuedSettlement(key);
       }
     });
-    await started;
-    const invalidated = runner.invalidateIfDependent({
-      repositoryRoot,
-      action: key,
-      changedInputPaths: ['scripts/codex/example.ts']
-    });
-    expect(invalidated.latestState).toBe('invalidated');
-    release();
-    const result = await running;
+    let result: Awaited<typeof running>;
+    try {
+      await started;
+      const invalidated = runner.invalidateIfDependent({
+        repositoryRoot,
+        action: key,
+        changedInputPaths: ['scripts/codex/example.ts']
+      });
+      expect(invalidated.latestState).toBe('invalidated');
+      release();
+      result = await running;
+    } finally {
+      release();
+      await Promise.allSettled([running]);
+    }
     expect(result.disposition).toBe('blocked');
     expect(result.terminal).toBeNull();
     expect(result.physicalExecution).toBe(true);
@@ -1039,7 +1079,7 @@ test('persisted running and queued actions without a live owner are durably canc
         appendVerificationActionJournalEvent({ repositoryRoot, action: key, state: 'running' });
       }
       let invocations = 0;
-      const result = await new VerificationActionRunner().execute({
+      const result = await fixtureRunner().execute({
         repositoryRoot,
         action: key,
         plan: runnablePlan(key, repositoryRoot),
@@ -1524,7 +1564,7 @@ test('local quick DAG rejects hosted/environment drift and distinct environments
 for (const [state, residue] of [['invalidated', false], ['cancelled', true]] as const) {
   test(`closed ${state} Action is observed without claiming or changing ${residue ? 'retained' : 'absent'} claim resources`, async () => {
     const repositoryRoot = root();
-    const runner = new VerificationActionRunner();
+    const runner = fixtureRunner();
     const key = preflightAction(`closed-${state}-${residue}.ts`);
     let invocations = 0;
     const input = {
