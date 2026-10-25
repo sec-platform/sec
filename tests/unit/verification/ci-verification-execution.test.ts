@@ -23,7 +23,7 @@ import { gzipSync } from 'node:zlib';
 import { createHostedSutCandidatePreparation, hostedSutCandidateArgv, hostedSutCandidateGuardArgv, hostedSutCandidatePreparationFromPlan } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { assertPreparedHostedActionArchiveCurrent, CodexDevelopmentPrepareHostedActionInputs, consumePreparedHostedActionArchive, createHostedActionArchiveRecipeIssuer, HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT, HOSTED_ACTION_ARCHIVE_INVENTORY_BODY_SCRIPT } from '../../../src/adapters/verification/platform/ci/verification-materialization.ts';
 import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../../src/assurance/verification/contract/revision.ts";
-import { ResourceCompositeSettlementError, settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { isResourceCompositeSettlementError, readResourceCompositeSettlementFailures, ResourceCompositeSettlementError, settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../src/execution/verification/action.ts';
 import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessObservation, HostedSutSandboxReceipt, VerificationSessionHostedRequest } from "../../../src/execution/verification/hosted.ts";
 import type { VerificationEvidence } from '../../../src/execution/verification/session.ts';
@@ -2492,37 +2492,45 @@ for (const fault of ['candidate-acquire', 'candidate-acquire-and-base-close', 'r
     const primary = new Error(`injected dependency failure: ${fault}`);
     const cleanup = new Error(`injected dependency cleanup failure: ${fault}`);
     let generation = '';
+    let generationIdentity: ReturnType<typeof physicalNoFollow.inspectNoFollowDirectoryChain>['target'] | undefined;
+    let fixtureRetirementAllowed = true;
+    let fixtureFailure: ResourceSettlementFailure | undefined;
+    let restoreSpy: (() => void) | undefined;
     let observed: unknown;
     let dependencyPath = '';
-    // This seam injects acquisition/read/close failure into the real producer.
-    // It retains actual files and never issues a substitute process capability.
-    const spy = spyOn(physicalNoFollow, 'retainNoFollowOrdinaryFile').mockImplementation((...args) => {
-      const label = args[3] ?? '';
-      const base = label.startsWith('Hosted dependency base authority ');
-      const candidate = label.startsWith('Hosted dependency candidate authority ');
-      if (!base && !candidate) return originalRetain(...args);
-      dependencyPath ||= args[1];
-      if (candidate && fault !== 'read-and-both-closes') throw primary;
-      const value = originalRetain(...args);
-      retained.push(value);
-      return Object.freeze({ ...value,
-        readBytes: () => {
-          if (base && fault === 'read-and-both-closes') throw primary;
-          return value.readBytes();
-        },
-        dispose: () => {
-          attempted.push(base ? 'base' : 'candidate');
-          if (fault !== 'candidate-acquire') throw cleanup;
-          value.dispose();
-        }
-      });
-    });
     try {
+      // This seam injects acquisition/read/close failure into the real producer.
+      // It retains actual files and never issues a substitute process capability.
+      const spy = spyOn(physicalNoFollow, 'retainNoFollowOrdinaryFile');
+      restoreSpy = () => spy.mockRestore();
+      spy.mockImplementation((...args) => {
+        const label = args[3] ?? '';
+        const base = label.startsWith('Hosted dependency base authority ');
+        const candidate = label.startsWith('Hosted dependency candidate authority ');
+        if (!base && !candidate) return originalRetain(...args);
+        dependencyPath ||= args[1];
+        if (candidate && fault !== 'read-and-both-closes') throw primary;
+        const value = originalRetain(...args);
+        retained.push(value);
+        return Object.freeze({ ...value,
+          readBytes: () => {
+            if (base && fault === 'read-and-both-closes') throw primary;
+            return value.readBytes();
+          },
+          dispose: () => {
+            attempted.push(base ? 'base' : 'candidate');
+            if (fault !== 'candidate-acquire') throw cleanup;
+            value.dispose();
+          }
+        });
+      });
       try {
+        fixtureRetirementAllowed = false;
         await withGitCandidateCheckout({ sourceRoot: fixture.candidateRoot, trustedRoot: fixture.baseRoot,
           baseSha: fixture.baseSha, headSha: fixture.headSha, purpose: 'action-materialization',
           archiveRecipeIssuer: createHostedActionArchiveRecipeIssuer(), deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
           generation = path.dirname(checkout.candidateRoot);
+          generationIdentity = physicalNoFollow.inspectNoFollowDirectoryChain(generation).target;
           return CodexDevelopmentPrepareHostedActionInputs({ resolution: fixture.resolution,
             baseRoot: fixture.baseRoot, candidateRoot: checkout.candidateRoot,
             outputDirectory: fixture.outputDirectory, checkout });
@@ -2543,19 +2551,58 @@ for (const fault of ['candidate-acquire', 'candidate-acquire-and-base-close', 'r
         expect(existsSync(generation)).toBe(true);
         const error = observed as GitCandidateCheckoutCleanupUnknownError;
         expect(error.failure).toBeInstanceOf(ResourceCompositeSettlementError);
-        const scopeFailure = (error.failure as ResourceCompositeSettlementError).errors
-          .find(value => value instanceof ResourceCompositeSettlementError) as ResourceCompositeSettlementError | undefined;
-        expect(scopeFailure).toBeDefined();
-        if (scopeFailure === undefined) throw new Error('Actual dependency settlement failure was lost.');
+        if (!isResourceCompositeSettlementError(error.failure)) {
+          throw new Error('Checkout settlement did not retain its original owner-issued failures.');
+        }
+        const checkoutFailures = readResourceCompositeSettlementFailures(error.failure);
+        // Every actual native/provider/read owner was attempted by the checkout
+        // settlement. Only this injected borrower and its revoked retirement may fail.
+        expect(checkoutFailures.map(({ label }) => label)).toEqual([
+          'git-candidate-checkout', 'git-candidate-checkout-generation'
+        ]);
+        const scopeFailure = checkoutFailures[0]!.error;
+        if (!isResourceCompositeSettlementError(scopeFailure)) {
+          throw new Error('Actual dependency settlement failure was lost.');
+        }
+        const dependencyFailures = readResourceCompositeSettlementFailures(scopeFailure);
+        expect(dependencyFailures.map(({ label }) => label)).toEqual([
+          `hosted-dependency-authority:${dependencyPath}`,
+          ...(fault === 'read-and-both-closes' ? [`hosted-dependency-candidate-close:${dependencyPath}`] : []),
+          `hosted-dependency-base-close:${dependencyPath}`
+        ]);
+        expect(dependencyFailures[0]!.error).toBe(primary);
+        for (const failure of dependencyFailures.slice(1)) expect(failure.error).toBe(cleanup);
+        expect(checkoutFailures[1]!.error).toBeInstanceOf(Error);
+        expect((checkoutFailures[1]!.error as Error).message)
+          .toBe('Private candidate borrowers have unsettled resources.');
         expect(scopeFailure.errors).toContain(primary);
         expect(scopeFailure.errors.filter(value => value === cleanup).length)
           .toBe(fault === 'read-and-both-closes' ? 2 : 1);
       }
+      fixtureRetirementAllowed = true;
+    } catch (error) {
+      fixtureFailure = { label: 'Hosted dependency fault assertions', error };
+      throw error;
     } finally {
-      spy.mockRestore();
-      if (fault !== 'candidate-acquire') for (const value of retained) value.dispose();
-      if (generation !== '' && existsSync(generation)) rmSync(generation, { recursive: true, force: true });
-      rmSync(fixture.root, { recursive: true, force: true });
+      settleResources({ primary: fixtureFailure, cleanup: [
+        { label: 'Restore retained-file fault seam', settle: () => restoreSpy?.() },
+        { label: 'Retire owned dependency fault fixture', settle: () => {
+          if (!fixtureRetirementAllowed) {
+            throw new Error(`Hosted dependency fault cleanup is unqualified; retain generation ${generation || '(not observed)'} and fixture ${fixture.root}.`);
+          }
+          // Settle the real capabilities captured before wrapping their dispose.
+          // A close rejection blocks both directory removals, but not its sibling close.
+          settleResources({ cleanup: fault === 'candidate-acquire' ? [] : retained.map((value, index) => ({
+            label: `Original retained dependency ${index}`, settle: () => value.dispose()
+          })) });
+          if (generation !== '' && existsSync(generation)) {
+            if (generationIdentity === undefined) throw new Error('Owned fault generation identity is unavailable.');
+            physicalNoFollow.assertSameNoFollowDirectoryIdentity(generationIdentity);
+            rmSync(generation, { recursive: true, force: true });
+          }
+          rmSync(fixture.root, { recursive: true, force: true });
+        } }
+      ] });
     }
   });
 }
