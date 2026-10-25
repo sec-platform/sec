@@ -50,6 +50,23 @@ function fixture(): Readonly<{
   }
 }
 
+// The original fixture owns construction; every callback gets a fresh root.
+// Native lease and child settlement remains explicit inside the case.
+function withFixture(use: (value: ReturnType<typeof fixture>) => void): void {
+  const value = fixture();
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    use(value);
+  } catch (error) {
+    primary = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
+    });
+  }
+}
+
 function replaceLeaseBytes(
   parent: ReturnType<typeof inspectNoFollowDirectoryChain>['target'],
   name: string,
@@ -98,10 +115,8 @@ function acquireGuarded(parent: ReturnType<typeof inspectNoFollowDirectoryChain>
 }
 
 test('restored reclaimed owner remains durable when the same handle releases', () => {
-  const { root, parent } = fixture();
-  const name = 'invocation.lease';
-  let fixtureFailure9: ResourceSettlementFailure | undefined;
-  try {
+  withFixture(({ root, parent }) => {
+    const name = 'invocation.lease';
     const abandoned = abandonGuarded(parent, name, {
       now: () => 1_000,
       ownerHost: 'lease-test-host',
@@ -129,40 +144,22 @@ test('restored reclaimed owner remains durable when the same handle releases', (
     expect(observed?.bytes).not.toBeNull();
     expect(Buffer.from(observed!.bytes!)).toEqual(Buffer.from(oldBytes!));
     expect(existsSync(path.join(parent.path, name))).toBe(true);
-  } catch (error) {
-    fixtureFailure9 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure9,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test('an unrepresentable lease expiry rejects before publishing owner state', () => {
-  const { root, parent } = fixture();
-  let fixtureFailure8: ResourceSettlementFailure | undefined;
-  try {
+  withFixture(({ root, parent }) => {
     expect(() => acquirePhysicalMutationLease(parent, 'invocation.lease', {
       now: () => Number.MAX_SAFE_INTEGER, ttlMs: 1
     })).toThrow('creation and expiry');
     expect(inspectNoFollowOrdinaryFileEntry(parent, 'invocation.lease')).toBeNull();
-  } catch (error) {
-    fixtureFailure8 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure8,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaimedOwner'] as const) {
   test(`same-byte file replacement cannot acquire this handle's ${action} authority`, () => {
-    const { root, parent } = fixture();
-    const name = 'invocation.lease';
-    let fixtureFailure7: ResourceSettlementFailure | undefined;
-    try {
+    withFixture(({ root, parent }) => {
+      const name = 'invocation.lease';
       const first = action === 'release' ? acquirePhysicalMutationLease(parent, name, {
         ownerHost: 'lease-test-host', ownerPid: 42_041
       })! : abandonGuarded(parent, name);
@@ -178,14 +175,7 @@ for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaim
       const preserved = inspectNoFollowOrdinaryFileEntry(parent, name)!;
       expect(preserved.inode).toBe(replacement.inode);
       expect(Buffer.from(preserved.bytes!)).toEqual(bytes);
-    } catch (error) {
-      fixtureFailure7 = { label: 'fixture operation', error };
-    } finally {
-      settleResources({
-        primary: fixtureFailure7,
-        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-      });
-    }
+    });
   });
 }
 
@@ -373,10 +363,8 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
 
 for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaimedOwner'] as const) {
   test(`guarded ${action} identity failure closes native exclusion without deleting recovery bytes`, () => {
-    const { root, parent } = fixture();
-    const name = 'invocation.lease';
-    let fixtureFailure6: ResourceSettlementFailure | undefined;
-    try {
+    withFixture(({ root, parent }) => {
+      const name = 'invocation.lease';
       abandonGuarded(parent, name);
       const lease = acquireGuarded(parent, name)!;
       if (action === 'release') lease.acknowledgeReclaimedRecovery();
@@ -390,14 +378,7 @@ for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaim
       successor!.acknowledgeReclaimedRecovery();
       successor!.release();
       expect(() => lease.release()).not.toThrow();
-    } catch (error) {
-      fixtureFailure6 = { label: 'fixture operation', error };
-    } finally {
-      settleResources({
-        primary: fixtureFailure6,
-        cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-      });
-    }
+    });
   });
 }
 
@@ -508,9 +489,7 @@ test('retired journal generation cannot be reopened by captured resource or writ
 });
 
 test('cancelling an original unentered first creation retires its control and permits exact retry', () => {
-  const { root, parent } = fixture();
-  let fixtureFailure5: ResourceSettlementFailure | undefined;
-  try {
+  withFixture(({ root, parent }) => {
     const fs = createRuntimeStateJournalFileSystem(parent);
     const file = path.join(parent.path, 'cancelled.json');
     const prepared = prepareRuntimeStateJournalMutation(fs, file, 'create-absent-data')!;
@@ -522,20 +501,11 @@ test('cancelling an original unentered first creation retires its control and pe
     expect(existsSync(file)).toBe(false);
     expect(fs.createExclusiveFsync(file, 'retry')).toBe(true);
     expect(fs.readText(file)).toBe('retry');
-  } catch (error) {
-    fixtureFailure5 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure5,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test('a falsy domain failure before first publication keeps its primary and permits the same journal retry', () => {
-  const { root, parent } = fixture();
-  let fixtureFailure4: ResourceSettlementFailure | undefined;
-  try {
+  withFixture(({ root, parent }) => {
     const fs = createRuntimeStateJournalFileSystem(parent);
     const file = path.join(parent.path, 'domain-retry.json');
     let observed: unknown = 'not-thrown';
@@ -545,20 +515,11 @@ test('a falsy domain failure before first publication keeps its primary and perm
     expect(readdirSync(parent.path)).toEqual([]);
     expect(fs.mutateTextFsync(file, '', 1024, () => 'completed')).toBe('completed');
     expect(fs.readText(file)).toBe('completed');
-  } catch (error) {
-    fixtureFailure4 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure4,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test('an entered original publisher failure preserves initialization and foreign payload bytes', () => {
-  const { root, parent } = fixture();
-  let fixtureFailure3: ResourceSettlementFailure | undefined;
-  try {
+  withFixture(({ root, parent }) => {
     const name = 'entered.lock';
     const resourceName = 'entered.json';
     const resource = initializePhysicalJournalMutationResource(parent, name, resourceName);
@@ -577,20 +538,11 @@ test('an entered original publisher failure preserves initialization and foreign
     expect(readFileSync(path.join(parent.path, resourceName))).toEqual(foreignBytes);
     expect(() => readPhysicalJournalMutationResource(parent, name, resourceName)).toThrow('unresolved');
     expect(() => publishPhysicalJournalMutationInitialization(handle, Buffer.from('wanted'))).toThrow('no longer held');
-  } catch (error) {
-    fixtureFailure3 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure3,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test('a ready direct journal owner recreates its retired payload through the same publication owner', () => {
-  const { root, parent } = fixture();
-  let fixtureFailure2: ResourceSettlementFailure | undefined;
-  try {
+  withFixture(({ root, parent }) => {
     const fs = createRuntimeStateJournalFileSystem(parent);
     const file = path.join(parent.path, 'recreated.json');
     expect(fs.createExclusiveFsync(file, 'first')).toBe(true);
@@ -602,20 +554,11 @@ test('a ready direct journal owner recreates its retired payload through the sam
     expect(fs.readText(file)).toBe('second');
     expect(readdirSync(parent.path).filter(name => name !== 'recreated.json')).toEqual(controls);
     expect(readFileSync(path.join(parent.path, anchors[0]))).toEqual(anchorBytes);
-  } catch (error) {
-    fixtureFailure2 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure2,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test('a changed initializer control preserves falsy primary and independent settlement failure', () => {
-  const { root, parent } = fixture();
-  let fixtureFailure1: ResourceSettlementFailure | undefined;
-  try {
+  withFixture(({ root, parent }) => {
     const fs = createRuntimeStateJournalFileSystem(parent);
     const file = path.join(parent.path, 'changed-control.json');
     const name = runtimeStateJournalMutationLeaseName(parent.path, file);
@@ -637,14 +580,7 @@ test('a changed initializer control preserves falsy primary and independent sett
     expect(readdirSync(parent.path).some(name => name.startsWith('.sec-journal-guard-'))).toBe(true);
     expect(existsSync(file)).toBe(false);
     expect(() => fs.createExclusiveFsync(file, 'retry')).toThrow('legacy or unqualified');
-  } catch (error) {
-    fixtureFailure1 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure1,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test('publication snapshots dynamic bytes before fresh initializer authority readback', () => {
