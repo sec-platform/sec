@@ -67,8 +67,10 @@ test.serial('relative paths bind before callbacks or the deferred scan can chang
 
 for(const requested of [null, false, {maximumBytes:null},{maximumEntries:null},{maximumBytes:-1},{maximumEntries:0}]){
   test(`invalid selected bounds cannot become default capacity: ${JSON.stringify(requested)}`,async()=>{
-    const f=fixture();try{await assert.rejects(runtimeDependencySourceGeneration(input(f),requested as never), {code:'RUNTIME-DEPS-003'});}
-    finally{rmSync(f.root,{recursive:true,force:true});}
+    const ownerRoot=path.resolve('source-generation-admission');
+    await assert.rejects(runtimeDependencySourceGeneration({ownerRoot,sourcePath:path.join(ownerRoot,'a'),
+      binding:{selected:'a'},options:{monotonicNowMs:()=>assert.fail('invalid bounds reached controls')}
+    },requested as never), {code:'RUNTIME-DEPS-003'});
   });
 }
 

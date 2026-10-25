@@ -79,22 +79,27 @@ for (const place of ['commit', 'input'] as const) {
 }
 
 test('all invalid argv classes are refused before any fence', async () => {
+  const root = path.resolve('compiler-install-admission');
   for (const [index, args] of ([[undefined], [7], ['nul\0arg'], new Array(1)] as unknown[]).entries()) {
-    await fixture(async root => {
-      await assert.rejects(
-        runBunInstall(root, { beforeCommit: async () => assert.fail('premature effect') }, args as string[]),
-        budgetFailure,
-        `invalid argv case ${index}: ${JSON.stringify(args)}`
-      );
-    });
+    await assert.rejects(
+      runBunInstall(root, {
+        monotonicNowMs: () => assert.fail('premature controls'),
+        beforeCommit: async () => assert.fail('premature effect')
+      }, args as string[]),
+      budgetFailure,
+      `invalid argv case ${index}: ${JSON.stringify(args)}`
+    );
   }
 });
 
-test('an argument accessor is never invoked during input admission', async () => fixture(async root => {
+test('an argument accessor is never invoked during input admission', async () => {
   const args: string[] = [];
   Object.defineProperty(args, 0, { get() { assert.fail('argv getter'); } });
-  await assert.rejects(runBunInstall(root, {}, args), budgetFailure);
-}));
+  await assert.rejects(runBunInstall(path.resolve('compiler-install-admission'), {
+    monotonicNowMs: () => assert.fail('premature controls'),
+    beforeCommit: async () => assert.fail('premature effect')
+  }, args), budgetFailure);
+});
 
 test('offline command spelling remains intact and uses the captured absolute configuration path', async () => fixture(async root => {
   await runBunInstall(root, {

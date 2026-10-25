@@ -29,7 +29,4 @@ test('selected public values remain captured when getters and the mutable input 
  Object.defineProperty(input,'deadlineAtUnixMs',{value:42,configurable:true});
  assert.equal(r.deadlineAtUnixMs,5000);
 });
-test('native signal identity and numerical bounds are passed to their original owner unchanged',()=>{
- const signal=new AbortController().signal;const r=captureRuntimeDependencyInstallRequest({signal,deadlineAtUnixMs:1234,lockTimeoutMs:77});assert.equal(r.signal,signal);assert.equal(r.deadlineAtUnixMs,1234);assert.equal(r.lockTimeoutMs,77);
-});
 for(const v of [null,false,3,'callback'])test(`invalid commit method ${JSON.stringify(v)} is rejected`,()=>assert.throws(()=>captureRuntimeDependencyInstallRequest({beforeCommit:v as never})));

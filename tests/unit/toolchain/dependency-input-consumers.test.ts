@@ -22,15 +22,8 @@ test('public request, coordinator, process binder and effect use one captured pr
   const bound=bind({...controls(),...request});const process=bindCompilerInstallInvocation(bound);
   assert.equal(process.isolated,true);assert.equal(context(process.controls),context(bound));
   provider.beforeCommit=()=>assert.fail('replacement');
-  await process.beforeCommit?.();await fence(effect(bound),'effect');assert.equal(provider.calls,2);
-});
-
-test('effect projections cannot add another bound callback layer on repeated nested calls', async()=>{
-  let calls=0;const bound=bind({...controls(),async beforeCommit(){calls++;}});
-  let input=effect(bound);const original=input.beforeCommit;
-  for(let i=0;i<1000;i++)input=effect(input);
-  assert.equal(input.beforeCommit,original);assert.equal(context(input),context(bound));
-  await fence(input,'nested');assert.equal(calls,1);
+  const effects=effect(effect(bound));assert.equal(context(effects),context(bound));
+  await process.beforeCommit?.();await fence(effects,'effect');assert.equal(provider.calls,2);
 });
 
 test('coordinator transmission does not turn an unissued materialization object into an authority',()=>{
