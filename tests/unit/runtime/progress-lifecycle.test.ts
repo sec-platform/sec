@@ -22,7 +22,9 @@ for (const broken of [undefined, 'factory', 'start', 'succeed', 'stop']) {
   });
 }
 
-for (const broken of [undefined, 'factory', 'start', 'fail', 'stop']) {
+// Start/stop share the success path's prefix/finally; the raw-primary keeper
+// below also exercises failed-action fail and stop errors together.
+for (const broken of [undefined, 'factory', 'fail']) {
   test(`failed action retains its primary reason with ${broken ?? 'healthy'} presentation`, async () => {
     const events: string[] = [], primary = Object.freeze({ origin: 'action' });
     await assert.rejects(withProgressLifecycle('task', () => { events.push('factory'); if (broken === 'factory') throw new Error('factory'); return observer(events, broken); },

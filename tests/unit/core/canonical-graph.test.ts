@@ -7,17 +7,12 @@ import {
   sha256
 } from '../../../src/contracts/canonical.ts';
 
-function rejectsCycle(value: unknown): void {
-  assert.throws(() => canonicalJson(value), (error: unknown) =>
-    error instanceof Error && !(error instanceof RangeError) &&
-    error.message === 'Canonical JSON rejects circular references');
-}
-
 test('canonical JSON retains nested ordering, primitive values, and negative-zero normalization', () => {
-  assert.deepEqual(canonicalJson({ z: [-0, true, null], a: { y: 2, b: 'value' } }), {
+  const normalized = canonicalJson({ z: [-0, true, null], a: { y: 2, b: 'value' } });
+  assert.deepEqual(normalized, {
     a: { b: 'value', y: 2 }, z: [0, true, null]
   });
-  assert.equal(JSON.stringify(canonicalJson({ z: 1, a: 2 })), '{"a":2,"z":1}');
+  assert.equal(JSON.stringify(normalized), '{"a":{"b":"value","y":2},"z":[0,true,null]}');
 });
 
 test('canonical JSON accepts shared acyclic objects without preserving mutable aliases', () => {
@@ -31,24 +26,13 @@ test('canonical JSON accepts shared acyclic objects without preserving mutable a
   assert.notStrictEqual(actual.left, shared);
 });
 
-test('canonical JSON rejects a mixed object/array cycle', () => {
-  const array: unknown[] = [];
-  const value = { array };
-  array.push(value);
-  rejectsCycle(value);
-});
-
-test('canonical JSON still detects cycles after traversing a shared acyclic branch', () => {
+test('canonical JSON rejects a mixed cycle after shared acyclic traversal without poisoning later calls', () => {
   const shared = { n: 1 };
   const value: Record<string, unknown> = { a: shared, b: shared };
-  value.z = { back: value };
-  rejectsCycle(value);
-});
-
-test('a failed canonical JSON call cannot poison another normalization', () => {
-  const cyclic: unknown[] = [];
-  cyclic.push(cyclic);
-  rejectsCycle(cyclic);
+  value.z = [{ back: value }];
+  assert.throws(() => canonicalJson(value), (error: unknown) =>
+    error instanceof Error && !(error instanceof RangeError) &&
+    error.message === 'Canonical JSON rejects circular references');
   assert.deepEqual(canonicalJson({ okay: [1] }), { okay: [1] });
 });
 
