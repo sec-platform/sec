@@ -401,6 +401,8 @@ class ReadingTests(unittest.TestCase):
         with self.assertRaises(b.BuildError):self.run_build('--root',str(alias))
     def test_identical_source_output_reproducible(self):
         self.run_build();a=self.out.read_bytes();self.run_build('--replace');self.assertEqual(a,self.out.read_bytes())
+
+class CommandHelp(unittest.TestCase):
     def test_cli_help(self):
         r=subprocess.run([sys.executable,'-B',str(Path(b.__file__)),'--help'],capture_output=True,text=True)
         self.assertEqual(r.returncode,0);self.assertIn('--diagrams',r.stdout)

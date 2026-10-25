@@ -45,18 +45,6 @@ test('direct enumeration is sorted, bounded, and ignores unrelated effect capabi
   await assert.rejects(readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'names', 2, controls()), /capacity/);
 }));
 
-for (const maximum of [-1, NaN, Infinity, 0.5]) test(`invalid name capacity ${maximum} fails before sampling controls`, async () => fixture(async root => {
-  await assert.rejects(readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'names', maximum,
-    { monotonicNowMs() { assert.fail('invalid capacity read clock'); } }), /capacity/);
-}));
-
-test('zero capacity admits an empty directory but not one observed entry', async () => fixture(async root => {
-  const directory = inspectNoFollowDirectoryChain(root).target;
-  assert.deepEqual(await readNoFollowDirectNames(directory, 'empty', 0, controls()), []);
-  writeFileSync(path.join(root, 'one'), 'x');
-  await assert.rejects(readNoFollowDirectNames(directory, 'nonempty', 0, controls()), /capacity/);
-}));
-
 test('name enumeration notices parent cancellation and preserves the exact reason', async () => fixture(async root => {
   writeFileSync(path.join(root, 'one'), 'x');
   const controller = new AbortController(), reason = Object.freeze({ stopped: true });

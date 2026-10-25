@@ -49,6 +49,9 @@ test('same target directory is recognized through a link without recounting it',
   assert.equal(b.entry.kind, 'link'); assert.equal(b.entry.entryCount, undefined);
   assert.equal(b.entry.target, a.entry.target); assert.equal(sameObservedDependencyDirectory(a, b), true);
   assert.equal(classifyDependencyEnvironment(stamps, a, b), 'warm-project');
+  assert.equal(classifyDependencyEnvironment({ ...stamps, compilerReady: false }, a, b), 'cold');
+  assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: 'old' }, a, b), 'stale');
+  assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: undefined }, a, b), 'warm-compiler');
 }));
 
 test('matching stamps cannot make a link to another directory healthy', async () => fixture(async root => {
@@ -77,15 +80,6 @@ test('ordinary project directories remain dirty even when stamps match', async (
   const shared = path.join(root, 'shared'), project = path.join(root, 'project');
   await fs.mkdir(shared); await fs.mkdir(project);
   assert.equal(classifyDependencyEnvironment(stamps, await observeDependencyEntry(shared), await observeDependencyEntry(project)), 'dirty');
-}));
-
-test('stale stamp decisions and absent project stamps retain existing precedence', async () => fixture(async root => {
-  const shared = path.join(root, 'shared'), project = path.join(root, 'project');
-  await fs.mkdir(shared); await fs.symlink(shared, project, 'dir');
-  const [a, b] = await Promise.all([observeDependencyEntry(shared), observeDependencyEntry(project)]);
-  assert.equal(classifyDependencyEnvironment({ ...stamps, compilerReady: false }, a, b), 'cold');
-  assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: 'old' }, a, b), 'stale');
-  assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: undefined }, a, b), 'warm-compiler');
 }));
 
 test('retargeting a link during observation is an error, not a mixed healthy result', async () => fixture(async root => {

@@ -156,35 +156,6 @@ class Modes(unittest.TestCase):
   with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value=environment):result=self.run_('--replace',*args)
   self.assertEqual(len(calls),1);self.assertIn('B-->D',calls[0])
   self.assertEqual((result['cached'],result['rendered_this_build'],result['pending']),(1,1,0))
- def test_worker_close_error_is_consumed_and_combined_with_primary(self):
-  primary=b.BuildError('render failed');worker=b.IsolatedRenderer(argparse.Namespace(timeout=1))
-  worker.process=unittest.mock.Mock();worker.process.is_alive.return_value=True
-  worker.pipe=unittest.mock.Mock();worker.pipe.poll.return_value=True
-  worker.pipe.recv.return_value=('error','browser close failed')
-  with patch.object(worker,'_stop_tree') as stop:
-   with self.assertRaises(b.BuildError)as caught:worker.__exit__(type(primary),primary,None)
-  self.assertIn('render failed',str(caught.exception));self.assertIn('browser close failed',str(caught.exception))
-  self.assertTrue(stop.called);worker.pipe.close.assert_called_once()
- def test_node_startup_and_close_errors_both_survive(self):
-  args=argparse.Namespace(node='fixture',playwright_module='fixture',mermaid_js='fixture',browser=None,
-                          allow_no_sandbox=False,timeout=1,font_family='fixture',engine_label='fixture')
-  renderer=b.NodeMermaidRenderer(args);process=unittest.mock.Mock();process.poll.return_value=None
-  with patch.object(b.subprocess,'Popen',return_value=process),patch.object(renderer,'exchange',side_effect=[b.BuildError('startup failed'),b.BuildError('close failed')]):
-   with self.assertRaises(b.BuildError)as caught:renderer.__enter__()
-  self.assertIn('startup failed',str(caught.exception));self.assertIn('close failed',str(caught.exception))
-  process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
- def test_node_terminal_ack_releases_command_stream_before_waiting_for_exit(self):
-  renderer=b.NodeMermaidRenderer(argparse.Namespace(timeout=1));process=unittest.mock.Mock()
-  process.poll.return_value=None;renderer.process=process;closed=False
-  def release():
-   nonlocal closed
-   closed=True
-  def exited(**kwargs):
-   if not closed:raise b.subprocess.TimeoutExpired('Node waiting for command-stream EOF',1)
-   return 0
-  process.stdin.close.side_effect=release;process.wait.side_effect=exited
-  with patch.object(renderer,'exchange',return_value={'closed':True}):renderer.__exit__()
-  process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
  def test_fatal_renderer_failure_stops_before_next_diagram_and_preserves_html(self):
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n```mermaid\nflowchart LR\n B-->C\n```\n')
   calls=[]
@@ -243,6 +214,38 @@ class Modes(unittest.TestCase):
   reread=argparse.Namespace(diagrams=book.diagrams,svg={},svg_provenance={})
   b.read_diagram_cache(self.root,{},argparse.Namespace(diagram_cache=str(output)),reread,expected_renderer=current)
   self.assertEqual(reread.svg_provenance,{'old':original,'new':current})
+
+
+class RendererSettlement(unittest.TestCase):
+ def test_worker_close_error_is_consumed_and_combined_with_primary(self):
+  primary=b.BuildError('render failed');worker=b.IsolatedRenderer(argparse.Namespace(timeout=1))
+  worker.process=unittest.mock.Mock();worker.process.is_alive.return_value=True
+  worker.pipe=unittest.mock.Mock();worker.pipe.poll.return_value=True
+  worker.pipe.recv.return_value=('error','browser close failed')
+  with patch.object(worker,'_stop_tree') as stop:
+   with self.assertRaises(b.BuildError)as caught:worker.__exit__(type(primary),primary,None)
+  self.assertIn('render failed',str(caught.exception));self.assertIn('browser close failed',str(caught.exception))
+  self.assertTrue(stop.called);worker.pipe.close.assert_called_once()
+ def test_node_startup_and_close_errors_both_survive(self):
+  args=argparse.Namespace(node='fixture',playwright_module='fixture',mermaid_js='fixture',browser=None,
+                          allow_no_sandbox=False,timeout=1,font_family='fixture',engine_label='fixture')
+  renderer=b.NodeMermaidRenderer(args);process=unittest.mock.Mock();process.poll.return_value=None
+  with patch.object(b.subprocess,'Popen',return_value=process),patch.object(renderer,'exchange',side_effect=[b.BuildError('startup failed'),b.BuildError('close failed')]):
+   with self.assertRaises(b.BuildError)as caught:renderer.__enter__()
+  self.assertIn('startup failed',str(caught.exception));self.assertIn('close failed',str(caught.exception))
+  process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
+ def test_node_terminal_ack_releases_command_stream_before_waiting_for_exit(self):
+  renderer=b.NodeMermaidRenderer(argparse.Namespace(timeout=1));process=unittest.mock.Mock()
+  process.poll.return_value=None;renderer.process=process;closed=False
+  def release():
+   nonlocal closed
+   closed=True
+  def exited(**kwargs):
+   if not closed:raise b.subprocess.TimeoutExpired('Node waiting for command-stream EOF',1)
+   return 0
+  process.stdin.close.side_effect=release;process.wait.side_effect=exited
+  with patch.object(renderer,'exchange',return_value={'closed':True}):renderer.__exit__()
+  process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
 
 
 if __name__=='__main__':unittest.main(verbosity=2)
