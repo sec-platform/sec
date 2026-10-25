@@ -49,13 +49,23 @@ test('commit digest preserves the prior canonical JSON domain for ordinary value
   assert.equal(compileGitDevelopmentCommitContractDigest(input), `sha256:${createHash('sha256').update(expected).digest('hex')}`);
 });
 
-test('commit policy still rejects noncanonical identities, signatures, roots and parent bindings', () => {
+test('commit policy preserves exact branch targets and rejects noncanonical identities, roots and bindings', () => {
+  for (const name of ['feature', 'Feature/v2.0', 'feature/_private', 'feature/a-b', 'feature/lock', 'feature/a.locked']) {
+    const value = { ...commit(), ref: `refs/heads/${name}` };
+    assert.deepEqual(captureGitDevelopmentCommitContract(value), value);
+  }
   for (const change of [{ signing: 'enabled' }, { hooks: 'enabled' }, { expectedOld: target }, { tree: 'a'.repeat(41) },
     { parents: [] }, { parents: [parent, target] }, { ref: 'HEAD' }, { repositoryRoot: './relative' },
     { target: target.toUpperCase() }, { preflightReceiptDigest: 'unknown' },
-    { preflightReceiptDigest: `blake3:${'d'.repeat(64)}` }, { message: 'a\0b' }]) {
+    { preflightReceiptDigest: `blake3:${'d'.repeat(64)}` }, { message: 'a\0b' },
+    ...['feature..old', 'feature/', 'feature//part', 'feature.', 'feature.lock',
+      'feature.lock/part', 'feature/.hidden', 'feature/.', 'feature/..',
+      'feature/part.lock', 'feature/part.lock/next'].map(name => ({ ref: `refs/heads/${name}` })),
+    ...['refs/tags/v1', 'refs/heads/-feature', 'refs/heads/中文'].map(ref => ({ ref })),
+    { repositoryRoot: path.resolve('repo\0other') }, { worktreeRoot: path.resolve('repo\0other') }]) {
     assert.equal(captureGitDevelopmentCommitContract({ ...commit(), ...change } as never), null);
   }
+  assert.throws(() => compileGitDevelopmentCommitContractDigest({ ...commit(), ref: 'refs/heads/feature..old' }), /not canonical/);
   for (const date of ['-1 +0000', '00 +0000', '0 +1460', '0 +1401', '0 +0060', '0 +1500']) {
     assert.equal(canonicalCommitTreeInput({ ...commit(), author: { ...person(), date } }), null);
   }
