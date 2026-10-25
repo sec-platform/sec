@@ -18,33 +18,29 @@ test('the effect view neither enumerates nor retains installation and lifecycle 
   assert.ok(Object.isFrozen(value));
 });
 
-test('original receiver survives capture and public method replacement', async () => {
+test('callback getter selection precedes clock callbacks and later effect dispatch', async () => {
   class Provider {
     #calls = 0;
     lockTimeoutMs = 100;
-    monotonicNowMs = () => 0;
-    async beforeCommit() { this.#calls++; }
+    monotonicNowMs = () => {
+      callback = async () => assert.fail('clock replacement'); return 0;
+    };
+    async invoke() { assert.equal(this, raw); this.#calls++; }
     get calls() { return this.#calls; }
+    get beforeCommit() {
+      const selected = callback;
+      callback = async () => assert.fail('getter reread');
+      return selected;
+    }
   }
   const raw = new Provider();
+  let callback: () => Promise<void> = raw.invoke;
   const value = runtimeDependencyEffectFenceOptions(raw);
-  raw.beforeCommit = async () => assert.fail('replacement called');
-  await runtimeDependencyOperationEffectFence(value, 'provider');
+  Object.defineProperty(raw, 'beforeCommit', {
+    value: async () => assert.fail('post-capture replacement')
+  });
+  await runtimeDependencyOperationEffectFence(value, 'clock');
   assert.equal(raw.calls, 1);
-});
-
-test('callback getter selection precedes clock callbacks and later effect dispatch', async () => {
-  let called = 0;
-  let callback = async () => { called++; };
-  const raw = { lockTimeoutMs: 100, monotonicNowMs: () => {
-    callback = async () => assert.fail('clock replacement'); return 0;
-  }, get beforeCommit() {
-    const selected = callback;
-    callback = async () => assert.fail('getter reread');
-    return selected;
-  } };
-  await runtimeDependencyOperationEffectFence(runtimeDependencyEffectFenceOptions(raw), 'clock');
-  assert.equal(called, 1);
 });
 
 test('a narrow child keeps the exact parent operation and cannot renew its deadline', () => {
