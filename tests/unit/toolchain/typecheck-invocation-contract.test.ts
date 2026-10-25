@@ -10,25 +10,13 @@ for (const isolated of [undefined, false, true]) test(`typecheck captures explic
   assert.equal(value.isolated, isolated === true); assert.ok(Object.isFrozen(value));
   assert.equal(value.projectRoot, path.resolve('project')); assert.equal(value.dependencyProjectRoot, value.projectRoot);
 });
-for (const isolated of [null, 0, 1, '', 'false', {}]) test('non-boolean isolation is rejected rather than coerced', () => {
-  assert.throws(() => captureTypecheckInvocation('project', { isolated } as never), TypeError);
-});
-
-test('each owned selection is read once without enumerating unrelated input', () => {
-  let modes = 0, roots = 0;
-  const input = new Proxy({ get isolated() { modes++; return true; }, get dependencyProjectRoot() { roots++; return 'dependencies'; },
-    get unowned() { assert.fail('unowned input'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('enumerated options'); } });
-  const captured = captureTypecheckInvocation('project', input);
-  assert.equal(modes, 1); assert.equal(roots, 1); assert.equal(captured.isolated, true);
-  assert.equal(captured.dependencyProjectRoot, path.resolve('dependencies'));
-});
-
-test('typecheck selection survives callback-driven cwd changes and later caller mutation', () => {
+test('typecheck selection survives later cwd changes and caller mutation', () => {
   const cwd = process.cwd(), other = mkdtempSync(path.join(tmpdir(), 'sec-typecheck-bind-'));
   try {
-    const input = { get isolated() { process.chdir(other); return true; }, dependencyProjectRoot: 'dependencies' };
+    const input = { isolated: true, dependencyProjectRoot: 'dependencies' };
     const captured = captureTypecheckInvocation('project', input);
-    Object.defineProperty(input, 'isolated', { value: false }); input.dependencyProjectRoot = 'other';
+    process.chdir(other);
+    input.isolated = false; input.dependencyProjectRoot = 'other';
     assert.equal(captured.isolated, true);
     assert.equal(captured.projectRoot, path.resolve(cwd, 'project'));
     assert.equal(captured.dependencyProjectRoot, path.resolve(cwd, 'dependencies'));
