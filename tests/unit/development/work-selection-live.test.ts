@@ -78,84 +78,42 @@ function fixtureGitSha(root: string, ref: string): string {
 }
 
 function transitionCatalog(): CatalogObservation {
+  const item = (packageId: string, issue: number, evidence: string,
+    overrides: Partial<RoadmapWorkCatalog['items'][number]> = {}) => ({
+    packageId, workId: `issue-${issue}`, tracking: `issue-${issue}`,
+    currentSpecRef: `github:issue/${issue}`, ownerRef: `github:issue/${issue}`,
+    kind: 'focused', disposition: 'active', priorityClass: 'active-critical-path',
+    priorityEvidenceRefs: [evidence], prerequisiteWorkIds: [], orderedAfterWorkIds: [],
+    reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
+    rootCauseRef: `github:issue/${issue}`, scopeClosure: 'closed',
+    exitCriteriaRef: `github:issue/${issue}#acceptance`, nearTermConsumerRef: null,
+    humanDecisionRef: null, ...overrides
+  });
   const items = [
-    {
-      packageId: 'operation-read-plan-authority-canary-v1',
-      workId: 'issue-346', tracking: 'issue-346', currentSpecRef: 'github:issue/346',
-      ownerRef: 'github:issue/346', kind: 'focused', disposition: 'active',
-      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:read-fast-path'],
-      prerequisiteWorkIds: [], orderedAfterWorkIds: [],
-      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
-      rootCauseRef: 'github:issue/346', scopeClosure: 'closed',
-      exitCriteriaRef: 'github:issue/346#acceptance', nearTermConsumerRef: null,
-      humanDecisionRef: null
-    },
-    {
-      packageId: 'controlled-pr-issue-disposition-single-writer-v1',
-      workId: 'issue-352', tracking: 'issue-352', currentSpecRef: 'github:issue/352',
-      ownerRef: 'github:issue/352', kind: 'focused', disposition: 'active',
-      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:controlled-pr-single-writer'],
-      prerequisiteWorkIds: ['issue-346'], orderedAfterWorkIds: [],
-      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
-      rootCauseRef: 'github:issue/352', scopeClosure: 'closed',
-      exitCriteriaRef: 'github:issue/352#root-design', nearTermConsumerRef: 'github:issue/186',
-      humanDecisionRef: null
-    },
-    {
-      packageId: 'generated-ignored-state-lifecycle-v1',
-      workId: 'issue-271', tracking: 'issue-271', currentSpecRef: 'github:issue/271',
-      ownerRef: 'github:issue/271', kind: 'program', disposition: 'active',
-      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:generated-state-settlement'],
-      prerequisiteWorkIds: [], orderedAfterWorkIds: ['issue-352'],
-      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
-      rootCauseRef: 'github:issue/271', scopeClosure: 'closed',
-      exitCriteriaRef: 'github:issue/271#completion', nearTermConsumerRef: 'github:issue/186',
-      humanDecisionRef: null
-    },
-    {
-      packageId: 'git-worktree-physical-closeout-v1',
-      workId: 'issue-186', tracking: 'issue-186', currentSpecRef: 'github:issue/186',
-      ownerRef: 'github:issue/186', kind: 'program', disposition: 'active',
-      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:worktree-closeout'],
-      prerequisiteWorkIds: ['issue-352', 'issue-271'], orderedAfterWorkIds: [],
-      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
-      rootCauseRef: 'github:issue/186', scopeClosure: 'closed',
-      exitCriteriaRef: 'github:issue/186#completion', nearTermConsumerRef: null,
-      humanDecisionRef: null
-    },
-    {
-      packageId: 'delegation-consumer-zero-retirement-v1',
-      workId: 'issue-275', tracking: 'issue-275', currentSpecRef: 'github:issue/275',
-      ownerRef: 'github:issue/275', kind: 'program', disposition: 'active',
-      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:guidance-convergence'],
-      prerequisiteWorkIds: ['issue-186'], orderedAfterWorkIds: [],
-      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
-      rootCauseRef: 'github:issue/275', scopeClosure: 'closed',
-      exitCriteriaRef: 'github:issue/275#completion', nearTermConsumerRef: null,
-      humanDecisionRef: null
-    },
-    {
-      packageId: 'candidate-control-transaction-v1',
-      workId: 'issue-321', tracking: 'issue-321',
-      currentSpecRef: 'github:issue/321', ownerRef: 'github:issue/321',
-      kind: 'focused', disposition: 'active', priorityClass: 'active-critical-path',
-      priorityEvidenceRefs: ['fixture:candidate-control'], prerequisiteWorkIds: ['issue-275'],
-      orderedAfterWorkIds: [], reproductionOrEvidenceFreshness: 'fresh',
-      rootCauseState: 'repeat-root-cause', rootCauseRef: 'github:issue/321#candidate-control-transaction',
-      scopeClosure: 'closed', exitCriteriaRef: 'github:issue/321#candidate-control-transaction',
-      nearTermConsumerRef: null, humanDecisionRef: null
-    },
-    {
-      packageId: 'typescript-7-checker-acceleration-v1',
-      workId: 'issue-312', tracking: 'issue-312', currentSpecRef: 'github:issue/312',
-      ownerRef: 'github:issue/312', kind: 'focused', disposition: 'deferred',
-      priorityClass: 'near-term-acceleration', priorityEvidenceRefs: ['fixture:checker-acceleration'],
-      prerequisiteWorkIds: ['issue-346'], orderedAfterWorkIds: [],
-      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'not-repeated',
-      rootCauseRef: 'github:issue/312', scopeClosure: 'closed',
-      exitCriteriaRef: 'github:issue/312#acceptance', nearTermConsumerRef: 'github:issue/316',
-      humanDecisionRef: null
-    }
+    item('operation-read-plan-authority-canary-v1', 346, 'fixture:read-fast-path'),
+    item('controlled-pr-issue-disposition-single-writer-v1', 352, 'fixture:controlled-pr-single-writer', {
+      prerequisiteWorkIds: ['issue-346'], exitCriteriaRef: 'github:issue/352#root-design',
+      nearTermConsumerRef: 'github:issue/186'
+    }),
+    item('generated-ignored-state-lifecycle-v1', 271, 'fixture:generated-state-settlement', {
+      kind: 'program', orderedAfterWorkIds: ['issue-352'], exitCriteriaRef: 'github:issue/271#completion',
+      nearTermConsumerRef: 'github:issue/186'
+    }),
+    item('git-worktree-physical-closeout-v1', 186, 'fixture:worktree-closeout', {
+      kind: 'program', prerequisiteWorkIds: ['issue-352', 'issue-271'],
+      exitCriteriaRef: 'github:issue/186#completion'
+    }),
+    item('delegation-consumer-zero-retirement-v1', 275, 'fixture:guidance-convergence', {
+      kind: 'program', prerequisiteWorkIds: ['issue-186'], exitCriteriaRef: 'github:issue/275#completion'
+    }),
+    item('candidate-control-transaction-v1', 321, 'fixture:candidate-control', {
+      prerequisiteWorkIds: ['issue-275'], rootCauseRef: 'github:issue/321#candidate-control-transaction',
+      exitCriteriaRef: 'github:issue/321#candidate-control-transaction'
+    }),
+    item('typescript-7-checker-acceleration-v1', 312, 'fixture:checker-acceleration', {
+      disposition: 'deferred', priorityClass: 'near-term-acceleration', prerequisiteWorkIds: ['issue-346'],
+      rootCauseState: 'not-repeated', nearTermConsumerRef: 'github:issue/316'
+    })
   ];
   return observeCatalog(
     `${ROADMAP_WORK_CATALOG_BEGIN}\n\`\`\`json\n${JSON.stringify({
