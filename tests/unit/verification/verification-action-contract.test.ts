@@ -222,7 +222,16 @@ test('Action terminal preserves owner issuance, strict parsing, and process diag
   );
   expect(terminal.diagnosticObjects).toEqual([]);
   expect(terminal.resultDigest).not.toBe(completed.ownerTerminalReceipt.terminalReceiptDigest);
-  const failed = projectVerificationActionTerminal(settlement('failed'));
+  const failedSettlement = settlement('failed', 1_900_000_000_001);
+  expect(completed.ownerTerminalReceipt.decision.actionKey)
+    .toBe(failedSettlement.ownerTerminalReceipt.decision.actionKey);
+  expect(completed.ownerTerminalReceipt.decision.operationIdentityDigest)
+    .toBe(failedSettlement.ownerTerminalReceipt.decision.operationIdentityDigest);
+  expect(completed.ownerTerminalReceipt.attempt.boundAttemptDigest)
+    .not.toBe(failedSettlement.ownerTerminalReceipt.attempt.boundAttemptDigest);
+  expect(completed.ownerTerminalReceipt.terminalReceiptDigest)
+    .not.toBe(failedSettlement.ownerTerminalReceipt.terminalReceiptDigest);
+  const failed = projectVerificationActionTerminal(failedSettlement);
   expect(failed.status).toBe('failed');
   expect(() => projectVerificationActionTerminal({
     status: 'passed',
@@ -280,19 +289,6 @@ test('Action process resource policy is one immutable single-process bounded exe
   expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.durationMs).toBeGreaterThan(0);
   expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes).toBeGreaterThan(0);
   expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes).toBeGreaterThan(0);
-});
-
-test('one stable ActionKey accepts attempt-distinct owner settlements without changing identity', () => {
-  const first = settlement('passed', 1_900_000_000_000);
-  const second = settlement('passed', 1_900_000_000_001);
-  expect(first.ownerTerminalReceipt.decision.actionKey)
-    .toBe(second.ownerTerminalReceipt.decision.actionKey);
-  expect(first.ownerTerminalReceipt.decision.operationIdentityDigest)
-    .toBe(second.ownerTerminalReceipt.decision.operationIdentityDigest);
-  expect(first.ownerTerminalReceipt.attempt.boundAttemptDigest)
-    .not.toBe(second.ownerTerminalReceipt.attempt.boundAttemptDigest);
-  expect(first.ownerTerminalReceipt.terminalReceiptDigest)
-    .not.toBe(second.ownerTerminalReceipt.terminalReceiptDigest);
 });
 
 test('strict ordinary-data boundary rejects getters, proxies, symbols, custom prototypes, toJSON and cycles', () => {
