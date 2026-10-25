@@ -12,13 +12,14 @@ import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCA
 import {
   executeSemanticMutationVerification
 } from '../../../src/assurance/verification/semantic-mutation/verification-runtime.ts';
-import { type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
 import type { VerificationRequirement } from '../../../src/semantics/mutation/types.ts';
 
-function buildInput(): BuildEngineeringIRInput {
-  return {
+let fixtureSnapshot: ReturnType<typeof buildValidatedEngineeringIR> | undefined;
+
+function verificationSnapshotFixture() {
+  return fixtureSnapshot ??= buildValidatedEngineeringIR({
     app: { id: 'verification-app', name: 'Verification App' },
     resolvedBlocks: [{
       id: 'item/basic',
@@ -101,7 +102,7 @@ function buildInput(): BuildEngineeringIRInput {
         scenarios: []
       }
     }]
-  };
+  });
 }
 
 function requirements(): VerificationRequirement[] {
@@ -116,7 +117,7 @@ const availableIsolationProbe: SemanticMutationIsolationCapabilityProbe =
   () => ({ status: 'available' });
 
 test('local adapter plans only freshly proven isolated capabilities in canonical order', async () => {
-  const snapshot = buildValidatedEngineeringIR(buildInput());
+  const snapshot = verificationSnapshotFixture();
   let probeCalls = 0;
   const isolationCapabilityProbe = () => {
     probeCalls += 1;
@@ -148,7 +149,7 @@ test('local adapter plans only freshly proven isolated capabilities in canonical
 });
 
 test('missing, thrown, unavailable, and invalid probe evidence fail closed after one probe', async () => {
-  const snapshot = buildValidatedEngineeringIR(buildInput());
+  const snapshot = verificationSnapshotFixture();
   const candidates = [
     undefined,
     () => ({ status: 'unavailable' }),
@@ -185,7 +186,7 @@ test('missing, thrown, unavailable, and invalid probe evidence fail closed after
 });
 
 test('unknown, missing, duplicate, unsafe, non-runnable requirements are blocked', async () => {
-  const snapshot = buildValidatedEngineeringIR(buildInput());
+  const snapshot = verificationSnapshotFixture();
   const plan = await planSemanticMutationVerificationCapabilities({
     snapshot,
     requirements: [
@@ -211,7 +212,7 @@ test('unknown, missing, duplicate, unsafe, non-runnable requirements are blocked
 });
 
 test('issued verification executes one exact requirement union and refuses forged report or execution bindings', async () => {
-  const snapshot = buildValidatedEngineeringIR(buildInput());
+  const snapshot = verificationSnapshotFixture();
   const canonicalRequirements = requirements();
   let probeCalls = 0;
   const capabilityPlan = await planSemanticMutationVerificationCapabilities({
