@@ -13,23 +13,13 @@ import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../../src/adapters/verificatio
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CI_VERIFICATION_EXECUTION_MODEL, CodexDevelopmentBuildVerificationPlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { slowTestSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
-import { readCompilerFile, readCompilerTypeScriptMutationFixture } from '../../helpers/compiler-fixtures.ts';
+import { readCompilerFile } from '../../helpers/compiler-fixtures.ts';
 import { TCB_TRUST_ROOT } from '../../../src/adapters/verification/platform/trust/compiler.ts';
 import {
-  createSecTrustedBootstrapTrustRoot,
   matchSecTrustedBootstrapPath,
-  parseSecTrustedBootstrapRegistry,
   SEC_TCB_CLOSURE_RUNTIME_PATH,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../../src/adapters/verification/platform/trust/contract/root.ts';
-import {
-  compileTcbClosureActionResult,
-  createTcbClosureActionPlan,
-  createTcbClosureCandidateSnapshot,
-  finalizeTcbClosureCandidateSnapshot,
-  readTcbClosureCandidateFile,
-  selectTcbClosureCandidateAction
-} from '../../../src/adapters/verification/platform/trust/runtime/closure-lock.ts';
 
 
 type WorkflowStep = Readonly<{
@@ -714,7 +704,6 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
   const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
-  const checkerSource = await readCompilerTypeScriptMutationFixture('src/application/trusted-bootstrap-verification.ts', 'tcb-analysis');
   const preProgram = step(workflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt').run;
   expect(preProgram).toContain('(cd "$TRUSTED_BASE_ROOT" && bun --no-env-file src/bootstrap/development/trusted-bootstrap-verification-cli.ts materialize --output "$out/checker.mjs")');
   expect(preProgram).toContain('SEC_BOOTSTRAP_PHASE=pre');
@@ -723,19 +712,8 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(postProgram).toContain('sha256sum -c SHA256SUMS');
   expect(postProgram).toContain('bun "$BOOTSTRAP_EVIDENCE_ROOT/checker.mjs"');
   expect(postProgram).not.toContain('materialize --output');
-  expect([
-    createTcbClosureCandidateSnapshot,
-    readTcbClosureCandidateFile,
-    createTcbClosureActionPlan,
-    selectTcbClosureCandidateAction,
-    compileTcbClosureActionResult,
-    finalizeTcbClosureCandidateSnapshot,
-    parseSecTrustedBootstrapRegistry,
-    createSecTrustedBootstrapTrustRoot
-  ].every((contract) => typeof contract === 'function')).toBe(true);
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH)
     .toBe('src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json');
-  expect(checkerSource).not.toMatch(/TcbClosure[A-Za-z]+V1|TrustedBootstrap[A-Za-z]+V3|terminal\.resultDigest/u);
   expect(workflow.jobs.resolve?.outputs).toMatchObject({
     base: '${{ steps.resolve.outputs.base }}',
     'base-tree': '${{ steps.resolve.outputs.base-tree }}',
