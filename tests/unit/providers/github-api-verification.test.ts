@@ -2,6 +2,7 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 
 import { withGitHubCredentialStore } from '../../../src/adapters/providers/github-api/credential-store.ts';
 import { readArtifactMember } from '../../../src/adapters/providers/github-api/internal/artifact-member.ts';
@@ -13,7 +14,11 @@ import { rawSha256 } from '../../../src/contracts/canonical.ts';
 import { ZIP_VECTORS } from './github-api-artifact-fixtures.ts';
 
 const roots: string[] = [];
-afterAll(async () => { for (const root of roots) await rm(root,{recursive:true,force:true}); });
+afterAll(async () => {
+  await settleResourcesAsync({ cleanup: roots.map(root => ({
+    label: root, settle: () => rm(root, { recursive: true, force: true })
+  })) });
+});
 let binaryRoot: string | undefined;
 async function fixture() {
   if (binaryRoot === undefined) {

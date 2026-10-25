@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
 import { withGitHubCredentialStore } from '../../../src/adapters/providers/github-api/credential-store.ts';
 import { resolveLinuxEffectiveUserHome } from '../../../src/adapters/runtime-state/physical/runtime/linux-user-home.ts';
 
@@ -30,7 +31,8 @@ if (import.meta.main && process.argv.slice(-4).join('\0') === 'auth\0token\0--ho
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await settleWorkspaceCleanups(roots.splice(0).map((root) =>
+    () => rm(root, { recursive: true, force: true })));
 });
 
 async function fixture(): Promise<string> {

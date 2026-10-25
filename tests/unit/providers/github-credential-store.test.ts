@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, renameSync } from 'node:fs';
 import { chmod, link, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
 
 import {
   githubCredentialBootstrapHandoffArguments,
@@ -19,7 +20,8 @@ import { ResourceCompositeSettlementError } from '../../../src/execution/resourc
 
 const roots: string[] = [];
 afterAll(async () => {
-  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+  await settleWorkspaceCleanups(roots.splice(0).map(root =>
+    () => rm(root, { recursive: true, force: true })));
 });
 async function fixture(): Promise<{ root: string; store: string; repository: string }> {
   const root = await mkdtemp(path.join(process.platform === 'linux' ? '/tmp' : os.tmpdir(), 'sec-gh-store-'));
@@ -116,11 +118,15 @@ test.skipIf(process.platform !== 'linux')('rejects repository overlap and in-sco
 test.skipIf(process.platform !== 'linux')('settles separate concurrent store scopes without ambient rebinding', async () => {
   const first = await fixture();
   const second = await fixture();
-  const identities = await Promise.all([first, second].map(async ({ store, repository }) =>
+  const outcomes = await Promise.allSettled([first, second].map(async ({ store, repository }) =>
     withGitHubCredentialStore({ directoryPath: store, repositoryRoot: repository }, async () => {
       await Promise.resolve();
       return currentGitHubCredentialStore(repository)!.identityDigest;
     })));
+  const failures = outcomes.flatMap(outcome => outcome.status === 'rejected' ? [outcome.reason] : []);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Concurrent credential scopes failed');
+  const identities = outcomes.flatMap(outcome => outcome.status === 'fulfilled' ? [outcome.value] : []);
   expect(identities[0]).not.toBe(identities[1]);
   expect(currentGitHubCredentialStoreIdentity()).toBeUndefined();
 });
