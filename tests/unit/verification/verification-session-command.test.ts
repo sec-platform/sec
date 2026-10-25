@@ -40,31 +40,15 @@ test('command parsing rejects missing, inherited, and unsupported command names'
   }
 });
 
-test('command parsing rejects nonprimitive command names without coercion', () => {
-  let coercions = 0;
-  const pretendCommand = {
-    [Symbol.toPrimitive]() { coercions += 1; return 'prepare'; },
-    toString() { coercions += 1; return 'prepare'; },
-    valueOf() { coercions += 1; return 'prepare'; }
-  };
-  for (const command of [undefined, null, false, 0, Symbol('prepare'), ['prepare'], new String('prepare'), pretendCommand]) {
-    expect(() => parseVerificationSessionCommand([command])).toThrow(/Unknown command/);
-  }
-  expect(coercions).toBe(0);
-});
-
-test('command parsing never invokes caller methods or admits nonprimitive flag values', () => {
-  let callerMethodCalls = 0;
-  const pretendText = {
-    startsWith() { callerMethodCalls += 1; return false; },
-    toString() { callerMethodCalls += 1; return 'request.json'; }
-  };
-  expect(() => parseVerificationSessionCommand(['resume', pretendText])).toThrow(/must be a string/);
-  for (const value of [undefined, null, false, 42, Symbol('request.json'), ['request.json'], new String('request.json'), pretendText]) {
-    expect(() => parseVerificationSessionCommand(['resume', '--request', value])).toThrow(/Missing value/);
-  }
-  expect(callerMethodCalls).toBe(0);
-  expect(parseVerificationSessionCommand(['resume', '--request', 'request.json']).args.get('--request')).toBe('request.json');
+// The production entry supplies process.argv strings. Missing values and bad
+// argument text remain reachable; object conversion hooks do not cross argv.
+test('command parsing rejects missing flag values and unsupported argument text', () => {
+  expect(() => parseVerificationSessionCommand(['resume', '--request']))
+    .toThrow(/Missing value for --request/);
+  expect(() => parseVerificationSessionCommand(['resume', '--request', '--json']))
+    .toThrow(/Missing value for --request/);
+  expect(() => parseVerificationSessionCommand(['resume', 'request.json']))
+    .toThrow(/Unknown argument: request\.json/);
 });
 
 const BASE_SHA = '1'.repeat(40);

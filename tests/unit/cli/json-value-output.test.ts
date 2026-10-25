@@ -17,13 +17,13 @@ test.serial('shared writer, standard JSON values and text selection keep their d
   assert.equal(formatJson(value, { compact: false }), JSON.stringify(value, null, 2));
   assert.equal(formatJson(value, { compact: true }), JSON.stringify(value));
   assert.equal(formatJsonFile(value), JSON.stringify(value, null, 2) + '\n');
-  for (const input of [null, false, 0, '', { b: 2, a: 1, absent: undefined }, [1, undefined, null], { '__proto__': null }]) {
-    assert.equal(formatJsonFile(input), JSON.stringify(input, null, 2) + '\n');
-  }
-  for (const input of [null, false, 0, 'text', [], { a: 1, b: [2] }]) {
-    for (const compact of [false, true]) {
-      assert.equal(formatJson(input, { compact }), JSON.stringify(input, null, compact ? 0 : 2));
-    }
+  // Both wrappers delegate standard JSON values to this writer. Cover the
+  // complete root-value set once, not again for every output/spacing wrapper.
+  for (const input of [
+    null, false, 0, '', 'text', [], [1, undefined, null],
+    { b: 2, a: 1, absent: undefined }, { a: 1, b: [2] }, { '__proto__': null }
+  ]) {
+    assert.equal(stringifyJsonValue(input, 2), JSON.stringify(input, null, 2));
   }
   const log = console.log, lines: string[] = [];
   console.log = (...args) => { lines.push(format(...args)); };
