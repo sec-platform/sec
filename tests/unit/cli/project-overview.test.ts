@@ -461,9 +461,10 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     graphArtifactPath: CI_ARTIFACT_FILES.explainGraph,
     reviewArtifactPath: CI_ARTIFACT_FILES.reviewSummary
   };
-  expect(formatProjectOverview(overview, presentation)).toContain('Project overview attention');
-  expect(formatProjectOverview(overview, presentation)).toContain('Graph: 3 nodes / 2 edges; blocks=2');
-  expect(formatProjectOverview(overview, presentation)).toContain(
+  const text = formatProjectOverview(overview, presentation);
+  expect(text).toContain('Project overview attention');
+  expect(text).toContain('Graph: 3 nodes / 2 edges; blocks=2');
+  expect(text).toContain(
     'Risks: failures=0; regressions=1; conflicts=0; missingArtifacts=1'
   );
 });

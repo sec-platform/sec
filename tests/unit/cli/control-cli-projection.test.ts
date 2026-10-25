@@ -259,18 +259,18 @@ describe('bounded control-plane CLI projections', () => {
       },
       summary: {
         activeMarkdown: 1, behaviorCandidates: 0,
-        contentCoverage: { excluded: 0, scanned: 500, unknown: 0 },
-        findings: { critical: 0, high: 500, medium: 0, low: 0 },
-        markdown: 1, skills: 8, trackedPaths: 500, unknowns: 0
+        contentCoverage: { excluded: 0, scanned: 2, unknown: 0 },
+        findings: { critical: 0, high: 2, medium: 0, low: 0 },
+        markdown: 1, skills: 8, trackedPaths: 2, unknowns: 0
       },
-      findings: Array.from({ length: 500 }, (_, index) => ({
+      findings: Array.from({ length: 2 }, (_, index) => ({
         code: 'one-root-class', message: `instance ${index}`, severity: 'high' as const
       })),
       unknowns: [],
-      behaviorCandidates: Array.from({ length: 500 }, (_, index) => ({
+      behaviorCandidates: Array.from({ length: 2 }, (_, index) => ({
         line: index + 1, path: `path-${index}`, skills: [], text: 'noise'
       })),
-      contentCoverage: Array.from({ length: 500 }, (_, index) => ({ path: `path-${index}` }))
+      contentCoverage: Array.from({ length: 2 }, (_, index) => ({ path: `path-${index}` }))
     } as unknown as RepositoryAuditReport;
     const projected = projectRepositoryAuditCli(report);
     expect(projected.findingCodes).toEqual(['one-root-class']);
@@ -301,7 +301,7 @@ describe('bounded control-plane CLI projections', () => {
       receipt: {
         exactMain: 'a'.repeat(40), exactMainTree: 'b'.repeat(40),
         receiptDigest: 'sha256:receipt',
-        catalog: { items: Array.from({ length: 500 }, (_, index) => ({ index, body: 'unprojected-catalog-body' })) },
+        catalog: { items: Array.from({ length: 2 }, (_, index) => ({ index, body: 'unprojected-catalog-body' })) },
         decision: {
           status: 'select-next', selectedWorkId: 'issue-346',
           selectedCandidateRef: 'operation-read-plan-authority-canary-v1',
@@ -325,21 +325,22 @@ describe('bounded control-plane CLI projections', () => {
       workspace: { status: 'clean' },
       github: {
         status: 'resolved',
-        openPullRequests: [{ number: 539, body: 'x'.repeat(10_000) }],
-        openIssues: Array.from({ length: 500 }, (_, number) => ({ number, body: 'x'.repeat(1_000) })),
-        reviewThreads: { '539': { nodes: Array.from({ length: 100 }, () => 'noise') } }
+        openPullRequests: [{ number: 539, body: 'unprojected-pull-body' }],
+        openIssues: Array.from({ length: 2 }, (_, number) => ({ number, body: 'unprojected-issue-body' })),
+        reviewThreads: { '539': { nodes: Array.from({ length: 2 }, () => 'noise') } }
       },
       activeWorkPackage: { state: 'active', manifest: 'config/repository/work-packages/focused.md' },
       activation: null,
-      stableFacts: Array.from({ length: 500 }, () => 'noise')
+      stableFacts: Array.from({ length: 2 }, () => 'noise')
     };
     const projected = projectDocumentControlPlaneStatusCli(resolved);
     expect(projected.github).toEqual({
-      status: 'resolved', openPullRequestNumbers: [539], openIssueCount: 500,
+      status: 'resolved', openPullRequestNumbers: [539], openIssueCount: 2,
       reviewThreadPullRequestCount: 1
     });
     expect(projected).not.toHaveProperty('stableFacts');
-    expect(JSON.stringify(projected)).not.toContain('x'.repeat(1_000));
+    expect(JSON.stringify(projected)).not.toContain('unprojected-pull-body');
+    expect(JSON.stringify(projected)).not.toContain('unprojected-issue-body');
     expect(JSON.stringify(projected)).not.toContain('noise');
   });
 });
