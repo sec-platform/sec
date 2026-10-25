@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -155,6 +156,7 @@ function withStateRoot<T extends object>(root: string, input: T) {
 
 test('legacy journal mutation lease remains unqualified despite dead PID observation and expired TTL', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-lease-recovery-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const filePath = path.join(root, 'journals', 'action.jsonl');
     mkdirSync(path.dirname(filePath), { recursive: true });
@@ -189,13 +191,17 @@ test('legacy journal mutation lease remains unqualified despite dead PID observa
       .toThrow('Journal mutation resource is legacy or unqualified; original state is preserved.');
     expect(readFileSync(filePath)).toEqual(originalData);
     expect(readFileSync(lockPath)).toEqual(originalLease);
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('diagnostic-bound journal append/readback validates lifecycle and digest chain in external runtime state', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     appendVerificationActionJournalEvent(withStateRoot(root, {
@@ -223,13 +229,17 @@ test('diagnostic-bound journal append/readback validates lifecycle and digest ch
     expect(invalidated.latestState).toBe('invalidated');
     expect(invalidated.terminal).toBeNull();
     expect(invalidated.events[2]!.terminal?.status).toBe('passed');
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('journal rejects corrupt and partial tails before exposing any projection', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-corrupt-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     appendVerificationActionJournalEvent(withStateRoot(root, {
@@ -241,13 +251,17 @@ test('journal rejects corrupt and partial tails before exposing any projection',
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/invalid JSON|partial/);
     writeFileSync(filePath, original.replace('"recordedAt":"2026-08-09T13:00:01.000Z"', '"recordedAt":"2026-08-09T13:00:02.000Z"'), 'utf8');
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/digest mismatch/);
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('a current prefix and foreign-schema tail is corruption, not disposable state', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-mixed-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     appendVerificationActionJournalEvent(withStateRoot(root, {
@@ -272,8 +286,11 @@ test('a current prefix and foreign-schema tail is corruption, not disposable sta
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(3)
     }))).toThrow(/schema mismatch/);
     expect(readFileSync(filePath, 'utf8')).toContain('foreign-verification-action-event');
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
@@ -553,6 +570,7 @@ function mutationPublicationCandidate(input: Readonly<{
 
 test('machine cutover inventories auxiliary-only static closure evidence without creating an Action', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-static-auxiliary-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-static-auxiliary');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, 'f');
@@ -570,14 +588,18 @@ test('machine cutover inventories auxiliary-only static closure evidence without
     expect(lstatSync(quarantineFile(stateRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
     expect(readFileSync(auxiliary.closurePath, 'utf8')).toBe(closureBytes);
     expect(readFileSync(auxiliary.pointerPath, 'utf8')).toBe(pointerBytes);
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover rejects malformed and foreign auxiliary-only static evidence', () => {
   for (const candidate of ['malformed-pointer', 'foreign-closure'] as const) {
     const stateRoot = mkdtempSync(path.join(tmpdir(), `sec-action-machine-static-${candidate}-`));
+    let stateRootFailure: ResourceSettlementFailure | undefined;
     try {
       const key = action(`machine-cutover-static-${candidate}`);
       const workspaceRoot = machineWorkspaceRoot(stateRoot, candidate === 'malformed-pointer' ? '1' : '2');
@@ -633,78 +655,88 @@ test('machine cutover rejects malformed and foreign auxiliary-only static eviden
         VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
       ), { throwIfNoEntry: false })).toBeUndefined();
       expect(lstatSync(quarantineFile(stateRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
+    } catch (error) {
+      stateRootFailure = { label: 'journal assertions', error };
+      throw error;
     } finally {
-      rmSync(stateRoot, { recursive: true, force: true });
+      settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
     }
   }
 });
 
 test('machine cutover consolidates identical workspace Action chains before global admission', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-cutover-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
-    const key = action('machine-cutover-identical');
-    const firstWorkspace = machineWorkspaceRoot(stateRoot, '1');
-    const secondWorkspace = machineWorkspaceRoot(stateRoot, '2');
-    const firstLegacy = writeLegacyJournal(firstWorkspace, key, terminal(key.actionKey));
-    const secondLegacy = writeLegacyJournal(secondWorkspace, key, terminal(key.actionKey));
-    const firstLegacyBytes = readFileSync(firstLegacy);
-    const secondLegacyBytes = readFileSync(secondLegacy);
-    const physical = journalFs(stateRoot);
-    const receipt = ensureVerificationActionMachineGlobalCutover(physical);
-    expect(receipt).toMatchObject({
-      sourceRecordCount: 2,
-      targetActionCount: 1,
-      legacyEvidenceDisposition: 'retained-until-owner-authorized-retirement'
-    });
-    expect(readVerificationActionJournal(journalFs(stateRoot), key.actionKey)).toMatchObject({
-      latestState: 'terminal',
-      terminal: terminal(key.actionKey)
-    });
-    expect(readFileSync(firstLegacy)).toEqual(firstLegacyBytes);
-    expect(readFileSync(secondLegacy)).toEqual(secondLegacyBytes);
-
-    const reusedReceipt = ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot));
-    expect(reusedReceipt.receiptDigest).toBe(receipt.receiptDigest);
-  } catch (error) {
-    // Preserve the original error and fixture payloads before this case's cleanup.
-    const describeFailure = (failure: unknown): unknown => {
-      if (!(failure instanceof Error)) return { value: String(failure) };
-      const nested = Object.getOwnPropertyDescriptor(failure, 'errors')?.value;
-      return {
-        name: failure.name,
-        message: failure.message,
-        stack: failure.stack,
-        ...(Array.isArray(nested) ? { errors: nested.map(describeFailure) } : {})
-      };
-    };
-    const payloads: { path: string; bytes: string }[] = [];
-    const readFixture = (directory: string): void => {
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const child = path.join(directory, entry.name);
-        if (entry.isDirectory()) readFixture(child);
-        else if (entry.isFile()) payloads.push({
-          path: normalizeTestInventoryPath(path.relative(stateRoot, child)),
-          bytes: readFileSync(child).toString('base64')
-        });
-      }
-    };
     try {
-      readFixture(stateRoot);
-      console.error(JSON.stringify({
-        consolidationFailure: describeFailure(error),
-        fixturePayloadReadback: payloads
-      }));
-    } catch (diagnosticError) {
-      console.error('Consolidation fixture readback failed:', diagnosticError);
+      const key = action('machine-cutover-identical');
+      const firstWorkspace = machineWorkspaceRoot(stateRoot, '1');
+      const secondWorkspace = machineWorkspaceRoot(stateRoot, '2');
+      const firstLegacy = writeLegacyJournal(firstWorkspace, key, terminal(key.actionKey));
+      const secondLegacy = writeLegacyJournal(secondWorkspace, key, terminal(key.actionKey));
+      const firstLegacyBytes = readFileSync(firstLegacy);
+      const secondLegacyBytes = readFileSync(secondLegacy);
+      const physical = journalFs(stateRoot);
+      const receipt = ensureVerificationActionMachineGlobalCutover(physical);
+      expect(receipt).toMatchObject({
+        sourceRecordCount: 2,
+        targetActionCount: 1,
+        legacyEvidenceDisposition: 'retained-until-owner-authorized-retirement'
+      });
+      expect(readVerificationActionJournal(journalFs(stateRoot), key.actionKey)).toMatchObject({
+        latestState: 'terminal',
+        terminal: terminal(key.actionKey)
+      });
+      expect(readFileSync(firstLegacy)).toEqual(firstLegacyBytes);
+      expect(readFileSync(secondLegacy)).toEqual(secondLegacyBytes);
+
+      const reusedReceipt = ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot));
+      expect(reusedReceipt.receiptDigest).toBe(receipt.receiptDigest);
+    } catch (error) {
+      // Preserve the original error and fixture payloads before this case's cleanup.
+      const describeFailure = (failure: unknown): unknown => {
+        if (!(failure instanceof Error)) return { value: String(failure) };
+        const nested = Object.getOwnPropertyDescriptor(failure, 'errors')?.value;
+        return {
+          name: failure.name,
+          message: failure.message,
+          stack: failure.stack,
+          ...(Array.isArray(nested) ? { errors: nested.map(describeFailure) } : {})
+        };
+      };
+      const payloads: { path: string; bytes: string }[] = [];
+      const readFixture = (directory: string): void => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          const child = path.join(directory, entry.name);
+          if (entry.isDirectory()) readFixture(child);
+          else if (entry.isFile()) payloads.push({
+            path: normalizeTestInventoryPath(path.relative(stateRoot, child)),
+            bytes: readFileSync(child).toString('base64')
+          });
+        }
+      };
+      try {
+        readFixture(stateRoot);
+        console.error(JSON.stringify({
+          consolidationFailure: describeFailure(error),
+          fixturePayloadReadback: payloads
+        }));
+      } catch (diagnosticError) {
+        console.error('Consolidation fixture readback failed:', diagnosticError);
+      }
+      throw error;
     }
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
     throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover blocks journal-less claims and corrupt workspace chains before journal publication', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-cutover-blocked-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const activeKey = action('machine-cutover-active');
     const activeWorkspace = machineWorkspaceRoot(stateRoot, '3');
@@ -741,13 +773,17 @@ test('machine cutover blocks journal-less claims and corrupt workspace chains be
       .toThrow('digest mismatch');
     expect(readVerificationActionJournal(journalFs(stateRoot), divergentKey.actionKey).latestState)
       .toBeNull();
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover types an active Windows durable publication candidate and succeeds only after it settles', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-publication-active-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-active-publication');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, '8');
@@ -780,13 +816,17 @@ test('machine cutover types an active Windows durable publication candidate and 
       .toBe(1);
     expect(readVerificationActionJournal(journalFs(stateRoot), key.actionKey).latestState)
       .toBe('terminal');
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover preserves a malformed receipt publication and joins only its exact live owner', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-publication-join-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-receipt-publication');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, 'a');
@@ -821,8 +861,11 @@ test('machine cutover preserves a malformed receipt publication and joins only i
     rmSync(candidatePath);
     expect(ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)).targetActionCount)
       .toBe(1);
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
@@ -877,6 +920,7 @@ test('machine cutover preserves stale, foreign, and malformed mutation publicati
 
   for (const candidateCase of cases) {
     const stateRoot = mkdtempSync(path.join(tmpdir(), `sec-action-machine-publication-${candidateCase.name}-`));
+    let stateRootFailure: ResourceSettlementFailure | undefined;
     try {
       const key = action(`machine-cutover-publication-${candidateCase.name}`);
       const workspaceRoot = machineWorkspaceRoot(stateRoot, '9');
@@ -895,14 +939,18 @@ test('machine cutover preserves stale, foreign, and malformed mutation publicati
         VERIFICATION_ACTION_JOURNAL_DIRECTORY,
         `${key.actionKey.slice(7)}.jsonl`
       ), { throwIfNoEntry: false })).toBeUndefined();
+    } catch (error) {
+      stateRootFailure = { label: 'journal assertions', error };
+      throw error;
     } finally {
-      rmSync(stateRoot, { recursive: true, force: true });
+      settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
     }
   }
 });
 
 test('machine cutover quarantines an unbound legacy terminal and permanently blocks same-ActionKey execution', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-quarantine-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-quarantine');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, '6');
@@ -965,13 +1013,17 @@ test('machine cutover quarantines an unbound legacy terminal and permanently blo
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       `${key.actionKey.slice(7)}.jsonl`
     )}.claim.json`, { throwIfNoEntry: false })).toBeUndefined();
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover quarantines the exact retired process terminal binding and rejects variants', () => {
   const acceptedRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-retired-process-'));
+  let acceptedRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-retired-process');
     const workspaceRoot = machineWorkspaceRoot(acceptedRoot, '2');
@@ -996,11 +1048,15 @@ test('machine cutover quarantines the exact retired process terminal binding and
         legacyEvidenceDisposition: 'retained-until-owner-authorized-retirement'
       }
     });
+  } catch (error) {
+    acceptedRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(acceptedRoot, { recursive: true, force: true });
+    settleResources({ primary: acceptedRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(acceptedRoot, { recursive: true, force: true }) }] });
   }
 
   const rejectedRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-retired-process-invalid-'));
+  let rejectedRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-retired-process-invalid');
     const workspaceRoot = machineWorkspaceRoot(rejectedRoot, '3');
@@ -1024,13 +1080,17 @@ test('machine cutover quarantines the exact retired process terminal binding and
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
     ), { throwIfNoEntry: false })).toBeUndefined();
+  } catch (error) {
+    rejectedRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(rejectedRoot, { recursive: true, force: true });
+    settleResources({ primary: rejectedRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(rejectedRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover quarantines only the exact retired input invalidation terminal', () => {
   const acceptedRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-retired-invalidation-'));
+  let acceptedRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-retired-invalidation');
     const workspaceRoot = machineWorkspaceRoot(acceptedRoot, 'd');
@@ -1049,11 +1109,15 @@ test('machine cutover quarantines only the exact retired input invalidation term
           executionDisposition: 'same-action-key-forbidden'
         }
       });
+  } catch (error) {
+    acceptedRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(acceptedRoot, { recursive: true, force: true });
+    settleResources({ primary: acceptedRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(acceptedRoot, { recursive: true, force: true }) }] });
   }
 
   const rejectedRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-retired-invalidation-invalid-'));
+  let rejectedRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-retired-invalidation-invalid');
     const workspaceRoot = machineWorkspaceRoot(rejectedRoot, 'e');
@@ -1067,13 +1131,17 @@ test('machine cutover quarantines only the exact retired input invalidation term
       .toThrow('legacy terminal status is invalid.');
     expect(readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
     expect(lstatSync(quarantineFile(rejectedRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
+  } catch (error) {
+    rejectedRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(rejectedRoot, { recursive: true, force: true });
+    settleResources({ primary: rejectedRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(rejectedRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover quarantines only a terminal-dominated expired claim and retains both source files', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-terminal-claim-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-terminal-dominated-claim');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, '8');
@@ -1130,13 +1198,17 @@ test('machine cutover quarantines only a terminal-dominated expired claim and re
     writeFileSync(claimPath, claimBytes, 'utf8');
     expect(() => readVerificationActionJournal(journalFs(stateRoot), key.actionKey))
       .toThrow('legacy quarantine source evidence changed');
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover preserves active claims and quarantines expired abandoned claims without retry', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-claim-negative-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const activeKey = action('machine-cutover-active-terminal-claim');
     const activeWorkspace = machineWorkspaceRoot(stateRoot, '9');
@@ -1263,13 +1335,17 @@ test('machine cutover preserves active claims and quarantines expired abandoned 
     }).disposition).toBe('blocked');
     expect(ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)).receiptDigest)
       .toBe(receipt.receiptDigest);
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover recovers an exact interrupted journal target only through negative quarantine', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-interrupted-target-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-interrupted-target');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, 'd');
@@ -1322,13 +1398,17 @@ test('machine cutover recovers an exact interrupted journal target only through 
     }).disposition).toBe('blocked');
     expect(ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)).receiptDigest)
       .toBe(receipt.receiptDigest);
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover quarantines divergent terminal attempts while retaining the machine journal as evidence', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-divergent-terminals-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-divergent-terminal-attempts');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, 'e');
@@ -1366,13 +1446,17 @@ test('machine cutover quarantines divergent terminal attempts while retaining th
       ownerToken: 'must-not-reuse-divergent-terminal',
       now: '2026-09-01T00:00:00.000Z'
     }).disposition).toBe('blocked');
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('machine cutover quarantines mixed workspace generations without inventing a retained machine target', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-mixed-workspaces-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-mixed-workspaces');
     const terminalWorkspace = machineWorkspaceRoot(stateRoot, '6');
@@ -1407,13 +1491,17 @@ test('machine cutover quarantines mixed workspace generations without inventing 
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       `${key.actionKey.slice(7)}.jsonl`
     ), { throwIfNoEntry: false })).toBeUndefined();
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('quarantine recovery rejects partial, tampered, and foreign evidence before publication', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-quarantine-invalid-'));
+  let stateRootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action('machine-cutover-quarantine-invalid');
     const workspaceRoot = machineWorkspaceRoot(stateRoot, '7');
@@ -1440,13 +1528,17 @@ test('quarantine recovery rejects partial, tampered, and foreign evidence before
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
       .toThrow('legacy quarantine receipt is not valid JSON');
     expect(readFileSync(quarantinePath, 'utf8')).toBe('foreign\n');
+  } catch (error) {
+    stateRootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(stateRoot, { recursive: true, force: true });
+    settleResources({ primary: stateRootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(stateRoot, { recursive: true, force: true }) }] });
   }
 });
 
 test('legacy journal cutover is one-way, physical-bound, and normal reads use only the new grammar', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-cutover-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     const legacyPath = writeLegacyJournal(root, key, terminal(key.actionKey));
@@ -1475,13 +1567,17 @@ test('legacy journal cutover is one-way, physical-bound, and normal reads use on
     writeFileSync(legacyPath, legacyBytes);
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey))
       .toThrow('legacy source changed');
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('journal admission rejects a terminal carrying another Action diagnostic subject', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-cross-action-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     appendVerificationActionJournalEvent({
@@ -1512,13 +1608,17 @@ test('journal admission rejects a terminal carrying another Action diagnostic su
     })).toThrow('terminal diagnostics do not bind its ActionKey and attempt');
     expect(readVerificationActionJournal(journalFs(root), key.actionKey).latestState)
       .toBe('running');
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('journal rejects an unqueued start and reopening a cancelled Action', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-delete-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     expect(() => appendVerificationActionJournalEvent(withStateRoot(root, {
@@ -1534,13 +1634,17 @@ test('journal rejects an unqueued start and reopening a cancelled Action', () =>
     expect(() => appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(3)
     }))).toThrow('illegal transition');
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
   }
 });
 
 test('claim joins one live physical owner and rejects wrong-owner release', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-race-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     const first = acquireVerificationActionClaim(withStateRoot(root, {
@@ -1580,11 +1684,17 @@ test('claim joins one live physical owner and rejects wrong-owner release', () =
       recordedAt: '2026-08-09T00:00:03.000Z', note: 'owner settled failure'
     }))?.state).toBe('cancelled');
     expect(readVerificationActionClaim(journalFs(root), key.actionKey)).toBeNull();
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
+  } finally {
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+  }
 });
 
 test('only the current owner can renew a live lease', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-renew-'));
+  let rootFailure: ResourceSettlementFailure | undefined;
   try {
     const key = action();
     acquireVerificationActionClaim(withStateRoot(root, {
@@ -1601,5 +1711,10 @@ test('only the current owner can renew a live lease', () => {
     }))).toBe(false);
     expect(readVerificationActionClaim(journalFs(root), key.actionKey)?.expiresAt)
       .toBe('2026-08-09T00:01:00.500Z');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    rootFailure = { label: 'journal assertions', error };
+    throw error;
+  } finally {
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'journal fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+  }
 });
