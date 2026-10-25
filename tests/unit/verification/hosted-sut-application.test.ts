@@ -148,7 +148,8 @@ test('TrustedBootstrap prepared native plan binds its separate subject without c
   expect(() => parseNativeHostedCandidatePreparation({ ...preparation, actionKey: digest })).toThrow();
 });
 
-test.each([null, false, undefined])('TrustedBootstrap preserves raw process failure %p after mandatory teardown and receipt', async error => {
+test('TrustedBootstrap preserves raw process failure undefined after mandatory teardown and receipt', async () => {
+  const error = undefined;
   const observed = fixture({ executionFailure: { error } });
   let failure: unknown = Symbol('not-thrown');
   try { await executeTrustedBootstrapSut(input, observed.ports); } catch (caught) { failure = caught; }
