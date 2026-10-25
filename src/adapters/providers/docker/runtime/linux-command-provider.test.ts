@@ -69,7 +69,9 @@ async function providerFixture(options: Readonly<{ endpointHost?: string; daemon
   try {
     const probe = path.join(root, 'curl');
     const marker = path.join(root, 'probe-executed');
-    await writeFile(probe, `#!/bin/sh\nprintf executed > '${marker}'\nprintf '%s\\n' '{"ID":"fixture-daemon","OSType":"linux","Architecture":"x86_64"}'\n`, { mode: 0o700 });
+    if (options.daemonProbe === undefined) {
+      await writeFile(probe, `#!/bin/sh\nprintf executed > '${marker}'\nprintf '%s\\n' '{"ID":"fixture-daemon","OSType":"linux","Architecture":"x86_64"}'\n`, { mode: 0o700 });
+    }
     const directory = inspectNoFollowDirectoryChain(root);
     const probePath = options.daemonProbe ?? probe;
     const daemonProbe = retainNoFollowOrdinaryFile(

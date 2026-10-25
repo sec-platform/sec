@@ -1,9 +1,8 @@
-import { afterAll, afterEach, expect, test } from 'bun:test';
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { afterEach, expect, test } from 'bun:test';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
-import { withGitHubCredentialStore } from '../../../src/adapters/providers/github-api/credential-store.ts';
 import { resolveLinuxEffectiveUserHome } from '../../../src/adapters/runtime-state/physical/runtime/linux-user-home.ts';
 
 import {
@@ -30,8 +29,6 @@ if (import.meta.main && process.argv.slice(-4).join('\0') === 'auth\0token\0--ho
 
 const roots: string[] = [];
 const unsettledCompilerRoots = new Set<string>();
-let preparedBinary: Promise<Readonly<{ bytes: Buffer; mode: number }>> | undefined;
-afterAll(() => { preparedBinary = undefined; });
 
 afterEach(async () => {
   await settleWorkspaceCleanups(roots.splice(0).map(root => async () => {
@@ -42,9 +39,9 @@ afterEach(async () => {
   }));
 });
 
-// The private bytes have no dependency on the first fixture's directory.
-// Every consumer retains its original executable locator, cwd and mutable state.
-async function compileFixtureBinary(root: string): Promise<Readonly<{ bytes: Buffer; mode: number }>> {
+async function fixture(): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-github-credential-'));
+  roots.push(root);
   const executable = path.join(root, GH_EXECUTABLE_NAME);
   const build = Bun.spawn([
     process.execPath, 'build', '--compile', import.meta.filename, '--outfile', executable
@@ -60,26 +57,6 @@ async function compileFixtureBinary(root: string): Promise<Readonly<{ bytes: Buf
   unsettledCompilerRoots.delete(root);
   if (exit.value !== 0) {
     throw new Error(`GitHub credential fixture build failed: ${stderr.value}`);
-  }
-  const bytes = await readFile(executable);
-  return Object.freeze({ bytes, mode: (await stat(executable)).mode & 0o777 });
-}
-
-async function fixture(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-github-credential-'));
-  roots.push(root);
-  if (preparedBinary === undefined) {
-    const preparation = compileFixtureBinary(root).catch(error => {
-      if (preparedBinary === preparation) preparedBinary = undefined;
-      throw error;
-    });
-    preparedBinary = preparation;
-    await preparation;
-  } else {
-    const { bytes, mode } = await preparedBinary;
-    const executable = path.join(root, GH_EXECUTABLE_NAME);
-    await writeFile(executable, bytes, { mode });
-    await chmod(executable, mode);
   }
   return root;
 }
@@ -165,33 +142,4 @@ test.serial('rejects an expired deadline before executable discovery', async () 
     code: 'github-credential-unavailable',
     reason: 'deadline'
   }));
-});
-
-test.skipIf(process.platform !== 'linux').serial('reads through an explicitly bound external store, not ambient selectors', async () => {
-  const root = await fixture();
-  const store = await mkdtemp(path.join('/tmp', 'sec-gh-private-store-'));
-  roots.push(store);
-  const original = { ...process.env };
-  try {
-    process.env.PATH = root;
-    delete process.env.GITHUB_ACTIONS;
-    process.env.GH_CONFIG_DIR = path.join(root, 'untrusted-config');
-    process.env.HOME = path.join(root, 'untrusted-home');
-    process.env.GH_TOKEN = 'must-not-forward';
-    await withGitHubCredentialStore({ directoryPath: store, repositoryRoot: root }, async () => {
-      const token = await readGitHubToken({
-        cwd: root, repository: 'sec-platform/sec', hostname: 'github.com',
-        deadlineAtUnixMs: Date.now() + 10_000
-      });
-      expect(Buffer.from(token).toString('ascii')).toBe('ghp_test-token');
-      token.fill(0);
-    });
-    const observed = JSON.parse(await readFile(path.join(store, 'observed.json'), 'utf8'));
-    expect(observed.environment.GH_CONFIG_DIR).toBe('/proc/self/fd/4');
-    expect(observed.environment.HOME).toBeNull();
-    expect(observed.environment.GH_TOKEN).toBeNull();
-  } finally {
-    for (const key of Object.keys(process.env)) delete process.env[key];
-    Object.assign(process.env, original);
-  }
 });

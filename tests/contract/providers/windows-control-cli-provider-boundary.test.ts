@@ -14,7 +14,20 @@ function request() {
 }
 
 test('production admission accepts only narrowing request constraints and has no Linux fallback', async () => {
+  const forbiddenFields = new Set([
+    'credential',
+    'token',
+    'principal',
+    'permission',
+    'rest',
+    'effect',
+    'repository',
+    'workSelection',
+    'mainHealth'
+  ]);
   const resolution = resolveWindowsControlCliSession(request());
+  const keys = Object.keys(resolution);
+  expect(keys.some((key) => forbiddenFields.has(key))).toBe(false);
   if (process.platform !== 'win32') {
     expect(resolution).toEqual({
       status: 'unsupported',
@@ -25,7 +38,9 @@ test('production admission accepts only narrowing request constraints and has no
     if (resolution.status === 'ready') {
       expect(resolution.session.providerRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
       expect(resolution.session.observation.rootObservedBytes).toBeGreaterThan(0);
-      expect((await resolution.session.close()).status).toBe('completed');
+      const receipt = await resolution.session.close();
+      expect(receipt.status).toBe('completed');
+      expect(Object.keys(receipt).some((key) => forbiddenFields.has(key))).toBe(false);
     } else {
       expect(resolution).toMatchObject({
         status: expect.stringMatching(/^(unknown|unavailable)$/u),
@@ -71,27 +86,6 @@ test('invalid Windows locators are rejected before provider-platform resolution'
   for (const workingDirectoryPathHint of ['/tmp/sec', 'relative', 'C:\\sec\0invalid']) {
     expect(resolveWindowsControlCliSession({ ...request(), workingDirectoryPathHint }))
       .toMatchObject({ status: 'unavailable', reason: 'session-request-invalid' });
-  }
-});
-
-test('resolution and terminal receipt surfaces contain no semantic or effect authority fields', async () => {
-  const forbiddenFields = new Set([
-    'credential',
-    'token',
-    'principal',
-    'permission',
-    'rest',
-    'effect',
-    'repository',
-    'workSelection',
-    'mainHealth'
-  ]);
-  const resolution = resolveWindowsControlCliSession(request());
-  const keys = Object.keys(resolution);
-  expect(keys.some((key) => forbiddenFields.has(key))).toBe(false);
-  if (resolution.status === 'ready') {
-    const receipt = await resolution.session.close();
-    expect(Object.keys(receipt).some((key) => forbiddenFields.has(key))).toBe(false);
   }
 });
 

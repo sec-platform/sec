@@ -101,7 +101,8 @@ for (const explicit of [false,true]) test.serial.skipIf(process.platform !== 'li
       };
       if (explicit) await withGitHubCredentialStore({directoryPath:store,repositoryRoot:repository},observe); else await observe();
       expect(JSON.parse(await readFile(path.join(explicit ? store : repository,'credential-observation.json'),'utf8')))
-        .toMatchObject({config:explicit ? '/proc/self/fd/4' : null,token:false,proxy:false,directory:explicit ? store : repository});
+        .toMatchObject({config:explicit ? '/proc/self/fd/4' : null,token:false,proxy:false,directory:explicit ? store : repository,
+          ...(explicit ? {home:null} : {})});
       if (explicit) {
         const before = requests.length;
         await expect(escaped!.observeViewerPrincipal('sec-platform/sec')).rejects.toThrow('credential binding changed');
