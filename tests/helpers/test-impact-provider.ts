@@ -97,19 +97,7 @@ type ExactRepositoryTestImpactFixturePhase =
   | 'settlement'
   | 'complete';
 
-type ExactRepositoryTestImpactFixturePhaseEvent = Readonly<{
-  phase: ExactRepositoryTestImpactFixturePhase;
-  observedAtUnixMs: number;
-  remainingMs: number;
-}>;
-
-type ExactRepositoryTestImpactFixtureOptions = Readonly<{
-  deadlineAtUnixMs?: number;
-  observePhase?: (event: ExactRepositoryTestImpactFixturePhaseEvent) => void;
-}>;
-
 function observeFixturePhase(
-  options: ExactRepositoryTestImpactFixtureOptions,
   deadlineAtUnixMs: number,
   phase: ExactRepositoryTestImpactFixturePhase
 ): void {
@@ -118,7 +106,6 @@ function observeFixturePhase(
   if (!Number.isSafeInteger(deadlineAtUnixMs) || remainingMs < 1) {
     throw new Error(`Exact repository TestImpact fixture deadline expired before ${phase}.`);
   }
-  options.observePhase?.(Object.freeze({ phase, observedAtUnixMs, remainingMs }));
 }
 
 function git(
@@ -235,9 +222,9 @@ function writeRunnerProgram(repositoryRoot: string, testPaths: readonly string[]
 
 export async function createRemovedDocumentationTestImpactFixture(
   descriptorChanged = false,
-  includeConsumer = true,
-  sourceRepositoryRoot = process.cwd()
+  includeConsumer = true
 ): Promise<RemovedDocumentationTestImpactFixture> {
+  const sourceRepositoryRoot = process.cwd();
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
@@ -334,10 +321,8 @@ export async function createRemovedDocumentationTestImpactFixture(
  * Runner-only fixture. Its immutable synthetic tree models test membership and
  * a clean Git index; it does not claim the repository's production source graph.
  */
-export async function createExactGitTreeTestRunnerFixture(
-  sourceRepositoryRoot = process.cwd()
-): Promise<ExactGitTreeTestRunnerFixture> {
-  const normalizedSourceRoot = path.resolve(sourceRepositoryRoot);
+export async function createExactGitTreeTestRunnerFixture(): Promise<ExactGitTreeTestRunnerFixture> {
+  const normalizedSourceRoot = path.resolve(process.cwd());
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
@@ -450,24 +435,22 @@ export async function createExactGitTreeTestRunnerFixture(
 async function createExactRepositoryTestImpactProviderFixture(
   sourceRepositoryRoot: string,
   sourceCommitSha: string,
-  options: ExactRepositoryTestImpactFixtureOptions
+  deadlineAtUnixMs: number
 ): Promise<ExactRepositoryTestImpactProviderFixture> {
   const normalizedSourceRoot = path.resolve(sourceRepositoryRoot);
-  const deadlineAtUnixMs = options.deadlineAtUnixMs
-    ?? Date.now() + DEFAULT_TEST_TIMEOUT_MS;
   const operationDeadlineAtUnixMs = deadlineAtUnixMs
     - TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
     - EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS;
-  observeFixturePhase(options, deadlineAtUnixMs, 'admission');
+  observeFixturePhase(deadlineAtUnixMs, 'admission');
   if (!Number.isSafeInteger(operationDeadlineAtUnixMs)
       || operationDeadlineAtUnixMs <= Date.now()) {
     throw new Error(
       'Exact repository TestImpact fixture deadline cannot reserve compilation cleanup settlement.'
     );
   }
-  observeFixturePhase(options, deadlineAtUnixMs, 'source-object-read');
+  observeFixturePhase(deadlineAtUnixMs, 'source-object-read');
   exactTestPaths(normalizedSourceRoot, sourceCommitSha);
-  observeFixturePhase(options, deadlineAtUnixMs, 'fixture-repository-effect');
+  observeFixturePhase(deadlineAtUnixMs, 'fixture-repository-effect');
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
@@ -487,7 +470,7 @@ async function createExactRepositoryTestImpactProviderFixture(
       'TestImpact fixture commit'
     );
     git(repositoryRoot, ['update-ref', 'refs/heads/main', fixtureCommitSha]);
-    observeFixturePhase(options, deadlineAtUnixMs, 'exact-snapshot');
+    observeFixturePhase(deadlineAtUnixMs, 'exact-snapshot');
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
       repositoryRoot,
       commitSha: fixtureCommitSha
@@ -499,7 +482,7 @@ async function createExactRepositoryTestImpactProviderFixture(
     const exactActiveDocumentationPaths = activeDocumentationPaths(
       parseDocumentationIdentityRegistry(documentationIdentity.source)
     );
-    observeFixturePhase(options, deadlineAtUnixMs, 'dependency-retain');
+    observeFixturePhase(deadlineAtUnixMs, 'dependency-retain');
     const runtime = await import('../../src/adapters/toolchain/dependencies/runtime.ts');
     const dependencyAuthority = await runtime.observeCompilerDependencyExecutionGenerationAuthority({
       deadlineAtUnixMs: operationDeadlineAtUnixMs
@@ -517,7 +500,7 @@ async function createExactRepositoryTestImpactProviderFixture(
         { deadlineAtUnixMs: operationDeadlineAtUnixMs }
       ),
       use: (retainedDependency) => {
-        observeFixturePhase(options, deadlineAtUnixMs, 'project-input');
+        observeFixturePhase(deadlineAtUnixMs, 'project-input');
         const projectInput = compileWorkspaceTypeScriptProjectInput(
           workspaceSnapshot,
           tsconfigRelativePath,
@@ -526,8 +509,8 @@ async function createExactRepositoryTestImpactProviderFixture(
             dependencyGenerationDigest: retainedDependency.generationDigest
           }
         );
-        observeFixturePhase(options, deadlineAtUnixMs, 'cache-open');
-        observeFixturePhase(options, deadlineAtUnixMs, 'compile');
+        observeFixturePhase(deadlineAtUnixMs, 'cache-open');
+        observeFixturePhase(deadlineAtUnixMs, 'compile');
         const compilation = compileRepositorySourceProgramWithCache({
           workspaceSnapshot,
           operation: createSourceProgramCompilationOperation({
@@ -537,7 +520,7 @@ async function createExactRepositoryTestImpactProviderFixture(
           cacheAccess: 'read-only',
           repositoryRoot: normalizedSourceRoot
         });
-        observeFixturePhase(options, deadlineAtUnixMs, 'settlement');
+        observeFixturePhase(deadlineAtUnixMs, 'settlement');
         return compilation;
       },
       release: async (retainedDependency) => { await retainedDependency.retire(); }
@@ -563,7 +546,7 @@ async function createExactRepositoryTestImpactProviderFixture(
       repositoryRoot,
       dispose
     });
-    observeFixturePhase(options, deadlineAtUnixMs, 'complete');
+    observeFixturePhase(deadlineAtUnixMs, 'complete');
     return fixture;
   } catch (error) {
     settleResources({ primary: { label: 'test-impact-fixture-construction', error },
@@ -573,16 +556,9 @@ async function createExactRepositoryTestImpactProviderFixture(
 }
 
 /** One process-local lease over the complete exact repository graph. */
-export async function acquireExactRepositoryTestImpactProviderFixture(
-  sourceRepositoryRoot = process.cwd(),
-  options: ExactRepositoryTestImpactFixtureOptions = {}
-): Promise<ExactRepositoryTestImpactProviderFixture> {
-  const normalizedSourceRoot = path.resolve(sourceRepositoryRoot);
-  const canonicalDeadlineAtUnixMs = Date.now() + DEFAULT_TEST_TIMEOUT_MS;
-  const leaseDeadlineAtUnixMs = Math.min(
-    options.deadlineAtUnixMs ?? canonicalDeadlineAtUnixMs,
-    canonicalDeadlineAtUnixMs
-  );
+export async function acquireExactRepositoryTestImpactProviderFixture(): Promise<ExactRepositoryTestImpactProviderFixture> {
+  const normalizedSourceRoot = path.resolve(process.cwd());
+  const leaseDeadlineAtUnixMs = Date.now() + DEFAULT_TEST_TIMEOUT_MS;
   const sourceCommitSha = exactObjectId(
     git(normalizedSourceRoot, ['rev-parse', '--verify', 'HEAD^{commit}']),
     'TestImpact source commit'
@@ -595,7 +571,7 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
       fixture: createExactRepositoryTestImpactProviderFixture(
         normalizedSourceRoot,
         sourceCommitSha,
-        Object.freeze({ ...options, deadlineAtUnixMs: leaseDeadlineAtUnixMs })
+        leaseDeadlineAtUnixMs
       ),
       references: 0
     };
@@ -605,7 +581,7 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
   let fixture: ExactRepositoryTestImpactProviderFixture | undefined;
   try {
     fixture = await state.fixture;
-    if (!createsFixture) observeFixturePhase(options, leaseDeadlineAtUnixMs, 'complete');
+    if (!createsFixture) observeFixturePhase(leaseDeadlineAtUnixMs, 'complete');
   } catch (error) {
     state.references -= 1;
     if (state.references === 0 && sharedExactRepositoryFixtures.get(fixtureKey) === state) {

@@ -568,7 +568,6 @@ async function reducerFixture(options: {
   authorizationExpiresAt?: string;
   consumed?: boolean;
   closeout?: 'completed' | 'protected-pending' | 'blocked' | 'residue';
-  localDefaultSha?: string;
   remoteDefaultSha?: string;
   baseToMerge?: GitHubComparisonObservation;
   mergeToDefault?: GitHubComparisonObservation;
@@ -739,7 +738,7 @@ async function reducerFixture(options: {
         : BASE;
       return { currentHeadSha: BASE, currentBranch: transport.observation.state === 'MERGED' ? '' : 'main',
         localDefaultSha: transport.observation.state === 'MERGED'
-          ? options.localDefaultSha ?? liveDefaultSha
+          ? liveDefaultSha
           : BASE,
         remoteDefaultSha: liveDefaultSha,
         workingTreeClean: true, runtimeEntrypointBlobMatched: true,
