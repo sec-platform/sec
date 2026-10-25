@@ -6,6 +6,7 @@ import {
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
+  captureRuntimeDependencyControlInput,
   runtimeDependencyOperationContext,
   runtimeDependencyOperationControls,
   runtimeDependencyOperationRemainingMs,
@@ -80,6 +81,9 @@ test('inherited and non-enumerable request controls stay outside the input bound
   const defaults = runtimeDependencyOperationControls({});
   assert.equal(bound.lockTimeoutMs, defaults.lockTimeoutMs);
   assert.equal(bound.pollIntervalMs, defaults.pollIntervalMs);
+  const hiddenClock = Object.create({ monotonicNowMs() { assert.fail('inherited'); } });
+  Object.defineProperty(hiddenClock, 'monotonicNowMs', { get() { assert.fail('hidden'); } });
+  assert.equal(captureRuntimeDependencyControlInput(hiddenClock).monotonicNowMs, undefined);
 });
 
 test('extracting controls preserves the exact bound parent ledger and telemetry identity', () => {
@@ -91,7 +95,8 @@ test('extracting controls preserves the exact bound parent ledger and telemetry 
   const controls = runtimeDependencyOperationControls(parent);
   assert.equal(runtimeDependencyOperationContext(controls), context);
   assert.equal(runtimeDependencyOperationRemainingMs(controls, 'extract'), 70);
-  const reconstructed = runtimeDependencyOperationOptions({ ...controls, rematerialize: true });
+  const snapshot = captureRuntimeDependencyControlInput(controls);
+  const reconstructed = runtimeDependencyOperationOptions({ ...snapshot, lockTimeoutMs: 1000, rematerialize: true });
   assert.equal(runtimeDependencyOperationContext(reconstructed), context);
   assert.equal(runtimeDependencyOperationRemainingMs(reconstructed, 'rebind'), 70);
 });
@@ -100,8 +105,10 @@ test('stripped controls may narrow but never renew a parent budget', () => {
   let now = 0;
   const parent = runtimeDependencyOperationOptions({ lockTimeoutMs: 100, monotonicNowMs: () => now });
   now = 20;
-  const narrow = runtimeDependencyOperationControls({ ...parent, lockTimeoutMs: 10 });
+  const narrow = runtimeDependencyOperationControls({ ...parent, lockTimeoutMs: 10,
+    monotonicNowMs() { assert.fail('replacement clock'); } });
   const renewed = runtimeDependencyOperationControls({ ...narrow, lockTimeoutMs: 100 });
+  assert.equal(runtimeDependencyOperationContext(narrow).operationId, runtimeDependencyOperationContext(parent).operationId);
   assert.equal(runtimeDependencyOperationContext(narrow), runtimeDependencyOperationContext(renewed));
   assert.equal(runtimeDependencyOperationRemainingMs(renewed, 'remaining'), 10);
   now = 31;

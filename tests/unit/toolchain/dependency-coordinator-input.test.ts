@@ -7,6 +7,7 @@ import {
   runtimeDependencyOperationRemainingMs as remaining
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { captureRuntimeDependencyInstallRequest, isRuntimeDependencyInstallMode } from '../../../src/execution/dependency-install-request.ts';
 
 const controls = () => ({ lockTimeoutMs: 1000, monotonicNowMs: () => 0 });
 
@@ -133,11 +134,12 @@ test('removing a parent binding from a selected getter is rejected rather than m
   assert.throws(()=>bind(raw),/not owner-issued/);
 });
 
-test('method binding preserves exact sync and async failure values', async () => {
+test('method binding and the selected clock preserve exact sync and async failure values', async () => {
   let selected: unknown;
   const bound=bind({...controls(),beforeCommit(){throw selected;},sleep:async()=>{throw selected;}});
   for(const reason of [undefined,null,false,0,Object.freeze({error:true})]){
     selected=reason;
+    assert.throws(() => runtimeDependencyOperationControls({ monotonicNowMs() { throw selected; } }), e => e === reason);
     await assert.rejects(fence(bound,'failure'),e=>e===reason);
     // Both methods use the same argument/receiver-preserving binder; retain
     // the async method's own wiring without crossing every payload again.
@@ -147,7 +149,10 @@ test('method binding preserves exact sync and async failure values', async () =>
 
 test('public request validation and internal coordinator accept the same three modes without new defaults', () => {
   for(const mode of ['allow','offline-copy-only','prebound-only'] as const){
-    const bound=bind({...controls(),installMode:mode});assert.equal(bound.installMode,mode);assert.equal(bound.rematerialize,undefined);
+    const request=captureRuntimeDependencyInstallRequest({installMode:mode});
+    assert.equal(request.installMode,mode);assert.equal(request.rematerialize,undefined);assert.ok(isRuntimeDependencyInstallMode(mode));
+    const bound=bind({...request,...controls()});assert.equal(bound.installMode,mode);assert.equal(bound.rematerialize,undefined);
+    assert.equal(bound.lockTimeoutMs,1000);
   }
   assert.equal(bind(controls()).installMode,undefined);
 });

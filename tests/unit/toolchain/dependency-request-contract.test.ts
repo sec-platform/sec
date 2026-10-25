@@ -2,9 +2,6 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { captureRuntimeDependencyInstallRequest, isRuntimeDependencyInstallMode } from '../../../src/execution/dependency-install-request.ts';
 
-for(const mode of ['allow','offline-copy-only','prebound-only'] as const)test(`request retains supported ${mode} without interpretation`,()=>{
- const result=captureRuntimeDependencyInstallRequest({installMode:mode});assert.equal(result.installMode,mode);assert.equal(result.rematerialize,undefined);assert.ok(isRuntimeDependencyInstallMode(mode));
-});
 for(const mode of [null,false,0,'', 'offline',{},[]])test(`request rejects invalid mode ${JSON.stringify(mode)}`,()=>{
  assert.equal(isRuntimeDependencyInstallMode(mode),false);assert.throws(()=>captureRuntimeDependencyInstallRequest({installMode:mode as never}));
 });

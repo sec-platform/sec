@@ -41,36 +41,6 @@ test('control, direct context, coordinator and wait all consume one clock-method
   assert.ok([one,two,three,four].every(clock => clock.calls > 0));
 });
 
-test('a child keeps the parent ledger even if it provides a different callable clock', () => {
-  const provider = new Clock(), parent = bind(provider);
-  provider.advance(20);
-  const child = bind({ ...parent, lockTimeoutMs: 10, monotonicNowMs() { assert.fail('replacement clock'); } });
-  assert.equal(context(child).operationId, context(parent).operationId);
-  assert.equal(remaining(child, 'child'), 10);
-  provider.advance(31);
-  assert.throws(() => remaining(child, 'expired'), /deadline/);
-});
-
-test('snapshot fields cannot renew a parent deadline and retain its exact issuer', () => {
-  const provider = new Clock(), parent = bind(provider), snapshot = capture(parent);
-  provider.advance(80);
-  const child = bind({ ...snapshot, lockTimeoutMs: 1000 });
-  assert.equal(context(child), context(parent));
-  assert.equal(remaining(child, 'retained'), 20);
-});
-
-test('clock source failure remains exact and backward movement is still refused', () => {
-  for (const reason of [undefined, null, false, 0, Object.freeze({ clock: 'failed' })]) {
-    const source = { monotonicNowMs() { throw reason; } };
-    assert.throws(() => bind(source), error => error === reason);
-  }
-  const provider = new Clock();
-  provider.advance(20);
-  const bound = bind(provider);
-  provider.advance(19);
-  assert.throws(() => remaining(bound, 'regression'), /backwards/);
-});
-
 test('a clock callback cannot remove native cancellation at the budget readback', () => {
   const controller = new AbortController(), reason = new Error('cancel'), provider = new Clock();
   const selected = provider.monotonicNowMs; let cancel = false;
@@ -82,10 +52,4 @@ test('a clock callback cannot remove native cancellation at the budget readback'
   const raw = Object.assign(provider, { signal: controller.signal }), bound = bind(raw);
   cancel = true;
   assert.throws(() => remaining(bound, 'cancel'), error => error === reason);
-});
-
-test('no inherited or non-enumerable clock is accidentally promoted into the input contract', () => {
-  const input = Object.create({ monotonicNowMs() { assert.fail('inherited'); } });
-  Object.defineProperty(input, 'monotonicNowMs', { get() { assert.fail('hidden'); } });
-  assert.equal(capture(input).monotonicNowMs, undefined);
 });
