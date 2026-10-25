@@ -29,25 +29,26 @@ test.skipIf(!supported)('uses the effective OS account with hostile HOME present
   expect(actual).toBe(expected);
 });
 
-for (const failure of ['lookup-error', 'missing-record', 'buffer-exhausted', 'foreign-pointer',
-  'wrong-user', 'relative-home', 'unterminated-home', 'invalid-utf8'] as const) {
-  test.skipIf(!supported)(`fails closed and closes the native library for ${failure}`, async () => {
-    const actual = await probe(`
-      const { spyOn } = await import('bun:test');
-      const ffi = await import('bun:ffi');
-      const failure = ${JSON.stringify(failure)};
+const failures = ['lookup-error', 'missing-record', 'buffer-exhausted', 'foreign-pointer',
+  'wrong-user', 'relative-home', 'unterminated-home', 'invalid-utf8'] as const;
+test.skipIf(!supported)('fails closed and closes each rejected native account lookup', async () => {
+  const actual = await probe(`
+    const { spyOn } = await import('bun:test');
+    const ffi = await import('bun:ffi');
+    const outcomes = [];
+    for (const failure of ${JSON.stringify(failures)}) {
       const buffers = new Map();
       let next = 0x100000;
       let closed = 0;
       let delivered = false;
-      spyOn(ffi, 'ptr').mockImplementation((buffer) => {
+      const pointerSpy = spyOn(ffi, 'ptr').mockImplementation((buffer) => {
           for (const [address, existing] of buffers) if (existing === buffer) return address;
           const address = next;
           next += 0x100000;
           buffers.set(address, buffer);
           return address;
       });
-      spyOn(ffi, 'dlopen').mockImplementation(() => {
+      const librarySpy = spyOn(ffi, 'dlopen').mockImplementation(() => {
           return {
             close() { closed += 1; },
             symbols: {
@@ -70,11 +71,14 @@ for (const failure of ['lookup-error', 'missing-record', 'buffer-exhausted', 'fo
             }
           };
       });
-      const { resolveLinuxEffectiveUserHome } = await import(${JSON.stringify(moduleUrl)});
-      let rejected = false;
-      try { await resolveLinuxEffectiveUserHome(); } catch { rejected = true; }
-      console.log(JSON.stringify({ rejected, closed, delivered }));
-    `);
-    expect(JSON.parse(actual)).toEqual({ rejected: true, closed: 1, delivered: true });
-  });
-}
+      try {
+        const { resolveLinuxEffectiveUserHome } = await import(${JSON.stringify(moduleUrl)});
+        let rejected = false;
+        try { await resolveLinuxEffectiveUserHome(); } catch { rejected = true; }
+        outcomes.push({ failure, rejected, closed, delivered });
+      } finally { librarySpy.mockRestore(); pointerSpy.mockRestore(); }
+    }
+    console.log(JSON.stringify(outcomes));
+  `);
+  expect(JSON.parse(actual)).toEqual(failures.map(failure => ({ failure, rejected: true, closed: 1, delivered: true })));
+});

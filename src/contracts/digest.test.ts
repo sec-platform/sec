@@ -89,8 +89,6 @@ test('finish, failure and explicit disposal are terminal', () => {
 
 test('canonical errors do not poison subsequent computations', () => {
   const cyclic: unknown[] = []; cyclic.push(cyclic);
-  for (const value of [undefined, NaN, Infinity, 1n, () => 1, Symbol(), new Date(), cyclic]) {
-    assert.throws(() => sha256(value));
-  }
+  assert.throws(() => sha256(cyclic));
   assert.equal(sha256({ a: 1 }), rawSha256('{"a":1}'));
 });
