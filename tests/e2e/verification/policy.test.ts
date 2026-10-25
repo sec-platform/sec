@@ -56,14 +56,8 @@ test('tenant flow is proven from validated IR and fails closed after source muta
     evidenceClass: 'source-structure',
     files: ['src/installed/entity/customer-service.ts']
   });
-}, 180000);
-
-test('an applicable policy target must be a retained readable ordinary file', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({
-    prefix: 'engineering-compiler-policy-missing-target-'
-  });
-  await fs.rm(customerServicePath(workspaceRoot));
-
+  // Evaluation only reads its inputs; absence is checked before source semantics.
+  await fs.rm(targetPath);
   await expect(runPolicyGate(workspaceRoot)).rejects.toMatchObject({ code: 'VERIFY-POLICY-003' });
 }, 180000);
 
@@ -102,44 +96,25 @@ test('project declarations cannot remove the official tenant policy obligations'
   await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Conflicting policy declarations/);
 });
 
-test('unknown policy rules fail at the declaration schema boundary', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-unknown-rule-');
-  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(projectPoliciesRoot, { recursive: true });
-  await writeYaml(path.join(projectPoliciesRoot, 'unknown.yaml'), {
-    policies: [{
-      id: 'unknown-rule',
-      severity: 'error',
-      appliesTo: ['entity/customer-basic'],
-      rule: 'source_text_looks_safe'
-    }]
-  });
-
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Policy source violates the exact schema/);
-}, 180000);
-
 test('same policy id with different declarations is a conflict, not last-wins input', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-conflicting-duplicate-');
-  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(projectPoliciesRoot, { recursive: true });
-  await writeYaml(path.join(projectPoliciesRoot, 'duplicate.yaml'), {
-    policies: [
-      {
-        id: 'duplicate-policy',
-        severity: 'warn',
-        appliesTo: ['entity/customer-basic'],
-        rule: TENANT_FLOW_RULE
-      },
-      {
-        id: 'duplicate-policy',
-        severity: 'blocker',
-        appliesTo: ['entity/customer-basic'],
-        rule: TENANT_FLOW_RULE
-      }
-    ]
-  });
-
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Conflicting duplicate policy id/);
+  const { policiesRoot } = getWorkspacePaths(workspaceRoot);
+  await fs.mkdir(policiesRoot, { recursive: true });
+  // Each rejection occurs in the uncached declaration reader, before a Lock or
+  // workspace evaluation is acquired. Remove its sole file before the next input.
+  for (const [file, policies, failure] of [
+    ['unknown.yaml', [{ id: 'unknown-rule', severity: 'error',
+      appliesTo: ['entity/customer-basic'], rule: 'source_text_looks_safe' }], /Policy source violates the exact schema/],
+    ['duplicate.yaml', [
+      { id: 'duplicate-policy', severity: 'warn', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE },
+      { id: 'duplicate-policy', severity: 'blocker', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE }
+    ], /Conflicting duplicate policy id/]
+  ] as const) {
+    const target = path.join(policiesRoot, file);
+    await writeYaml(target, { policies });
+    await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(failure);
+    await fs.rm(target);
+  }
 }, 180000);
 
 test('policy applicability is derived from the resolved install plan across blocks', async () => {

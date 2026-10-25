@@ -214,6 +214,22 @@ test('diagnostic-bound journal append/readback validates lifecycle and digest ch
     appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(2)
     }));
+    expect(() => appendVerificationActionJournalEvent({
+      fs: journalFs(root),
+      action: key,
+      state: 'terminal',
+      recordedAt: at(3),
+      terminal: terminalWithDiagnosticSubject(DIGEST_A)
+    })).toThrow('does not bind its ActionKey');
+    expect(() => appendVerificationActionJournalEvent({
+      fs: journalFs(root),
+      action: key,
+      state: 'terminal',
+      recordedAt: at(3),
+      terminal: terminalWithDiagnosticSubject(DIGEST_A, key.actionKey)
+    })).toThrow('terminal diagnostics do not bind its ActionKey and attempt');
+    expect(readVerificationActionJournal(journalFs(root), key.actionKey).latestState)
+      .toBe('running');
     appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'terminal' as const, recordedAt: at(3),
       terminal: terminal(key.actionKey)
@@ -248,16 +264,6 @@ test('journal rejects corrupt and partial tails before exposing any projection',
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/invalid JSON|partial/);
     writeFileSync(filePath, original.replace('"recordedAt":"2026-08-09T13:00:01.000Z"', '"recordedAt":"2026-08-09T13:00:02.000Z"'), 'utf8');
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/digest mismatch/);
-  });
-});
-
-test('a current prefix and foreign-schema tail is corruption, not disposable state', () => {
-  withJournalRoot('sec-action-journal-v2-mixed-', (root) => {
-    const key = action();
-    appendVerificationActionJournalEvent(withStateRoot(root, {
-      repositoryRoot: 'R:/repo', action: key, state: 'queued' as const, recordedAt: at(1)
-    }));
-    const filePath = path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY, `${key.actionKey.slice(7)}.jsonl`);
     const foreignTail = {
       schema: 'foreign-verification-action-event',
       sequence: 2,
@@ -270,7 +276,7 @@ test('a current prefix and foreign-schema tail is corruption, not disposable sta
       previousDigest: null,
       eventDigest: DIGEST_A
     };
-    writeFileSync(filePath, `${readFileSync(filePath, 'utf8')}${JSON.stringify(foreignTail)}\n`, 'utf8');
+    writeFileSync(filePath, `${original}${JSON.stringify(foreignTail)}\n`, 'utf8');
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/schema mismatch/);
     expect(() => appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(3)
@@ -1424,40 +1430,6 @@ test('legacy journal cutover is one-way, physical-bound, and normal reads use on
     writeFileSync(legacyPath, legacyBytes);
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey))
       .toThrow('legacy source changed');
-  });
-});
-
-test('journal admission rejects a terminal carrying another Action diagnostic subject', () => {
-  withJournalRoot('sec-action-journal-cross-action-', (root) => {
-    const key = action();
-    appendVerificationActionJournalEvent({
-      fs: journalFs(root),
-      action: key,
-      state: 'queued',
-      recordedAt: at(1)
-    });
-    appendVerificationActionJournalEvent({
-      fs: journalFs(root),
-      action: key,
-      state: 'running',
-      recordedAt: at(2)
-    });
-    expect(() => appendVerificationActionJournalEvent({
-      fs: journalFs(root),
-      action: key,
-      state: 'terminal',
-      recordedAt: at(3),
-      terminal: terminalWithDiagnosticSubject(DIGEST_A)
-    })).toThrow('does not bind its ActionKey');
-    expect(() => appendVerificationActionJournalEvent({
-      fs: journalFs(root),
-      action: key,
-      state: 'terminal',
-      recordedAt: at(3),
-      terminal: terminalWithDiagnosticSubject(DIGEST_A, key.actionKey)
-    })).toThrow('terminal diagnostics do not bind its ActionKey and attempt');
-    expect(readVerificationActionJournal(journalFs(root), key.actionKey).latestState)
-      .toBe('running');
   });
 });
 
