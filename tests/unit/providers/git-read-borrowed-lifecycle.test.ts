@@ -107,7 +107,15 @@ test('operation provider ownership survives phase closure and settles every fail
   const root = await mkdtemp(path.join(tmpdir(), 'sec-git-operation-owner-'));
   const repo = fileURLToPath(new URL('../../../', import.meta.url));
   const source = (relative: string) => JSON.stringify(path.join(repo, relative));
-  const executable = createRawTestExecutableFixture();
+  let executable: ReturnType<typeof createRawTestExecutableFixture>;
+  try {
+    executable = createRawTestExecutableFixture();
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'raw executable fixture construction', error }, cleanup: [
+      { label: 'operation owner root', settle: () => rm(root, { recursive: true, force: true }) }
+    ] });
+    throw error;
+  }
   let settled = false;
   const script = `
     import assert from 'node:assert/strict';

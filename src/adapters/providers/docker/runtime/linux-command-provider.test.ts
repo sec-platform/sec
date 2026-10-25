@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { lstat, chmod, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -61,26 +62,37 @@ function operation(providerIdentityDigest: OperationDigest, deadlineAtUnixMs = D
 
 async function providerFixture(options: Readonly<{ endpointHost?: string; daemonProbe?: string; linuxEndpoint?: LinuxDockerEndpoint }> = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-linux-docker-fixture-'));
-  const probe = path.join(root, 'curl');
-  const marker = path.join(root, 'probe-executed');
-  await writeFile(probe, `#!/bin/sh\nprintf executed > '${marker}'\nprintf '%s\\n' '{"ID":"fixture-daemon","OSType":"linux","Architecture":"x86_64"}'\n`, { mode: 0o700 });
-  const directory = inspectNoFollowDirectoryChain(root);
-  const probePath = options.daemonProbe ?? probe;
-  const daemonProbe = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(probePath)), path.basename(probePath),
-    undefined, 'Daemon probe fixture', 3, 'executable'
-  );
-  const workingDirectory = retainNoFollowDirectoryForChildProcess(directory, 4);
-  const privateState = openLinuxDockerRuntimeState();
-  const runtimeRoot = path.dirname(await readlink(privateState.environment.HOME!));
-  const capability = issueDockerCommandProviderCapability({
-    boundary: issueRetainedCommandBoundary({ executable: daemonProbe, workingDirectory }),
-    commandProtocol: 'engine-http', daemonProbe, endpointHost: options.endpointHost ?? endpointHost, privateState,
-    ...(options.linuxEndpoint === undefined ? {} : { linuxEndpoint: options.linuxEndpoint }),
-    environment: privateState.environment, platform: 'linux',
-    providerContractDigest: digest('Linux Docker fixture'), workingDirectory: directory.target
-  });
-  return { capability, root, probe, privateState, runtimeRoot, marker };
+  const cleanup: { label: string; settle(): void | Promise<void> }[] = [
+    { label: 'Linux provider fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+  ];
+  try {
+    const probe = path.join(root, 'curl');
+    const marker = path.join(root, 'probe-executed');
+    await writeFile(probe, `#!/bin/sh\nprintf executed > '${marker}'\nprintf '%s\\n' '{"ID":"fixture-daemon","OSType":"linux","Architecture":"x86_64"}'\n`, { mode: 0o700 });
+    const directory = inspectNoFollowDirectoryChain(root);
+    const probePath = options.daemonProbe ?? probe;
+    const daemonProbe = retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(path.dirname(probePath)), path.basename(probePath),
+      undefined, 'Daemon probe fixture', 3, 'executable'
+    );
+    cleanup.unshift({ label: 'daemon probe', settle: () => daemonProbe.dispose() });
+    const workingDirectory = retainNoFollowDirectoryForChildProcess(directory, 4);
+    cleanup.unshift({ label: 'working directory', settle: () => workingDirectory.dispose() });
+    const privateState = openLinuxDockerRuntimeState();
+    cleanup.unshift({ label: 'private runtime state', settle: () => privateState.close() });
+    const runtimeRoot = path.dirname(await readlink(privateState.environment.HOME!));
+    const capability = issueDockerCommandProviderCapability({
+      boundary: issueRetainedCommandBoundary({ executable: daemonProbe, workingDirectory }),
+      commandProtocol: 'engine-http', daemonProbe, endpointHost: options.endpointHost ?? endpointHost, privateState,
+      ...(options.linuxEndpoint === undefined ? {} : { linuxEndpoint: options.linuxEndpoint }),
+      environment: privateState.environment, platform: 'linux',
+      providerContractDigest: digest('Linux Docker fixture'), workingDirectory: directory.target
+    });
+    return { capability, root, probe, privateState, runtimeRoot, marker };
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'Linux provider fixture construction', error }, cleanup });
+    throw error;
+  }
 }
 
 linuxTest('Linux private config is exclusive, descriptor-addressed and retired after exact readback', async () => {

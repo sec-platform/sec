@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../tests/testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -265,10 +266,15 @@ test('immutable execution generation isolates workspace mutation and retires its
   temporaryRepositories.push(ownerRoot);
   const generationParentPath = path.join(ownerRoot, 'generations');
   const dependencyRootPath = path.join(ownerRoot, 'dependencies');
-  await Promise.all([
+  const preparedDirectories = await Promise.allSettled([
     mkdir(generationParentPath),
     mkdir(dependencyRootPath)
   ]);
+  const preparationFailures = preparedDirectories.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+  if (preparationFailures.length === 1) throw preparationFailures[0];
+  if (preparationFailures.length > 1) {
+    throw new AggregateError(preparationFailures, 'Execution generation directory preparation failed');
+  }
   const dependencyFixture = await issueCompilerDependencyFixtureOperation({
     dependencies: { commander: '1.0.0' },
     dependencyRootPath,
@@ -280,8 +286,8 @@ test('immutable execution generation isolates workspace mutation and retires its
       version: '1.0.0'
     }]
   });
-  const dependencyGeneration = await settleCompilerDependencyFixtureOperation(dependencyFixture);
-  try {
+  await settleWorkspaceCallback(async () => {
+    const dependencyGeneration = await settleCompilerDependencyFixtureOperation(dependencyFixture);
     await writeFile(
       path.join(repositoryRoot, 'src', 'example', 'value.ts'),
       "import 'commander'; export const value = 1;\n"
@@ -412,9 +418,7 @@ test('immutable execution generation isolates workspace mutation and retires its
       })).rejects.toThrow('targets a foreign generation');
       expect(await readdir(generationParentPath)).toEqual(generationParentBeforeForeignLocator);
     });
-  } finally {
-    await retireCompilerDependencyFixtureOperation(dependencyFixture);
-  }
+  }, () => retireCompilerDependencyFixtureOperation(dependencyFixture));
 }, 30_000);
 
 test('repository audit projects the owner-issued exact source generation', async () => {
