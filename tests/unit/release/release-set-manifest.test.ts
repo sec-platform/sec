@@ -1,6 +1,6 @@
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { compareDocumentationPaths, documentationSourceDigest } from '../../../src/contracts/documentation-source.ts';
 
@@ -142,8 +142,7 @@ async function writePackageFile(root: string, relative: string, content: string,
 }
 
 test('release-set readback rejects physical tampering and undeclared top-level residue', async () => {
-  const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-release-set-readback-'));
-  try {
+  await withTempWorkspace(async root => {
     const runtimeRoot = path.join(root, 'runtime');
     const docsRoot = path.join(root, 'documentation');
     const runtimeFiles = [];
@@ -229,7 +228,5 @@ test('release-set readback rejects physical tampering and undeclared top-level r
     await fs.rm(path.join(root, 'unexpected.txt'));
     await fs.appendFile(path.join(runtimeRoot, 'package.json'), 'tamper');
     await expect(assertReleaseSetReadback(root)).rejects.toThrow('physical inventory');
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
+  }, 'sec-release-set-readback-');
 });

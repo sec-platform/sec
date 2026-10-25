@@ -1,22 +1,20 @@
 import { expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const source = (relative: string) => JSON.stringify(path.join(repo, relative));
 async function runCase(body: (root: string, decoy: string) => string) {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-cli-input-'));
-  return settleWorkspaceCallback(async () => {
+  await runRetainedBunTestWorkspace('sec-cli-input-', async root => {
     const decoy = path.join(root, 'decoy'); await mkdir(decoy);
     const script = path.join(root, 'case.ts');
     await writeFile(script, body(root, decoy));
-    const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
-    expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('bound request retained');
-  }, () => rm(root, { recursive: true, force: true }));
+    return { args: [script], observe: ({ code, stdout, stderr }) => {
+      expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('bound request retained');
+    } };
+  });
 }
 
 test('dependency root and output format are fixed before asynchronous domain loading', async () => {

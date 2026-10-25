@@ -1,14 +1,12 @@
 import { expect, test } from 'bun:test';
-import fs, { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildReleaseArtifact } from '../../../src/adapters/release/release-artifact.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('release publication rejects a non-directory accepted destination before source preparation', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-release-destination-file-'));
-  return settleWorkspaceCallback(async () => {
+  return withTempWorkspace(async root => {
     const parent = path.join(root, 'package');
     await fs.mkdir(parent);
     const destination = path.join(parent, 'dist');
@@ -17,12 +15,11 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('relea
     await expect(buildReleaseArtifact(path.join(root, 'not-a-repository'), destination))
       .rejects.toThrow('Existing release artifact destination is not an ordinary non-reparse directory');
     await expect(fs.readFile(destination, 'utf8')).resolves.toBe('not-an-artifact-directory\n');
-  }, () => rm(root, { recursive: true, force: true }));
+  }, 'sec-release-destination-file-');
 });
 
 test.skipIf(process.platform !== 'linux')('release publication rejects a symlinked destination parent before source preparation', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-release-destination-link-'));
-  return settleWorkspaceCallback(async () => {
+  return withTempWorkspace(async root => {
     const physicalParent = path.join(root, 'physical-package');
     const linkedParent = path.join(root, 'linked-package');
     await fs.mkdir(physicalParent);
@@ -36,5 +33,5 @@ test.skipIf(process.platform !== 'linux')('release publication rejects a symlink
     });
     await expect(fs.lstat(path.join(physicalParent, 'dist')))
       .rejects.toMatchObject({ code: 'ENOENT' });
-  }, () => rm(root, { recursive: true, force: true }));
+  }, 'sec-release-destination-link-');
 });

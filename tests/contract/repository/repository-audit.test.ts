@@ -279,18 +279,7 @@ test('heuristic context propagation is bounded by paragraph, code, heading, fenc
 });
 
 test.serial('repository audit reads one immutable HEAD tree and fails closed on dirty state', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'repository-audit-'));
-  try {
-    git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
-    git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
-    await writeFile(path.join(repositoryRoot, 'README.md'), '# Fixture\n', 'utf8');
-    await writeFile(path.join(repositoryRoot, 'tsconfig.json'), '{"compilerOptions":{}}\n', 'utf8');
-    git(repositoryRoot, ['add', 'README.md', 'tsconfig.json']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
-    const base = git(repositoryRoot, ['rev-parse', 'HEAD']);
-
+  await withTempRepo('repository-audit-', async ({ root: repositoryRoot, headSha: base }) => {
     const manifest = [
       '---',
       'schema: codex-development-work-package-v1',
@@ -532,14 +521,15 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       diagnostic: true,
       failOn: 'none'
     })).toBe(false);
-  } finally {
-    await rm(repositoryRoot, { force: true, recursive: true });
-  }
+  });
 });
 
-async function createTempRepo(prefix: string): Promise<{ root: string; headSha: string }> {
+async function withTempRepo(
+  prefix: string,
+  action: (repository: { root: string; headSha: string }) => Promise<void>
+): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
-  try {
+  return settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet', '--initial-branch=main']);
     git(root, ['config', 'user.name', 'SEC Test']);
     git(root, ['config', 'user.email', 'sec-test@example.invalid']);
@@ -549,17 +539,16 @@ async function createTempRepo(prefix: string): Promise<{ root: string; headSha: 
     git(root, ['add', 'README.md', 'tsconfig.json']);
     git(root, ['commit', '--quiet', '-m', 'initial']);
     const headSha = git(root, ['rev-parse', 'HEAD']);
-    return { root, headSha };
-  } catch (error) {
-    return settleWorkspaceCallback(async () => { throw error; },
-      () => rm(root, { recursive: true, force: true }));
-  }
+    const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
+    return settleWorkspaceCallback(() => action({ root, headSha }), async () => {
+      if (savedEnv === undefined) delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
+      else process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
+    });
+  }, () => rm(root, { recursive: true, force: true }));
 }
 
 test.serial('explicit exact SHA default-ref overrides env without a remote-tracking ref', async () => {
-  const { root, headSha: parentSha } = await createTempRepo('repository-audit-default-ref-sha-');
-  const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-  try {
+  await withTempRepo('repository-audit-default-ref-sha-', async ({ root, headSha: parentSha }) => {
     process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = '0'.repeat(40);
     await writeFile(path.join(root, 'SECOND.md'), '# Second\n', 'utf8');
     git(root, ['add', 'SECOND.md']);
@@ -572,20 +561,11 @@ test.serial('explicit exact SHA default-ref overrides env without a remote-track
     expect(report.revision.defaultRef).toBe(parentSha);
     expect(report.revision.defaultRefInput).toBe(parentSha);
     expect(report.unknowns.some((unknown) => unknown.startsWith('default ref unavailable:'))).toBe(false);
-  } finally {
-    if (savedEnv === undefined) {
-      delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-    } else {
-      process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
-    }
-    await rm(root, { force: true, recursive: true });
-  }
+  });
 });
 
 test.serial('missing default-ref without remote-tracking ref fails closed', async () => {
-  const { root } = await createTempRepo('repository-audit-default-ref-missing-');
-  const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-  try {
+  await withTempRepo('repository-audit-default-ref-missing-', async ({ root }) => {
     delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
 
     const report = await auditRepository(root);
@@ -593,34 +573,22 @@ test.serial('missing default-ref without remote-tracking ref fails closed', asyn
     expect(report.unknowns).toContain('default ref unavailable: refs/remotes/origin/main');
     expect(report.revision.defaultHead).toBeNull();
     expect(report.revision.defaultRefMode).toBe('ref');
-  } finally {
-    if (savedEnv === undefined) {
-      delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-    } else {
-      process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
-    }
-    await rm(root, { force: true, recursive: true });
-  }
+  });
 });
 
 test.serial('nonexistent SHA default-ref reports unknown', async () => {
-  const { root } = await createTempRepo('repository-audit-default-ref-ghost-');
-  try {
+  await withTempRepo('repository-audit-default-ref-ghost-', async ({ root }) => {
     const ghostSha = '0'.repeat(40);
     const report = await auditRepository(root, { defaultRef: ghostSha });
 
     expect(report.unknowns).toContain(`default ref unavailable: ${ghostSha}`);
     expect(report.revision.defaultHead).toBeNull();
     expect(report.revision.defaultRefMode).toBe('exact-sha');
-  } finally {
-    await rm(root, { force: true, recursive: true });
-  }
+  });
 });
 
 test.serial('ref default-ref resolves when remote-tracking ref exists', async () => {
-  const { root, headSha } = await createTempRepo('repository-audit-default-ref-remote-');
-  const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-  try {
+  await withTempRepo('repository-audit-default-ref-remote-', async ({ root, headSha }) => {
     delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
     git(root, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
 
@@ -630,20 +598,11 @@ test.serial('ref default-ref resolves when remote-tracking ref exists', async ()
     expect(report.revision.defaultHead).toBe(headSha);
     expect(report.revision.defaultRefMode).toBe('ref');
     expect(report.unknowns.some((unknown) => unknown.startsWith('default ref unavailable:'))).toBe(false);
-  } finally {
-    if (savedEnv === undefined) {
-      delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-    } else {
-      process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
-    }
-    await rm(root, { force: true, recursive: true });
-  }
+  });
 });
 
 test.serial('env SEC_REPOSITORY_AUDIT_DEFAULT_REF is read when options absent', async () => {
-  const { root, headSha } = await createTempRepo('repository-audit-default-ref-env-');
-  const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-  try {
+  await withTempRepo('repository-audit-default-ref-env-', async ({ root, headSha }) => {
     process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = headSha;
 
     const report = await auditRepository(root);
@@ -651,12 +610,5 @@ test.serial('env SEC_REPOSITORY_AUDIT_DEFAULT_REF is read when options absent', 
     expect(report.revision.defaultHead).toBe(headSha);
     expect(report.revision.defaultRefMode).toBe('exact-sha');
     expect(report.revision.defaultRef).toBe(headSha);
-  } finally {
-    if (savedEnv === undefined) {
-      delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-    } else {
-      process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
-    }
-    await rm(root, { force: true, recursive: true });
-  }
+  });
 });

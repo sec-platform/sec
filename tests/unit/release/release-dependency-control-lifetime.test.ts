@@ -1,9 +1,8 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const source = (relative: string) => JSON.stringify(path.join(repo, relative));
@@ -11,8 +10,7 @@ const source = (relative: string) => JSON.stringify(path.join(repo, relative));
 // Keep provider fault injection in a child so mocked physical providers cannot
 // affect other tests. Exercise the production preparation entry, not a test export.
 test('frozen release controls settle owned handles after acquisition and read failures', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-release-control-lifetime-'));
-  try {
+  await runRetainedBunTestWorkspace('sec-release-control-lifetime-', async root => {
     const script = path.join(root, 'case.ts');
     await writeFile(script, `
       import assert from 'node:assert/strict';
@@ -97,15 +95,15 @@ test('frozen release controls settle owned handles after acquisition and read fa
       }
       console.log('owned controls settled');
     `);
-    const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
-    expect(code, stderr).toBe(0);
-    expect(stdout.trim()).toBe('owned controls settled');
-  } finally { await rm(root, { recursive: true, force: true }); }
+    return { args: [script], observe: ({ code, stdout, stderr }) => {
+      expect(code, stderr).toBe(0);
+      expect(stdout.trim()).toBe('owned controls settled');
+    } };
+  });
 });
 
 test('release public entries preserve body and cleanup failures for every retained capability', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-release-single-control-lifetime-'));
-  try {
+  await runRetainedBunTestWorkspace('sec-release-single-control-lifetime-', async root => {
     const script = path.join(root, 'case.ts');
     await writeFile(script, `
       import assert from 'node:assert/strict';
@@ -235,8 +233,9 @@ test('release public entries preserve body and cleanup failures for every retain
       assert.ok(events.includes('dispose-executable'));
       console.log('retained capability failures preserved');
     `);
-    const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
-    expect(code, stderr).toBe(0);
-    expect(stdout.trim()).toBe('retained capability failures preserved');
-  } finally { await rm(root, { recursive: true, force: true }); }
+    return { args: [script], observe: ({ code, stdout, stderr }) => {
+      expect(code, stderr).toBe(0);
+      expect(stdout.trim()).toBe('retained capability failures preserved');
+    } };
+  });
 });

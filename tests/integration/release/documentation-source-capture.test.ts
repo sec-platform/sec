@@ -1,6 +1,6 @@
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 import { expect, spyOn, test } from 'bun:test';
 import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { assertDocumentationSourceReadback, materializeDocumentationPackage, readDocumentationSource } from '../../../src/adapters/release/documentation-source.ts';
 import { digest } from '../../../src/contracts/canonical.ts';
@@ -15,8 +15,7 @@ import {
 import { ResourceCompositeSettlementError } from '../../../src/execution/resource-settlement.ts';
 
 async function withSource(action: (root: string, sourceDigest: string) => Promise<void>, sourceRoots = ['.documentation', 'docs']): Promise<void> {
-  const directory = await fs.mkdtemp(path.join(tmpdir(), 'sec-documentation-capture-'));
-  try {
+  return withTempWorkspace(async directory => {
     const root = await fs.realpath(directory);
     await fs.mkdir(path.join(root, '.documentation'));
     await fs.mkdir(path.join(root, 'docs'));
@@ -40,9 +39,7 @@ async function withSource(action: (root: string, sourceDigest: string) => Promis
       schema: 'sec.documentation-source-manifest/2', source_set_sha256: sourceDigest, members
     }));
     await action(root, sourceDigest);
-  } finally {
-    await fs.rm(directory, { recursive: true, force: true });
-  }
+  }, 'sec-documentation-capture-');
 }
 
 test.serial('capture rejects undeclared namespace members without changing the declared boundary', async () => {

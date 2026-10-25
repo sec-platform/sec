@@ -1,3 +1,4 @@
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -128,9 +129,8 @@ test('release runtime requirement rejects absent and mismatched Bun without a No
 });
 
 test('release builder identity mismatch blocks before an artifact process can publish', async () => {
-  const sourceRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-builder-unavailable-'));
-  const artifactRoot = path.join(sourceRoot, 'artifact-must-not-exist');
-  try {
+  await withTempWorkspace(async sourceRoot => {
+    const artifactRoot = path.join(sourceRoot, 'artifact-must-not-exist');
     const entrypoint = path.join(sourceRoot, ...FIXTURE_ENTRYPOINT.source.split('/'));
     await fs.mkdir(path.dirname(entrypoint), { recursive: true });
     await fs.writeFile(entrypoint, 'console.log("fixture");\n');
@@ -147,9 +147,7 @@ test('release builder identity mismatch blocks before an artifact process can pu
       stageRoot: sourceRoot
     }), artifactRoot)).rejects.toThrow('Release Bun builder identity changed before bundle execution');
     await expect(fs.lstat(artifactRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    await rm(sourceRoot, { recursive: true, force: true });
-  }
+  }, 'sec-release-builder-unavailable-');
 });
 
 
@@ -247,12 +245,11 @@ test('Bun-target release bundle consumes the exact frozen source and rejects lat
 }, 20_000);
 
 test('exact Git source preserves archive-sensitive and binary bytes without replacement-object views', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-exact-bytes-'));
-  const binaryPath = process.platform === 'win32'
-    ? 'binary payload.bin'
-    : 'binary\tpayload.bin';
-  const expectedBinary = Buffer.from([0x00, 0xff, 0x80, 0x0a, 0x09, 0x7f]);
-  try {
+  await withTempWorkspace(async repositoryRoot => {
+    const binaryPath = process.platform === 'win32'
+      ? 'binary payload.bin'
+      : 'binary\tpayload.bin';
+    const expectedBinary = Buffer.from([0x00, 0xff, 0x80, 0x0a, 0x09, 0x7f]);
     await initRepository(repositoryRoot);
     await fs.writeFile(
       path.join(repositoryRoot, '.gitattributes'),
@@ -282,14 +279,11 @@ test('exact Git source preserves archive-sensitive and binary bytes without repl
     } finally {
       await disposeExactReleaseGitTree(materialized);
     }
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
+  }, 'sec-release-exact-bytes-');
 });
 
 test.skipIf(process.platform === 'win32')('release source rejects a Git symlink mode before materialization', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-symlink-tree-'));
-  try {
+  await withTempWorkspace(async repositoryRoot => {
     await initRepository(repositoryRoot);
     await fs.writeFile(path.join(repositoryRoot, 'link-target.txt'), 'target.txt');
     const blob = git(repositoryRoot, ['hash-object', '-w', 'link-target.txt']);
@@ -299,14 +293,11 @@ test.skipIf(process.platform === 'win32')('release source rejects a Git symlink 
 
     await expect(materializeExactReleaseGitTree(repositoryRoot))
       .rejects.toThrow(/unsupported Git entry linked-entry \(120000 blob\)/u);
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
+  }, 'sec-release-symlink-tree-');
 });
 
 test('release source rejects Git LFS pointer bytes instead of packaging pointer text', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-lfs-pointer-'));
-  try {
+  await withTempWorkspace(async repositoryRoot => {
     await initRepository(repositoryRoot);
     await fs.writeFile(path.join(repositoryRoot, 'asset.bin'), [
       'version https://git-lfs.github.com/spec/v1',
@@ -319,9 +310,7 @@ test('release source rejects Git LFS pointer bytes instead of packaging pointer 
 
     await expect(materializeExactReleaseGitTree(repositoryRoot))
       .rejects.toThrow('Frozen release source contains a Git LFS pointer: asset.bin');
-  } finally {
-    await rm(repositoryRoot, { recursive: true, force: true });
-  }
+  }, 'sec-release-lfs-pointer-');
 });
 
 test('release Git admission rejects unavailable providers before materialization', async () => {
