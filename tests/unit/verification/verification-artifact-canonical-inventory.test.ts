@@ -98,12 +98,12 @@ function publicationLock() {
 }
 
 test('Verification artifact rejects duplicate, blank and noncanonical fast inventories', () => {
+  const candidate = blockedArtifactSet();
   for (const inventory of [
     ['unit/z.test.ts', 'unit/a.test.ts'],
     ['unit/a.test.ts', 'unit/a.test.ts'],
     ['']
   ]) {
-    const candidate = blockedArtifactSet();
     candidate.verificationReport.fast.unit.passed = inventory;
     candidate.verificationReport.unit.passed = inventory;
     expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);

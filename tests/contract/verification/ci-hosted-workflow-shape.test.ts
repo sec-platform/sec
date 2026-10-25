@@ -24,13 +24,19 @@ const HEADER = 'complete workflow header scheduling differs';
 
 // The checked-in source is independent of the validator's step compiler. These
 // controls establish source shape only, never live origin or native qualification.
+let compilerWorkflowBaseline: Promise<Workflow> | undefined;
+
 async function currentCompilerWorkflow(): Promise<Workflow> {
-  const source = await readCompilerFile(COMPILER);
-  expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(source)).not.toThrow();
-  expect(assertCiVerificationPerJobHostedWorkflowShape(source, PREFLIGHT).jobId).toBe(PREFLIGHT);
-  const fixture = parseYaml(source) as Workflow;
-  expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(stringifyYaml(fixture))).not.toThrow();
-  return fixture;
+  compilerWorkflowBaseline ??= (async () => {
+    const source = await readCompilerFile(COMPILER);
+    expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(source)).not.toThrow();
+    expect(assertCiVerificationPerJobHostedWorkflowShape(source, PREFLIGHT).jobId).toBe(PREFLIGHT);
+    const fixture = parseYaml(source) as Workflow;
+    expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(stringifyYaml(fixture))).not.toThrow();
+    return fixture;
+  })();
+  // Callers clone this read-only baseline for each independent mutation.
+  return compilerWorkflowBaseline;
 }
 
 function step(job: Job, identity: string): Step {

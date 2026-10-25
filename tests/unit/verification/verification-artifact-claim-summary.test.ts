@@ -284,8 +284,14 @@ function artifactSet(
   };
 }
 
+let passedArtifactBaseline: SemanticMutationIsolatedVerificationArtifactSet | undefined;
+
 function mutablePassedArtifact(policy?: PolicyReport): MutableClaimSummaryArtifactSet {
-  return artifactSet('passed', policy) as MutableClaimSummaryArtifactSet;
+  // Only the fixed ordinary-data baseline is shared; every hostile mutation
+  // receives its own complete graph, including the fixture's intentional aliases.
+  return (policy === undefined
+    ? structuredClone(passedArtifactBaseline ??= artifactSet('passed'))
+    : artifactSet('passed', policy)) as MutableClaimSummaryArtifactSet;
 }
 
 function invalidateCoverage(candidate: MutableClaimSummaryArtifactSet): void {

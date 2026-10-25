@@ -1939,17 +1939,16 @@ test('canonical terminals and hosted composition preserve physical states and re
       executionEnvironmentRevision:
         CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
     })).not.toThrow();
-    const coordination = CodexDevelopmentCoordinateHostedActions({ envelope, ...provider });
-    expect(coordination).toMatchObject({
-      disposition: 'complete',
-      dispatchActionKeys: [],
-      missingActionKeys: []
-    });
     const composed = CodexDevelopmentComposeHostedEvidence({
       envelope,
       ...provider,
       producer: hostedEvidenceProducer,
       now: () => new Date('2026-08-09T00:00:02.000Z')
+    });
+    expect(composed.coordination).toMatchObject({
+      disposition: 'complete',
+      dispatchActionKeys: [],
+      missingActionKeys: []
     });
     expect(composed.evidence?.status).toBe(status === 'invalidated' ? 'failed' : status);
     expect(composed.evidence?.gates.map(gate => ({ result: gate.result.status, cleanup: gate.cleanup.status }))).toEqual([
