@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../../../tests/testkit/workspace-cleanup.ts';
 
 import { expect, test } from 'bun:test';
 
@@ -12,11 +13,8 @@ async function withWorkspace(
   callback: (workspaceRoot: string) => Promise<void>
 ): Promise<void> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-generated-state-operation-'));
-  try {
-    await callback(workspaceRoot);
-  } finally {
-    await fs.rm(workspaceRoot, { force: true, recursive: true });
-  }
+  await settleWorkspaceCallback(() => callback(workspaceRoot),
+    () => fs.rm(workspaceRoot, { force: true, recursive: true }));
 }
 
 function fixtureOwner(terminal: 'completed' | 'partial-residue'): GeneratedStateDomainOwnerOperation {

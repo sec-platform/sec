@@ -1,3 +1,5 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
+import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -17,10 +19,12 @@ test.skipIf(process.platform !== 'win32')('Windows host namespace proof is FileI
   const container = await mkdtemp(path.join(os.tmpdir(), 'sec-host-namespace-'));
   const rootPath = path.join(container, 'root');
   const movedPath = path.join(container, 'moved');
-  await mkdir(rootPath);
-  try {
+  let retainedProof: ReturnType<typeof retainWindowsHostNamespaceDirectoryById> | undefined;
+  await settleWorkspaceCallback(async () => {
+    await mkdir(rootPath);
     const identity = inspectNoFollowDirectoryChain(rootPath, 'host namespace test root').target;
     const proof = retainWindowsHostNamespaceDirectoryById(identity, 'host namespace test proof');
+    retainedProof = proof;
     proof.assertCurrent();
     expect(() => assertRetainedWindowsHostNamespaceDirectory(Object.freeze({})))
       .toThrow('was not issued');
@@ -35,10 +39,14 @@ test.skipIf(process.platform !== 'win32')('Windows host namespace proof is FileI
     await rename(rootPath, movedPath);
     expect(() => proof.assertCurrent()).toThrow('escaped its exact lexical path');
     proof.dispose();
+    retainedProof = undefined;
     expect(() => assertRetainedWindowsHostNamespaceDirectory(proof)).toThrow('live host namespace');
-  } finally {
-    await rm(container, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'host namespace proof', settle: () => retainedProof?.dispose() },
+      { label: 'host namespace root', settle: () => rm(container, { recursive: true, force: true }) }
+    ] });
+  });
 });
 
 test('runtime-state directory is created beneath and retained from its owner-issued root', async () => {

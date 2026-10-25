@@ -2,12 +2,16 @@ import { expect, test } from 'bun:test';
 import { closeSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { linuxOpenAppendLeafAt } from './physical-no-follow-native.ts';
 import { appendExistingNoFollowOrdinaryFile, inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess } from './physical-no-follow.ts';
 
 function fixture(run: (root: string) => void) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-physical-append-'));
-  try { run(root); } finally { rmSync(root, { recursive: true, force: true }); }
+  let primary: ResourceSettlementFailure | undefined;
+  try { run(root); } catch (error) { primary = { label: 'append-fixture', error }; }
+  settleResources({ primary, cleanup: [{ label: 'append-fixture-root',
+    settle: () => rmSync(root, { recursive: true, force: true }) }] });
 }
 const append = (root: string, name = 'output', maximumFileBytes = 1024) => appendExistingNoFollowOrdinaryFile({
   parent: inspectNoFollowDirectoryChain(root), name, bytes: Buffer.from('value=ok\n'), maximumFileBytes

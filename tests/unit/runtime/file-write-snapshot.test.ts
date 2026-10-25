@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { ensureDir, prepareOrdinaryFileWrite, removeDir, writeBuffer, writeJson, writeText } from "../../../src/adapters/filesystem/files.ts";
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-write-snapshot-'));
-  try { await run(root); } finally { rmSync(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(() => run(root),
+    async () => rmSync(root, { recursive: true, force: true }));
 }
 
 test('ordinary buffer writes detach bytes before the first filesystem suspension', async () => fixture(async root => {

@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 
 import {
   armWindowsRepositoryChangeObserver,
@@ -13,12 +14,10 @@ async function withFixture(
   operation: (root: string) => Promise<void>
 ): Promise<void> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-repository-observer-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(path.join(root, 'nested'));
     await operation(root);
-  } finally {
-    await rm(root, { force: true, recursive: true });
-  }
+  }, () => rm(root, { force: true, recursive: true }));
 }
 
 test.skipIf(process.platform !== 'win32')(

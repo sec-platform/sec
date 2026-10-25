@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -39,15 +40,21 @@ function digest(value: string): `sha256:${string}` {
 
 async function createGenerationParentFixture(label: string) {
   const rootPath = await mkdtemp(path.join(tmpdir(), `sec-${label}-`));
-  const generationParentPath = path.join(rootPath, 'execution-owner');
-  await mkdir(generationParentPath);
-  return Object.freeze({
-    generationParent: inspectNoFollowDirectoryChain(
-      generationParentPath,
-      `${label} execution owner`
-    ).target,
-    rootPath
-  });
+  try {
+    const generationParentPath = path.join(rootPath, 'execution-owner');
+    await mkdir(generationParentPath);
+    return Object.freeze({
+      generationParent: inspectNoFollowDirectoryChain(
+        generationParentPath,
+        `${label} execution owner`
+      ).target,
+      rootPath
+    });
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'generation parent construction', error },
+      cleanup: [{ label: 'generation parent root', settle: () => rm(rootPath, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 async function createFixture(label: string): Promise<Readonly<{

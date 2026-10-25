@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { chmod, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -19,7 +20,7 @@ import {
   type OperationDigest,
   type OperationEffectKind
 } from '../../../../execution/operation/semantic.ts';
-import { ResourceCompositeSettlementError, settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError, settleResources, settleResourcesAsync, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import {
   issueIndependentProviderProcessCapability
 } from './independent-provider-process.ts';
@@ -161,17 +162,19 @@ function retainTestBoundary(auxiliaryPath?: string): Readonly<{
 
 test('independent provider identity binds retained auxiliary provider inputs', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-independent-provider-auxiliary-'));
-  const firstPath = path.join(root, 'provider-a.bin');
-  const secondPath = path.join(root, 'provider-b.bin');
-  await writeFile(firstPath, 'provider-a');
-  await writeFile(secondPath, 'provider-b');
-  const operation = boundOperation({
-    effectKinds: ['process', 'provider'],
-    label: 'auxiliary-provider-identity'
-  });
-  const first = retainTestBoundary(firstPath);
-  const second = retainTestBoundary(secondPath);
-  try {
+  let first: ReturnType<typeof retainTestBoundary> | undefined;
+  let second: ReturnType<typeof retainTestBoundary> | undefined;
+  await settleWorkspaceCallback(async () => {
+    const firstPath = path.join(root, 'provider-a.bin');
+    const secondPath = path.join(root, 'provider-b.bin');
+    await writeFile(firstPath, 'provider-a');
+    await writeFile(secondPath, 'provider-b');
+    const operation = boundOperation({
+      effectKinds: ['process', 'provider'],
+      label: 'auxiliary-provider-identity'
+    });
+    first = retainTestBoundary(firstPath);
+    second = retainTestBoundary(secondPath);
     const firstCapability = issueIndependentProviderProcessCapability({
       boundary: first.boundary,
       operation
@@ -182,11 +185,13 @@ test('independent provider identity binds retained auxiliary provider inputs', a
     });
     expect(firstCapability.providerPhysicalIdentityDigest)
       .not.toBe(secondCapability.providerPhysicalIdentityDigest);
-  } finally {
-    second.dispose();
-    first.dispose();
-    await rm(root, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'second boundary', settle: () => second?.dispose() },
+      { label: 'first boundary', settle: () => first?.dispose() },
+      { label: 'provider fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+    ] });
+  });
 });
 
 test('process sessions reject structural operation and session clones', async () => {
