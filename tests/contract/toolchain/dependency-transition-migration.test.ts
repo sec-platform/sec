@@ -646,9 +646,8 @@ test('coordination cutover preserves active legacy consumers while unioning exis
 
 for (const failure of ['foreign-bytes', 'released-only', 'unknown-residue'] as const) {
   test(`coordination cutover preserves both consumer inputs when Runtime State has ${failure}`, async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-invalid-target-'));
-    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
-    try {
+    await withMigrationFixture('sec-dependency-coordination-invalid-target-', async root => {
+      const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
       const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
       const runtimeConsumers = path.join(runtimeRoots.workspaceStateRoot,
         'compiler-dependency-coordination', 'v1', 'consumers');
@@ -691,18 +690,14 @@ for (const failure of ['foreign-bytes', 'released-only', 'unknown-residue'] as c
         failure === 'foreign-bytes' ? 'foreign bytes'
           : failure === 'released-only' ? 'invalid consumer chain' : 'consumer record'
       ) });
-    } finally {
-      await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
-      await rm(root, { recursive: true, force: true });
-    }
+    });
   });
 }
 
 test('coordination cutover rejects a same-lease pair with a foreign predecessor', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-foreign-pair-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
-  const marker = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock.reclaim');
-  try {
+  await withMigrationFixture('sec-dependency-coordination-foreign-pair-', async root => {
+    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+    const marker = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock.reclaim');
     const consumers = path.join(targetJournalRoot(root), 'consumers');
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
     await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
@@ -752,16 +747,12 @@ test('coordination cutover rejects a same-lease pair with a foreign predecessor'
     expect(await readFile(path.join(consumers, releasedName))).toEqual(releasedBytes);
     expect(await readdir(path.join(runtimeRoots.workspaceStateRoot,
       'compiler-dependency-coordination', 'v1', 'consumers'))).toEqual([]);
-  } finally {
-    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('coordination admission resumes an exact partially retired consumer compaction', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-compaction-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
-  try {
+  await withMigrationFixture('sec-dependency-coordination-compaction-', async root => {
+    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
     await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
     await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
@@ -862,17 +853,12 @@ test('coordination admission resumes an exact partially retired consumer compact
       .rejects.toThrow('compaction intent is invalid');
     expect(await readFile(path.join(consumers, acquiredName)))
       .toEqual(Buffer.from(formatJsonFile(canonicalJson(acquired))));
-  } finally {
-    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('coordination handoff cleans its old lock when the final publication fence fails', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-fence-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
-  const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
-  try {
+  await withMigrationFixture('sec-dependency-coordination-fence-', async root => {
+    const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
     await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
     const failure = new Error('terminal handoff fence failed');
@@ -881,17 +867,12 @@ test('coordination handoff cleans its old lock when the final publication fence 
     })).rejects.toBe(failure);
     await expect(lstat(lock)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(lstat(`${lock}.reclaim`)).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('coordination migration preserves an unknown marker and its old lock', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-unknown-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
-  const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
-  try {
+  await withMigrationFixture('sec-dependency-coordination-unknown-', async root => {
+    const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
     await mkdir(path.dirname(lock), { recursive: true });
     const lockBytes = Buffer.from(`${JSON.stringify({ createdAt: new Date().toISOString(), pid: process.pid, token: crypto.randomUUID() })}\n`);
     const markerBytes = Buffer.from('foreign marker\n');
@@ -901,10 +882,7 @@ test('coordination migration preserves an unknown marker and its old lock', asyn
       .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004', details: { migrationRequired: true } });
     expect(await readFile(lock)).toEqual(lockBytes);
     expect(await readFile(`${lock}.reclaim`)).toEqual(markerBytes);
-  } finally {
-    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('rejects a well-formed legacy chain whose final phase is not terminal', async () => {

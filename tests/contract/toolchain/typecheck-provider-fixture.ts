@@ -1,5 +1,7 @@
 import { expect } from 'bun:test';
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import path from 'node:path';
 import { inspectNoFollowDirectoryChain, materializeRetainedNoFollowProvenDirectoryGeneration, retainNoFollowDirectoryForChildProcess, retainNoFollowSealedDirectoryGeneration, scanNoFollowDirectoryTreeInventory, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowProvenDirectoryGeneration, type RetainedNoFollowSealedDirectoryGeneration } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
@@ -13,6 +15,19 @@ import { settleResourcesAsync, type ResourceSettlementFailure } from '../../../s
 const FIXTURE_PROVIDER_VERSION = '1.0.0';
 function testDigest(value: unknown): `sha256:${string}` {
   return sha256(value) as `sha256:${string}`;
+}
+
+/** Ordinary checker selection fixtures have no admitted process effects.
+ * Native execution fixtures retain their separate physical-settlement gate. */
+export async function withNativeCheckerWorkspace<T>(
+  prefix: string,
+  callback: (root: string) => Promise<T>
+): Promise<T> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  return settleWorkspaceCallback(
+    () => callback(root),
+    () => fs.rm(root, { recursive: true, force: true })
+  );
 }
 
 export async function withCheckerExecutionBoundary<T>(
