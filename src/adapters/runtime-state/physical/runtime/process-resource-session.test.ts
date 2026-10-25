@@ -825,6 +825,10 @@ test.skipIf(process.platform !== 'linux')(
   'Linux retained executable uses one sealed descriptor image and rejects lexical ABA',
   async () => {
     const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-retained-executable-'));
+    const cleanup: { label: string; settle(): void | Promise<void> }[] = [
+      { label: 'executable root', settle: () => rm(temporaryRoot, { recursive: true, force: true }) }
+    ];
+    await settleWorkspaceCallback(async () => {
     const executablePath = path.join(temporaryRoot, 'tool');
     const displacedPath = path.join(temporaryRoot, 'tool.displaced');
     const replacementPath = path.join(temporaryRoot, 'tool.replacement');
@@ -843,18 +847,26 @@ test.skipIf(process.platform !== 'linux')(
       RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
       'executable'
     );
+    cleanup.unshift({ label: 'executable', settle: () => {
+      settleResources({ cleanup: [
+        { label: 'dispose executable', settle: () => executable.dispose() },
+        { label: 'disposed observation', settle: () => { expect(() => executable.assertCurrent()).toThrow(/disposed/u); } }
+      ] });
+    } });
     const workingDirectory = retainNoFollowDirectoryForChildProcess(
       parent,
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
       'Linux retained executable cwd'
     );
+    cleanup.unshift({ label: 'working directory', settle: () => workingDirectory.dispose() });
     const boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
     const operation = boundOperation();
     const session = openProcessResourceSession({
       operation,
       requirementBindingContext: requirementBindingContext(operation)
     });
-    try {
+    const retireSession = { label: 'session', settle: () => { session.close(); } };
+    cleanup.unshift(retireSession);
       const executed = await session.run(boundary, [], {
         maxStderrBytes: 0,
         maxStdoutBytes: 6
@@ -871,12 +883,8 @@ test.skipIf(process.platform !== 'linux')(
         maxStdoutBytes: 1
       })).rejects.toThrow(/lexical executable edge changed/u);
       session.close();
-    } finally {
-      workingDirectory.dispose();
-      executable.dispose();
-      expect(() => executable.assertCurrent()).toThrow(/disposed/u);
-      await rm(temporaryRoot, { recursive: true, force: true });
-    }
+      cleanup.splice(cleanup.indexOf(retireSession), 1);
+    }, async () => { await settleResourcesAsync({ cleanup }); });
   }
 );
 

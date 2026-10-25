@@ -1,3 +1,5 @@
+import { settleResources } from '../../../../execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -82,9 +84,12 @@ test.skipIf(process.platform !== 'linux')(
   'sealed executable provenance survives child and grandchild with physical source revalidation',
   async () => {
     const expected = await currentRuntimeExecutableIdentity();
+    const cleanup: { label: string; settle(): void }[] = [];
+    await settleWorkspaceCallback(async () => {
     const executable = retainCurrentProcessExecutable(3, 'runtime provenance test');
+    cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
     const directory = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(process.cwd()), 4);
-    try {
+    cleanup.unshift({ label: 'working directory', settle: () => directory.dispose() });
       const result = await runRetainedCommand(issueRetainedCommandBoundary({executable, workingDirectory: directory}),
         ['--no-env-file', '--eval', nestedScript],
         {timeoutMs: 15000, maxStdoutBytes: 10000, maxStderrBytes: 10000});
@@ -92,10 +97,7 @@ test.skipIf(process.platform !== 'linux')(
       expect(result.terminal).toEqual({ exitCode: 0, signal: null });
       expect(result.stderr).toBe('');
       expect(JSON.parse(result.stdout)).toEqual(expected);
-    } finally {
-      directory.dispose();
-      executable.dispose();
-    }
+    }, async () => { settleResources({ cleanup }); });
   }
 );
 
@@ -116,9 +118,14 @@ test.skipIf(process.platform !== 'linux')(
   'separate retained Bun test processes preserve independent PIDs and isolated globals',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-test-isolation-'));
+    const cleanup: { label: string; settle(): void }[] = [
+      { label: 'isolated roots', settle: () => rmSync(root, { recursive: true, force: true }) }
+    ];
+    await settleWorkspaceCallback(async () => {
     const executable = retainCurrentProcessExecutable(3, 'isolated test executable');
+    cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
     const directory = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(root), 4);
-    try {
+    cleanup.unshift({ label: 'working directory', settle: () => directory.dispose() });
       const files = ['first.test.ts', 'second.test.ts'];
       for (const file of files) writeFileSync(path.join(root, file), `
         import {expect,test} from 'bun:test';
@@ -129,9 +136,17 @@ test.skipIf(process.platform !== 'linux')(
         });
       `);
       const boundary = issueRetainedCommandBoundary({executable, workingDirectory: directory});
-      const results = await Promise.all(files.map((file) => runRetainedCommand(boundary,
+      const settled = await Promise.allSettled(files.map((file) => runRetainedCommand(boundary,
         ['--no-env-file', 'test', './' + file, '--no-orphans'],
         {timeoutMs: 10000, maxStdoutBytes: 10000, maxStderrBytes: 10000})));
+      settleResources({ cleanup: settled.map((result, index) => ({
+        label: `isolated child ${index}`,
+        settle() { if (result.status === 'rejected') throw result.reason; }
+      })) });
+      const results = settled.map((result) => {
+        if (result.status !== 'fulfilled') throw result.reason;
+        return result.value;
+      });
       const childPids = results.map((result) => {
         expect(result.code).toBe(0);
         const observed = /isolated-pid:(\d+)/u.exec(result.stdout);
@@ -140,10 +155,6 @@ test.skipIf(process.platform !== 'linux')(
       });
       expect(new Set(childPids).size).toBe(files.length);
       expect(childPids).not.toContain(process.pid);
-    } finally {
-      directory.dispose();
-      executable.dispose();
-      rmSync(root, {recursive: true, force: true});
-    }
+    }, async () => { settleResources({ cleanup }); });
   }
 );

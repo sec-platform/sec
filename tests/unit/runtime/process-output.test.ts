@@ -1,3 +1,5 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -144,12 +146,18 @@ test.skipIf(process.platform !== 'linux')(
   'retained command preserves owner-advertised auxiliary descriptor slots',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-aux-slots-'));
+    const cleanup: { label: string; settle(): void }[] = [
+      { label: 'auxiliary root', settle: () => rmSync(root, { recursive: true, force: true }) }
+    ];
+    await settleWorkspaceCallback(async () => {
     const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'aux-slot executable');
+    cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
     const workingDirectory = retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(compilerRoot, 'aux-slot cwd'),
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
       'aux-slot cwd'
     );
+    cleanup.unshift({ label: 'working directory', settle: () => workingDirectory.dispose() });
     const firstPath = path.join(root, 'first');
     const secondPath = path.join(root, 'second');
     mkdirSync(firstPath);
@@ -161,12 +169,13 @@ test.skipIf(process.platform !== 'linux')(
       15,
       'aux-slot first'
     );
+    cleanup.unshift({ label: 'first directory', settle: () => first.dispose() });
     const second = retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(secondPath, 'aux-slot second'),
       16,
       'aux-slot second'
     );
-    try {
+    cleanup.unshift({ label: 'second directory', settle: () => second.dispose() });
       const boundary = issueRetainedCommandBoundary({
         executable,
         workingDirectory,
@@ -185,30 +194,27 @@ test.skipIf(process.platform !== 'linux')(
         ].join('\n')
       ], RETAINED_TEST_COMMAND_BUDGET);
       expect(result).toEqual({ code: 0, stdout: 'first\nsecond\n', stderr: '', terminal: { exitCode: 0, signal: null } });
-    } finally {
-      second.dispose();
-      first.dispose();
-      workingDirectory.dispose();
-      executable.dispose();
-      rmSync(root, { recursive: true, force: true });
-    }
+    }, async () => { settleResources({ cleanup }); });
   }
 );
 
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
   'retained byte transport executes and revalidates one immutable executable image',
   async () => {
+  const cleanup: { label: string; settle(): void }[] = [];
+  await settleWorkspaceCallback(async () => {
   const retained = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'test executable');
+  cleanup.unshift({ label: 'executable', settle: () => retained.dispose() });
   const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(compilerRoot, 'test command cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'test command cwd'
   );
+  cleanup.unshift({ label: 'working directory', settle: () => retainedWorkingDirectory.dispose() });
   const boundary = issueRetainedCommandBoundary({
     executable: retained,
     workingDirectory: retainedWorkingDirectory
   });
-  try {
     const bytes = await runRetainedCommandBytes(boundary, [
       '--no-env-file',
       '--eval',
@@ -221,10 +227,7 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
     expect(bytes).toEqual({ code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '', terminal: { exitCode: 0, signal: null } });
     retained.assertCurrent();
     retainedWorkingDirectory.assertCurrent();
-  } finally {
-    retainedWorkingDirectory.dispose();
-    retained.dispose();
-  }
+  }, async () => { settleResources({ cleanup }); });
   }
 );
 
@@ -256,6 +259,9 @@ test.skipIf(process.platform === 'win32' || process.platform === 'linux')(
 test.skipIf(process.platform !== 'win32')(
   'retained command timeout returns only after process-tree and stream settlement',
   async () => {
+  let failure: unknown;
+  const cleanup: { label: string; settle(): void }[] = [];
+  await settleWorkspaceCallback(async () => {
   const executablePath = path.resolve(process.execPath);
   const retained = retainNoFollowOrdinaryFile(
     inspectNoFollowDirectoryChain(path.dirname(executablePath), 'timeout executable parent'),
@@ -265,16 +271,17 @@ test.skipIf(process.platform !== 'win32')(
     RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
     'executable'
   );
+  cleanup.unshift({ label: 'executable', settle: () => retained.dispose() });
   const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(compilerRoot, 'timeout command cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'timeout command cwd'
   );
+  cleanup.unshift({ label: 'working directory', settle: () => retainedWorkingDirectory.dispose() });
   const boundary = issueRetainedCommandBoundary({
     executable: retained,
     workingDirectory: retainedWorkingDirectory
   });
-  let failure: unknown;
   try {
     await runRetainedCommand(boundary, [
       '--no-env-file',
@@ -293,10 +300,8 @@ test.skipIf(process.platform !== 'win32')(
     });
   } catch (error) {
     failure = error;
-  } finally {
-    retainedWorkingDirectory.dispose();
-    retained.dispose();
   }
+  }, async () => { settleResources({ cleanup }); });
 
   expect(failure).toBeInstanceOf(RetainedCommandTransportError);
   const typed = failure as RetainedCommandTransportError;
@@ -319,6 +324,9 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test('retained command issuer rejects a physical file not issued for executable use', () => {
+  const cleanup: { label: string; settle(): void }[] = [];
+  let primary: ResourceSettlementFailure | undefined;
+  try {
   const executablePath = import.meta.path;
   const ordinaryFile = retainNoFollowOrdinaryFile(
     inspectNoFollowDirectoryChain(path.dirname(executablePath), 'ordinary file parent'),
@@ -327,25 +335,28 @@ test('retained command issuer rejects a physical file not issued for executable 
     'ordinary file role confusion',
     RETAINED_EXECUTABLE_CHILD_DESCRIPTOR
   );
+  cleanup.unshift({ label: 'ordinary file', settle: () => ordinaryFile.dispose() });
   const workingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(compilerRoot, 'role confusion cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'role confusion cwd'
   );
-  try {
+  cleanup.unshift({ label: 'working directory', settle: () => workingDirectory.dispose() });
     expect(() => issueRetainedCommandBoundary({
       executable: ordinaryFile,
       workingDirectory
     })).toThrow('role executable');
-  } finally {
-    workingDirectory.dispose();
-    ordinaryFile.dispose();
+  } catch (error) {
+    primary = { label: 'issuer role confusion', error };
   }
+  settleResources({ primary, cleanup });
 });
 
 test.skipIf(process.platform !== 'win32')(
   'retained command transport rejects a disposed capability before spawn',
   async () => {
+  const cleanup: { label: string; settle(): void }[] = [];
+  await settleWorkspaceCallback(async () => {
   const executablePath = path.resolve(process.execPath);
   const parent = inspectNoFollowDirectoryChain(path.dirname(executablePath), 'disposed executable parent');
   const retained = retainNoFollowOrdinaryFile(
@@ -356,25 +367,26 @@ test.skipIf(process.platform !== 'win32')(
     RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
     'executable'
   );
+  const retireExecutable = { label: 'executable', settle: () => retained.dispose() };
+  cleanup.unshift(retireExecutable);
   const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(compilerRoot, 'disposed command cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'disposed command cwd'
   );
+  cleanup.unshift({ label: 'working directory', settle: () => retainedWorkingDirectory.dispose() });
   const boundary = issueRetainedCommandBoundary({
     executable: retained,
     workingDirectory: retainedWorkingDirectory
   });
   retained.dispose();
-  try {
+  cleanup.splice(cleanup.indexOf(retireExecutable), 1);
     await expect(runRetainedCommand(
       boundary,
       ['--version'],
       RETAINED_TEST_COMMAND_BUDGET
     )).rejects.toThrow('capability is disposed');
-  } finally {
-    retainedWorkingDirectory.dispose();
-  }
+  }, async () => { settleResources({ cleanup }); });
   }
 );
 
