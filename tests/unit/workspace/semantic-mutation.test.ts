@@ -254,23 +254,6 @@ function expectDeepFrozen(value: unknown): void {
   for (const nested of Object.values(value as Record<string, unknown>)) expectDeepFrozen(nested);
 }
 
-test('request normalization is strict, deterministic, non-mutating, and deeply frozen', () => {
-  const { request } = fixture();
-  const json = JSON.stringify(request);
-  const first = normalizeSemanticMutationRequest(request);
-  const second = normalizeSemanticMutationRequest(structuredClone(request));
-
-  expect(first.requestRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
-  expect(JSON.stringify(first)).toBe(JSON.stringify(second));
-  expect(JSON.stringify(request)).toBe(json);
-  expectDeepFrozen(first);
-  expect(() => normalizeSemanticMutationRequest({ ...request, requestId: ' whitespace ' })).toThrow('trimmed non-empty');
-  expect(() => normalizeSemanticMutationRequest({
-    ...request,
-    additionalVerification: [{ kind: 'selector', selector: '!skip' }]
-  })).toThrow('cannot be negative');
-});
-
 test('preflight binds base, authorization, conditions, registry authority, and revision', () => {
   const value = fixture();
   const repeated = preflightSemanticMutation({ request: value.request, base: value.base, authorization: value.auth });

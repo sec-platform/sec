@@ -57,7 +57,21 @@ test('Semantic Mutation request normalization and independent digest vector stay
     zeta: 1
   })).toBe('sha256:f201719a21aecf5e4228ca94463efd06a483dc82b883c038961c55f6655a3c71');
 
-  const raw = request();
+  const source = request();
+  const raw: SemanticMutationRequest = {
+    ...source,
+    expectation: {
+      ...source.expectation,
+      addedFacts: [{
+        fact: {
+          subject: 'state:vector:status', predicate: 'TRANSITIONS_TO',
+          object: { kind: 'value', value: { by: 'operation:vector:close', from: 'open', to: 'closed' } }
+        },
+        assertions: [{ assertionId: 'assertion:transition', assertionClaimDigest: sha256('transition claim') }]
+      }]
+    }
+  };
+  const beforeJson = JSON.stringify(raw);
   const normalized = normalizeSemanticMutationRequest(raw);
   const expectedRevision = sha256({
     domain: 'semantic-mutation-request-v2',
@@ -66,11 +80,23 @@ test('Semantic Mutation request normalization and independent digest vector stay
     expectationRevision: 'semantic-mutation-expectation-v1'
   });
   expect(normalized.requestRevision).toBe(expectedRevision);
-  expect(JSON.stringify(normalizeSemanticMutationRequest(raw))).toBe(JSON.stringify(normalized));
+  expect(JSON.stringify(normalizeSemanticMutationRequest(structuredClone(raw)))).toBe(JSON.stringify(normalized));
+  expect(JSON.stringify(raw)).toBe(beforeJson);
+  expect(normalized.expectation).toEqual(raw.expectation);
+  function expectDeepFrozen(value: unknown): void {
+    if (value === null || typeof value !== 'object') return;
+    expect(Object.isFrozen(value)).toBe(true);
+    for (const nested of Object.values(value)) expectDeepFrozen(nested);
+  }
+  expectDeepFrozen(normalized);
 });
 
 test('request schema rejects caller authority, unknown fields, wrong versions, and non-canonical identity order', () => {
   const raw = request();
+  expect(() => normalizeSemanticMutationRequest({ ...raw, requestId: ' whitespace ' })).toThrow('trimmed non-empty');
+  expect(() => normalizeSemanticMutationRequest({
+    ...raw, additionalVerification: [{ kind: 'selector', selector: '!skip' }]
+  })).toThrow('cannot be negative');
   expect(() => normalizeSemanticMutationRequest({ ...raw, contractVersion: '1' })).toThrow('contractVersion');
   expect(() => normalizeSemanticMutationRequest({ ...raw, relativePath: 'source/model/vector.yaml' })).toThrow('unknown fields');
   expect(() => normalizeSemanticMutationRequest({

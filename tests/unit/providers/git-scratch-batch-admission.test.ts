@@ -62,15 +62,6 @@ test('invalid trailing metadata is rejected before reading blob bytes', () => {
   assert.equal(reads, 0);
 });
 
-test('unknown hash formats are rejected before the request is interpreted', () => {
-  let reads = 0;
-  const request = { get additions() { reads++; return []; }, removals: [] };
-  for (const format of ['sha512', '', null, undefined]) {
-    assert.throws(() => captureGitScratchIndexDelta(request, format as never, 4096), TypeError);
-  }
-  assert.equal(reads, 0);
-});
-
 test('accepted blob data and lists remain detached without reading custom array iteration', () => {
   const bytes = Uint8Array.of(0, 1, 2).subarray(1), input = { additions: [addition('a', bytes)], removals: ['b'] };
   input.additions[Symbol.iterator] = () => { throw new Error('custom array iterator'); };

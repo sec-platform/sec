@@ -141,12 +141,6 @@ class DocumentationIdentity(TestCase):
         self.write('docs/é.md', 'x'); self.write('docs/e\u0301.md', 'y')
         with self.assertRaisesRegex(ValueError, 'Unicode|collision'): self.capture()
 
-    def test_unsafe_paths_and_nonfinite_json_rejected(self):
-        for name in ('', '../x', '/x', 'x//y', 'C:/x', 'x\\y', 'x\0y', 'x/..', 'x.'):
-            with self.subTest(name=name), self.assertRaises(ValueError): s.local_path(self.root, name)
-        for data in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":Infinity}'):
-            with self.subTest(data=data), self.assertRaises(ValueError): s.decode(data, 'fixture')
-
     def test_requirement_projection_not_a_second_handwritten_list(self):
         original = s.requirement_projection(self.root)
         path = self.root / 'docs/产品/产品要求与工作约束.md'
@@ -202,15 +196,6 @@ class DocumentationIdentity(TestCase):
         path.write_text('<a id="req001"></a>\n\n' + path.read_text())
         self.assertEqual(s.requirement_projection(self.root)['items'][0]['fragment'], 'req001')
 
-    def test_unknown_regression_mode_and_non_source_target_cannot_silently_pass(self):
-        from check_docs import checked_regressions
-        item = {'id':'example', 'path':'docs/a.md','mode':'ignore','text':'condition'}
-        with self.assertRaisesRegex(ValueError, 'mode'):
-            checked_regressions({'scope':'fixture','checks':[item]}, {'docs/a.md'})
-        item['mode'] = 'must_contain'; item['path'] = '.documentation/figures.json'
-        with self.assertRaisesRegex(ValueError, 'non-source'):
-            checked_regressions({'scope':'fixture','checks':[item]}, {'docs/a.md'})
-
     def test_two_projection_writers_are_refused_without_waiting_or_stealing(self):
         with s.projection_writer(self.root):
             with self.assertRaises(OSError):
@@ -222,6 +207,23 @@ class DocumentationIdentity(TestCase):
         original = s.source_manifest_members(self.root)
         with patch.object(s, 'source_manifest_members', side_effect=[original, []]):
             with self.assertRaisesRegex(ValueError, 'changed during capture'): self.capture()
+
+
+class InputGrammar(TestCase):
+    def test_unsafe_paths_and_nonfinite_json_rejected(self):
+        for name in ('', '../x', '/x', 'x//y', 'C:/x', 'x\\y', 'x\0y', 'x/..', 'x.'):
+            with self.subTest(name=name), self.assertRaises(ValueError): s.local_path(Path('unmaterialized-documentation-root'), name)
+        for data in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":Infinity}'):
+            with self.subTest(data=data), self.assertRaises(ValueError): s.decode(data, 'fixture')
+
+    def test_unknown_regression_mode_and_non_source_target_cannot_silently_pass(self):
+        from check_docs import checked_regressions
+        item = {'id':'example', 'path':'docs/a.md','mode':'ignore','text':'condition'}
+        with self.assertRaisesRegex(ValueError, 'mode'):
+            checked_regressions({'scope':'fixture','checks':[item]}, {'docs/a.md'})
+        item['mode'] = 'must_contain'; item['path'] = '.documentation/figures.json'
+        with self.assertRaisesRegex(ValueError, 'non-source'):
+            checked_regressions({'scope':'fixture','checks':[item]}, {'docs/a.md'})
 
 
 if __name__ == '__main__': main()

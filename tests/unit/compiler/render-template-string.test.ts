@@ -58,10 +58,11 @@ test('unknown, inherited, non-boolean, and malformed conditions fail closed', ()
 });
 
 test('interpolation uses literal keys and literal replacement bytes', () => {
-  expect(renderTemplateString(
-    'value=__value__; count=__count__',
-    { value: '$&-$`-$\'', count: 2 }
-  )).toBe('value=$&-$`-$\'; count=2');
+  const context = Object.assign(Object.create(null), {
+    value: "__other__$&-$`-$'-$1", other: 'expanded', constructor: 'safe', count: 0
+  });
+  expect(renderTemplateString('value=__value__; other=__other__; ctor=__constructor__; count=__count__', context))
+    .toBe("value=__other__$&-$`-$'-$1; other=expanded; ctor=safe; count=0");
 
   assert.throws(() => renderTemplateString('value=__missing__', {}), code('COMPOSE-TEMPLATE-007', { key: 'missing', placeholder: '__missing__' }));
   assert.throws(() => renderTemplateString('value=__enabled__', { enabled: true }), code('COMPOSE-TEMPLATE-007', { key: 'enabled', valueType: 'boolean' }));
@@ -90,12 +91,6 @@ test('template output bound counts UTF-8 bytes rather than UTF-16 code units', (
   assert.equal(Buffer.byteLength(exact), MAX_OUTPUT_BYTES);
   assert.equal(renderTemplateString('__VALUE__', { VALUE: exact }), exact);
   assert.throws(() => renderTemplateString('__VALUE__', { VALUE: exact + 'x' }), code('COMPOSE-TEMPLATE-009'));
-});
-
-test('template interpolation remains literal, simultaneous and safe for prototype-looking keys', () => {
-  const context = Object.assign(Object.create(null), { A: '__B__$&$1', B: 'expanded', constructor: 'safe' });
-  assert.equal(renderTemplateString('__A__ / __B__ / __constructor__', context), '__B__$&$1 / expanded / safe');
-  assert.equal(renderTemplateString('__N__', { N: 0 }), '0');
 });
 
 test('template inactive branches do not interpolate missing values', () => {

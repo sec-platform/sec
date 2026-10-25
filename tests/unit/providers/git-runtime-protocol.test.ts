@@ -1,12 +1,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { devNull } from 'node:os';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 import { gitReadCommandIsObservation } from '../../../src/adapters/providers/git-read/runtime/read-command.ts';
 import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../../src/adapters/providers/git/environment.ts';
 import { gitProtocolSuccess as commandSucceeded, inGitProtocolRepository as inRepository } from '../../testkit/git-protocol.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 test('real Git cannot consume config-count or config-parameters restored through explicit overrides', () => inRepository(async (root, git) => {
   for (const injected of [
@@ -72,15 +73,18 @@ test('real Git grep consumes forbidden-switch spellings as one -e pattern, not a
   }
 }));
 
-test('native child environment and the Git lookup helper agree on POSIX case and exact Unicode bytes', () => inRepository(async (root) => {
-  const source = process.platform === 'win32'
-    ? { PATH: '/upper', SystemRoot: process.env.SystemRoot }
-    : { Path: '/mixed', PATH: '/upper', path: '/lower' };
-  const env = canonicalGitChildEnvironment({ CUSTOM: '界🙂e\u0301 �', HOME: root }, source);
-  const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify({Path:process.env.Path,PATH:process.env.PATH,path:process.env.path,CUSTOM:process.env.CUSTOM}))'], {
-    env, encoding: 'utf8', timeout: 5000, maxBuffer: 4096, windowsHide: true
-  });
-  const output = JSON.parse(commandSucceeded(child));
-  assert.equal(output.CUSTOM, '界🙂e\u0301 �'); assert.equal(output.PATH, gitEnvironmentValue(env, 'PATH'));
-  if (process.platform !== 'win32') { assert.equal(output.Path, '/mixed'); assert.equal(output.path, '/lower'); }
-}));
+test('native child environment and the Git lookup helper agree on POSIX case and exact Unicode bytes', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-native-environment-'));
+  await settleWorkspaceCallback(async () => {
+    const source = process.platform === 'win32'
+      ? { PATH: '/upper', SystemRoot: process.env.SystemRoot }
+      : { Path: '/mixed', PATH: '/upper', path: '/lower' };
+    const env = canonicalGitChildEnvironment({ CUSTOM: '界🙂e\u0301 �', HOME: root }, source);
+    const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify({Path:process.env.Path,PATH:process.env.PATH,path:process.env.path,CUSTOM:process.env.CUSTOM}))'], {
+      env, encoding: 'utf8', timeout: 5000, maxBuffer: 4096, windowsHide: true
+    });
+    const output = JSON.parse(commandSucceeded(child));
+    assert.equal(output.CUSTOM, '界🙂e\u0301 �'); assert.equal(output.PATH, gitEnvironmentValue(env, 'PATH'));
+    if (process.platform !== 'win32') { assert.equal(output.Path, '/mixed'); assert.equal(output.path, '/lower'); }
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
+});
