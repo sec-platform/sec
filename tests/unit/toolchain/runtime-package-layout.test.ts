@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -17,6 +17,7 @@ import {
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH
 } from '../../../src/adapters/toolchain/runtime.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'output/cli.js',
@@ -26,16 +27,21 @@ const FIXTURE_ENTRYPOINT = Object.freeze({
 
 async function createPackageFixture(form: 'bundle' | 'source' = 'source'): Promise<string> {
   const packageRoot = await mkdtemp(path.join(tmpdir(), 'sec-runtime-layout-'));
-  await writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
-    ...(form === 'source' ? { source: `./${FIXTURE_ENTRYPOINT.source}` } : {}),
-    bin: { [FIXTURE_ENTRYPOINT.command]: `./${FIXTURE_ENTRYPOINT.artifact}` },
-    scripts: {
-      [FIXTURE_ENTRYPOINT.command]: form === 'source'
-        ? PACKAGE_SOURCE_LAUNCHER_SCRIPT
-        : packageArtifactLauncherScript(FIXTURE_ENTRYPOINT.artifact)
-    }
-  })}\n`, 'utf8');
-  return packageRoot;
+  try {
+    await writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
+      ...(form === 'source' ? { source: `./${FIXTURE_ENTRYPOINT.source}` } : {}),
+      bin: { [FIXTURE_ENTRYPOINT.command]: `./${FIXTURE_ENTRYPOINT.artifact}` },
+      scripts: {
+        [FIXTURE_ENTRYPOINT.command]: form === 'source'
+          ? PACKAGE_SOURCE_LAUNCHER_SCRIPT
+          : packageArtifactLauncherScript(FIXTURE_ENTRYPOINT.artifact)
+      }
+    })}\n`, 'utf8');
+    return packageRoot;
+  } catch (error) {
+    return settleWorkspaceCallback(async () => { throw error; },
+      () => rm(packageRoot, { recursive: true, force: true }));
+  }
 }
 
 describe('compiler runtime layout', () => {
@@ -82,7 +88,6 @@ describe('compiler runtime layout', () => {
     const packageRoot = await createPackageFixture('bundle');
     try {
       const modulePath = path.join(packageRoot, ...FIXTURE_ENTRYPOINT.artifact.split('/'));
-      await mkdir(path.dirname(modulePath), { recursive: true });
       const layout = resolveCompilerRuntimeLayout(pathToFileURL(modulePath).href);
       const runtimeAssetRoot = path.dirname(modulePath);
 

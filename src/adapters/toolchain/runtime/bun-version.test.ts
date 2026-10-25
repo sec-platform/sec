@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback } from '../../../../tests/testkit/workspace-cleanup.ts';
 
 import {
   assertCanonicalBunPackageRunner,
@@ -47,8 +48,8 @@ test('package-runner admission rejects a different executable and runtime genera
 
 test('projection readback rejects divergent, duplicate and unsafe package metadata and accepts its repair', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-bun-generation-'));
-  try {
-    await Promise.all([
+  await settleWorkspaceCallback(async () => {
+    const writes = await Promise.allSettled([
       writeFile(path.join(root, '.bun-version'), '8.1.0\n', 'utf8'),
       writeFile(
         path.join(root, 'package.json'),
@@ -60,6 +61,11 @@ test('projection readback rejects divergent, duplicate and unsafe package metada
       ),
       writeFile(path.join(root, 'mise.toml'), '[tools]\nbun = "8.1.0"\n', 'utf8')
     ]);
+    // No seed writer may race deletion of its owning root on setup failure.
+    const failures = writes.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map(result => result.reason);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, 'Bun projection fixture writes failed.');
 
     await expect(readCanonicalBunRuntimeProjection(root)).rejects.toThrow(
       'package.json packageManager does not project .bun-version'
@@ -93,7 +99,5 @@ test('projection readback rejects divergent, duplicate and unsafe package metada
     await expect(readCanonicalBunRuntimeProjection(root)).rejects.toThrow(
       'package.json script "typecheck" does not quote the exact package runner'
     );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  }, () => rm(root, { recursive: true, force: true }));
 });
