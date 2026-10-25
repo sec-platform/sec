@@ -1,9 +1,10 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError } from '../../../../execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError, settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { inspectNoFollowDirectoryChain } from './physical-no-follow.ts';
 import {
   openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot,
@@ -45,22 +46,22 @@ test('bounded generation census reports physical presence without inferring prov
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-generation-census-'));
   let owner: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
   let census: ReturnType<typeof censusRetainedRuntimeGenerations> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     const activePath = path.join(rootPath, 'active-generation');
     const stalePath = path.join(rootPath, 'stale-generation');
     const unknownPath = path.join(rootPath, 'unknown-generation');
-    await Promise.all([mkdir(activePath), mkdir(stalePath), mkdir(unknownPath)]);
+    await mkdir(activePath);
+    await mkdir(stalePath);
+    await mkdir(unknownPath);
     await writeFile(path.join(activePath, 'ordinary.state'), 'active');
     await symlink(
       activePath,
       path.join(stalePath, 'arbitrary.endpoint'),
       process.platform === 'win32' ? 'junction' : 'dir'
     );
-    await Promise.all([
-      writeFile(path.join(unknownPath, 'one.state'), '1'),
-      writeFile(path.join(unknownPath, 'two.state'), '2'),
-      writeFile(path.join(unknownPath, 'three.state'), '3')
-    ]);
+    await writeFile(path.join(unknownPath, 'one.state'), '1');
+    await writeFile(path.join(unknownPath, 'two.state'), '2');
+    await writeFile(path.join(unknownPath, 'three.state'), '3');
     owner = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 48,
       mode: 'open-existing',
@@ -85,18 +86,20 @@ test('bounded generation census reports physical presence without inferring prov
         stale: 'present',
         unknown: 'unknown'
       });
-  } finally {
-    census?.close();
-    owner?.close();
-    await rm(rootPath, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'generation census', settle: () => { census?.close(); } },
+      { label: 'census owner', settle: () => { owner?.close(); } },
+      { label: 'census fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
+    ] });
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('generation census preserves the owner host-namespace requirement', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-host-census-'));
   let owner: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
   let census: ReturnType<typeof censusRetainedRuntimeGenerations> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(path.join(rootPath, 'generation'));
     owner = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 48,
@@ -113,17 +116,19 @@ test.skipIf(process.platform !== 'win32')('generation census preserves the owner
     });
     expect(census.receipt.entries[0]?.state).toBe('present');
     expect(retainedRuntimeStateDirectoryRequiresHostNamespace(census.generations[0]!)).toBe(true);
-  } finally {
-    census?.close();
-    owner?.close();
-    await rm(rootPath, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'generation census', settle: () => { census?.close(); } },
+      { label: 'census owner', settle: () => { owner?.close(); } },
+      { label: 'census fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
+    ] });
+  });
 });
 
 test('presentation text alone cannot issue a runtime endpoint residue receipt', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-false-presentation-'));
   let retained: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     const generationRoot = path.join(rootPath, 'unverified-generation');
     await mkdir(generationRoot);
     const endpointPath = path.join(generationRoot, 'looks-real.endpoint');
@@ -167,8 +172,10 @@ test('presentation text alone cannot issue a runtime endpoint residue receipt', 
     });
     expect(probes).toBe(0);
     expect(outsideReceipt).toBeNull();
-  } finally {
-    retained?.close();
-    await rm(rootPath, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'retained root', settle: () => { retained?.close(); } },
+      { label: 'residue fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
+    ] });
+  });
 });

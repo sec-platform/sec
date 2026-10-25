@@ -1,3 +1,4 @@
+import { settleResources, settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { createHash } from 'node:crypto';
 import { fchmodSync, fstatSync } from 'node:fs';
 import path from 'node:path';
@@ -609,7 +610,6 @@ export async function materializeRetainedNoFollowProvenDirectoryGeneration(input
       proof,
       restoreOwnerWrite: input.releaseMode === 'restore-owner-write'
     });
-    await authority.assertCurrent();
   } else {
     throw physicalError(
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
@@ -617,6 +617,7 @@ export async function materializeRetainedNoFollowProvenDirectoryGeneration(input
     );
   }
   try {
+    if (process.platform === 'linux') await authority.assertCurrent();
     const generation = await retainNoFollowProvenDirectoryGeneration(
       input.root,
       authority,
@@ -625,7 +626,10 @@ export async function materializeRetainedNoFollowProvenDirectoryGeneration(input
     );
     return Object.freeze({ generation, proofText, proofStatus });
   } catch (error) {
-    try { await authority.release(); } catch { /* retain the primary proof failure */ }
+    await settleResourcesAsync({
+      primary: { label: 'proven generation admission', error },
+      cleanup: [{ label: 'proven generation authority release', settle: () => authority.release() }]
+    });
     throw error;
   }
 }
@@ -796,8 +800,12 @@ async function retainNoFollowProvenDirectoryGeneration(
     await issued.assertAuthorityCurrent();
     return issued;
   } catch (error) {
-    try { boundary?.dispose(); } catch { /* retain the primary proof failure */ }
-    try { await readOnlyAuthority.release(); } catch { /* typed residue remains */ }
+    // The materializing owner retains authority custody until admission succeeds.
+    // This inner scope owns only the lexical boundary acquired here.
+    settleResources({
+      primary: { label: 'proven generation retention', error },
+      cleanup: [{ label: 'proven generation boundary disposal', settle: () => boundary?.dispose() }]
+    });
     throw error;
   }
 }
