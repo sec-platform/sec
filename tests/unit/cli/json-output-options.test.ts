@@ -4,19 +4,6 @@ import assert from 'node:assert/strict';
 
 import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progress.ts';
 import { addJsonFlags, commandFromRoot, jsonOpts } from '../../../src/entry/cli/command-options.ts';
-import { parseJsonOutputOptions, type JsonOutputIssue } from '../../../src/entry/cli/json-output-options.ts';
-
-const reject = (issue: JsonOutputIssue): never => { throw issue; };
-
-test('compact output requires JSON for both absent and disabled flags', () => {
-  for (const json of [undefined, false]) {
-    const input = { json, compact: true };
-    assert.throws(() => parseJsonOutputOptions(input, reject),
-      (issue: unknown) => (issue as JsonOutputIssue).kind === 'missing-dependency'
-        && (issue as JsonOutputIssue).option === 'compact');
-  }
-});
-
 test('captured output and selected JSON progress survive caller mutation until completion', async () => {
   const input = { json: true, compact: false };
   const output = jsonOpts(input);

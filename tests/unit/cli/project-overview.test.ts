@@ -384,7 +384,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     ]
   };
 
-  const overview = buildProjectOverview({
+  const input = {
     workspaceRoot: 'D:/workspace',
     lock,
     explainGraph: graph,
@@ -395,7 +395,8 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     reviewSummary,
     artifactManifest,
     generatedAt: '2026-05-02T00:00:00.000Z'
-  });
+  };
+  const overview = buildProjectOverview(input);
 
   expect(overview).toMatchObject({
     workspace: {
@@ -467,4 +468,28 @@ test('buildProjectOverview summarizes shared project status and review prioritie
   expect(text).toContain(
     'Risks: failures=0; regressions=1; conflicts=0; missingArtifacts=1'
   );
+
+  // The same public builder owns the status lattice and the complete overview.
+  // Each case supplies fresh status records; the shared artifact data is not mutated.
+  for (const [verificationStatus, policyStatus, coverageStatus, artifactStatus, reviewStatus, expected] of [
+    ['passed', 'passed', 'passed', 'passed', 'passed', 'passed'],
+    ['passed', 'passed', 'not-run', 'passed', 'passed', 'not-run'],
+    ['passed', 'passed', 'unknown', 'passed', 'passed', 'unknown'],
+    ['passed', 'attention', 'unknown', 'not-run', 'passed', 'attention'],
+    ['failed', 'attention', 'unknown', 'not-run', 'passed', 'failed']
+  ] as const) {
+    expect(buildProjectOverview({
+      ...input,
+      verification: { ...verification, summary: { ...verification.summary, status: verificationStatus } } as VerificationReport,
+      policy: { ...policy, status: policyStatus } as PolicyReport,
+      acceptanceCoverage: { ...coverage, status: coverageStatus } as AcceptanceCoverageReport,
+      // The donor cases observe the review fallback, not the manifest override.
+      artifactManifest: undefined,
+      reviewSummary: {
+        ...reviewSummary,
+        chainSummary: { ...reviewSummary.chainSummary, status: reviewStatus },
+        artifactSummary: { ...reviewSummary.artifactSummary, artifactStatus }
+      } as ReviewSummary
+    }).status.overall).toBe(expected);
+  }
 });

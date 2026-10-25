@@ -6,15 +6,11 @@ import { projectPipelineCompilation, projectPipelineJournal } from '../../../src
 import type { PassStatus } from '../../../src/compiler/contract/pass-status.ts';
 import { formatPipelineCompilation, formatPipelineJournal } from '../../../src/entry/cli/pipeline-command-presentation.ts';
 
-function passStatus(): PassStatus {
-  return {
-    parse: 'succeeded', align: 'succeeded', resolve: 'succeeded', compose: 'succeeded',
-    verify: 'succeeded', repair: 'skipped', lock: 'succeeded', emit: 'succeeded'
-  };
-}
-
 test('compilation display preserves transaction identity, stage order and pass states from immutable minimal input', () => {
-  const states: PassStatus = { ...passStatus(), 'build-ir': 'blocked' };
+  const states: PassStatus = {
+    parse: 'succeeded', align: 'succeeded', resolve: 'succeeded', compose: 'succeeded',
+    verify: 'succeeded', repair: 'skipped', lock: 'succeeded', emit: 'succeeded', 'build-ir': 'blocked'
+  };
   const value = Object.freeze({
     transactionId: 'tx-123',
     completedStages: Object.freeze(['compose', 'verify'] as const),
@@ -31,15 +27,14 @@ test('compilation display preserves transaction identity, stage order and pass s
   assert.equal(value.lock.passStatus.verify, 'succeeded');
 });
 
-test('empty journal preserves absent transaction markers', () => {
-  const text = formatPipelineJournal(projectPipelineJournal({ formatVersion: '2', transactions: [] }));
-  assert.match(text, /Pipeline journal\s+2(?=$|[\s;,])/u);
-  assert.match(text, /Active transaction\W+none(?=$|[\s;,])/u);
-  assert.match(text, /Last committed transaction\W+none(?=$|[\s;,])/u);
-  assert.match(text, /\bTransactions[\s:]+0(?=$|[\s;,])/u);
-});
-
-test('journal shows the latest transaction and preserves its observed failure state', () => {
+test('journal preserves empty markers, latest failure and pending pass records', () => {
+  {
+    const text = formatPipelineJournal(projectPipelineJournal({ formatVersion: '2', transactions: [] }));
+    assert.match(text, /Pipeline journal\s+2(?=$|[\s;,])/u);
+    assert.match(text, /Active transaction\W+none(?=$|[\s;,])/u);
+    assert.match(text, /Last committed transaction\W+none(?=$|[\s;,])/u);
+    assert.match(text, /\bTransactions[\s:]+0(?=$|[\s;,])/u);
+  }
   const journal: PipelineJournal = {
     formatVersion: '2', activeTransactionId: 'active', lastCommittedTransactionId: 'committed',
     transactions: [
@@ -60,14 +55,12 @@ test('journal shows the latest transaction and preserves its observed failure st
   assert.match(text, /Passes[^\n]*compose=succeeded(?=$|[\s;,])/u);
   assert.match(text, /Passes[^\n]*verify=failed(?=$|[\s;,])/u);
   assert.equal(JSON.stringify(journal), before);
-});
 
-test('empty pass records use the existing none marker, not a success inference', () => {
-  const journal: PipelineJournal = { formatVersion: '2', transactions: [
+  const pending: PipelineJournal = { ...journal, transactions: [
     { id: 'pending', source: 'repair', requestedStages: [], status: 'running', startedAt: 'now', passRecords: [] }
   ] };
-  const text = formatPipelineJournal(projectPipelineJournal(journal));
-  assert.match(text, /Latest\W+pending\s+running(?=$|[\s;,])/u);
-  assert.match(text, /Latest[^\n]*source=repair(?=$|[\s;,])/u);
-  assert.match(text, /Passes\W+none(?=$|[\s;,])/u);
+  const pendingText = formatPipelineJournal(projectPipelineJournal(pending));
+  assert.match(pendingText, /Latest\W+pending\s+running(?=$|[\s;,])/u);
+  assert.match(pendingText, /Latest[^\n]*source=repair(?=$|[\s;,])/u);
+  assert.match(pendingText, /Passes\W+none(?=$|[\s;,])/u);
 });

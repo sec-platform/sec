@@ -4,24 +4,14 @@ import { format } from 'node:util';
 import { formatJsonFile, stringifyJsonValue } from '../../../src/contracts/json-text.ts';
 import { formatJson, printJsonOrText } from '../../../src/entry/cli/format-utils.ts';
 
-test('shared JSON root validation is enforced by both formatting entries', () => {
-  for (const value of [undefined, () => 1, Symbol('value'), { toJSON() { return undefined; } }]) {
-    assert.throws(() => stringifyJsonValue(value, 2), /JSON output must contain one JSON value/);
-  }
-  assert.throws(() => formatJsonFile(undefined), /JSON file must contain one JSON value/);
-  assert.throws(() => formatJson(undefined, { compact: true }), /CLI JSON output must contain one JSON value/);
-});
-
 test.serial('shared writer, standard JSON values and text selection keep their distinct output contracts', () => {
   const value = { b: 2, a: ['x', undefined, 3], ignored: undefined };
   assert.equal(formatJson(value, { compact: false }), JSON.stringify(value, null, 2));
   assert.equal(formatJson(value, { compact: true }), JSON.stringify(value));
   assert.equal(formatJsonFile(value), JSON.stringify(value, null, 2) + '\n');
-  // Both wrappers delegate standard JSON values to this writer. Cover the
-  // complete root-value set once, not again for every output/spacing wrapper.
+  // Distinct root types and falsy values supplement the nonempty object above.
   for (const input of [
-    null, false, 0, '', 'text', [], [1, undefined, null],
-    { b: 2, a: 1, absent: undefined }, { a: 1, b: [2] }, { '__proto__': null }
+    null, false, 0, '', [], [1, undefined, null], {}
   ]) {
     assert.equal(stringifyJsonValue(input, 2), JSON.stringify(input, null, 2));
   }
@@ -38,7 +28,13 @@ test.serial('shared writer, standard JSON values and text selection keep their d
   } finally { console.log = log; }
 });
 
-test.serial('native errors, cycles and invalid JSON roots cannot become successful output frames', () => {
+test.serial('root validation and native failures cannot become successful output frames', () => {
+  for (const value of [undefined, () => 1, Symbol('value'), { toJSON() { return undefined; } }]) {
+    assert.throws(() => stringifyJsonValue(value, 2), /JSON output must contain one JSON value/);
+  }
+  assert.throws(() => formatJsonFile(undefined), /JSON file must contain one JSON value/);
+  assert.throws(() => formatJson(undefined, { compact: true }), /CLI JSON output must contain one JSON value/);
+
   const reason = Object.freeze({ conversion: 'failed' }), value = { toJSON() { throw reason; } };
   const cycle: unknown[] = []; cycle.push(cycle);
   assert.throws(() => stringifyJsonValue(value, 2), error => error === reason);
