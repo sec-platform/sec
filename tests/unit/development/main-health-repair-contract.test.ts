@@ -61,7 +61,7 @@ function decide(value: unknown, overrides: Partial<{
   });
 }
 
-test('degraded exact-main repair decision binds the whole routing identity', () => {
+test('exact-main repair routing binds valid and refreshed identity while rejecting ineligible or invalid evidence', () => {
   const originalLedger = ledger();
   const result = decide(originalLedger);
   expect(result.status).toBe('repair-ready');
@@ -88,6 +88,25 @@ test('degraded exact-main repair decision binds the whole routing identity', () 
   expect(result.decisionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(Object.isFrozen(result)).toBe(true);
   expect(Object.isFrozen(result.binding)).toBe(true);
+  const healthy = createMainHealthLedger({
+    ...originalLedger,
+    status: 'healthy',
+    failureFingerprints: [],
+    owner: null,
+    repairWorkPackage: null,
+    allowedLanes: ['ordinary']
+  });
+  expect(decide(healthy)).toMatchObject({
+    status: 'blocked', routingState: 'ordinary-only', reasonCode: 'repair-lane-ineligible'
+  });
+  expect(decide(originalLedger, { now: '2026-08-12T00:05:00.001Z' }))
+    .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-expired' });
+  expect(decide(originalLedger, { expectedMainSha: '3'.repeat(40) }))
+    .toMatchObject({ status: 'blocked', reasonCode: 'repair-ledger-identity-drift' });
+  expect(decide({ malformed: true }))
+    .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-invalid' });
+  expect(() => ledger({ repairWorkPackage: 'not/a/manifest' }))
+    .toThrow('repair Work Package identity is not canonical');
 });
 
 test('hosted provider absence, transport failure, and invalidity remain distinct locked states', () => {
@@ -108,26 +127,4 @@ test('hosted provider absence, transport failure, and invalidity remain distinct
     expect(result).toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode });
     expect(result.binding).toBeNull();
   }
-});
-
-test('repair routing distinguishes ineligible, expired, drifted, malformed, and invalid identities', () => {
-  const healthy = createMainHealthLedger({
-    ...ledger(),
-    status: 'healthy',
-    failureFingerprints: [],
-    owner: null,
-    repairWorkPackage: null,
-    allowedLanes: ['ordinary']
-  });
-  expect(decide(healthy)).toMatchObject({
-    status: 'blocked', routingState: 'ordinary-only', reasonCode: 'repair-lane-ineligible'
-  });
-  expect(decide(ledger(), { now: '2026-08-12T00:05:00.001Z' }))
-    .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-expired' });
-  expect(decide(ledger(), { expectedMainSha: '3'.repeat(40) }))
-    .toMatchObject({ status: 'blocked', reasonCode: 'repair-ledger-identity-drift' });
-  expect(decide({ malformed: true }))
-    .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-invalid' });
-  expect(() => ledger({ repairWorkPackage: 'not/a/manifest' }))
-    .toThrow('repair Work Package identity is not canonical');
 });

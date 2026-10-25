@@ -69,20 +69,22 @@ function compileHosted(checks: readonly GitHubCheckObservation[]) {
   });
 }
 
-test('trusted runtime live receipt compiles the same healthy semantic revision as hosted MainHealth', () => {
+test('trusted runtime current receipt identity matches hosted semantics and rejects retired schemas', () => {
   const observedAt = '2026-09-29T00:00:00.000Z';
   const expiresAt = '2026-09-29T00:10:00.000Z';
-  const local = createMainHealthLedger(createTrustedRuntimeMainHealthInput({
-    schema: 'sec-trusted-runtime-main-health-observation-v1',
+  const observation = {
+    schema: 'sec-trusted-runtime-main-health-observation-v1' as const,
     repository: 'sec-platform/sec',
     mainSha: MAIN,
     mainTreeSha: MAIN_TREE,
     trustRevision: MAIN,
     executionId: 'trusted-main-health-run',
-    verificationReceiptDigest: `sha256:${'e'.repeat(64)}`,
+    verificationReceiptDigest: `sha256:${'e'.repeat(64)}` as const,
     observedAt,
     expiresAt
-  }));
+  };
+  const projected = createTrustedRuntimeMainHealthInput(observation);
+  const local = createMainHealthLedger(projected);
   const hosted = createMainHealthLedger(createObservedMainHealthInput({
     repository: 'sec-platform/sec',
     mainSha: MAIN,
@@ -112,26 +114,13 @@ test('trusted runtime live receipt compiles the same healthy semantic revision a
     observedAt,
     expiresAt
   })).toThrow('not exact or fresh');
-});
 
-test('trusted runtime projection binds current receipt identity and rejects retired schemas', () => {
-  const observation = {
-    schema: 'sec-trusted-runtime-main-health-observation-v1' as const,
-    repository: 'sec-platform/sec',
-    mainSha: MAIN,
-    mainTreeSha: MAIN_TREE,
-    trustRevision: MAIN,
-    executionId: 'data-only-main-health-projection',
-    verificationReceiptDigest: `sha256:${'e'.repeat(64)}` as const,
-    observedAt: '2026-09-29T00:00:00.000Z',
-    expiresAt: '2026-09-29T00:10:00.000Z'
-  };
   for (const schema of [undefined, 'sec-trusted-runtime-main-health-receipt-v4'] as const) {
-    const projected = createTrustedRuntimeMainHealthInput(observation, schema);
-    expect(projected.producer.sourceRef).toBe(
+    const current = schema === undefined ? projected : createTrustedRuntimeMainHealthInput(observation, schema);
+    expect(current.producer.sourceRef).toBe(
       `live-receipt:trusted-main-health/v4/${MAIN}/${'e'.repeat(64)}`
     );
-    expect(projected.producer.sourceDigest).toBe(observation.verificationReceiptDigest);
+    expect(current.producer.sourceDigest).toBe(observation.verificationReceiptDigest);
     const changedDigest = createTrustedRuntimeMainHealthInput({ ...observation,
       verificationReceiptDigest: `sha256:${'f'.repeat(64)}` }, schema);
     expect(changedDigest.producer.sourceRef).toBe(

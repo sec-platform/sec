@@ -75,7 +75,7 @@ function lockedInput(overrides: Partial<MainHealthLedgerInput> = {}): MainHealth
   return healthyInput({ status: 'locked', allowedLanes: [], ...overrides });
 }
 
-test('healthy live exact-main ledger round-trips and exact expiry is allowed', () => {
+test('healthy exact-main ledger preserves codec and live expiry, identity and lane boundaries', () => {
   const ledger = createMainHealthLedger(healthyInput());
   expect(parseMainHealthLedger(JSON.stringify(ledger))).toEqual(ledger);
   const exact = resolveOrdinaryMainHealthLane({
@@ -100,10 +100,7 @@ test('healthy live exact-main ledger round-trips and exact expiry is allowed', (
     status: 'locked', allowed: false,
     observationValidity: 'invalid', reasonCode: 'ledger-expired'
   });
-});
 
-test('MainHealth live main/tree/trust/lane drift locks fail closed', () => {
-  const ledger = createMainHealthLedger(healthyInput());
   const base = {
     ledger,
     now: '2026-08-09T00:30:00.000Z',
@@ -136,6 +133,14 @@ test('MainHealth live main/tree/trust/lane drift locks fail closed', () => {
       observationValidity: 'invalid', reasonCode: 'invalid-ledger'
     });
   }
+  for (const candidate of [
+    { ...ledger, schema: 'unknown' },
+    { ...ledger, extra: true },
+    { ...ledger, healthRevision: D_C },
+    { ...ledger, ledgerDigest: D_C }
+  ]) {
+    expect(() => parseMainHealthLedger(JSON.stringify(candidate))).toThrow();
+  }
 });
 
 test('valid degraded lane denial is distinct from expired or identity-drifted observation', () => {
@@ -167,7 +172,7 @@ test('valid degraded lane denial is distinct from expired or identity-drifted ob
   });
 });
 
-test('MainHealth revision changes for every health decision field', () => {
+test('MainHealth identity binds decision fields while observation provenance only changes its receipt', () => {
   const base = createMainHealthLedger(healthyInput());
   const degradedRevision = createMainHealthLedger(degradedInput()).healthRevision;
   const cases: readonly [string, MainHealthLedgerInput, string?][] = [
@@ -187,11 +192,8 @@ test('MainHealth revision changes for every health decision field', () => {
   for (const [label, candidate, previousRevision = base.healthRevision] of cases) {
     expect(createMainHealthLedger(candidate).healthRevision, label).not.toBe(previousRevision);
   }
-});
 
-test('MainHealth observation provenance changes receipt digest but not health revision', () => {
-  const base = createMainHealthLedger(healthyInput());
-  const cases: readonly [string, Partial<MainHealthLedgerInput>][] = [
+  const provenanceCases: readonly [string, Partial<MainHealthLedgerInput>][] = [
     ['producer identity', { producer: { ...producer(), identity: 'other-runtime' } }],
     ['source run', { producer: { ...producer(), sourceRunId: 'run-2' } }],
     ['source ref', { producer: { ...producer(), sourceRef: 'refs/heads/main@2' } }],
@@ -201,7 +203,7 @@ test('MainHealth observation provenance changes receipt digest but not health re
       expiresAt: '2026-08-09T01:10:00.000Z'
     }]
   ];
-  for (const [label, override] of cases) {
+  for (const [label, override] of provenanceCases) {
     const candidate = createMainHealthLedger(healthyInput(override));
     expect(candidate.healthRevision, label).toBe(base.healthRevision);
     expect(candidate.ledgerDigest, label).not.toBe(base.ledgerDigest);
@@ -269,16 +271,4 @@ test('MainHealth rejects invalid producer provenance and status invariants', () 
   expect(() => createMainHealthLedger(healthyInput({
     expiresAt: '2026-08-09T00:00:00.000Z'
   }))).toThrow('after observedAt');
-});
-
-test('MainHealth parser rejects schema drift, extra fields, and digest tampering', () => {
-  const ledger = createMainHealthLedger(healthyInput());
-  for (const candidate of [
-    { ...ledger, schema: 'unknown' },
-    { ...ledger, extra: true },
-    { ...ledger, healthRevision: D_C },
-    { ...ledger, ledgerDigest: D_C }
-  ]) {
-    expect(() => parseMainHealthLedger(JSON.stringify(candidate))).toThrow();
-  }
 });
