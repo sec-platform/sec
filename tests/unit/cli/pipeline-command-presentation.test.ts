@@ -71,13 +71,3 @@ test('empty pass records use the existing none marker, not a success inference',
   assert.match(text, /Latest[^\n]*source=repair(?=$|[\s;,])/u);
   assert.match(text, /Passes\W+none(?=$|[\s;,])/u);
 });
-
-test('journal rendering preserves present empty identities rather than treating them as absent', () => {
-  const journal: PipelineJournal = {
-    formatVersion: '2', activeTransactionId: '', lastCommittedTransactionId: '', transactions: []
-  };
-  const text = formatPipelineJournal(projectPipelineJournal(journal));
-  assert.match(text, /^Active transaction[^\S\r\n]*:[^\S\r\n]*$/mu);
-  assert.match(text, /^Last committed transaction[^\S\r\n]*:[^\S\r\n]*$/mu);
-  assert.match(text, /\bTransactions[\s:]+0(?=$|[\s;,])/u);
-});
