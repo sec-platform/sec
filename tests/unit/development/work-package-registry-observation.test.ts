@@ -64,6 +64,9 @@ test('registry bytes preserve default and PR identities, exact manifest hashes a
     ...request, openPullRequests: parseOpenPullRequestList(JSON.stringify([prResponse]))
   }, reader(events));
   const projection = parseVerificationRegistryProjection(source);
+  assert.equal(projection.schema, 'sec-verification-registry-projection-v1');
+  assert.equal(projection.observedAt, request.observedAt);
+  assert.equal(projection.defaultBranch, request.defaultBranch);
   assert.equal(projection.repository, request.repository);
   assert.equal(projection.defaultTreeSha, defaultTree);
   assert.deepEqual(projection.entries, [

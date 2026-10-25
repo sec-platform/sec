@@ -3,45 +3,13 @@ import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrus
 import type { VerificationSession } from '../../../src/execution/verification/session.ts';
 import { createBranchCloseoutRecoveryArtifact, parseBranchCloseoutRecoveryArtifact } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 
-import { VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, createVerificationSessionProposalDigest, parseVerificationRegistryProjection, parseVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
+import { VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, parseVerificationRegistryProjection, parseVerificationSession } from '../../../src/adapters/verification/platform/session/contract/session.ts';
 
 const BASE_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const TREE_SHA = '3333333333333333333333333333333333333333';
 const MERGED_TREE_SHA = '4444444444444444444444444444444444444444';
 const MANIFEST_DIGEST = `sha256:${'a'.repeat(64)}` as const;
-
-test('registry projection round-trips default and open-pr entries with exact identity', () => {
-  const source = JSON.stringify({
-    schema: VERIFICATION_REGISTRY_PROJECTION_SCHEMA,
-    observedAt: '2026-08-07T00:00:00.000Z',
-    repository: 'sec-platform/sec',
-    defaultBranch: 'main',
-    defaultTreeSha: TREE_SHA,
-    entries: [
-      {
-        manifestPath: 'config/repository/work-packages/example-v1.md',
-        manifestDigest: MANIFEST_DIGEST,
-        source: 'default',
-        prNumber: null,
-        baseSha: null,
-        headSha: null,
-        headTreeSha: null
-      },
-      {
-        manifestPath: 'config/repository/work-packages/candidate-v1.md',
-        manifestDigest: MANIFEST_DIGEST,
-        source: 'open-pr',
-        prNumber: 7,
-        baseSha: BASE_SHA,
-        headSha: HEAD_SHA,
-        headTreeSha: TREE_SHA
-      }
-    ]
-  });
-  const projection = parseVerificationRegistryProjection(source);
-  expect(projection).toEqual(JSON.parse(source));
-});
 
 test('registry projection rejects a default entry that binds PR identity', () => {
   const source = JSON.stringify({
@@ -87,13 +55,6 @@ test('V2 revision is stable across run identity and timestamps and binds semanti
   expect(createVerificationSession({ ...input, actionPlanClosureDigest: `sha256:${'6'.repeat(64)}` }).sessionRevision).not.toBe(first.sessionRevision);
   expect(parseVerificationSession(JSON.stringify(first))).toEqual(first);
   expect(createVerificationSession({ ...input, headTreeSha: MERGED_TREE_SHA }).sessionRevision).not.toBe(first.sessionRevision);
-});
-
-test('session proposal digest is precomputable without session identity or receipt provenance',()=>{
-  const proposal={repository:'sec-platform/sec',prNumber:7,baseSha:BASE_SHA,baseTreeSha:MERGED_TREE_SHA,headSha:HEAD_SHA,headTreeSha:TREE_SHA,manifestPath:'config/repository/work-packages/example-v1.md',manifestDigest:MANIFEST_DIGEST,testImpactTransitionDigest:`sha256:${'4'.repeat(64)}` as const,scopeProposalDigest:`sha256:${'5'.repeat(64)}` as const,actionPlanClosureDigest:`sha256:${'6'.repeat(64)}` as const,profile:'full',environmentDigest:`sha256:${'7'.repeat(64)}` as const,trustRevision:BASE_SHA,reviewPolicyDigest:`sha256:${'8'.repeat(64)}` as const,mainHealthPolicyDigest:`sha256:${'9'.repeat(64)}` as const};
-  const digest=createVerificationSessionProposalDigest(proposal);
-  expect(createVerificationSessionProposalDigest({...proposal,actionPlanClosureDigest:`sha256:${'a'.repeat(64)}`})).not.toBe(digest);
-  expect(createVerificationSessionProposalDigest({...proposal,testImpactTransitionDigest:`sha256:${'b'.repeat(64)}`})).not.toBe(digest);
 });
 
 const RECOVERY_SESSION = `sha256:${'6'.repeat(64)}` as const;

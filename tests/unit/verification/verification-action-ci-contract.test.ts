@@ -154,7 +154,7 @@ test('scope revision constructs ActionPlan, then SessionProposal and SessionRevi
     gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false })
       .map(ciVerificationGateStep)
   });
-  const sessionProposalDigest = createVerificationSessionProposalDigest({
+  const proposalInput = {
     repository: 'owner/repo', prNumber: 7,
     baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha,
     headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
@@ -164,7 +164,12 @@ test('scope revision constructs ActionPlan, then SessionProposal and SessionRevi
     actionPlanClosureDigest: actionPlan.actionPlanDigest,
     profile: candidate.profile, environmentDigest: digest('f'), trustRevision: candidate.baseSha,
     reviewPolicyDigest: digest('1'), mainHealthPolicyDigest: digest('9')
-  });
+  };
+  const sessionProposalDigest = createVerificationSessionProposalDigest(proposalInput);
+  expect(createVerificationSessionProposalDigest({ ...proposalInput, actionPlanClosureDigest: digest('a') }))
+    .not.toBe(sessionProposalDigest);
+  expect(createVerificationSessionProposalDigest({ ...proposalInput, testImpactTransitionDigest: digest('b') }))
+    .not.toBe(sessionProposalDigest);
   const sessionInput = {
     sessionId: 'constructible-session', createdAt: '2026-08-09T00:00:00.000Z',
     repository: 'owner/repo', prNumber: 7,
