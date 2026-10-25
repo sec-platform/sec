@@ -127,7 +127,7 @@ test('Fact add/remove preserves direction and object changes are remove plus add
   expect(objectChanged.added[0]?.id).not.toBe(objectChanged.removed[0]?.id);
 });
 
-test('Assertion add/remove and authority/provenance identity changes use set changes', () => {
+test('assertion deltas distinguish identity set changes from confidence and evidence updates', () => {
   const source = input();
   const before = buildValidatedEngineeringIR(source);
   const added = resign(source, (ir) => {
@@ -170,11 +170,6 @@ test('Assertion add/remove and authority/provenance identity changes use set cha
   expect(identityDelta.changed[0]?.addedAssertions).toHaveLength(1);
   expect(identityDelta.changed[0]?.removedAssertions).toHaveLength(1);
   expect(identityDelta.changed[0]?.updatedAssertions).toEqual([]);
-});
-
-test('confidence and evidence changes are explicit identity-preserving updates', () => {
-  const source = input();
-  const before = buildValidatedEngineeringIR(source);
   const after = resign(source, (ir) => {
     const assertion = ir.facts[0]!.assertions[0]!;
     assertion.confidence = 0.5;

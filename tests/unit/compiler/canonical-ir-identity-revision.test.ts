@@ -167,21 +167,18 @@ test('canonical primitive known-answer vectors remain byte-identical', () => {
   );
 });
 
-test('app label changes do not change app identity, graph identity, or Fact IDs', () => {
+test('canonical revisions preserve unordered and audit equivalence while distinguishing semantic edits', () => {
   const input = fixture();
   const before = buildEngineeringIR(input);
-  const after = buildEngineeringIR({
+  const renamed = buildEngineeringIR({
     ...input,
     app: { ...input.app, name: 'Renamed Ticket Application' }
   });
 
-  expect(after.appId).toBe(before.appId);
-  expect(after.graphId).toBe(before.graphId);
-  expect(after.facts.map((fact) => fact.id)).toEqual(before.facts.map((fact) => fact.id));
-});
+  expect(renamed.appId).toBe(before.appId);
+  expect(renamed.graphId).toBe(before.graphId);
+  expect(renamed.facts.map((fact) => fact.id)).toEqual(before.facts.map((fact) => fact.id));
 
-test('unordered semantic input collections do not change either revision', () => {
-  const input = fixture();
   const contract = input.semanticContracts![0]!;
   const reversedContract: LoadedSemanticContract = {
     ...contract,
@@ -240,20 +237,16 @@ test('unordered semantic input collections do not change either revision', () =>
     semanticContracts: [reversedContract]
   };
 
-  const before = buildEngineeringIR(input);
-  const after = buildEngineeringIR(reordered);
-  expect(after.inputRevision).toBe(before.inputRevision);
-  expect(after.semanticRevision).toBe(before.semanticRevision);
-});
+  const reorderedIR = buildEngineeringIR(reordered);
+  expect(reorderedIR.inputRevision).toBe(before.inputRevision);
+  expect(reorderedIR.semanticRevision).toBe(before.semanticRevision);
 
-test('exact duplicate unordered semantic declarations do not change revisions', () => {
-  const input = fixture();
-  const contract = semanticContract();
+  const duplicateSource = semanticContract();
   const duplicatedContract: LoadedSemanticContract = {
-    ...contract,
+    ...duplicateSource,
     contract: {
-      ...contract.contract,
-      states: contract.contract.states.map((state) => ({
+      ...duplicateSource.contract,
+      states: duplicateSource.contract.states.map((state) => ({
         ...state,
         transitions: [...state.transitions, ...state.transitions]
       }))
@@ -281,41 +274,32 @@ test('exact duplicate unordered semantic declarations do not change revisions', 
     semanticContracts: [duplicatedContract, duplicatedContract]
   };
 
-  const before = buildEngineeringIR(input);
-  const after = buildEngineeringIR(duplicated);
-  expect(after.inputRevision).toBe(before.inputRevision);
-  expect(after.semanticRevision).toBe(before.semanticRevision);
-});
+  const duplicatedIR = buildEngineeringIR(duplicated);
+  expect(duplicatedIR.inputRevision).toBe(before.inputRevision);
+  expect(duplicatedIR.semanticRevision).toBe(before.semanticRevision);
 
-test('operation input sequence changes canonical semantic revision', () => {
-  const input = fixture();
   const changedContract = semanticContract();
   changedContract.contract.operations[0]!.inputs = ['string', 'number'];
 
-  const before = buildEngineeringIR(input);
-  const after = buildEngineeringIR({ ...input, semanticContracts: [changedContract] });
+  const sequenceIR = buildEngineeringIR({ ...input, semanticContracts: [changedContract] });
 
-  expect(after.inputRevision).not.toBe(before.inputRevision);
-  expect(after.semanticRevision).not.toBe(before.semanticRevision);
-});
+  expect(sequenceIR.inputRevision).not.toBe(before.inputRevision);
+  expect(sequenceIR.semanticRevision).not.toBe(before.semanticRevision);
 
-test('policy declaration content changes input revision without changing semantic graph identity', () => {
-  const input = fixture();
   const changedPolicy = {
     ...input.policyDeclarations[0]!,
     severity: 'blocker' as const,
     appliesTo: ['auth/basic-session', 'item/basic']
   };
 
-  const before = buildEngineeringIR(input);
-  const after = buildEngineeringIR({
+  const policyIR = buildEngineeringIR({
     ...input,
     policyDeclarations: [changedPolicy, ...input.policyDeclarations.slice(1)]
   });
 
-  expect(after.inputRevision).not.toBe(before.inputRevision);
-  expect(after.semanticRevision).toBe(before.semanticRevision);
-  expect(after.entities.filter((entity) => entity.kind === 'policy')).toEqual(
+  expect(policyIR.inputRevision).not.toBe(before.inputRevision);
+  expect(policyIR.semanticRevision).toBe(before.semanticRevision);
+  expect(policyIR.entities.filter((entity) => entity.kind === 'policy')).toEqual(
     before.entities.filter((entity) => entity.kind === 'policy')
   );
 });

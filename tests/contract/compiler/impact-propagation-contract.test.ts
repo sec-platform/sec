@@ -84,7 +84,7 @@ function vector(
   return { before, after, from, to, delta, result: buildImpactPropagation({ delta, from, to }) };
 }
 
-test('independent vector freezes seeds, reachability, path evidence, and impactRevision', () => {
+test('independent impact vector binds propagation evidence while excluding audit coordinates', () => {
   const { delta, result } = vector();
   const fromSeedId = sha256({
     domain: 'engineering-ir-impact-seed-v1',
@@ -173,14 +173,10 @@ test('independent vector freezes seeds, reachability, path evidence, and impactR
     verification: []
   });
   expect(result.impactRevision).toBe(expectedRevision);
-});
-
-test('transaction and input audit fields stay excluded from impactRevision', () => {
-  const original = vector('tx:original-from', 'tx:original-to', 'original').result;
   const alternate = vector('tx:alternate-from', 'tx:alternate-to', 'alternate').result;
 
-  expect(alternate.fromSemanticRevision).toBe(original.fromSemanticRevision);
-  expect(alternate.toSemanticRevision).toBe(original.toSemanticRevision);
-  expect(alternate.deltaRevision).toBe(original.deltaRevision);
-  expect(alternate.impactRevision).toBe(original.impactRevision);
+  expect(alternate.fromSemanticRevision).toBe(result.fromSemanticRevision);
+  expect(alternate.toSemanticRevision).toBe(result.toSemanticRevision);
+  expect(alternate.deltaRevision).toBe(result.deltaRevision);
+  expect(alternate.impactRevision).toBe(result.impactRevision);
 });
