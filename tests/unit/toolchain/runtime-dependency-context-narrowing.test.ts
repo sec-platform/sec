@@ -128,7 +128,11 @@ test('new lock and absolute deadlines may narrow but never extend an existing op
     assert.equal(contextOf(lockNarrowed).deadlineAtMonotonicMs, 30);
     assert.equal(contextOf(deadlineNarrowed).deadlineAtMonotonicMs, 60);
     assert.equal(contextOf(normalize({ ...lockNarrowed, lockTimeoutMs: 1000 })).deadlineAtMonotonicMs, 30);
-    assert.equal(contextOf(normalize({ ...deadlineNarrowed, deadlineAtUnixMs: 5000 })).deadlineAtMonotonicMs, 60);
+    const widenedDeadline = normalize({ ...deadlineNarrowed, deadlineAtUnixMs: 5000 });
+    const retainedContext = contextOf(widenedDeadline);
+    assert.equal(retainedContext.deadlineAtMonotonicMs, 60);
+    assert.equal(widenedDeadline.deadlineAtUnixMs, retainedContext.deadlineAtUnixMs);
+    assert.strictEqual(contextOf(normalize(widenedDeadline)), retainedContext);
     assert.strictEqual(contextOf(first).telemetryKey, contextOf(lockNarrowed).telemetryKey);
     assert.strictEqual(contextOf(first).operationId, contextOf(deadlineNarrowed).operationId);
   } finally { Date.now = original; }
@@ -187,18 +191,6 @@ test('a newly supplied wall deadline is honored after a forward clock correction
     wall = 9000;
     const third = normalize(second);
     assert.equal(contextOf(third).deadlineAtMonotonicMs, 60);
-  } finally { Date.now = original; }
-});
-
-test('normalized options expose the retained deadline instead of a discarded wider request', () => {
-  const original = Date.now;
-  Date.now = () => 1000;
-  try {
-    const first = normalize({ lockTimeoutMs: 100, monotonicNowMs: () => 0 });
-    const second = normalize({ ...first, deadlineAtUnixMs: 5000 });
-    assert.equal(second.deadlineAtUnixMs, contextOf(second).deadlineAtUnixMs);
-    assert.equal(contextOf(second).deadlineAtMonotonicMs, 100);
-    assert.strictEqual(contextOf(normalize(second)), contextOf(second));
   } finally { Date.now = original; }
 });
 
