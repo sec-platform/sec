@@ -24,6 +24,7 @@ import { buildSemanticContractSourceCandidate } from "../../../src/semantics/pro
 import { AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH, AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION } from "../../../src/workspace/contract/authoring-index.ts";
 import { modelRelativePath } from '../../../src/workspace/contract/types.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { semanticMutationEngineeringInput } from '../../helpers/semantic-mutation-recovery-fixture.ts';
 
 function loadedContract(): LoadedSemanticContract {
   return {
@@ -140,21 +141,7 @@ function sourceYaml(options: {
 
 function buildInput(contract: LoadedSemanticContract): BuildEngineeringIRInput {
   return {
-    app: { id: 'mutation-app', name: 'Mutation App' },
-    resolvedBlocks: [{
-      id: 'item/basic',
-      version: '0.1.0',
-      kind: 'capability',
-      installOrder: 1,
-      manifestPath: 'model/block.manifest.yaml',
-      registrySourceId: 'workspace',
-      registryKind: 'private',
-      registryLocation: 'workspace',
-      registryPath: 'source/model'
-    }],
-    manifests: [],
-    acceptanceIds: [],
-    policyDeclarations: [],
+    ...semanticMutationEngineeringInput(false, { sourceRoot: 'model' }),
     semanticContracts: [contract]
   };
 }
