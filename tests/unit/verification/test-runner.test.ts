@@ -641,37 +641,20 @@ function portableTestSpellings(file: string): string[] {
 }
 
 test('native parallel planning preserves every selected file and isolates external resources', () => {
-  const concurrentFiles = ['tests/unit/a.test.ts', 'tests/unit/b.test.ts'];
-  const isolatedFiles = [
-    'tests/unit/development/command-runner.test.ts',
-    'tests/integration/workspace/pipeline-kernel.test.ts',
-    'tests/integration/workspace/pipeline-workspace-write-lease.test.ts'
-  ];
-  const files = [
-    ...concurrentFiles.slice(0, 3),
-    isolatedFiles[0],
-    ...concurrentFiles.slice(3),
-    ...isolatedFiles.slice(1)
-  ];
-  const plan = planFastTestProcesses(files);
-
-  expect(plan.parallelFiles).toEqual(concurrentFiles);
-  expect(plan.resourceClassOrder).toEqual(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
-  expect(plan.resourceQueues['independent-process']).toEqual(isolatedFiles);
-  expect(plan.resourceQueues['shared-host-runtime']).toEqual([]);
-  expect(plan.resourceQueues['repository-worktree']).toEqual([]);
-  expect(plan.resourceQueues['host-profile']).toEqual([]);
-  expect(plan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
-
   {
-    const independent = 'tests/unit/development/command-runner.test.ts';
+    const independent = [
+      'tests/unit/development/command-runner.test.ts',
+      'tests/integration/workspace/pipeline-kernel.test.ts',
+      'tests/integration/workspace/pipeline-workspace-write-lease.test.ts'
+    ];
     const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
-    const original = ['tests/unit/z.test.ts', independent, 'src/alpha_spec.ts', shared, 'tests/unit/a.test.ts'];
+    const original = ['tests/unit/z.test.ts', independent[0]!, 'src/alpha_spec.ts',
+      independent[1]!, shared, 'tests/unit/a.test.ts', independent[2]!];
     const input = original.map((file, index) => portableTestSpellings(file)[index % 4]!);
     const before = [...input];
     const plan = planFastTestProcesses(input);
     assert.deepEqual(plan.parallelFiles, ['tests/unit/z.test.ts', 'src/alpha_spec.ts', 'tests/unit/a.test.ts']);
-    assert.deepEqual(plan.resourceQueues['independent-process'], [independent]);
+    assert.deepEqual(plan.resourceQueues['independent-process'], independent);
     assert.deepEqual(plan.resourceQueues['shared-host-runtime'], [shared]);
     assert.deepEqual(input, before);
     assert.deepEqual(plan, planFastTestProcesses(original));
@@ -744,15 +727,13 @@ test('fast process resource classes uniquely derive limits and isolate productio
   const productionHostAndRuntimeLifecycleFiles = [
     'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts'
   ];
-  for (const file of productionHostAndRuntimeLifecycleFiles) {
-    expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-      (entry) => entry.file === file
-    )).toMatchObject({
-      reason: 'production-host-and-runtime-lifecycle',
-      resourceClass: 'shared-host-runtime',
-      processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['shared-host-runtime']
-    });
-  }
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    (entry) => entry.file === productionHostAndRuntimeLifecycleFiles[0]
+  )).toMatchObject({
+    reason: 'production-host-and-runtime-lifecycle',
+    resourceClass: 'shared-host-runtime',
+    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['shared-host-runtime']
+  });
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts'
   )).toMatchObject({
@@ -1986,29 +1967,21 @@ test.serial('cleanup failure remains additive to a preserved bootstrap exception
 });
 
 test.serial('cleanup remains additive while an undefined primary is rethrown unchanged', async () => {
-  const cases = [
-    { label: 'undefined', value: undefined }
-  ] as const;
   const errors: string[] = [];
   console.error = (message?: unknown) => { errors.push(String(message)); };
-
-  for (const { label, value } of cases) {
-    configureTestDependencyBootstrapFailure(value);
-    cleanupFailure = new Error(`cleanup secondary ${label}`);
-    let caught = false;
-    let thrown: unknown = Symbol('not-thrown');
-
-    try {
-      await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
-    } catch (error) {
-      caught = true;
-      thrown = error;
-    }
-
-    expect(caught).toBe(true);
-    expect(thrown).toBe(value);
-    expect(errors).toContain(`Fast test workspace cleanup failed: cleanup secondary ${label}`);
+  configureTestDependencyBootstrapFailure(undefined);
+  cleanupFailure = new Error('cleanup secondary undefined');
+  let caught = false;
+  let thrown: unknown = Symbol('not-thrown');
+  try {
+    await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
+  } catch (error) {
+    caught = true;
+    thrown = error;
   }
+  expect(caught).toBe(true);
+  expect(thrown).toBeUndefined();
+  expect(errors).toContain('Fast test workspace cleanup failed: cleanup secondary undefined');
   expect(devCommandCalls).toEqual([]);
 });
 

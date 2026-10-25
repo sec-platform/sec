@@ -221,8 +221,8 @@ function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts'
     : createAction(kind, inputPath, [preflightAction(inputPath).actionKey]);
 }
 
-function seedPassedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/example.ts'): void {
-  const preflight = preflightAction(inputPath);
+function seedPreflight(repositoryRoot: string, terminalClass: 'completed' | 'failed' = 'completed'): void {
+  const preflight = preflightAction();
   const current = readVerificationActionJournal(repositoryRoot, preflight.actionKey);
   if (current.latestState === 'terminal' || current.latestState === 'reused') return;
   appendVerificationActionJournalEvent({ repositoryRoot, action: preflight, state: 'queued' });
@@ -231,26 +231,12 @@ function seedPassedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/
     repositoryRoot,
     action: preflight,
     state: 'terminal',
-    terminal: issuedSettlement(preflight, 'completed').terminal
-  });
-}
-
-function seedFailedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/example.ts'): void {
-  const preflight = preflightAction(inputPath);
-  const current = readVerificationActionJournal(repositoryRoot, preflight.actionKey);
-  if (current.latestState === 'terminal' || current.latestState === 'reused') return;
-  appendVerificationActionJournalEvent({ repositoryRoot, action: preflight, state: 'queued' });
-  appendVerificationActionJournalEvent({ repositoryRoot, action: preflight, state: 'running' });
-  appendVerificationActionJournalEvent({
-    repositoryRoot,
-    action: preflight,
-    state: 'terminal',
-    terminal: issuedSettlement(preflight, 'failed').terminal
+    terminal: issuedSettlement(preflight, terminalClass).terminal
   });
 }
 
 function runnablePlan(key: ReturnType<typeof action>, repositoryRoot?: string) {
-  if (repositoryRoot !== undefined) seedPassedPreflight(repositoryRoot);
+  if (repositoryRoot !== undefined) seedPreflight(repositoryRoot);
   const preflight = preflightAction();
   return createVerificationActionPlan({
     action: key,
@@ -965,7 +951,7 @@ test('cheap preflight failure prevents physical execution', async () => {
   const runner = fixtureRunner();
   const key = action('expensive-action');
   const dependency = preflightAction();
-  seedFailedPreflight(repositoryRoot);
+  seedPreflight(repositoryRoot, 'failed');
   const plan = createVerificationActionPlan({
     action: key,
     executionClass: 'expensive',
