@@ -253,7 +253,12 @@ test('text census ignores staged-only index paths and scans the captured committ
 test('worktree settlement distinguishes settled, dirty, and untracked without fail-open reads', async () => {
   const root = await createRepository('sec-dev-settlement-');
   try {
+    git(root, ['config', 'core.autocrlf', 'input']);
+    git(root, ['config', 'core.eol', 'lf']);
     const settled = await runSettlement(root);
+    expect(settled.repositoryRoot).toBe(path.resolve(root));
+    expect(settled.coreAutocrlf).toBe('input');
+    expect(settled.coreEol).toBe('lf');
     expect(settled.status).toBe('settled');
     expect(settled.dirtyCount).toBe(0);
     expect(settled.untrackedCount).toBe(0);
