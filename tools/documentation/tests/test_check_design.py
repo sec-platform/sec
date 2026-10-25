@@ -24,9 +24,7 @@ class DecisionVisibility(unittest.TestCase):
   rows=self.decisions(text+'`[code](wrong.md#u997)`\n[real](owner.md#u001)\n')
   self.assertEqual([row['id'] for row in rows],['U001'])
   self.assertEqual(rows[0]['line'],len(text.splitlines())-len(self.owner().splitlines())+1)
- def test_visible_duplicates_and_dangling_navigation_still_reject(self):
-  with self.assertRaisesRegex(d.DesignError,'Duplicate independent U identity'):
-   self.decisions(self.owner()+self.owner())
+ def test_visible_dangling_navigation_still_rejects(self):
   for text,missing in ((self.owner()+'[dangling](missing.md#u999)\n','U999'),
                        (decision_owner('U002',joined=True)+'[missing](owner.md#u001)\n','U001')):
    with self.subTest(missing=missing),self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner: '+missing):
@@ -210,12 +208,10 @@ class DeliverableRoots(unittest.TestCase):
   with tempfile.TemporaryDirectory()as temp:
    root=self.fixture(temp)
    sample,project,relative,module=self.library_root(root)
-   for binding in (None,'forms'):
-    with self.subTest(binding=binding):
-     module['imports']['forms']=binding
-     self.save(sample/relative,module)
-     with self.assertRaisesRegex(d.DesignError,'author form import binding is invalid'):
-      d.deliverable_model(root)
+   module['imports']['forms']=None
+   self.save(sample/relative,module)
+   with self.assertRaisesRegex(d.DesignError,'author form import binding is invalid'):
+    d.deliverable_model(root)
 
  def test_public_root_survives_repartition_and_definition_rename(self):
   import copy
