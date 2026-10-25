@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../../src/assurance/verification/contract/types.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../../src/assurance/verification/semantic-mutation/execution-ref.ts';
-import { buildEngineeringIR } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildFactDelta } from '../../../src/compiler/ir/build-fact-delta.ts';
 import { factAssertionId } from '../../../src/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
@@ -53,9 +52,9 @@ function endpoint(
   };
 }
 
-function snapshotWithExtraTransitionAssertion() {
+function snapshotWithExtraTransitionAssertion(snapshot: ReturnType<typeof buildValidatedEngineeringIR>) {
   const source = buildInput(true);
-  const ir = structuredClone(buildEngineeringIR(source));
+  const ir = structuredClone(snapshot.ir);
   const transition = ir.facts.find((fact) => fact.predicate === 'TRANSITIONS_TO')!;
   const provenance = [{ kind: 'ai' as const, sourceId: 'mutation-extra-assertion' }];
   transition.assertions.push({
@@ -424,7 +423,7 @@ test('expectation and operation allowlist reject missing, extra, and entity drif
   expect(driftPlan).toMatchObject({ status: 'rejected', rejectedAt: 'expectation' });
   expect(driftPlan.diagnostics.some((entry) => entry.message.includes('Entity drift'))).toBe(true);
 
-  const extraAssertionStaged = endpoint(snapshotWithExtraTransitionAssertion(), 'tx:staged-extra-assertion');
+  const extraAssertionStaged = endpoint(snapshotWithExtraTransitionAssertion(value.staged.snapshot), 'tx:staged-extra-assertion');
   const extraAssertionPlan = planSemanticMutation({
     request: value.request,
     base: value.base,
