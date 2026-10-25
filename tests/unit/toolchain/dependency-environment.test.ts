@@ -23,6 +23,7 @@ import {
 } from "../../../src/execution/generated-state/contract.ts";
 import { generatedStateProducerHooks } from '../../helpers/generated-state-fixture.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 async function withDependencyRetirementFixture(
   callback: (fixture: Readonly<{
@@ -33,7 +34,7 @@ async function withDependencyRetirementFixture(
   }>) => Promise<void>
 ): Promise<void> {
   const hostRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-shared-dependency-retirement-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     const repositoryRoot = path.join(hostRoot, 'repository');
     const sharedDepsRoot = dependencyAuthorityPaths(repositoryRoot).sharedDepsRoot;
     await fs.mkdir(path.join(sharedDepsRoot, '.bun-cache', 'legacy-package'), { recursive: true });
@@ -52,9 +53,7 @@ async function withDependencyRetirementFixture(
       { environment }
     );
     await callback(Object.freeze({ lifecycle, repositoryRoot, sharedDepsRoot, environment }));
-  } finally {
-    await fs.rm(hostRoot, { force: true, recursive: true });
-  }
+  }, () => fs.rm(hostRoot, { force: true, recursive: true }));
 }
 
 async function seedHistoricalSharedDependencyRegistration(input: Readonly<{
@@ -142,11 +141,16 @@ async function seedHistoricalSharedDependencyRegistration(input: Readonly<{
 test('dependency doctor projects dependency state and existing workspace roots', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const paths = getWorkspacePaths(workspaceRoot);
-    await Promise.all([
+    const prepared = await Promise.allSettled([
       fs.mkdir(paths.modelRoot, { recursive: true }),
       fs.mkdir(paths.srcRoot, { recursive: true }),
       fs.mkdir(paths.secRoot, { recursive: true })
     ]);
+    const failures = prepared.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Dependency doctor fixture preparation failed', { cause: failures[0] });
+    }
     const report = await getDoctorReport(workspaceRoot);
     const dependencyCheck = report.checks.find(({ id }) => id === 'runtime-dependencies');
     const rootsCheck = report.checks.find(({ id }) => id === 'workspace-roots');
