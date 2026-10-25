@@ -1,9 +1,10 @@
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { appendFileSync, closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { isRepositoryMaintenancePermission } from '../../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
 import { readLinuxRetainedFile } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
 import { parseExactRefRetirement } from '../../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
@@ -251,8 +252,7 @@ test('the physical bounded reader rejects growth after its initial size observat
   const root = mkdtempSync(path.join(tmpdir(), 'maintenance-input-growth-'));
   const file = path.join(root, 'request.json');
   let fd: number | undefined;
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  settleWorkspaceCallbackSync(() => {
     writeFileSync(file, '{}');
     fd = openSync(file, 'r');
     let observations = 0;
@@ -261,15 +261,12 @@ test('the physical bounded reader rejects growth after its initial size observat
       if (observations === 2) appendFileSync(file, ' '.repeat(9));
     })).toThrow('bounded no-follow read size');
     expect(observations).toBeGreaterThanOrEqual(2);
-  } catch (error) {
-    primary = { label: 'maintenance-input-growth', error };
-  } finally {
+  }, () => {
     settleResources({
-      primary,
       cleanup: [
         { label: 'maintenance-input-descriptor', settle: () => { if (fd !== undefined) closeSync(fd); } },
         { label: 'maintenance-input-root', settle: () => rmSync(root, { recursive: true, force: true }) }
       ]
     });
-  }
+  });
 });

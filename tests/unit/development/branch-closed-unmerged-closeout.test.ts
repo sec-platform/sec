@@ -1,4 +1,4 @@
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -421,21 +421,12 @@ describe('closed-unmerged branch lifecycle operation', () => {
     before.repository.commonDir = path.join(repositoryRoot, '.git');
     before.worktrees[0]!.path = repositoryRoot;
     const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-absorption-'));
-    let primary: ResourceSettlementFailure | undefined;
-    try {
+    settleWorkspaceCallbackSync(() => {
       expect(() => createMainAbsorptionRecovery({
         inventory: before, branch: BRANCH, expectedSha: HEAD_SHA,
         mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
       })).toThrow('Retired source is not an ancestor of absorbing main.');
-    } catch (error) {
-      primary = { label: 'development-fixture-subject', error };
-      throw error;
-    } finally {
-      settleResources({ primary, cleanup: [{
-        label: 'development-fixture-cleanup',
-        settle: () => { rmSync(recoveryRoot, { recursive: true, force: true }); }
-      }] });
-    }
+    }, () => { rmSync(recoveryRoot, { recursive: true, force: true }); });
   });
 
   test('identical tree proves absorption across divergent commit history and detects proof mutation', () => {
@@ -448,8 +439,7 @@ describe('closed-unmerged branch lifecycle operation', () => {
     before.repository.commonDir = path.join(repositoryRoot, '.git');
     before.worktrees[0]!.path = repositoryRoot;
     const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-identical-absorption-'));
-    let primary: ResourceSettlementFailure | undefined;
-    try {
+    settleWorkspaceCallbackSync(() => {
       const { recovery } = createMainAbsorptionRecovery({
         inventory: before, branch: BRANCH, expectedSha: equivalentSha,
         mainSha: MAIN_SHA, basis: 'identical-tree', recoveryRoot
@@ -457,15 +447,7 @@ describe('closed-unmerged branch lifecycle operation', () => {
       expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('success');
       writeFileSync(recovery.path, 'altered proof\n', 'utf8');
       expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('failed');
-    } catch (error) {
-      primary = { label: 'development-fixture-subject', error };
-      throw error;
-    } finally {
-      settleResources({ primary, cleanup: [{
-        label: 'development-fixture-cleanup',
-        settle: () => { rmSync(recoveryRoot, { recursive: true, force: true }); }
-      }] });
-    }
+    }, () => { rmSync(recoveryRoot, { recursive: true, force: true }); });
   });
 
   test('open PR input is rejected at the closed-only preparation boundary', () => {

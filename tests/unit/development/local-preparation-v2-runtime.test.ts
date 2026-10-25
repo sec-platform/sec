@@ -1,4 +1,5 @@
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,19 +62,15 @@ function stateFixture(operation: (input: { root: string; state: string; cache: s
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-local-v2-'));
   const root = path.join(parent, 'workspace'), state = path.join(parent, 'state'), cache = path.join(parent, 'cache');
   const oldState = process.env.SEC_STATE_HOME, oldCache = process.env.SEC_CACHE_HOME;
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  settleWorkspaceCallbackSync(() => {
     mkdirSync(root);
     process.env.SEC_STATE_HOME = state; process.env.SEC_CACHE_HOME = cache;
     const layout = resolveSecRuntimeStateForRepository({ repositoryRoot: root, repository: 'sec-platform/sec' });
     const prepared = preparation();
     operation({ root, state, cache, prepared, records: path.join(layout.repositoryStateRoot, 'trusted-runtime',
       'local-preparation-v2', prepared.request.requestOperationId.slice(7)) });
-  } catch (error) {
-    primary = { label: 'V2 fixture callback', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup: [
+  }, () => {
+    settleResources({ cleanup: [
       { label: 'previous state home', settle: () => {
         if (oldState === undefined) delete process.env.SEC_STATE_HOME; else process.env.SEC_STATE_HOME = oldState;
       } },
@@ -82,7 +79,7 @@ function stateFixture(operation: (input: { root: string; state: string; cache: s
       } },
       { label: 'V2 fixture root', settle: () => rmSync(parent, { recursive: true, force: true }) }
     ] });
-  }
+  });
 }
 
 test('copied preparation input alone never revives live qualification or creates a Session', () => {

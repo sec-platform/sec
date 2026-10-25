@@ -1,4 +1,4 @@
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
@@ -325,8 +325,7 @@ test('canonical GitHub credential prefix masks checkout HTTP authorization befor
     '-c', 'credential.helper=!gh auth git-credential'
   ]);
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-credential-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  settleWorkspaceCallbackSync(() => {
     git(root, ['init']);
     git(root, ['config', 'http.https://github.com/.extraheader', 'AUTHORIZATION: ambient-checkout-token']);
     const observed = spawnSync('git', [
@@ -339,15 +338,7 @@ test('canonical GitHub credential prefix masks checkout HTTP authorization befor
     });
     expect(observed.status).toBe(0);
     expect(String(observed.stdout ?? '')).toBe('\n');
-  } catch (error) {
-    primary = { label: 'development-fixture-subject', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup: [{
-      label: 'development-fixture-cleanup',
-      settle: () => { rmSync(root, { recursive: true, force: true }); }
-    }] });
-  }
+  }, () => { rmSync(root, { recursive: true, force: true }); });
 });
 
 test('typed inventory boundary ignores ambient repository and index steering without refreshing target index', () => {

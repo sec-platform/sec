@@ -1,4 +1,4 @@
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -399,10 +399,8 @@ test('common-dir writer excludes worktree unregister and evidence retirement unt
 }, 30_000);
 
 test('empty ignored documentation coordination retirement requires native writer exclusion', async () => {
-  const value = fixture({ documentationCoordination: true });
-  const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  await withCloseoutFixture({ documentationCoordination: true }, async (value) => {
+    const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
     mkdirSync(path.dirname(lock));
     writeFileSync(lock, '');
     expect(git(value.target, ['check-ignore', '-v', '.tmp/documentation-projection.lock'])).toContain('.tmp/');
@@ -434,21 +432,12 @@ test('empty ignored documentation coordination retirement requires native writer
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: authorization.authorizationPath
     })).terminal).toBe('completed');
-  } catch (error) {
-    primary = { label: 'worktree-fixture-subject', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup: [{
-      label: 'worktree-fixture-root',
-      settle: () => { rmSync(value.root, { recursive: true, force: true }); }
-    }] });
-  }
+  });
 }, 30_000);
 
 test('nonempty documentation coordination state rejects closeout without deleting the leaf', async () => {
-  const value = fixture({ documentationCoordination: true });
-  const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
-  await settleWorkspaceCallback(async () => {
+  await withCloseoutFixture({ documentationCoordination: true }, async (value) => {
+    const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
     mkdirSync(path.dirname(lock));
     writeFileSync(lock, 'x');
     await expect(prepareWorktreePhysicalCloseout({
@@ -461,15 +450,12 @@ test('nonempty documentation coordination state rejects closeout without deletin
     }, worktreePhysicalCloseoutOperations)).rejects.toThrow('refuses nonempty state');
     expect(readFileSync(lock, 'utf8')).toBe('x');
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-  }, async () => {
-    rmSync(value.root, { recursive: true, force: true });
   });
 }, 30_000);
 
 test('non-file documentation coordination state rejects closeout without deleting the leaf', async () => {
-  const value = fixture({ documentationCoordination: true });
-  const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
-  await settleWorkspaceCallback(async () => {
+  await withCloseoutFixture({ documentationCoordination: true }, async (value) => {
+    const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
     mkdirSync(lock, { recursive: true });
     await expect(prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
@@ -481,8 +467,6 @@ test('non-file documentation coordination state rejects closeout without deletin
     }, worktreePhysicalCloseoutOperations)).rejects.toThrow();
     expect(existsSync(lock)).toBeTrue();
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-  }, async () => {
-    rmSync(value.root, { recursive: true, force: true });
   });
 }, 30_000);
 
@@ -1249,9 +1233,7 @@ test('dependency owner retires settled compiler staging intents in a linked work
 
 test('a collapsed ignored control ancestor admits only the exact held lease namespace', async () => {
   for (const foreignSibling of [false, true]) {
-    const value = fixture();
-    let primary: ResourceSettlementFailure | undefined;
-    try {
+    await withCloseoutFixture({}, async (value) => {
       writeFileSync(path.join(value.target, '.gitignore'), '.sec/\n', 'utf8');
       git(value.target, ['add', '.gitignore']);
       git(value.target, ['commit', '-m', 'ignore control state']);
@@ -1269,7 +1251,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
           expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
         }, worktreePhysicalCloseoutOperations)).rejects.toThrow('working-state-not-clean');
         expect(existsSync(path.join(value.target, '.sec', 'foreign.txt'))).toBe(true);
-        continue;
+        return;
       }
       const authorization = await prepareWorktreePhysicalCloseout({
         repositoryRoot: value.repository,
@@ -1290,15 +1272,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
       });
       expect(receipt.terminal).toBe('completed');
       expect(existsSync(value.target)).toBe(false);
-    } catch (error) {
-      primary = { label: 'worktree-fixture-subject', error };
-      throw error;
-    } finally {
-      settleResources({ primary, cleanup: [{
-        label: 'worktree-fixture-root',
-        settle: () => { rmSync(value.root, { recursive: true, force: true }); }
-      }] });
-    }
+    });
   }
 }, 60_000);
 
