@@ -133,8 +133,12 @@ function openTestProvider(root: string, processes = 2, outputBytes = 512 * 1024,
 test('GitConfigEffect rejects target ABA, structural origin copies and invalid key/value before child', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-negative-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -143,7 +147,7 @@ test('GitConfigEffect rejects target ABA, structural origin copies and invalid k
     await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n', 'utf8');
     const { processSession, provider } = openTestProvider(root);
     processSessionSettled = false;
-    const retireProvider = { label: 'Git provider', settle: () => { closeGitPhysicalProvider(provider); } };
+    const retireProvider = { label: 'Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(provider); } };
     cleanup.unshift(
       retireProvider,
       { label: 'process session', settle: () => { processSession.close(); processSessionSettled = true; } }
@@ -151,10 +155,11 @@ test('GitConfigEffect rejects target ABA, structural origin copies and invalid k
     let invalidTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
     let changedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
     cleanup.unshift(
-      { label: 'invalid config target', settle: () => { if (invalidTarget !== null) closeGitConfigTargetCapability(invalidTarget); } },
-      { label: 'changed config target', settle: () => { if (changedTarget !== null) closeGitConfigTargetCapability(changedTarget); } }
+      { label: 'invalid config target', settle: () => { if (nativeTerminalProven && invalidTarget !== null) closeGitConfigTargetCapability(invalidTarget); } },
+      { label: 'changed config target', settle: () => { if (nativeTerminalProven && changedTarget !== null) closeGitConfigTargetCapability(changedTarget); } }
     );
     invalidTarget = await issueGitConfigTargetCapability({ path: targetPath });
+    nativeTerminalProven = false;
     await expect(replaceAllGitConfigValue({
       provider,
       target: invalidTarget,
@@ -203,6 +208,7 @@ test('GitConfigEffect rejects target ABA, structural origin copies and invalid k
       changedTarget = null;
     }
     expect(processSession.processCount).toBe(0);
+    nativeTerminalProven = true;
     closeGitPhysicalProvider(provider);
     cleanup.splice(cleanup.indexOf(retireProvider), 1);
   }, async () => { settleResources({ cleanup }); });
@@ -292,8 +298,12 @@ test('GitConfigEffect rejects insufficient parent process budget and cancelled p
 test('GitConfigEffect uses a provider-local process delta inside one borrowed parent aggregate', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-borrowed-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -303,21 +313,23 @@ test('GitConfigEffect uses a provider-local process delta inside one borrowed pa
     const first = openTestProvider(root, 3);
     processSessionSettled = false;
     cleanup.unshift(
-      { label: 'first Git provider', settle: () => { closeGitPhysicalProvider(first.provider); } },
+      { label: 'first Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(first.provider); } },
       { label: 'process session', settle: () => { first.processSession.close(); processSessionSettled = true; } }
     );
     let secondProvider: Parameters<typeof closeGitPhysicalProvider>[0] | null = null;
     let target: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
     cleanup.unshift(
-      { label: 'config target', settle: () => { if (target !== null) closeGitConfigTargetCapability(target); } },
-      { label: 'second Git provider', settle: () => { if (secondProvider !== null) closeGitPhysicalProvider(secondProvider); } }
+      { label: 'config target', settle: () => { if (nativeTerminalProven && target !== null) closeGitConfigTargetCapability(target); } },
+      { label: 'second Git provider', settle: () => { if (nativeTerminalProven && secondProvider !== null) closeGitPhysicalProvider(secondProvider); } }
     );
+    nativeTerminalProven = false;
     const firstResult = await runGitPhysicalCommandInternal(first.provider, ['--version'], {
       env: first.provider.environment,
       envMode: 'replace',
       maxStdoutBytes: 64 * 1024,
       maxStderrBytes: 64 * 1024
     });
+    nativeTerminalProven = true;
     expect(firstResult.result.code).toBe(0);
     closeGitPhysicalProvider(first.provider);
 
@@ -333,12 +345,14 @@ test('GitConfigEffect uses a provider-local process delta inside one borrowed pa
     }
     secondProvider = secondResolution.capability;
     target = await issueGitConfigTargetCapability({ path: targetPath });
+    nativeTerminalProven = false;
     const receipt = await replaceAllGitConfigValue({
       provider: secondProvider,
       target,
       key: 'core.hooksPath',
       value: 'D:/canonical-hooks'
     });
+    nativeTerminalProven = true;
     assertGitConfigEffectReceipt(receipt);
     expect(receipt.writeOrdinal).toBe(2);
     expect(receipt.readbackOrdinal).toBe(3);
@@ -354,8 +368,12 @@ test('GitConfigEffect uses a provider-local process delta inside one borrowed pa
 test('GitConfigEffect claims one capability before await and rejects active close', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-single-claim-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -365,11 +383,12 @@ test('GitConfigEffect claims one capability before await and rejects active clos
     const { processSession, provider } = openTestProvider(root);
     processSessionSettled = false;
     cleanup.unshift(
-      { label: 'Git provider', settle: () => { closeGitPhysicalProvider(provider); } },
+      { label: 'Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(provider); } },
       { label: 'process session', settle: () => { processSession.close(); processSessionSettled = true; } }
     );
     const target = await issueGitConfigTargetCapability({ path: targetPath });
-    cleanup.unshift({ label: 'config target', settle: () => closeGitConfigTargetCapability(target) });
+    cleanup.unshift({ label: 'config target', settle: () => { if (nativeTerminalProven) closeGitConfigTargetCapability(target); } });
+    nativeTerminalProven = false;
     const first = replaceAllGitConfigValue({ provider, target, key: 'core.hooksPath', value: 'accepted' });
     const second = replaceAllGitConfigValue({ provider, target, key: 'core.hooksPath', value: 'rejected' })
       .then(() => null, (error: unknown) => error);
@@ -382,6 +401,7 @@ test('GitConfigEffect claims one capability before await and rejects active clos
       primary = { label: 'active config claim assertions', error };
     }
     const outcomes = await joined;
+    nativeTerminalProven = outcomes[0]!.status === 'fulfilled';
     settleResources({ primary, cleanup: outcomes.map((outcome, index) => ({
       label: `config effect ${index}`,
       settle() { if (outcome.status === 'rejected') throw outcome.reason; }
@@ -398,8 +418,12 @@ test('GitConfigEffect claims one capability before await and rejects active clos
 test('GitConfigEffect respects an existing real Git lock without children or foreign cleanup', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-foreign-lock-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -411,14 +435,16 @@ test('GitConfigEffect respects an existing real Git lock without children or for
     const { processSession, provider } = openTestProvider(root);
     processSessionSettled = false;
     cleanup.unshift(
-      { label: 'Git provider', settle: () => { closeGitPhysicalProvider(provider); } },
+      { label: 'Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(provider); } },
       { label: 'process session', settle: () => { processSession.close(); processSessionSettled = true; } }
     );
     const target = await issueGitConfigTargetCapability({ path: targetPath });
-    cleanup.unshift({ label: 'config target', settle: () => closeGitConfigTargetCapability(target) });
+    cleanup.unshift({ label: 'config target', settle: () => { if (nativeTerminalProven) closeGitConfigTargetCapability(target); } });
+    nativeTerminalProven = false;
     await expect(replaceAllGitConfigValue({ provider, target, key: 'core.hooksPath', value: 'new' }))
       .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' });
     expect(processSession.processCount).toBe(0);
+    nativeTerminalProven = true;
     expect(await fs.readFile(targetPath, 'utf8')).toBe(original);
     expect(await fs.readFile(`${targetPath}.lock`, 'utf8')).toBe('foreign lock\n');
     expect((await fs.readdir(root)).sort()).toEqual(['config', 'config.lock']);
@@ -428,8 +454,12 @@ test('GitConfigEffect respects an existing real Git lock without children or for
 test('GitConfigEffect holds the actual target lock while real Git validates the private output', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-cooperative-writer-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -440,11 +470,11 @@ test('GitConfigEffect holds the actual target lock while real Git validates the 
     const { processSession, provider } = openTestProvider(root);
     processSessionSettled = false;
     cleanup.unshift(
-      { label: 'Git provider', settle: () => { closeGitPhysicalProvider(provider); } },
+      { label: 'Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(provider); } },
       { label: 'process session', settle: () => { processSession.close(); processSessionSettled = true; } }
     );
     const target = await issueGitConfigTargetCapability({ path: targetPath });
-    cleanup.unshift({ label: 'config target', settle: () => closeGitConfigTargetCapability(target) });
+    cleanup.unshift({ label: 'config target', settle: () => { if (nativeTerminalProven) closeGitConfigTargetCapability(target); } });
     const actor = createGitConfigEffectTestActorForTests({
       async beforePublication() {
         expect(await fs.readFile(targetPath, 'utf8')).toBe(original);
@@ -455,9 +485,11 @@ test('GitConfigEffect holds the actual target lock while real Git validates the 
         expect(await fs.readFile(targetPath, 'utf8')).toBe(original);
       }
     });
+    nativeTerminalProven = false;
     assertGitConfigEffectReceipt(await replaceAllGitConfigValue({
       provider, target, key: 'core.hooksPath', value: 'accepted', testOnlyActor: actor
     }));
+    nativeTerminalProven = true;
     const result = await fs.readFile(targetPath, 'utf8');
     expect(result).toContain('hooksPath = accepted');
     expect(result).not.toContain('unadmitted');
@@ -469,8 +501,12 @@ test('GitConfigEffect holds the actual target lock while real Git validates the 
 test('GitConfigEffect preserves primary preimage failure and independent cleanup residue', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-composite-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -481,17 +517,19 @@ test('GitConfigEffect preserves primary preimage failure and independent cleanup
     const { processSession, provider } = openTestProvider(root);
     processSessionSettled = false;
     cleanup.unshift(
-      { label: 'Git provider', settle: () => { closeGitPhysicalProvider(provider); } },
+      { label: 'Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(provider); } },
       { label: 'process session', settle: () => { processSession.close(); processSessionSettled = true; } }
     );
     const target = await issueGitConfigTargetCapability({ path: targetPath });
-    cleanup.unshift({ label: 'config target', settle: () => closeGitConfigTargetCapability(target) });
+    cleanup.unshift({ label: 'config target', settle: () => { if (nativeTerminalProven) closeGitConfigTargetCapability(target); } });
     const actor = createGitConfigEffectTestActorForTests({
       async beforePublication() {
+        nativeTerminalProven = true;
         await fs.writeFile(targetPath, replacement);
         await fs.writeFile(`${targetPath}.lock`, 'foreign lock replacement\n');
       }
     });
+    nativeTerminalProven = false;
     const failure = await replaceAllGitConfigValue({
       provider, target, key: 'core.hooksPath', value: 'unpublished', testOnlyActor: actor
     }).then(() => null, (error: unknown) => error);
@@ -509,8 +547,12 @@ test('GitConfigEffect preserves primary preimage failure and independent cleanup
 test('GitConfigEffect cleanup failure after publication preserves the committed value and lock residue', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-committed-cleanup-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -520,14 +562,15 @@ test('GitConfigEffect cleanup failure after publication preserves the committed 
     const { processSession, provider } = openTestProvider(root);
     processSessionSettled = false;
     cleanup.unshift(
-      { label: 'Git provider', settle: () => { closeGitPhysicalProvider(provider); } },
+      { label: 'Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(provider); } },
       { label: 'process session', settle: () => { processSession.close(); processSessionSettled = true; } }
     );
     const target = await issueGitConfigTargetCapability({ path: targetPath });
-    cleanup.unshift({ label: 'config target', settle: () => closeGitConfigTargetCapability(target) });
+    cleanup.unshift({ label: 'config target', settle: () => { if (nativeTerminalProven) closeGitConfigTargetCapability(target); } });
     const actor = createGitConfigEffectTestActorForTests({
-      async beforePublication() { await fs.writeFile(`${targetPath}.lock`, 'changed cleanup preimage\n'); }
+      async beforePublication() { nativeTerminalProven = true; await fs.writeFile(`${targetPath}.lock`, 'changed cleanup preimage\n'); }
     });
+    nativeTerminalProven = false;
     const failure = await replaceAllGitConfigValue({
       provider, target, key: 'core.hooksPath', value: 'committed', testOnlyActor: actor
     }).then(() => null, (error: unknown) => error);
@@ -545,8 +588,12 @@ test('GitConfigEffect cleanup failure after publication preserves the committed 
 test('GitConfigEffect cancellation after Git validation prevents publication and settles owned files', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-cancel-publication-'));
   let processSessionSettled = true;
+  let nativeTerminalProven = true;
   const cleanup: { label: string; settle(): void }[] = [
     { label: 'Git config root', settle: () => {
+      if (!nativeTerminalProven) {
+        throw new Error(`Git config fixture retained because native termination is unproven: ${root}`);
+      }
       if (processSessionSettled) rmSync(root, { recursive: true, force: true });
     } }
   ];
@@ -558,12 +605,13 @@ test('GitConfigEffect cancellation after Git validation prevents publication and
     const { processSession, provider } = openTestProvider(root, 2, 512 * 1024, controller.signal);
     processSessionSettled = false;
     cleanup.unshift(
-      { label: 'Git provider', settle: () => { closeGitPhysicalProvider(provider); } },
+      { label: 'Git provider', settle: () => { if (nativeTerminalProven) closeGitPhysicalProvider(provider); } },
       { label: 'process session', settle: () => { processSession.close(); processSessionSettled = true; } }
     );
     const target = await issueGitConfigTargetCapability({ path: targetPath });
-    cleanup.unshift({ label: 'config target', settle: () => closeGitConfigTargetCapability(target) });
-    const actor = createGitConfigEffectTestActorForTests({ beforePublication() { controller.abort(); } });
+    cleanup.unshift({ label: 'config target', settle: () => { if (nativeTerminalProven) closeGitConfigTargetCapability(target); } });
+    const actor = createGitConfigEffectTestActorForTests({ beforePublication() { nativeTerminalProven = true; controller.abort(); } });
+    nativeTerminalProven = false;
     const failure = await replaceAllGitConfigValue({
       provider, target, key: 'core.hooksPath', value: 'unpublished', testOnlyActor: actor
     }).then(() => null, (error: unknown) => error);
