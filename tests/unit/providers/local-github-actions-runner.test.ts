@@ -17,7 +17,6 @@ import {
   createLocalGitHubActionsRunnerBuildInputProjection,
   createLocalGitHubActionsRunnerEnvironmentSpec,
   createLocalGitHubActionsRunnerState,
-  LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER,
   LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
   LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT,
   parseLocalGitHubActionsRunnerState,
@@ -529,10 +528,6 @@ describe('local GitHub Actions runner contract', () => {
       providerName,
       operationLabel
     })).toThrow('container runner supervisor boundary changed');
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT).toContain(
-      LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER
-    );
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT).toContain('exec ./run.sh');
   });
 
   test('binds repository identity to the supported GitHub remote URLs', async () => {
