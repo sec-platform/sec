@@ -1,5 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -54,8 +54,7 @@ test('projected functions reject host lexical captures and malformed script synt
 
 test('check is read-only, explicit write is idempotent, and every target validates before any mutation', async () => {
   const input = await sources();
-  const root = mkdtempSync(path.join(tmpdir(), 'permission-bootstrap-'));
-  try {
+  await withTempWorkspace(async root => {
     for (const [file, source] of input) {
       mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
       writeFileSync(path.join(root, file), source);
@@ -86,9 +85,7 @@ test('check is read-only, explicit write is idempotent, and every target validat
       await expect(synchronizePermissionBootstrapProjection(root, 'write')).rejects.toThrow(/missing or duplicate/u);
       expect(readFileSync(path.join(root, first), 'utf8')).toBe(stale);
     }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  }, 'permission-bootstrap-');
 });
 
 async function executeScript(file: string, job: string, github: unknown, env: Record<string, string>, diagnostics: unknown[] = []): Promise<Map<string, string>> {

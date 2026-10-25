@@ -1,13 +1,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { typecheckProject } from '../../../src/adapters/verification/typecheck-project.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const configFile = path.join(repositoryRoot, 'tsconfig.json');
@@ -22,8 +21,7 @@ if (config.error !== undefined) throw new Error(ts.flattenDiagnosticMessageText(
  * claim checker equivalence. Export reachability remains Knip/graph work.
  */
 async function verificationFailure(source: string, surface: 'src' | 'tests', provider?: string): Promise<CodedFailure | undefined> {
-  const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-unused-admission-'));
-  return settleWorkspaceCallback(async () => {
+  return withTempWorkspace(async root => {
     const directory = path.join(root, surface);
     await fs.mkdir(directory);
     await fs.writeFile(path.join(root, 'package.json'), '{"type":"module"}\n');
@@ -53,7 +51,7 @@ async function verificationFailure(source: string, surface: 'src' | 'tests', pro
       assert.equal(error.code, 'VERIFY-BUILD-005', 'Only completed compiler diagnostics may reject the fixture');
       return error;
     }
-  }, () => fs.rm(root, { recursive: true, force: true }));
+  }, 'sec-unused-admission-');
 }
 
 async function rejectsUnused(source: string, surface: 'src' | 'tests', binding: string, column: number, provider?: string): Promise<void> {
