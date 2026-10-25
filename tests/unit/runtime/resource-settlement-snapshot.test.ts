@@ -23,16 +23,6 @@ for (const asynchronous of [false, true]) {
     assert.deepEqual(events, ['first', 'second']);
   });
 
-  test(`${asynchronous ? 'async' : 'sync'} class-private cleanup keeps its receiver without consulting a caller iterator`, async () => {
-    class Resource { #closed = false; label = 'class'; settle() { this.#closed = true; } get closed() { return this.#closed; } }
-    const resource = new Resource(), cleanup = [resource];
-    Object.defineProperty(cleanup, Symbol.iterator, { get() {
-      assert.fail('cleanup membership must not execute a caller iterator');
-    } });
-    await execute({ cleanup });
-    assert.equal(resource.closed, true);
-  });
-
   test(`${asynchronous ? 'async' : 'sync'} primary error is captured even when its source is later mutated`, async () => {
     const unaccompanied = new Error('operation failed');
     await assert.rejects(async () => execute({ primary: { label: 'run', error: unaccompanied }, cleanup: [] }),
@@ -44,6 +34,16 @@ for (const asynchronous of [false, true]) {
   });
 
 }
+
+test('cleanup capture keeps a class-private receiver without consulting a caller iterator', () => {
+  class Resource { #closed = false; label = 'class'; settle() { this.#closed = true; } get closed() { return this.#closed; } }
+  const resource = new Resource(), cleanup = [resource];
+  Object.defineProperty(cleanup, Symbol.iterator, { get() {
+    assert.fail('cleanup membership must not execute a caller iterator');
+  } });
+  settlePhysicalResources({ cleanup });
+  assert.equal(resource.closed, true);
+});
 
 test('async capture happens before suspension, while actual cleanup order stays sequential', async () => {
   let release!: () => void, entered!: () => void;
@@ -94,38 +94,34 @@ test('async settlement preserves primary, capture and cleanup failures while att
   assert.deepEqual(events, ['first', 'second', 'third']);
 });
 
-for (const asynchronous of [false, true]) {
-  const execute = asynchronous ? settlePhysicalResourcesAsync : settlePhysicalResources;
-  const mode = asynchronous ? 'async' : 'sync';
-
-  for (const variant of ['hole', 'accessor', 'inherited'] as const) {
-    test(`${mode} reports a ${variant} slot without abandoning captured peers or the primary`, async () => {
-      const events: string[] = [];
-      const cleanup = [
-        { label: 'invalid', settle() { assert.fail('invalid slot was admitted'); } },
-        { label: 'owned', settle() { events.push('owned'); } }
-      ];
-      if (variant === 'accessor') Object.defineProperty(cleanup, '0', { get() {
-        assert.fail('array-slot accessors must not execute');
-      } });
-      else {
-        Reflect.deleteProperty(cleanup, '0');
-        if (variant === 'inherited') {
-          const prototype = Object.create(Array.prototype);
-          Object.defineProperty(prototype, '0', { value: {
-            label: 'foreign', settle() { assert.fail('inherited cleanup was admitted'); }
-          } });
-          Object.setPrototypeOf(cleanup, prototype);
-        }
+// Dense-slot admission belongs to the shared capture; async failure draining is observed above.
+for (const variant of ['hole', 'accessor', 'inherited'] as const) {
+  test(`cleanup capture reports a ${variant} slot without abandoning peers or the primary`, async () => {
+    const events: string[] = [];
+    const cleanup = [
+      { label: 'invalid', settle() { assert.fail('invalid slot was admitted'); } },
+      { label: 'owned', settle() { events.push('owned'); } }
+    ];
+    if (variant === 'accessor') Object.defineProperty(cleanup, '0', { get() {
+      assert.fail('array-slot accessors must not execute');
+    } });
+    else {
+      Reflect.deleteProperty(cleanup, '0');
+      if (variant === 'inherited') {
+        const prototype = Object.create(Array.prototype);
+        Object.defineProperty(prototype, '0', { value: {
+          label: 'foreign', settle() { assert.fail('inherited cleanup was admitted'); }
+        } });
+        Object.setPrototypeOf(cleanup, prototype);
       }
-      await assert.rejects(async () => execute({ primary: { label: 'operation', error: undefined }, cleanup }), error => {
-        assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
-        assert.deepEqual(error.failures.map(failure => failure.label), ['operation', 'cleanup[0]']);
-        assert.equal(error.errors[0], undefined);
-        assert.ok(error.errors[1] instanceof TypeError);
-        return true;
-      });
-      assert.deepEqual(events, ['owned']);
+    }
+    await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'operation', error: undefined }, cleanup }), error => {
+      assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
+      assert.deepEqual(error.failures.map(failure => failure.label), ['operation', 'cleanup[0]']);
+      assert.equal(error.errors[0], undefined);
+      assert.ok(error.errors[1] instanceof TypeError);
+      return true;
     });
-  }
+    assert.deepEqual(events, ['owned']);
+  });
 }
