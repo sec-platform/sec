@@ -23,19 +23,12 @@ function canonicalCoverage() {
   } as const;
 }
 
-test('Acceptance Coverage authority accepts canonical derived coverage and rejects an unknown schema', () => {
-  const coverage = validateAcceptanceCoverageReport(canonicalCoverage());
-
-  expect(coverage.status).toBe('passed');
-  expect(coverage.uncoveredBlocks).toEqual([]);
+test('Acceptance Coverage authority rejects unknown schemas and acceptance not declared by target', () => {
+  const candidate = canonicalCoverage() as any;
   expect(() => validateAcceptanceCoverageReport({
-    ...canonicalCoverage(),
+    ...candidate,
     formatVersion: 'future'
   })).toThrow('unsupported formatVersion');
-});
-
-test('Acceptance Coverage authority rejects covered acceptance not declared by target', () => {
-  const candidate = canonicalCoverage() as any;
   candidate.blocks[0].coveredBy = ['acceptance_other'];
 
   expect(() => validateAcceptanceCoverageReport(candidate))
@@ -87,7 +80,9 @@ test('Acceptance Coverage authority rejects noncanonical block ordering', () => 
     coveredBy: ['acceptance_billing'],
     uncovered: false
   });
-  expect(() => validateAcceptanceCoverageReport(blockOrder)).not.toThrow();
+  const coverage = validateAcceptanceCoverageReport(blockOrder);
+  expect(coverage.status).toBe('passed');
+  expect(coverage.uncoveredBlocks).toEqual([]);
   blockOrder.blocks.reverse();
   expect(() => validateAcceptanceCoverageReport(blockOrder))
     .toThrow('blocks must be canonically ordered');

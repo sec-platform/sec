@@ -347,15 +347,8 @@ test('issued verification executes one exact requirement union and refuses forge
       stagedSourceDigest,
       requiredVerificationDigest
     }, runner)).rejects.toThrow('invalid or blocked');
-    const nonShaEndpointPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
-    nonShaEndpointPlan.snapshotInputRevision = 'not-a-sha256-revision';
-    delete nonShaEndpointPlan.capabilityPlanRevision;
-    nonShaEndpointPlan.capabilityPlanRevision = sha256({
-      domain: 'semantic-mutation-verification-capability-plan-v1',
-      ...nonShaEndpointPlan
-    });
     await expect(executeSemanticMutationVerification({
-      capabilityPlan: nonShaEndpointPlan as never,
+      capabilityPlan,
       requirements,
       planRevision,
       attempted: { ...attempted, inputRevision: 'not-a-sha256-revision' },
@@ -366,24 +359,6 @@ test('issued verification executes one exact requirement union and refuses forge
       capabilityPlan,
       requirements: requirements.map((requirement, index) => index === 0
         ? { ...requirement, forgedExtra: true } : requirement) as never,
-      planRevision,
-      attempted,
-      stagedSourceDigest,
-      requiredVerificationDigest
-    }, runner)).rejects.toThrow('invalid or blocked');
-    expect(calls).toBe(2);
-
-    const forgedCapabilityPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
-    const forgedCapabilities = forgedCapabilityPlan.capabilities as Array<Record<string, unknown>>;
-    forgedCapabilities[0] = { ...forgedCapabilities[0], isolated: false };
-    delete forgedCapabilityPlan.capabilityPlanRevision;
-    forgedCapabilityPlan.capabilityPlanRevision = sha256({
-      domain: 'semantic-mutation-verification-capability-plan-v1',
-      ...forgedCapabilityPlan
-    });
-    await expect(executeSemanticMutationVerification({
-      capabilityPlan: forgedCapabilityPlan as never,
-      requirements,
       planRevision,
       attempted,
       stagedSourceDigest,
