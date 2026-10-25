@@ -952,7 +952,7 @@ test.skipIf(process.platform !== 'win32' && !(process.platform === 'linux' && pr
   'fast batch preserves the selected physical observer effects, identity and deadline',
   () => {
     const testInventory = testImpactFixture.provider.testInventory;
-    const budgetProjection = compileTestBudgetProjection(testInventory);
+    const budgetProjection = testBudgetProjection;
     const policy = issueFastTestBatchExecutionPolicy({
       testInventory,
       budgetProjection,

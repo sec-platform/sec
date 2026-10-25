@@ -63,14 +63,16 @@ test('streaming is invariant around compression and tree-chunk boundaries', () =
 });
 
 test('offset views, Buffer and cross-realm Uint8Array preserve actual bytes', () => {
-  const source = Buffer.concat([Buffer.from([255, 255, 255]), Buffer.from(input(1025)), Buffer.from([255])]);
+  const bytes = input(1025);
+  const expected = contentDigest(bytes);
+  const source = Buffer.concat([Buffer.from([255, 255, 255]), Buffer.from(bytes), Buffer.from([255])]);
   const offset = new Uint8Array(source.buffer, source.byteOffset + 3, 1025);
-  assert.equal(contentDigest(offset), contentDigest(input(1025)));
-  assert.equal(contentDigest(Buffer.from(input(1025))), contentDigest(offset));
+  assert.equal(contentDigest(offset), expected);
+  assert.equal(contentDigest(Buffer.from(bytes)), expected);
   assert.equal(contentDigest(runInNewContext('new Uint8Array([0, 1, 2])')), contentDigest(input(3)));
   Object.defineProperty(offset, 'byteLength', { get() { throw new Error('shadow getter'); } });
   Object.defineProperty(offset, Symbol.iterator, { get() { throw new Error('shadow iterator'); } });
-  assert.equal(contentDigest(offset), contentDigest(input(1025)));
+  assert.equal(contentDigest(offset), expected);
 });
 
 test('updates own their partial block bytes and do not share computation state', () => {
@@ -114,9 +116,10 @@ test('strings use UTF-8, with no key, length or algorithm setting exposed', () =
 test('migration verifies the same raw bytes before exposing the new digest', () => {
   const bytes = input(4097);
   const previous = rawSha256(bytes);
+  const current = contentDigest(bytes);
   const migrated = migrateContentDigest(previous, [bytes.subarray(0, 1023), bytes.subarray(1023)]);
-  assert.deepEqual(migrated, { previous, current: contentDigest(bytes) });
-  assert.throws(() => migrateContentDigest(contentDigest(bytes), [bytes]), TypeError);
+  assert.deepEqual(migrated, { previous, current });
+  assert.throws(() => migrateContentDigest(current, [bytes]), TypeError);
   assert.throws(() => migrateContentDigest(previous, [Buffer.from(previous)]), /preimage does not match/u);
 });
 

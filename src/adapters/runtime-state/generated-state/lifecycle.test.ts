@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from 'bun:test';
-import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { afterAll, afterEach, expect, test } from 'bun:test';
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -61,6 +61,42 @@ async function git(cwd: string, args: string[]): Promise<void> {
   }
 }
 
+// Copy only a completed initial repository: no linked worktree, runtime store,
+// remote or physical locator has been created in this private template.
+let worktreeRepositoryTemplate: Promise<string> | undefined;
+
+async function prepareWorktreeRepositoryTemplate(): Promise<string> {
+  const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-generated-worktree-base-'));
+  try {
+    await git(repositoryRoot, ['init', '-b', 'main']);
+    await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules\n');
+    await writeFile(path.join(repositoryRoot, 'tracked.txt'), 'tracked\n');
+    await git(repositoryRoot, ['add', '.gitignore', 'tracked.txt']);
+    await git(repositoryRoot, [
+      '-c',
+      'user.email=sec@example.invalid',
+      '-c',
+      'user.name=SEC Test',
+      'commit',
+      '-m',
+      'fixture'
+    ]);
+    return repositoryRoot;
+  } catch (error) {
+    try { await rm(repositoryRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Worktree base setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+afterAll(async () => {
+  if (worktreeRepositoryTemplate === undefined) return;
+  const [settled] = await Promise.allSettled([worktreeRepositoryTemplate]);
+  if (settled!.status === 'fulfilled') await rm(settled!.value, { recursive: true, force: true });
+});
+
 async function registeredWorktreeFixture() {
   const hostRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-generated-worktree-retirement-'));
   roots.push(hostRoot);
@@ -68,20 +104,10 @@ async function registeredWorktreeFixture() {
   const workspaceRoot = path.join(hostRoot, 'candidate');
   const stateRoot = path.join(hostRoot, 'state');
   const cacheRoot = path.join(hostRoot, 'cache');
-  await mkdir(repositoryRoot);
-  await git(repositoryRoot, ['init', '-b', 'main']);
-  await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules\n');
-  await writeFile(path.join(repositoryRoot, 'tracked.txt'), 'tracked\n');
-  await git(repositoryRoot, ['add', '.gitignore', 'tracked.txt']);
-  await git(repositoryRoot, [
-    '-c',
-    'user.email=sec@example.invalid',
-    '-c',
-    'user.name=SEC Test',
-    'commit',
-    '-m',
-    'fixture'
-  ]);
+  const template = await (worktreeRepositoryTemplate ??= prepareWorktreeRepositoryTemplate());
+  await cp(template, repositoryRoot, { recursive: true });
+  // Native Git creates fresh linked-worktree metadata against this copied
+  // repository; indexes, refs, roots and every retirement window stay private.
   await git(repositoryRoot, ['worktree', 'add', '-b', 'candidate', workspaceRoot]);
   const revision = await runCommandBytes('git', ['rev-parse', 'HEAD', 'HEAD^{tree}'], {
     cwd: workspaceRoot
