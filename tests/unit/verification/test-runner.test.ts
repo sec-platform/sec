@@ -58,7 +58,7 @@ import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_A
 import { compilerRoot } from "../../../src/adapters/workspace-context.ts";
 import { rawSha256, sha256 } from '../../../src/contracts/canonical.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../src/contracts/repository-test-path.ts';
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleResources, settleResourcesAsync, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { createExactGitTreeTestRunnerFixture } from '../../helpers/test-impact-provider.ts';
 
 const actualCommandRunner = await import('../../../src/adapters/self-hosting/development/runner/command-runner.ts');
@@ -1652,10 +1652,11 @@ test.serial('overlapping fast runs sharing one caller namespace own disjoint cle
   materializeTestWorkspace = true;
   devCommandSettlements.push(firstGate.promise, secondGate.promise);
   devCommandStartObservers.push(observeStart, observeStart);
-  await fs.mkdir(parentRoot, { recursive: true });
-  await fs.writeFile(sentinelPath, 'caller-owned', 'utf8');
-
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    await fs.mkdir(parentRoot, { recursive: true });
+    await fs.writeFile(sentinelPath, 'caller-owned', 'utf8');
+
     runs = [
       runFastTests(['tests/unit/workspace/path-containment.test.ts']),
       runFastTests(['tests/unit/workspace/path-containment.test.ts'])
@@ -1688,11 +1689,16 @@ test.serial('overlapping fast runs sharing one caller namespace own disjoint cle
       await expect(fs.lstat(roots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     }
     expect(await fs.readFile(sentinelPath, 'utf8')).toBe('caller-owned');
+  } catch (error) {
+    primary = { label: 'fast-run fixture', error };
+    throw error;
   } finally {
-    firstGate.resolve();
-    secondGate.resolve();
-    await Promise.allSettled(runs);
-    await fs.rm(parentRoot, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [{ label: 'join fast runs before removing caller root', settle: async () => {
+      firstGate.resolve();
+      secondGate.resolve();
+      await Promise.allSettled(runs);
+      await fs.rm(parentRoot, { recursive: true, force: true });
+    } }] });
   }
 });
 
@@ -1709,74 +1715,79 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
   const parentNamespace = 'test-runner-gate-assigned-parent';
   const nonce = 'f'.repeat(64);
   const fakeRepositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-test-runner-gate-repository-'));
-  const executionSnapshotRoot = path.join(
-    fakeRepositoryRoot,
-    '.tmp',
-    'gate-execution-snapshots',
-    parentNamespace
-  );
-  const supervisorLease = createTestWorkspaceSupervisorLease({
-    namespace: parentNamespace,
-    runId: 'test-runner-gate-assigned',
-    repositoryRoot: fakeRepositoryRoot,
-    executionSnapshotRoot,
-    issuerProcessId: process.ppid,
-    nonce: 'e'.repeat(64)
-  });
-  const supervisorLeasePath = path.join(
-    fakeRepositoryRoot,
-    '.tmp',
-    'test-workspaces',
-    '.gate-supervisor-leases',
-    `${parentNamespace}.lock`
-  );
-  await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
-  await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
-  const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjection(
-    supervisorLeasePath,
-    parentNamespace,
-    supervisorLease.executionSnapshotRoot
-  );
-  const draft = createTestWorkspaceRunChildAssignment({
-    parentNamespace,
-    issuerProcessId: process.ppid,
-    device: 'draft-device',
-    inode: 'draft-inode',
-    nonce,
-    supervisorLeaseDigest: supervisorLease.leaseDigest,
-    supervisorLeasePath: supervisorBinding.path,
-    supervisorLeaseDevice: supervisorBinding.device,
-    supervisorLeaseInode: supervisorBinding.inode,
-    namespaceDevice: 'draft-namespace-device',
-    namespaceInode: 'draft-namespace-inode'
-  });
-  const parentRoot = getTestWorkspaceTempRoot({ [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace });
-  const runChild = draft.name;
-  const runChildRoot = getTestWorkspaceTempRoot({
-    [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace,
-    [TEST_WORKSPACE_RUN_CHILD_ENV]: runChild
-  });
-  await fs.mkdir(runChildRoot, { recursive: true });
-  const namespaceIdentity = inspectNoFollowDirectoryChain(parentRoot).target;
-  const identity = inspectNoFollowDirectoryChain(runChildRoot).target;
-  const assignment = createTestWorkspaceRunChildAssignment({
-    parentNamespace,
-    issuerProcessId: process.ppid,
-    device: identity.device,
-    inode: identity.inode,
-    nonce,
-    supervisorLeaseDigest: supervisorLease.leaseDigest,
-    supervisorLeasePath: supervisorBinding.path,
-    supervisorLeaseDevice: supervisorBinding.device,
-    supervisorLeaseInode: supervisorBinding.inode,
-    namespaceDevice: namespaceIdentity.device,
-    namespaceInode: namespaceIdentity.inode
-  });
-  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = parentNamespace;
-  process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = runChild;
-  process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV] = JSON.stringify(assignment);
-  trustedCallerAssignmentFixture = assignment;
+  const cleanup: Parameters<typeof settleResourcesAsync>[0]['cleanup'][number][] = [
+    { label: 'fake repository root', settle: () => fs.rm(fakeRepositoryRoot, { recursive: true, force: true }) }
+  ];
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    const executionSnapshotRoot = path.join(
+      fakeRepositoryRoot,
+      '.tmp',
+      'gate-execution-snapshots',
+      parentNamespace
+    );
+    const supervisorLease = createTestWorkspaceSupervisorLease({
+      namespace: parentNamespace,
+      runId: 'test-runner-gate-assigned',
+      repositoryRoot: fakeRepositoryRoot,
+      executionSnapshotRoot,
+      issuerProcessId: process.ppid,
+      nonce: 'e'.repeat(64)
+    });
+    const supervisorLeasePath = path.join(
+      fakeRepositoryRoot,
+      '.tmp',
+      'test-workspaces',
+      '.gate-supervisor-leases',
+      `${parentNamespace}.lock`
+    );
+    await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
+    await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
+    const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjection(
+      supervisorLeasePath,
+      parentNamespace,
+      supervisorLease.executionSnapshotRoot
+    );
+    const draft = createTestWorkspaceRunChildAssignment({
+      parentNamespace,
+      issuerProcessId: process.ppid,
+      device: 'draft-device',
+      inode: 'draft-inode',
+      nonce,
+      supervisorLeaseDigest: supervisorLease.leaseDigest,
+      supervisorLeasePath: supervisorBinding.path,
+      supervisorLeaseDevice: supervisorBinding.device,
+      supervisorLeaseInode: supervisorBinding.inode,
+      namespaceDevice: 'draft-namespace-device',
+      namespaceInode: 'draft-namespace-inode'
+    });
+    const parentRoot = getTestWorkspaceTempRoot({ [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace });
+    cleanup.unshift({ label: 'caller namespace root', settle: () => fs.rm(parentRoot, { recursive: true, force: true }) });
+    const runChild = draft.name;
+    const runChildRoot = getTestWorkspaceTempRoot({
+      [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace,
+      [TEST_WORKSPACE_RUN_CHILD_ENV]: runChild
+    });
+    await fs.mkdir(runChildRoot, { recursive: true });
+    const namespaceIdentity = inspectNoFollowDirectoryChain(parentRoot).target;
+    const identity = inspectNoFollowDirectoryChain(runChildRoot).target;
+    const assignment = createTestWorkspaceRunChildAssignment({
+      parentNamespace,
+      issuerProcessId: process.ppid,
+      device: identity.device,
+      inode: identity.inode,
+      nonce,
+      supervisorLeaseDigest: supervisorLease.leaseDigest,
+      supervisorLeasePath: supervisorBinding.path,
+      supervisorLeaseDevice: supervisorBinding.device,
+      supervisorLeaseInode: supervisorBinding.inode,
+      namespaceDevice: namespaceIdentity.device,
+      namespaceInode: namespaceIdentity.inode
+    });
+    process.env[TEST_WORKSPACE_NAMESPACE_ENV] = parentNamespace;
+    process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = runChild;
+    process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV] = JSON.stringify(assignment);
+    trustedCallerAssignmentFixture = assignment;
     const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
     const workspaceEnv = devCommandEnvironments[0]!;
 
@@ -1787,9 +1798,11 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
     expect(workspaceEnv[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]).toBe(JSON.stringify(assignment));
     await expect(runFastTests(['tests/unit/workspace/path-containment.test.ts']))
       .rejects.toThrow('runFastTests caller assignment authority was already consumed');
+  } catch (error) {
+    primary = { label: 'fast-run fixture', error };
+    throw error;
   } finally {
-    await fs.rm(parentRoot, { recursive: true, force: true });
-    await fs.rm(fakeRepositoryRoot, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: cleanup });
   }
 });
 
@@ -1799,8 +1812,11 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
     [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace
   });
   const fakeRepositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-forged-gate-root-'));
-  await fs.mkdir(parentRoot, { recursive: true });
-  const source = `
+  let fixtureTreeSettled = true;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    await fs.mkdir(parentRoot, { recursive: true });
+    const source = `
     import { mkdirSync, writeFileSync } from 'node:fs';
     import path from 'node:path';
     import {
@@ -1901,7 +1917,7 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
     });
     process.exit(await victim.exited);
   `;
-  try {
+    fixtureTreeSettled = false;
     const child = Bun.spawn([process.execPath, '-e', source], {
       cwd: compilerRoot,
       stdout: 'pipe',
@@ -1913,13 +1929,25 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
         [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: undefined
       }
     });
-    expect(await child.exited).toBe(0);
+    const exitCode = await child.exited;
+    // This exact script returns zero only after its victim has rejected the
+    // forged Gate assignment before managed execution. It is not a general
+    // certificate for a raw child or any unknown termination.
+    fixtureTreeSettled = exitCode === 0;
+    expect(exitCode).toBe(0);
     const siblings = await fs.readdir(parentRoot);
     expect(siblings).toHaveLength(1);
     expect(await fs.readFile(path.join(parentRoot, siblings[0]!, 'foreign-owner.txt'), 'utf8')).toBe('preserve');
+  } catch (error) {
+    primary = { label: 'fast-run fixture', error };
+    throw error;
   } finally {
-    await fs.rm(parentRoot, { recursive: true, force: true });
-    await fs.rm(fakeRepositoryRoot, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: fixtureTreeSettled ? [
+      { label: 'caller namespace root', settle: () => fs.rm(parentRoot, { recursive: true, force: true }) },
+      { label: 'fake repository root', settle: () => fs.rm(fakeRepositoryRoot, { recursive: true, force: true }) }
+    ] : [{ label: 'unsettled nested Gate fixture', settle: () => {
+      throw new Error(`Nested Gate fixture did not reach its exact safe terminal; preserved ${parentRoot} and ${fakeRepositoryRoot}.`);
+    } }] });
   }
 });
 
