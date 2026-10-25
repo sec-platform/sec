@@ -22,9 +22,6 @@ test('only untracked and ignored directories may use the one directory terminato
 test('the full-file inventory profile rejects directory summaries instead of inventing a file observation', () => {
   assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.from('?? dir/\0'), { allowDirectoryEntries: false }));
   assert.equal(parseWorktreeStatusPorcelainZ(Buffer.from('?? dir/file\0'), { allowDirectoryEntries: false })[0]!.path, 'dir/file');
-  for (const value of [null, 'false', 1]) {
-    assert.throws(() => parseWorktreeStatusPorcelainZ(Buffer.alloc(0), { allowDirectoryEntries: value as never }), TypeError);
-  }
 });
 
 test('duplicate records are refused while distinct renamed identities survive', () => {

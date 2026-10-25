@@ -1,5 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { devNull } from 'node:os';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { assertLowercaseGitSha, parseWorktreePorcelainZ, parseWorktreeStatusPorcelainZ } from '../../../src/adapters/runtime-state/physical/contract/git-worktree-observation.ts';
@@ -89,7 +91,16 @@ test('real Git conflict stages project to the same seven exact status pairs', ()
   ]);
 }));
 
-test('real Git rejects nested dot components while ordinary branch names still parse', () => inGitProtocolRepository(async (_root, git) => {
+test('real Git rejects nested dot components while ordinary branch names still parse', () => {
+  // Full refname validation is a repository-independent Git builtin, unlike
+  // --branch shorthand expansion. Keep the native oracle without an unused
+  // initialized repository, and do not select ambient configuration or traces.
+  const environment = Object.freeze({ PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
+    LANG: 'C', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : devNull });
+  const git = (args: string[]) => spawnSync('git', args, {
+    env: environment, encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true
+  });
   for (const branch of ['topic/.hidden', 'topic/.hidden/leaf']) {
     const response = git(['check-ref-format', `refs/heads/${branch}`]);
     assert.equal(response.error, undefined); assert.equal(response.status, 1);
@@ -99,7 +110,7 @@ test('real Git rejects nested dot components while ordinary branch names still p
     gitProtocolSuccess(git(['check-ref-format', `refs/heads/${branch}`]));
     assert.equal(parseWorktreePorcelainZ(record(`HEAD ${oid}`, `branch refs/heads/${branch}`))[0]!.branch, branch);
   }
-}));
+});
 
 test('real worktree inventory preserves branch, detached, locked and bare variants', () => inGitProtocolRepository(async (root, git) => {
   writeFileSync(path.join(root, 'tracked'), 'data');
