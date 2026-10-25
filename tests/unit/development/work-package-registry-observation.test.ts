@@ -264,14 +264,15 @@ for (const malformed of [
   });
 }
 
-for (const malformed of [
-  `${defaultBlob} blob 9\ndefault\r\n`, `${defaultBlob} blob 9\ndefault\r\n\ntrailing`,
-  `${defaultBlob} blob 1\nx\n`
-]) {
+for (const [malformed, expectedError] of [
+  [`${defaultBlob} blob 9\ndefault\r\n`, /byte count is malformed/],
+  [`${defaultBlob} blob 9\ndefault\r\n\ntrailing`, /batch|size readback/],
+  [`${defaultBlob} blob 1\nx\n`, /batch|size readback/]
+] as const) {
   test(`content framing and metadata size disagreement fail closed: ${JSON.stringify(malformed)}`, async () => {
     const read = reader([]);
     await assert.rejects(projectWorkPackageRegistry({ ...request, openPullRequests: parseOpenPullRequestList(JSON.stringify([prResponse])) }, (args, input) =>
-      args[1] === '--batch' ? reply(malformed) : read(args, input)), /batch|size readback/);
+      args[1] === '--batch' ? reply(malformed) : read(args, input)), expectedError);
   });
 }
 
