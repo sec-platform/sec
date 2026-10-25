@@ -37,6 +37,7 @@ export async function withCheckerExecutionBoundary<T>(
   });
   const cleanup: Array<Parameters<typeof settleResourcesAsync>[0]['cleanup'][number]> = [];
   let primary: ResourceSettlementFailure | undefined;
+  let checkerEffectsSettled = true;
   try {
     const authority = await sealExistingWindowsReadOnlyTreeAuthority(
       root.path,
@@ -51,7 +52,9 @@ export async function withCheckerExecutionBoundary<T>(
     );
     cleanup.push({ label: 'checker working-directory ACL authority', settle: () => authority.release() });
     const workingDirectory = await retainNoFollowSealedDirectoryGeneration(root, inventory, authority);
-    cleanup[cleanup.length - 1] = { label: 'checker working directory', settle: () => workingDirectory.retire() };
+    cleanup[cleanup.length - 1] = { label: 'checker working directory', settle: () => {
+      if (checkerEffectsSettled) return workingDirectory.retire();
+    } };
     const dependencyIdentity = inspectNoFollowDirectoryChain(
       dependencyRoot,
       'test checker dependency root'
@@ -74,7 +77,9 @@ export async function withCheckerExecutionBoundary<T>(
       releaseMode: 'restore-owner-write',
       root: dependencyIdentity
     })).generation;
-    cleanup.push({ label: 'checker dependency directory', settle: async () => { await dependencyDirectory.retire(); } });
+    cleanup.push({ label: 'checker dependency directory', settle: async () => {
+      if (checkerEffectsSettled) await dependencyDirectory.retire();
+    } });
     const auxiliaryRoot = path.join(path.dirname(workingRoot), 'action-private-auxiliary');
     await fs.mkdir(auxiliaryRoot);
     const auxiliaryDirectory = retainNoFollowDirectoryForChildProcess(
@@ -82,7 +87,9 @@ export async function withCheckerExecutionBoundary<T>(
       4,
       'test checker action-private auxiliary root'
     );
-    cleanup.push({ label: 'checker auxiliary directory', settle: () => auxiliaryDirectory.dispose() });
+    cleanup.push({ label: 'checker auxiliary directory', settle: () => {
+      if (checkerEffectsSettled) auxiliaryDirectory.dispose();
+    } });
     const operation = compileTypecheckSemanticOperation({
       checker,
       deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
@@ -109,6 +116,10 @@ export async function withCheckerExecutionBoundary<T>(
         ]
       })
     });
+    // close() alone is accounting, not proof that a failed native run ended.
+    // Preserve its dependent capabilities until this owner proves every run
+    // returned through the successful physically-settled transport path.
+    checkerEffectsSettled = false;
     cleanup.push({
       label: 'checker process session',
       settle: () => {
@@ -124,6 +135,7 @@ export async function withCheckerExecutionBoundary<T>(
           settledProcessCount: expectedProcessCount,
           successfulProcessRecordCount: expectedProcessCount
         });
+        checkerEffectsSettled = true;
       }
     });
     const processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
