@@ -1,4 +1,4 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -39,7 +39,8 @@ test('release set is self-contained, relocatable and documentation-exact', async
     settleWorkspaceCallback(async () => { throw error; },
       () => fs.rm(root, { recursive: true, force: true })));
   const destination = path.join(publicationParent, 'release-set');
-  try {
+  let buildSettled = true;
+  await settleWorkspaceCallback(async () => {
     command(root, 'git', ['init', '--quiet']);
     command(root, 'git', ['config', 'user.email', 'tests@example.com']);
     command(root, 'git', ['config', 'user.name', 'SEC Tests']);
@@ -131,10 +132,14 @@ test('release set is self-contained, relocatable and documentation-exact', async
 
     command(root, 'git', ['add', '--all']);
     command(root, 'git', ['commit', '--quiet', '-m', 'fixture']);
+    buildSettled = false;
     const receipt = await buildReleaseSet(root, destination);
+    buildSettled = true;
     expect(receipt.cleanupFindings).toEqual([]);
     expect(receipt.publicationStatus).toBe('accepted');
+    buildSettled = false;
     const exactRetry = await buildReleaseSet(root, destination);
+    buildSettled = true;
     expect(exactRetry.manifestDigest).toBe(receipt.manifestDigest);
     expect(exactRetry.publicationStatus).toBe('accepted');
     expect(exactRetry.cleanupFindings).toEqual([]);
@@ -178,7 +183,9 @@ test('release set is self-contained, relocatable and documentation-exact', async
     await fs.rename(destination, previous);
     await fs.mkdir(destination);
     await fs.writeFile(path.join(destination, 'foreign.txt'), 'preserve this malformed preimage\n');
+    buildSettled = false;
     const recovered = await buildReleaseSet(root, destination);
+    buildSettled = true;
     const failed = recovered.cleanupFindings[0]!.path;
     expect(failed.startsWith(path.join(publicationParent, `.sec-release-set-failed-${publicationKey}-`))).toBe(true);
     expect(recovered.cleanupFindings).toMatchObject([{
@@ -195,7 +202,9 @@ test('release set is self-contained, relocatable and documentation-exact', async
     await fs.rename(destination, previous);
     await fs.mkdir(destination);
     await fs.writeFile(path.join(destination, 'second-foreign.txt'), 'preserve the second malformed preimage\n');
+    buildSettled = false;
     const retried = await buildReleaseSet(root, destination);
+    buildSettled = true;
     expect(retried.cleanupFindings).toMatchObject([{
       phase: 'failed-release-set',
       path: failed,
@@ -222,10 +231,12 @@ test('release set is self-contained, relocatable and documentation-exact', async
     });
     expect(mismatched.status).not.toBe(0);
     expect(mismatched.stderr).toContain('RUNTIME-LAYOUT-001');
-  } finally {
-    await Promise.all([
-      fs.rm(root, { recursive: true, force: true }),
-      fs.rm(publicationParent, { recursive: true, force: true })
+  }, async () => {
+    // A rejected build may not carry a terminal native writer receipt.
+    if (!buildSettled) return;
+    await settleWorkspaceCleanups([
+      () => fs.rm(root, { recursive: true, force: true }),
+      () => fs.rm(publicationParent, { recursive: true, force: true })
     ]);
-  }
+  });
 }, 30_000);

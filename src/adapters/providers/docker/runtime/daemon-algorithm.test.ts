@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -66,8 +67,8 @@ async function withIssuedResidueReceipt<T>(
     return settleWorkspaceCallback(async () => { throw error; },
       () => rm(rootPath, { recursive: true, force: true }));
   }
-  try {
-    return await operation({
+  return settleWorkspaceCallback(async () => {
+    return operation({
       endpointPath,
       observe: (providerEvidence) => {
         const receipt = observeRuntimeEndpointResidueCandidatesForTests({
@@ -95,10 +96,12 @@ async function withIssuedResidueReceipt<T>(
         return receipt;
       }
     });
-  } finally {
-    retained.close();
-    await rm(rootPath, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'retained residue root', settle: () => { retained.close(); } },
+      { label: 'residue fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
+    ] });
+  });
 }
 
 describe('Docker daemon lifecycle algorithm', () => {

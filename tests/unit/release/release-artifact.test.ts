@@ -1,4 +1,4 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import fs, { mkdtemp, rm } from 'node:fs/promises';
@@ -158,21 +158,28 @@ test('Bun-target release bundle rejects a non-Bun source interpreter directive b
   const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bad-shebang-artifact-')).catch(error =>
     settleWorkspaceCallback(async () => { throw error; },
       () => rm(repositoryRoot, { recursive: true, force: true })));
-  try {
+  let sourceUseSettled = true;
+  await settleWorkspaceCallback(async () => {
     await initMinimalBunRepository(repositoryRoot, '#!/usr/bin/env node\nconsole.log("fixture");\n');
+    sourceUseSettled = false;
     const frozen = await prepareFrozenReleaseSource(repositoryRoot);
-    try {
+    sourceUseSettled = true;
+    await settleWorkspaceCallback(async () => {
+      sourceUseSettled = false;
       await expect(buildFrozenReleaseBundle(frozen, artifactRoot))
         .rejects.toThrow('non-Bun interpreter directive');
-    } finally {
-      await disposeFrozenReleaseSource(frozen);
-    }
-  } finally {
-    await Promise.all([
-      rm(repositoryRoot, { recursive: true, force: true }),
-      rm(artifactRoot, { recursive: true, force: true })
+      sourceUseSettled = true;
+    }, async () => {
+      if (sourceUseSettled) await disposeFrozenReleaseSource(frozen);
+    });
+  }, async () => {
+    // Preserve both roots when builder/installer termination is not proven.
+    if (!sourceUseSettled) return;
+    await settleWorkspaceCleanups([
+      () => rm(repositoryRoot, { recursive: true, force: true }),
+      () => rm(artifactRoot, { recursive: true, force: true })
     ]);
-  }
+  });
 });
 
 test('Bun-target release bundle consumes the exact frozen source and rejects later tracked drift', async () => {
@@ -180,14 +187,17 @@ test('Bun-target release bundle consumes the exact frozen source and rejects lat
   const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-artifact-')).catch(error =>
     settleWorkspaceCallback(async () => { throw error; },
       () => rm(repositoryRoot, { recursive: true, force: true })));
-  try {
+  let sourceUseSettled = true;
+  await settleWorkspaceCallback(async () => {
     await initMinimalBunRepository(repositoryRoot, 'console.log("fixture");\n');
     const expectedCommit = git(repositoryRoot, ['rev-parse', 'HEAD']);
     const expectedTree = git(repositoryRoot, ['rev-parse', `${expectedCommit}^{tree}`]);
     await fs.writeFile(path.join(repositoryRoot, 'local-note.txt'), 'untracked-noise\n');
 
+    sourceUseSettled = false;
     const frozen = await prepareFrozenReleaseSource(repositoryRoot);
-    try {
+    sourceUseSettled = true;
+    await settleWorkspaceCallback(async () => {
       expect(frozen.sourceCommit).toBe(expectedCommit);
       expect(frozen.sourceTree).toBe(expectedTree);
       await expect(fs.readFile(path.join(frozen.root, 'tracked.txt'), 'utf8'))
@@ -196,7 +206,9 @@ test('Bun-target release bundle consumes the exact frozen source and rejects lat
         .rejects.toMatchObject({ code: 'ENOENT' });
       expect(frozen.dependencyLockDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 
+      sourceUseSettled = false;
       await buildFrozenReleaseBundle(frozen, artifactRoot);
+      sourceUseSettled = true;
       const entrypoint = path.join(artifactRoot, 'index.js');
       expect(await fs.readFile(path.join(artifactRoot, '.bun-version'), 'utf8'))
         .toBe(`${Bun.version}\n`);
@@ -215,19 +227,23 @@ test('Bun-target release bundle consumes the exact frozen source and rejects lat
       expect(launched.exitCode).toBe(0);
       expect(launched.stdout.toString('utf8')).toBe('fixture\n');
       expect(launched.stderr.toString('utf8')).toBe('');
-    } finally {
-      await disposeFrozenReleaseSource(frozen);
-    }
+    }, async () => {
+      if (sourceUseSettled) await disposeFrozenReleaseSource(frozen);
+    });
 
     await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'dirty-tracked-builder-surface\n');
+    sourceUseSettled = false;
     await expect(prepareFrozenReleaseSource(repositoryRoot))
       .rejects.toThrow('Release tracked worktree/index differs from captured source commit');
-  } finally {
-    await Promise.all([
-      rm(repositoryRoot, { recursive: true, force: true }),
-      rm(artifactRoot, { recursive: true, force: true })
+    sourceUseSettled = true;
+  }, async () => {
+    // Preserve both roots when builder/installer termination is not proven.
+    if (!sourceUseSettled) return;
+    await settleWorkspaceCleanups([
+      () => rm(repositoryRoot, { recursive: true, force: true }),
+      () => rm(artifactRoot, { recursive: true, force: true })
     ]);
-  }
+  });
 }, 20_000);
 
 test('exact Git source preserves archive-sensitive and binary bytes without replacement-object views', async () => {

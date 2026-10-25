@@ -103,12 +103,16 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
     return settleWorkspaceCallback(async () => { throw error; },
       () => rm(fixtureRoot, { recursive: true, force: true }));
   }
-  try {
+  let executionSettled = true;
+  await settleWorkspaceCallback(async () => {
+    executionSettled = false;
     const initial = await observe(repositoryRoot);
+    executionSettled = true;
     const generationParent = inspectNoFollowDirectoryChain(
       generationParentPath,
       'Knip test generation parent'
     ).target;
+    executionSettled = false;
     const completed = await executeKnipUnusedSymbolProvider({
       ...initial,
       dependencyGeneration,
@@ -117,6 +121,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
     });
     expect(completed.status, JSON.stringify(completed)).toBe('completed');
     if (completed.status !== 'completed') throw new Error('Knip did not complete');
+    executionSettled = true;
     expect(completed.receipt).toMatchObject({
       provider: 'knip',
       settlement: 'completed',
@@ -129,7 +134,10 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       path.join(repositoryRoot, 'src', 'example', 'library.ts'),
       'export const used = 3;\nexport const unused = 4;\n'
     );
+    executionSettled = false;
     const changed = await observe(repositoryRoot);
+    executionSettled = true;
+    executionSettled = false;
     const sourceDrift = await executeKnipUnusedSymbolProvider({
       workspaceSnapshot: initial.workspaceSnapshot,
       model: changed.model,
@@ -142,12 +150,16 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       diagnostic: { reason: 'source-drift' }
     });
     expect('receipt' in sourceDrift).toBeFalse();
+    executionSettled = true;
 
     await writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
       entry: ['src/example/library.ts'],
       project: ['src/**/*.ts']
     }, null, 2)}\n`);
+    executionSettled = false;
     const entrypointDrift = await observe(repositoryRoot);
+    executionSettled = true;
+    executionSettled = false;
     const uncoveredEntrypoint = await executeKnipUnusedSymbolProvider({
       ...entrypointDrift,
       dependencyGeneration,
@@ -159,12 +171,16 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       diagnostic: { reason: 'configuration-unbound' }
     });
     expect('receipt' in uncoveredEntrypoint).toBeFalse();
+    executionSettled = true;
 
     await writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
       entry: ['../outside.ts'],
       project: ['src/**/*.ts']
     }, null, 2)}\n`);
+    executionSettled = false;
     const configless = await observe(repositoryRoot);
+    executionSettled = true;
+    executionSettled = false;
     const configDrift = await executeKnipUnusedSymbolProvider({
       ...configless,
       dependencyGeneration,
@@ -176,7 +192,9 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       diagnostic: { reason: 'configuration-unbound' }
     });
     expect('receipt' in configDrift).toBeFalse();
+    executionSettled = true;
 
+    executionSettled = false;
     const failed = await executeKnipUnusedSymbolProvider({
       ...initial,
       dependencyGeneration,
@@ -190,8 +208,11 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
     });
     expect('receipt' in failed).toBeFalse();
     expect(await readdir(generationParentPath)).toEqual([]);
-  } finally {
+    executionSettled = true;
+  }, async () => {
+    // An unresolved execution is not evidence that the native writer stopped.
+    if (!executionSettled) return;
     await dependencyGeneration.retire();
     await rm(fixtureRoot, { recursive: true, force: true });
-  }
+  });
 }, 90_000);
