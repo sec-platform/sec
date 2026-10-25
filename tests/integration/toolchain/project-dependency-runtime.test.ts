@@ -158,12 +158,13 @@ describe('dependency bridge', () => {
 });
 
 describe('ensureProjectDependencies', () => {
-  test.concurrent('prebound dependency readiness preserves the plan-owned tree without reinstalling', async () => {
+  test.concurrent('prebound readiness preserves the plan-owned tree and rejects package or marker drift without reinstalling', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
       const nodeModulesRoot = path.join(workspaceRoot, 'node_modules');
       const fillerRoot = path.join(nodeModulesRoot, 'synthetic-package');
       const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
+      const yamlManifest = path.join(nodeModulesRoot, 'yaml', 'package.json');
       const runtimeSpec = await loadRuntimeDependencySpec();
       await installRuntimePackageManifestClosure(nodeModulesRoot);
       await fs.mkdir(fillerRoot, { recursive: true });
@@ -202,25 +203,17 @@ describe('ensureProjectDependencies', () => {
       expect(installCalls).toBe(0);
       expect({ dev: afterRoot.dev, ino: afterRoot.ino }).toEqual({ dev: beforeRoot.dev, ino: beforeRoot.ino });
       expect({ dev: afterSample.dev, ino: afterSample.ino }).toEqual({ dev: beforeSample.dev, ino: beforeSample.ino });
-    }, 'engineering-compiler-runtime-prebound-preservation-');
-  });
 
-  test.concurrent('prebound dependency readiness rejects incomplete or forged package closure', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      await ensureProjectBase(workspaceRoot);
-      const nodeModulesRoot = path.join(workspaceRoot, 'node_modules');
-      const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
-      const yamlManifest = path.join(nodeModulesRoot, 'yaml', 'package.json');
-      const runtimeSpec = await loadRuntimeDependencySpec();
-      await installRuntimePackageManifestClosure(nodeModulesRoot);
-      await fs.writeFile(bindingPath, `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`, 'utf8');
-
+      const originalYamlBytes = await fs.readFile(yamlManifest);
+      const originalYaml = JSON.parse(originalYamlBytes.toString('utf8')) as { version: string };
       await fs.rm(yamlManifest);
       await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' })).rejects.toThrow(
         'Plan-bound dependency tree is unavailable'
       );
 
-      await fs.writeFile(yamlManifest, '{"name":"forged-yaml","version":"0.0.0"}\n', 'utf8');
+      await fs.writeFile(yamlManifest, `${JSON.stringify({
+        name: 'forged-yaml', version: originalYaml.version
+      })}\n`, 'utf8');
       await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' })).rejects.toThrow(
         'Plan-bound dependency tree is unavailable'
       );
@@ -229,17 +222,10 @@ describe('ensureProjectDependencies', () => {
       await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' })).rejects.toThrow(
         'Plan-bound dependency tree is unavailable'
       );
-    }, 'engineering-compiler-runtime-prebound-package-closure-');
-  });
 
-  test.concurrent('prebound dependency readiness rejects stale markers without mutation or spawn', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      await ensureProjectBase(workspaceRoot);
-      const nodeModulesRoot = path.join(workspaceRoot, 'node_modules');
-      const yamlPackageFile = path.join(nodeModulesRoot, 'yaml', 'package.json');
-      const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
-      await fs.mkdir(path.dirname(yamlPackageFile), { recursive: true });
-      await fs.writeFile(yamlPackageFile, '{"name":"yaml","version":"0.0.0"}\n', 'utf8');
+      // Restore the already-admitted package closure before testing its marker;
+      // a missing package must not make a broken marker guard look effective.
+      await fs.writeFile(yamlManifest, originalYamlBytes);
       await fs.writeFile(
         bindingPath,
         JSON.stringify({
@@ -249,9 +235,8 @@ describe('ensureProjectDependencies', () => {
         }),
         'utf8'
       );
-      const before = await fs.stat(yamlPackageFile);
-      const beforeBytes = await fs.readFile(yamlPackageFile);
-      let installCalls = 0;
+      const before = await fs.stat(yamlManifest);
+      const beforeBytes = await fs.readFile(yamlManifest);
 
       await expect(
         ensureProjectDependencies(workspaceRoot, {
@@ -278,11 +263,11 @@ describe('ensureProjectDependencies', () => {
         })
       ).rejects.toThrow('Plan-bound dependency tree is unavailable');
 
-      const after = await fs.stat(yamlPackageFile);
+      const after = await fs.stat(yamlManifest);
       expect(installCalls).toBe(0);
       expect({ dev: after.dev, ino: after.ino }).toEqual({ dev: before.dev, ino: before.ino });
-      expect(await fs.readFile(yamlPackageFile)).toEqual(beforeBytes);
-    }, 'engineering-compiler-runtime-prebound-stale-');
+      expect(await fs.readFile(yamlManifest)).toEqual(beforeBytes);
+    }, 'engineering-compiler-runtime-prebound-preservation-');
   });
 
   test('bridges one authenticated compiler generation without creating shared deps or reinstalling', async () => {
