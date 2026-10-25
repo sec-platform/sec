@@ -6,14 +6,22 @@ import path from 'node:path';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { assertRuntimeDependencySourceGenerationIssued, runtimeDependencySourceGeneration } from '../../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import { generatedStateDigest } from "../../../src/execution/generated-state/contract.ts";
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 
 // In repository execution these retain the real source compiler and physical
 // owner. The standalone local replay substitutes only the declared physical,
 // generation-digest and transition-identity boundaries; it is not native IO evidence.
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-source-invocation-'));
-  for (const name of ['a','b']) { mkdirSync(path.join(root, name)); writeFileSync(path.join(root,name,'value'), name); }
-  return { root, options: runtimeDependencyOperationControls({ lockTimeoutMs: 20_000 }) };
+  try {
+    for (const name of ['a','b']) { mkdirSync(path.join(root, name)); writeFileSync(path.join(root,name,'value'), name); }
+    return { root, options: runtimeDependencyOperationControls({ lockTimeoutMs: 20_000 }) };
+  } catch (error) {
+    settleResources({ primary: { label: 'source-generation-fixture-construction', error },
+      cleanup: [{ label: 'source-generation-fixture-root',
+        settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 function input(f: ReturnType<typeof fixture>) { return { ownerRoot: f.root, sourcePath: path.join(f.root,'a'), binding: { selected:'a' }, options:f.options }; }
 
