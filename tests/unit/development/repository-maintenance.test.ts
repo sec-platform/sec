@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 import { appendFileSync, closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { isRepositoryMaintenancePermission } from '../../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
 import { readLinuxRetainedFile } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
 import { parseExactRefRetirement } from '../../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
@@ -248,14 +250,26 @@ test('v4 reviews belong only to immutable v2 plans; legacy comments remain reada
 test('the physical bounded reader rejects growth after its initial size observation', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'maintenance-input-growth-'));
   const file = path.join(root, 'request.json');
-  writeFileSync(file, '{}');
-  const fd = openSync(file, 'r');
+  let fd: number | undefined;
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    writeFileSync(file, '{}');
+    fd = openSync(file, 'r');
     let observations = 0;
-    expect(() => readLinuxRetainedFile(fd, 'maintenance request growth fixture', 8, () => {
+    expect(() => readLinuxRetainedFile(fd!, 'maintenance request growth fixture', 8, () => {
       observations += 1;
       if (observations === 2) appendFileSync(file, ' '.repeat(9));
     })).toThrow('bounded no-follow read size');
     expect(observations).toBeGreaterThanOrEqual(2);
-  } finally { closeSync(fd); rmSync(root, { recursive: true, force: true }); }
+  } catch (error) {
+    primary = { label: 'maintenance-input-growth', error };
+  } finally {
+    settleResources({
+      primary,
+      cleanup: [
+        { label: 'maintenance-input-descriptor', settle: () => { if (fd !== undefined) closeSync(fd); } },
+        { label: 'maintenance-input-root', settle: () => rmSync(root, { recursive: true, force: true }) }
+      ]
+    });
+  }
 });

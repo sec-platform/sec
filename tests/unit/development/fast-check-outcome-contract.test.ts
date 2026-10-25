@@ -1,5 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { executeFastCheckStages, type FastCheckStages } from '../../../src/adapters/self-hosting/development/runner/fast-check-stages.ts';
 
 function fixture(overrides: Partial<FastCheckStages> = {}) {
@@ -100,16 +101,16 @@ test('mixed failures wait for the still-running peer before leaving the operatio
       }
       return true;
     });
-    try {
+    await settleWorkspaceCallback(async () => {
       await started;
       await new Promise<void>(resolve => setImmediate(resolve));
       assert.equal(settled, false, `peer exit code: ${peerExitCode}`);
-    } finally {
+    }, async () => {
       // A failed intermediate assertion must not leave already-started work
       // or the selected failure observation detached from this test.
       release();
       await checked;
-    }
+    });
     assert.equal(events.includes('tests'), false, `peer exit code: ${peerExitCode}`);
   }
 });

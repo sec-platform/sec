@@ -24,6 +24,7 @@ import {
   TEST_WORKSPACE_RUN_CHILD_ENV,
   testWorkspaceCleanupModeForPlatform
 } from '../../../src/adapters/self-hosting/development/runner/env-manager.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { compilerRoot, getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 
 const isolatedTestWorkspaceEnvironment = {
@@ -116,30 +117,30 @@ test('run-owned workspace namespaces bind but never reuse the caller scope', () 
 test('issuer projection is exact while a non-snapshot consumer rejects caller-selected roots', async () => {
   const namespace = `gate-owned-parent-${process.pid}`;
   const repositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-env-manager-issuer-'));
-  const executionSnapshotRoot = path.join(
-    repositoryRoot,
-    '.tmp',
-    'gate-execution-snapshots',
-    namespace
-  );
-  const supervisorLease = createTestWorkspaceSupervisorLease({
-    namespace,
-    runId: 'env-manager-test',
-    repositoryRoot,
-    executionSnapshotRoot,
-    issuerProcessId: process.ppid,
-    nonce: 'f'.repeat(64)
-  });
-  const supervisorLeasePath = path.join(
-    repositoryRoot,
-    '.tmp',
-    'test-workspaces',
-    '.gate-supervisor-leases',
-    `${namespace}.lock`
-  );
-  await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
-  await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
-  try {
+  await settleWorkspaceCallback(async () => {
+    const executionSnapshotRoot = path.join(
+      repositoryRoot,
+      '.tmp',
+      'gate-execution-snapshots',
+      namespace
+    );
+    const supervisorLease = createTestWorkspaceSupervisorLease({
+      namespace,
+      runId: 'env-manager-test',
+      repositoryRoot,
+      executionSnapshotRoot,
+      issuerProcessId: process.ppid,
+      nonce: 'f'.repeat(64)
+    });
+    const supervisorLeasePath = path.join(
+      repositoryRoot,
+      '.tmp',
+      'test-workspaces',
+      '.gate-supervisor-leases',
+      `${namespace}.lock`
+    );
+    await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
+    await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
     const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjection(
       supervisorLeasePath,
       supervisorLease.namespace,
@@ -164,19 +165,18 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
       assignment.name
     )).toThrow('Gate execution snapshot binding is invalid');
     const foreignRoot = await fs.mkdtemp(path.join(tmpdir(), 'cross-worktree-lease-'));
-    const foreignPath = path.join(
-      foreignRoot,
-      '.gate-supervisor-leases',
-      `${namespace}.lock`
-    );
-    await fs.mkdir(path.dirname(foreignPath), { recursive: true });
-    await fs.writeFile(foreignPath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
-    expect(() => bindTestWorkspaceSupervisorLease(foreignPath, namespace))
-      .toThrow('Gate execution snapshot binding is invalid');
-    await fs.rm(foreignRoot, { recursive: true, force: true });
-  } finally {
-    await fs.rm(repositoryRoot, { recursive: true, force: true });
-  }
+    await settleWorkspaceCallback(async () => {
+      const foreignPath = path.join(
+        foreignRoot,
+        '.gate-supervisor-leases',
+        `${namespace}.lock`
+      );
+      await fs.mkdir(path.dirname(foreignPath), { recursive: true });
+      await fs.writeFile(foreignPath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
+      expect(() => bindTestWorkspaceSupervisorLease(foreignPath, namespace))
+        .toThrow('Gate execution snapshot binding is invalid');
+    }, () => fs.rm(foreignRoot, { recursive: true, force: true }));
+  }, () => fs.rm(repositoryRoot, { recursive: true, force: true }));
 });
 
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('a real execution-snapshot consumer must spend the live supervisor challenge exactly once', async () => {

@@ -5,6 +5,7 @@ import { afterEach, beforeAll, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { compileOperationDemandGraph } from '../../../src/adapters/self-hosting/control/operation/demand.ts';
 import {
   affectedTestPlanExitCode,
@@ -79,6 +80,7 @@ let bootstrapIdentitySequence = 0;
 function createBootstrapIdentityRoot(): string {
   bootstrapIdentitySequence += 1;
   const root = fs.mkdtempSync(path.join(tmpdir(), 'sec-dependency-bootstrap-action-'));
+  temporaryBootstrapRoots.push(root);
   fs.writeFileSync(path.join(root, '.bun-version'), `${process.versions.bun}\n`, 'utf8');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
     packageManager: `bun@${process.versions.bun}`
@@ -88,7 +90,6 @@ function createBootstrapIdentityRoot(): string {
     `lockfileVersion = 1\n# identity ${bootstrapIdentitySequence}\n`,
     'utf8'
   );
-  temporaryBootstrapRoots.push(root);
   return root;
 }
 
@@ -99,9 +100,12 @@ function isolatedBootstrapOptions<T extends Record<string, unknown>>(options: T)
 }
 
 afterEach(() => {
-  for (const root of temporaryBootstrapRoots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  settleResources({
+    cleanup: temporaryBootstrapRoots.splice(0).map(root => ({
+      label: root,
+      settle: () => fs.rmSync(root, { recursive: true, force: true })
+    }))
+  });
 });
 
 test('dependency runtime projection owns config presence and executable identity', async () => {
