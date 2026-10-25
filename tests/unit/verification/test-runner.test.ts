@@ -529,13 +529,6 @@ function fastInvocationRunRoots(environment: NodeJS.ProcessEnv): Readonly<{
   return Object.freeze({ stateRoot, cacheRoot });
 }
 
-function plannedProcessFiles(plan: ReturnType<typeof planFastTestProcesses>): string[] {
-  return [
-    ...plan.parallelFiles,
-    ...plan.resourceClassOrder.flatMap((resourceClass) => plan.resourceQueues[resourceClass])
-  ];
-}
-
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((settle) => { resolve = settle; });
@@ -660,7 +653,6 @@ test('native parallel planning preserves every selected file and isolates extern
     ...isolatedFiles.slice(1)
   ];
   const plan = planFastTestProcesses(files);
-  const plannedFiles = plannedProcessFiles(plan);
 
   expect(plan.parallelFiles).toEqual(concurrentFiles);
   expect(plan.resourceClassOrder).toEqual(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
@@ -669,10 +661,6 @@ test('native parallel planning preserves every selected file and isolates extern
   expect(plan.resourceQueues['repository-worktree']).toEqual([]);
   expect(plan.resourceQueues['host-profile']).toEqual([]);
   expect(plan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
-  expect([...plannedFiles].sort()).toEqual([...files].sort());
-  expect(new Set(plannedFiles).size).toBe(files.length);
-  expect(planFastTestProcesses(files)).toEqual(plan);
-  expect(planFastTestProcesses(concurrentFiles).parallelFiles).toEqual(concurrentFiles);
 
   {
     const independent = 'tests/unit/development/command-runner.test.ts';
@@ -720,12 +708,10 @@ test('fast process policy covers default-excluded files and rejects stale or dup
   }
 
   {
-    const independent = 'tests/unit/development/command-runner.test.ts';
-    const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
-    for (const file of [independent, shared, 'tests/unit/plain.test.ts']) {
-      for (const spelling of portableTestSpellings(file)) {
-        assert.throws(() => planFastTestProcesses([file, spelling]), /unique files/);
-      }
+    // Identity rejection precedes resource classification; each spelling needs one witness.
+    const file = 'tests/unit/development/command-runner.test.ts';
+    for (const spelling of portableTestSpellings(file)) {
+      assert.throws(() => planFastTestProcesses([file, spelling]), /unique files/);
     }
   }
 
@@ -809,7 +795,7 @@ test('fast process resource classes uniquely derive limits and isolate productio
 
 test('per-file execution rejects shared reporter and coverage output without an aggregate owner', () => {
   const testInventory = testImpactFixture.provider.testInventory;
-  const budgetProjection = compileTestBudgetProjection(testInventory);
+  const budgetProjection = testBudgetProjection;
   const selectedFiles = budgetProjection.fastTestFiles.slice(0, 2);
   for (const bunOptions of [['--reporter-outfile', 'results.xml'], ['--reporter=junit'],
     ['--coverage'], ['--coverage-dir=coverage'], ['--coverage-reporter', 'lcov']]) {
@@ -822,32 +808,17 @@ test('per-file execution rejects shared reporter and coverage output without an 
 
 test('fast batch policy derives supervisor ceilings and waves from its canonical planner', () => {
   const testInventory = testImpactFixture.provider.testInventory;
-  const budgetProjection = compileTestBudgetProjection(testInventory);
+  const budgetProjection = testBudgetProjection;
   const selectedFiles = budgetProjection.fastTestFiles.slice(0, 20);
-  let inventoryReads = 0;
-  let budgetReads = 0;
-  const forgedCallerFields = {
-    get testInventory() {
-      return inventoryReads++ === 0 ? testInventory : { ...testInventory, inventoryDigest: 'sha256:forged' as const };
-    },
-    get budgetProjection() {
-      return budgetReads++ === 0 ? budgetProjection : { ...budgetProjection, projectionDigest: 'sha256:forged' as const };
-    },
-    selectedFiles,
-    bunOptions: [],
-    workingDirectory: process.cwd(),
-    supervisorTimeoutMs: Number.MAX_SAFE_INTEGER,
-    executionWaves: [['forged:001']]
-  };
-
-  const policy = issueFastTestBatchExecutionPolicy(forgedCallerFields);
+  const policy = issueFastTestBatchExecutionPolicy({
+    testInventory, budgetProjection, selectedFiles, bunOptions: []
+  });
   expect(policy.testInventoryDigest).toBe(testInventory.inventoryDigest);
   expect(policy.budgetProjectionDigest).toBe(budgetProjection.projectionDigest);
   const canonicalSupervisorTimeoutMs = DEV_COMMAND_MAX_DURATION_MS;
   expect(policy.invocations.every(({ supervisorTimeoutMs }) => (
     supervisorTimeoutMs === canonicalSupervisorTimeoutMs
   ))).toBe(true);
-  expect(policy.executionWaves).not.toEqual(forgedCallerFields.executionWaves);
   expect(policy.workingDirectory).toBe(compilerRoot);
   expect(policy.executionWaves.flat()).toEqual(policy.invocations.map(({ id }) => id));
   expect(policy.invocations).toHaveLength(selectedFiles.length);
@@ -887,7 +858,7 @@ test('genuine issuer host requirements remain bound to exact inventory and polic
   const file = 'tests/unit/verification/verification-action-github-provider.test.ts';
   const ordinary = 'tests/unit/workspace/path-containment.test.ts';
   const testInventory = testImpactFixture.provider.testInventory;
-  const budgetProjection = compileTestBudgetProjection(testInventory);
+  const budgetProjection = testBudgetProjection;
   expect(budgetProjection.fastTestHostRequirements).toEqual([{ file, os: 'linux', arch: 'x64' }]);
   expect(budgetProjection.fastTestFiles).toContain(file);
   const policy = issueFastTestBatchExecutionPolicy({

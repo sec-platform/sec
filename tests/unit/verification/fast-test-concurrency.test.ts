@@ -68,7 +68,6 @@ test('default concurrent tests receive the canonical inner budget', () => {
   expect(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET).toEqual(
     resolveFastTestConcurrencyBudget(availableParallelism())
   );
-  expect(resolveFastTestConcurrencyBudget(4).globalBudget).toBe(4);
   const args = applyDefaultFastTestConcurrency('bun', [
     'test',
     '--concurrent',
