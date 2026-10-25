@@ -27,7 +27,6 @@ import {
 } from '../../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../../..');
-const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
 
 interface SkillFrontmatter {
   description?: unknown;
@@ -56,7 +55,7 @@ function trackedRepositoryFiles(): string[] {
   return result.stdout.split('\0').filter(Boolean).sort();
 }
 
-test('SEC skill inventory conforms to one strict AgentOperation contract', async () => {
+test('tracked Skill and Markdown inventories preserve strict metadata, exact-source governance and document coverage', async () => {
   const tracked = trackedRepositoryFiles();
   const skillFiles = tracked.filter((file) => /^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file));
   expect(skillFiles).toEqual(
@@ -65,7 +64,8 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
 
   const descriptions = new Set<string>();
   for (const skillId of AGENT_SKILL_IDS) {
-    const source = await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8');
+    const repositoryPath = `.agents/skills/${skillId}/SKILL.md`;
+    const source = await readFile(path.join(REPOSITORY_ROOT, repositoryPath), 'utf8');
     const { body, frontmatter } = parseSkill(source);
     expect(Object.keys(frontmatter).sort()).toEqual(['description', 'name']);
     expect(frontmatter.name).toBe(skillId);
@@ -75,40 +75,13 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
     expect(descriptions.has(frontmatter.description as string)).toBe(false);
     descriptions.add(frontmatter.description as string);
     expect(body.match(/^#\s+/gmu)).toHaveLength(1);
-  }
-});
-
-test('every exact Skill source passes the production blocking governance projection', async () => {
-  for (const skillId of AGENT_SKILL_IDS) {
-    const repositoryPath = `.agents/skills/${skillId}/SKILL.md`;
-    const source = await readFile(path.join(REPOSITORY_ROOT, repositoryPath), 'utf8');
     const projection = projectRepositorySourceGovernance(repositoryPath, source);
     expect(projection.blockingFindings).toEqual([]);
     for (const candidate of projection.candidates) {
       expect(candidate.skills).toEqual([skillId]);
     }
   }
-});
 
-test('heuristic registry maps each irreducible behavior to exactly one Skill', () => {
-  const routes = REPOSITORY_HEURISTIC_BEHAVIOR_IDS.map(
-    resolveRepositoryHeuristicRoute
-  );
-  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(AGENT_SKILL_IDS));
-  expect(REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(AGENT_SKILL_IDS.length);
-  expect(resolveRepositoryHeuristicRoute('task-delegation')).toEqual({
-    kind: 'skill',
-    owner: 'task-delegation',
-    authorityRef: '.agents/skills/task-delegation/SKILL.md'
-  });
-  for (const route of routes) {
-    expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
-    expect('operation' in route).toBeFalse();
-  }
-});
-
-test('all tracked Markdown is explicitly classified and current document identities have coverage', async () => {
-  const tracked = trackedRepositoryFiles();
   const registry = parseDocumentationIdentityRegistry(
     await readFile(path.join(REPOSITORY_ROOT, '.documentation/documents.json'), 'utf8')
   );
@@ -134,6 +107,23 @@ test('all tracked Markdown is explicitly classified and current document identit
     kind: 'repository-content',
     skills: []
   });
+});
+
+test('heuristic registry maps each irreducible behavior to exactly one Skill', () => {
+  const routes = REPOSITORY_HEURISTIC_BEHAVIOR_IDS.map(
+    resolveRepositoryHeuristicRoute
+  );
+  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(AGENT_SKILL_IDS));
+  expect(REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(AGENT_SKILL_IDS.length);
+  expect(resolveRepositoryHeuristicRoute('task-delegation')).toEqual({
+    kind: 'skill',
+    owner: 'task-delegation',
+    authorityRef: '.agents/skills/task-delegation/SKILL.md'
+  });
+  for (const route of routes) {
+    expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
+    expect('operation' in route).toBeFalse();
+  }
 });
 
 test('Markdown source categories preserve content, navigation, control and unknown boundaries', () => {

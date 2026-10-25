@@ -131,6 +131,15 @@ async function withLedgerFixture(
 }
 
 async function writeFixture(root: string, state: FixtureState): Promise<void> {
+  await writeFile(
+    path.join(root, 'config/external-capabilities/ledger.yaml'),
+    stringifyYaml(state.external),
+    'utf8'
+  );
+  // Only the Windows host-command provider consumes this physical spec. Other
+  // ledger cases keep their real YAML input without preparing unused resources.
+  if (!(state.external.providers as Array<Record<string, unknown>>)
+    .some((entry) => entry.capability === 'host-command-execution')) return;
   const specPath = path.join(root, ...WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH.split('/'));
   await mkdir(path.dirname(specPath), { recursive: true });
   const canonicalSpecSource = await readFile(
@@ -138,14 +147,7 @@ async function writeFixture(root: string, state: FixtureState): Promise<void> {
     'utf8'
   );
   await rm(specPath, { recursive: true, force: true });
-  await Promise.all([
-    writeFile(
-      path.join(root, 'config/external-capabilities/ledger.yaml'),
-      stringifyYaml(state.external),
-      'utf8'
-    ),
-    writeFile(specPath, canonicalSpecSource, 'utf8')
-  ]);
+  await writeFile(specPath, canonicalSpecSource, 'utf8');
 }
 
 function machineErrors(issues: CapabilityLedgerIssue[]): CapabilityLedgerIssue[] {
