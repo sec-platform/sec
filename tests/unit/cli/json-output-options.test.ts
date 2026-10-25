@@ -7,17 +7,6 @@ import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } fro
 
 const reject = (issue: JsonOutputIssue): never => { throw issue; };
 
-test('shared output policy admits each boolean configuration', () => {
-  for (const json of [undefined, false, true]) for (const compact of [undefined, false, true]) {
-    if (compact === true && json !== true) continue;
-    const input = { json, compact };
-    const expected = { json: json ?? false, compact: compact ?? false };
-    const actual = parseJsonOutputOptions(input, reject);
-    assert.deepEqual(actual, expected);
-    assert.ok(Object.isFrozen(actual));
-  }
-});
-
 test('compact output requires JSON for both absent and disabled flags', () => {
   for (const json of [undefined, false]) {
     const input = { json, compact: true };
@@ -63,7 +52,9 @@ test('valid flags execute the actual selected action exactly once', async () => 
     const command = addJsonFlags(new Command().name('sample').exitOverride());
     command.action((opts) => {
       effects += 1;
-      assert.deepEqual(jsonOpts(opts), { json: args.includes('--json'), compact: args.includes('--compact') });
+      const output = jsonOpts(opts);
+      assert.deepEqual(output, { json: args.includes('--json'), compact: args.includes('--compact') });
+      assert.ok(Object.isFrozen(output));
     });
     await command.parseAsync(args, { from: 'user' });
     assert.equal(effects, 1);

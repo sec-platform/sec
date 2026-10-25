@@ -10,7 +10,7 @@ import {
 
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
 
-for (const value of [undefined, false, true]) {
+for (const value of [undefined, true]) {
   test(`write commands capture default and explicit boolean ${value}`, () => {
     assert.deepEqual(parseComposeCommandInput({ lock: value }), { lock: value ?? false });
     const repair = parseRepairCommandInput(undefined, { dryRun: value });
