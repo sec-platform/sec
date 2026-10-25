@@ -1,3 +1,5 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { chmod, lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -72,17 +74,20 @@ for (const operation of operations) {
   test(`${operation.name} binds its workspace before the first suspension`, async () => {
     const cwd = process.cwd();
     const baseline = await mkdtemp(path.join(tmpdir(), 'sec-root-baseline-'));
-    const target = await mkdtemp(path.join(tmpdir(), 'sec-root-target-'));
-    const decoy = await mkdtemp(path.join(tmpdir(), 'sec-root-decoy-'));
-    const observe = async (pending: Promise<unknown>, root: string) => {
-      try { const value = await pending; return { status: 'returned', ...(operation.name === 'inventory' ? { value } : {}) }; }
-      catch (error) {
-        const failure = error as Error & { code?: string };
-        return { status: 'rejected', name: failure.name, code: failure.code,
-          message: failure.message.split(root).join('<workspace>') };
-      }
-    };
-    try {
+    const roots = [baseline];
+    await settleWorkspaceCallback(async () => {
+      const target = await mkdtemp(path.join(tmpdir(), 'sec-root-target-'));
+      roots.push(target);
+      const decoy = await mkdtemp(path.join(tmpdir(), 'sec-root-decoy-'));
+      roots.push(decoy);
+      const observe = async (pending: Promise<unknown>, root: string) => {
+        try { const value = await pending; return { status: 'returned', ...(operation.name === 'inventory' ? { value } : {}) }; }
+        catch (error) {
+          const failure = error as Error & { code?: string };
+          return { status: 'rejected', name: failure.name, code: failure.code,
+            message: failure.message.split(root).join('<workspace>') };
+        }
+      };
       if (!operation.fresh) {
         const template = await rootCaptureTemplate();
         for (const root of [baseline, target]) {
@@ -96,8 +101,11 @@ for (const operation of operations) {
       }
       const expected = await observe(operation.run(baseline), baseline);
       const pending = operation.run(path.relative(cwd, target));
-      process.chdir(decoy);
-      const actual = await observe(pending, target);
+      const observed = observe(pending, target);
+      const actual = await settleWorkspaceCallback(async () => {
+        process.chdir(decoy);
+        return await observed;
+      }, async () => { await observed; });
       expect(actual).toEqual(expected);
       expect(await readdir(decoy)).toEqual([]);
       if (['init', 'resolve', 'engineering input'].includes(operation.name)) {
@@ -105,10 +113,12 @@ for (const operation of operations) {
           throw new Error(`Expected successful ${operation.name} root capture: ${JSON.stringify(actual)}`);
         }
       }
-    } finally {
-      process.chdir(cwd);
-      await Promise.all([baseline, target, decoy].map(root => rm(root, { recursive: true, force: true })));
-    }
+    }, async () => {
+      await settleResourcesAsync({ cleanup: [
+        { label: 'original cwd', settle: () => process.chdir(cwd) },
+        ...roots.map(root => ({ label: root, settle: () => rm(root, { recursive: true, force: true }) }))
+      ] });
+    });
   // Real resolve includes two temporary-project typechecks. Use the existing
   // execution budget; a Bun timeout would otherwise let cwd cleanup overlap.
   }, operation.name === 'resolve' ? DEFAULT_TEST_TIMEOUT_MS : undefined);

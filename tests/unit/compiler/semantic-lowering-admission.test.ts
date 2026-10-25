@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
@@ -39,8 +40,10 @@ function context(tasks: StateTransitionMapGeneratorPlanTask[]): PipelineSemantic
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-lowering-admission-'));
-  mkdirSync(path.join(root, 'src'));
-  try { await run(root); } finally { rmSync(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(async () => {
+    mkdirSync(path.join(root, 'src'));
+    await run(root);
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
 }
 
 for (const targets of [['src/a.ts', 'src/a.ts'], ['src/a.ts', 'src/A.ts'], ['src/a', 'src/a/child.ts'], ['src/a/child.ts', 'src/a']]) {

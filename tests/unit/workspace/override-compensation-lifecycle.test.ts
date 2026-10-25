@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -11,21 +12,27 @@ import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 // conditional publishers. These require the supported repository Bun/host profile.
 async function fixture(ids: readonly string[], conflicts: Readonly<Record<string, readonly string[]>> = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-override-compensation-'));
-  const overrides = getWorkspacePaths(root).overridesRoot;
-  const target = (id: string) => path.join(root, 'src', `${id}.ts`);
-  await mkdir(path.join(overrides, 'patches'), { recursive: true });
-  await mkdir(path.join(root, 'src'), { recursive: true });
-  await writeFile(path.join(overrides, 'override-manifest.yaml'), [
-    'overrides:', ...ids.flatMap(id => [
-      `  - id: ${id}`, `    entry: patches/${id}.ts`, `    target: src/${id}.ts`,
-      '    reason: compensation regression', '    source: manual', `    conflictsWith: ${JSON.stringify(conflicts[id] ?? [])}`
-    ]), ''
-  ].join('\n'));
-  for (const id of ids) {
-    await writeFile(path.join(overrides, 'patches', `${id}.ts`), `new-${id}`);
-    await writeFile(target(id), `old-${id}`);
+  try {
+    const overrides = getWorkspacePaths(root).overridesRoot;
+    const target = (id: string) => path.join(root, 'src', `${id}.ts`);
+    await mkdir(path.join(overrides, 'patches'), { recursive: true });
+    await mkdir(path.join(root, 'src'), { recursive: true });
+    await writeFile(path.join(overrides, 'override-manifest.yaml'), [
+      'overrides:', ...ids.flatMap(id => [
+        `  - id: ${id}`, `    entry: patches/${id}.ts`, `    target: src/${id}.ts`,
+        '    reason: compensation regression', '    source: manual', `    conflictsWith: ${JSON.stringify(conflicts[id] ?? [])}`
+      ]), ''
+    ].join('\n'));
+    for (const id of ids) {
+      await writeFile(path.join(overrides, 'patches', `${id}.ts`), `new-${id}`);
+      await writeFile(target(id), `old-${id}`);
+    }
+    return { root, target };
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'workspace fixture construction', error },
+      cleanup: [{ label: 'workspace fixture root', settle: () => rm(root, { recursive: true, force: true }) }] });
+    throw error;
   }
-  return { root, target };
 }
 
 test('one local conflict edge in either direction refuses the entire Override batch before effects', async () => {

@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,14 +12,19 @@ import { TemplateEngine } from '../../../src/adapters/compilation/compose/templa
 const lock = () => ({ resolvedBlocks: [] } as never);
 async function fixture(run: (root: string, target: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-scaffold-'));
-  const target = path.join(root, 'src/runtime/store.ts'); mkdirSync(path.dirname(target), { recursive: true });
-  // The unrelated empty fast inventory is already materialized; these cases
-  // isolate the store's publication and no-op preconditions.
-  mkdirSync(path.join(root, 'tests'), { recursive: true });
-  writeFileSync(path.join(root, 'tests/fast.test.ts'), "import { test } from 'node:test';\ntest.skip('no installed fast suites', () => {});\n");
   const render = TemplateEngine.render;
-  TemplateEngine.render = () => 'generated';
-  try { await run(root, target); } finally { TemplateEngine.render = render; rmSync(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(async () => {
+    const target = path.join(root, 'src/runtime/store.ts'); mkdirSync(path.dirname(target), { recursive: true });
+    // The unrelated empty fast inventory is already materialized; these cases
+    // isolate the store's publication and no-op preconditions.
+    mkdirSync(path.join(root, 'tests'), { recursive: true });
+    writeFileSync(path.join(root, 'tests/fast.test.ts'), "import { test } from 'node:test';\ntest.skip('no installed fast suites', () => {});\n");
+    TemplateEngine.render = () => 'generated';
+    await run(root, target);
+  }, async () => {
+    TemplateEngine.render = render;
+    rmSync(root, { recursive: true, force: true });
+  });
 }
 
 test('scaffold re-observes target preimages while preserving cancellation, root capture and no-op admission', async () => fixture(async (root, target) => {

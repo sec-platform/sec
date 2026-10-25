@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -8,9 +9,15 @@ import { assertProjectBaseline, getProjectBaselinePath, readProjectBaseline, wri
 // Native retained IO integration: run on a repository-supported Bun/host profile.
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-baseline-publication-'));
-  await mkdir(path.join(root, 'src'));
-  await writeFile(path.join(root, 'src/a.txt'), 'original');
-  return { root, paths: { artifactPaths: ['src/a.txt'] }, target: path.join(root, 'src/a.txt') };
+  try {
+    await mkdir(path.join(root, 'src'));
+    await writeFile(path.join(root, 'src/a.txt'), 'original');
+    return { root, paths: { artifactPaths: ['src/a.txt'] }, target: path.join(root, 'src/a.txt') };
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'workspace fixture construction', error },
+      cleanup: [{ label: 'workspace fixture root', settle: () => rm(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 test('a changed artifact at the publication fence cannot create a stale baseline', async () => {

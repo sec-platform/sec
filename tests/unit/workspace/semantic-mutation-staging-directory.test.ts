@@ -1,3 +1,5 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -72,9 +74,10 @@ test.skipIf(process.platform !== 'linux')(
   'journal directory allocation never follows a substituted namespace ancestor',
   async () => {
     const f = fixture();
-    const outside = mkdtempSync(path.join(os.tmpdir(), 'sec-journal-outside-'));
-    const requestIdentityDigest = `sha256:${path.basename(f.transactionRoot)}`;
-    try {
+    let outside: string | undefined;
+    await settleWorkspaceCallback(async () => {
+      outside = mkdtempSync(path.join(os.tmpdir(), 'sec-journal-outside-'));
+      const requestIdentityDigest = `sha256:${path.basename(f.transactionRoot)}`;
       mkdirSync(path.join(f.workspace, '.sec'));
       symlinkSync(outside, path.join(f.workspace, '.sec', 'semantic-mutation'));
       await expect(createSemanticMutationRecoveryRecordsDirectory(
@@ -88,10 +91,12 @@ test.skipIf(process.platform !== 'linux')(
         fence
       )).rejects.toThrow();
       expect(readdirSync(outside)).toEqual([]);
-    } finally {
-      cleanup(f);
-      rmSync(outside, { recursive: true, force: true });
-    }
+    }, async () => {
+      settleResources({ cleanup: [
+        { label: 'staging fixture root', settle: () => cleanup(f) },
+        { label: 'external fixture root', settle: () => { if (outside !== undefined) rmSync(outside, { recursive: true, force: true }); } }
+      ] });
+    });
   }
 );
 

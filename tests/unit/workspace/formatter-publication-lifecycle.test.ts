@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { mock, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,15 +13,18 @@ const formatter = {
 mock.module('prettier', () => ({ default: formatter }));
 const { formatOutputFiles } = await import('../../../src/adapters/compilation/compose/format-output-files.ts');
 async function fixture(format: Format, run: (root: string) => Promise<void>, resolve?: Resolve) {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-formatter-lifecycle-')); mkdirSync(path.join(root, 'src'));
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-formatter-lifecycle-'));
   const beforeFormat = formatter.format;
   const beforeResolve = formatter.resolveConfig;
-  formatter.format = format;
-  formatter.resolveConfig = resolve ?? (async () => ({}));
-  try { await run(root); } finally {
+  await settleWorkspaceCallback(async () => {
+    mkdirSync(path.join(root, 'src'));
+    formatter.format = format;
+    formatter.resolveConfig = resolve ?? (async () => ({}));
+    await run(root);
+  }, async () => {
     formatter.format = beforeFormat; formatter.resolveConfig = beforeResolve;
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 }
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; }
 

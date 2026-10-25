@@ -1,3 +1,5 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,22 +13,27 @@ import { installPrivateBannerBlock } from '../../helpers/private-registry-fixtur
 test('real block addition keeps its admitted root when cwd changes during lease acquisition', async () => {
   const originalCwd = process.cwd();
   const root = await mkdtemp(path.join(tmpdir(), 'sec-add-block-'));
-  const elsewhere = await mkdtemp(path.join(tmpdir(), 'sec-add-decoy-'));
-  try {
+  const roots = [root];
+  await settleWorkspaceCallback(async () => {
+    const elsewhere = await mkdtemp(path.join(tmpdir(), 'sec-add-decoy-'));
+    roots.push(elsewhere);
     await initWorkspace(root);
     await installPrivateBannerBlock(root);
     const pending = addBlock(path.relative(originalCwd, root), 'private/banner-basic');
-    process.chdir(elsewhere);
-    const result = await pending;
+    const result = await settleWorkspaceCallback(async () => {
+      process.chdir(elsewhere);
+      return await pending;
+    }, async () => { await pending; });
     expect(result).toMatchObject({ changed: true, selectedBlock: { id: 'private/banner-basic', version: '0.1.0', registryKind: 'private' } });
     expect(loadPlan(getWorkspacePaths(root).workspaceConfigPath).blocks).toContainEqual({ id: 'private/banner-basic', version: '0.1.0' });
     expect(await readdir(elsewhere)).toEqual([]);
     const again = await addBlock(root, 'private/banner-basic');
     expect(again.changed).toBe(false);
     expect(again.plan.blocks).toEqual(result.plan.blocks);
-  } finally {
-    process.chdir(originalCwd);
-    await rm(root, { recursive: true, force: true });
-    await rm(elsewhere, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'original cwd', settle: () => process.chdir(originalCwd) },
+      ...roots.map(directory => ({ label: directory, settle: () => rm(directory, { recursive: true, force: true }) }))
+    ] });
+  });
 });

@@ -1,3 +1,5 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,52 +22,58 @@ import {
 
 async function fixture(mode = 0o640) {
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'sec-staging-workspace-'));
-  const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, sha256('staging-workspace-request'));
-  const relativePath = 'source/model/item.yaml';
-  const sourcePath = path.join(workspaceRoot, relativePath);
-  const originalBytes = Buffer.from('before\n');
-  const stagedBytes = Buffer.from('after\n');
-  mkdirSync(path.dirname(sourcePath), { recursive: true });
-  mkdirSync(transactionRoot, { recursive: true });
-  writeFileSync(sourcePath, originalBytes);
-  chmodSync(sourcePath, mode);
-  const pathBody = {
-    formatRevision: SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
-    relativePath, workspaceIdentityDigest: sha256('workspace'),
-    transactionDirectoryIdentityDigest: sha256('transaction'),
-    parentIdentityDigest: sha256('parent'), targetIdentityDigest: sha256('target')
-  } as const;
-  const pathEvidence = { ...pathBody, pathEvidenceRevision: semanticMutationSourcePathEvidenceRevision(pathBody) };
-  const manifestBody = {
-    formatRevision: SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION,
-    ownerId: 'semantic-contract-owner:item:item-core',
-    adapterId: SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
-    adapterRevision: SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-    relativePath, beforeByteDigest: semanticMutationByteDigest(originalBytes),
-    stagedByteDigest: semanticMutationByteDigest(stagedBytes),
-    beforeByteLength: originalBytes.length, stagedByteLength: stagedBytes.length,
-    fileMode: statSync(sourcePath).mode & 0o7777,
-    windowsFileAttributes: await readSemanticMutationWindowsFileAttributes(sourcePath),
-    encoding: 'utf-8' as const, utf8Bom: false, lineEnding: 'lf' as const, finalNewline: true,
-    pathEvidenceRevision: pathEvidence.pathEvidenceRevision
-  } as const;
-  const manifest = { ...manifestBody, rollbackManifestDigest: semanticMutationRollbackManifestDigest(manifestBody) };
-  const planBody = {
-    formatRevision: SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION,
-    requestRevision: sha256('request'), authorizationRevision: sha256('authorization'),
-    preflightRevision: sha256('preflight'), operationRegistryRevision: SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION,
-    sourceAdapterRegistryRevision: SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION,
-    sourceResolutionRevision: sha256('source-resolution'), sourceRevision: sha256('source'),
-    sourceKind: 'workspace-authoring' as const, ownerId: manifest.ownerId,
-    adapterId: manifest.adapterId, adapterRevision: manifest.adapterRevision,
-    namespace: 'item', contractId: 'item-core', relativePath, pathEvidence,
-    operations: [{ operationId: 'operation:add-transition', kind: 'add-state-transition' as const,
-      contract: { namespace: 'item', contractId: 'item-core' }, stateId: 'status', from: 'open', to: 'closed', by: 'closeItem' }],
-    beforeByteDigest: manifest.beforeByteDigest, stagedByteDigest: manifest.stagedByteDigest,
-    rollbackManifestDigest: manifest.rollbackManifestDigest
-  } as const;
-  const plan = { ...planBody, editPlanRevision: semanticMutationSourceEditPlanRevision(planBody) };
-  return { workspaceRoot, transactionRoot, plan, manifest, originalBytes, stagedBytes, sourcePath };
+  try {
+    const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, sha256('staging-workspace-request'));
+    const relativePath = 'source/model/item.yaml';
+    const sourcePath = path.join(workspaceRoot, relativePath);
+    const originalBytes = Buffer.from('before\n');
+    const stagedBytes = Buffer.from('after\n');
+    mkdirSync(path.dirname(sourcePath), { recursive: true });
+    mkdirSync(transactionRoot, { recursive: true });
+    writeFileSync(sourcePath, originalBytes);
+    chmodSync(sourcePath, mode);
+    const pathBody = {
+      formatRevision: SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
+      relativePath, workspaceIdentityDigest: sha256('workspace'),
+      transactionDirectoryIdentityDigest: sha256('transaction'),
+      parentIdentityDigest: sha256('parent'), targetIdentityDigest: sha256('target')
+    } as const;
+    const pathEvidence = { ...pathBody, pathEvidenceRevision: semanticMutationSourcePathEvidenceRevision(pathBody) };
+    const manifestBody = {
+      formatRevision: SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION,
+      ownerId: 'semantic-contract-owner:item:item-core',
+      adapterId: SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
+      adapterRevision: SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
+      relativePath, beforeByteDigest: semanticMutationByteDigest(originalBytes),
+      stagedByteDigest: semanticMutationByteDigest(stagedBytes),
+      beforeByteLength: originalBytes.length, stagedByteLength: stagedBytes.length,
+      fileMode: statSync(sourcePath).mode & 0o7777,
+      windowsFileAttributes: await readSemanticMutationWindowsFileAttributes(sourcePath),
+      encoding: 'utf-8' as const, utf8Bom: false, lineEnding: 'lf' as const, finalNewline: true,
+      pathEvidenceRevision: pathEvidence.pathEvidenceRevision
+    } as const;
+    const manifest = { ...manifestBody, rollbackManifestDigest: semanticMutationRollbackManifestDigest(manifestBody) };
+    const planBody = {
+      formatRevision: SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION,
+      requestRevision: sha256('request'), authorizationRevision: sha256('authorization'),
+      preflightRevision: sha256('preflight'), operationRegistryRevision: SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION,
+      sourceAdapterRegistryRevision: SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION,
+      sourceResolutionRevision: sha256('source-resolution'), sourceRevision: sha256('source'),
+      sourceKind: 'workspace-authoring' as const, ownerId: manifest.ownerId,
+      adapterId: manifest.adapterId, adapterRevision: manifest.adapterRevision,
+      namespace: 'item', contractId: 'item-core', relativePath, pathEvidence,
+      operations: [{ operationId: 'operation:add-transition', kind: 'add-state-transition' as const,
+        contract: { namespace: 'item', contractId: 'item-core' }, stateId: 'status', from: 'open', to: 'closed', by: 'closeItem' }],
+      beforeByteDigest: manifest.beforeByteDigest, stagedByteDigest: manifest.stagedByteDigest,
+      rollbackManifestDigest: manifest.rollbackManifestDigest
+    } as const;
+    const plan = { ...planBody, editPlanRevision: semanticMutationSourceEditPlanRevision(planBody) };
+    return { workspaceRoot, transactionRoot, plan, manifest, originalBytes, stagedBytes, sourcePath };
+  } catch (error) {
+    settleResources({ primary: { label: 'workspace fixture construction', error },
+      cleanup: [{ label: 'workspace fixture root', settle: () => rmSync(workspaceRoot, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 const prepare = (f: Awaited<ReturnType<typeof fixture>>, commitFence = async (): Promise<void> => {}) =>
@@ -113,14 +121,20 @@ test('staging retires an old snapshot through the bounded metadata route before 
 
 test.skipIf(process.platform !== 'linux')('staging refuses a symlink root rather than deleting or traversing its target', async () => {
   const f = await fixture();
-  const outside = mkdtempSync(path.join(tmpdir(), 'sec-staging-outside-'));
-  try {
+  let outside: string | undefined;
+  await settleWorkspaceCallback(async () => {
+    outside = mkdtempSync(path.join(tmpdir(), 'sec-staging-outside-'));
     writeFileSync(path.join(outside, 'sentinel'), 'keep');
     symlinkSync(outside, path.join(f.transactionRoot, 'workspace'), 'dir');
     await expect(prepare(f)).rejects.toBeDefined();
     expect(readFileSync(path.join(outside, 'sentinel'), 'utf8')).toBe('keep');
     expect(readFileSync(f.sourcePath)).toEqual(f.originalBytes);
-  } finally { close(f); rmSync(outside, { recursive: true, force: true }); }
+  }, async () => {
+    settleResources({ cleanup: [
+      { label: 'staging fixture root', settle: () => close(f) },
+      { label: 'external fixture root', settle: () => { if (outside !== undefined) rmSync(outside, { recursive: true, force: true }); } }
+    ] });
+  });
 });
 
 test('staging never copies excluded Git or package-manager roots', async () => {

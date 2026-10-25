@@ -1,3 +1,4 @@
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,8 @@ function fixture() {
     writeFileSync(target, 'item: before\n');
     return { root, transaction, relativePath, target };
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: { label: 'workspace fixture construction', error },
+      cleanup: [{ label: 'workspace fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
     throw error;
   }
 }

@@ -1,3 +1,4 @@
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,18 +13,24 @@ import { prepareManifestResolution } from '../../../src/compiler/resolve/resolve
 // the manifest graph. Those runs are not native registry/authority evidence.
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-resolver-graph-'));
-  mkdirSync(path.join(root, 'registry'));
-  const plan: PlanFile = { app: { id: 'app', name: 'original', mode: 'single-tenant', stack: 'typescript-library', packageManager: 'npm' },
-    registry: { sources: [{ id: 'local', kind: 'private', location: 'workspace', path: 'registry' }] },
-    blocks: [], acceptance: [] };
-  const manifest = (id: string, requires: string[] = [], provides: string[] = [id], version = '1.0.0', to = `src/${id.replaceAll('/', '-')}.ts`) => {
-    const source = { id, version, kind: 'capability', stackProfiles: ['typescript-library'], requires, provides, conflicts: [],
-      installs: [{ kind: 'copy', from: 'source.ts', to }], pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] };
-    const folder = path.join(root, 'registry', id.replaceAll('/', '.')); mkdirSync(folder, { recursive: true });
-    writeFileSync(path.join(folder, 'block.manifest.yaml'), JSON.stringify(source)); writeFileSync(path.join(folder, 'source.ts'), 'export {};');
-    return { folder, source };
-  };
-  return { root, plan, manifest, cleanup() { rmSync(root, { recursive: true, force: true }); } };
+  try {
+    mkdirSync(path.join(root, 'registry'));
+    const plan: PlanFile = { app: { id: 'app', name: 'original', mode: 'single-tenant', stack: 'typescript-library', packageManager: 'npm' },
+      registry: { sources: [{ id: 'local', kind: 'private', location: 'workspace', path: 'registry' }] },
+      blocks: [], acceptance: [] };
+    const manifest = (id: string, requires: string[] = [], provides: string[] = [id], version = '1.0.0', to = `src/${id.replaceAll('/', '-')}.ts`) => {
+      const source = { id, version, kind: 'capability', stackProfiles: ['typescript-library'], requires, provides, conflicts: [],
+        installs: [{ kind: 'copy', from: 'source.ts', to }], pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] };
+      const folder = path.join(root, 'registry', id.replaceAll('/', '.')); mkdirSync(folder, { recursive: true });
+      writeFileSync(path.join(folder, 'block.manifest.yaml'), JSON.stringify(source)); writeFileSync(path.join(folder, 'source.ts'), 'export {};');
+      return { folder, source };
+    };
+    return { root, plan, manifest, cleanup() { rmSync(root, { recursive: true, force: true }); } };
+  } catch (error) {
+    settleResources({ primary: { label: 'workspace fixture construction', error },
+      cleanup: [{ label: 'workspace fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 test('real resolver coalesces repeated capabilities while preserving provider order and global install step IDs', async () => {

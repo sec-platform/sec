@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,9 +13,11 @@ const schema = (name: string, fields = '  id Int @id') => `model ${name} {\n${fi
 async function fixture(run: (f: { root: string; source: string; target: string }) => Promise<void>, createTargetParent = true) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-prisma-materialization-'));
   const source = path.join(root, 'registry', 'model.prisma'), target = path.join(root, 'prisma', 'schema.prisma');
-  mkdirSync(path.dirname(source));
-  if (createTargetParent) mkdirSync(path.dirname(target));
-  try { await run({ root, source, target }); } finally { rmSync(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(async () => {
+    mkdirSync(path.dirname(source));
+    if (createTargetParent) mkdirSync(path.dirname(target));
+    await run({ root, source, target });
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
 }
 const input = (f: { root: string; source: string; target: string }) => ({
   workspaceRoot: f.root, sourcePath: f.source, targetPath: f.target, sourceRequired: true

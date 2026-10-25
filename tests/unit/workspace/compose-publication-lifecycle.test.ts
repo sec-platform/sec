@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,35 +20,37 @@ function deferred() {
 // readers and physical publishers. They require the repository Bun/host profile.
 test('formatter joins every started publication before reporting a peer failure', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-format-join-'));
-  const release = deferred(), second = deferred();
-  const failure = new Error('publication fence failed');
-  let calls = 0, settled = false;
-  writeFileSync(path.join(root, 'a.json'), '{"a":1}');
-  writeFileSync(path.join(root, 'b.json'), '{"b":2}');
-  const outcome = formatOutputFiles(root, ['a.json', 'b.json'], async () => {
-    if (++calls === 1) await release.promise;
-    else { second.resolve(); throw failure; }
-  }).then(() => ({ succeeded: true as const }), reason => ({ succeeded: false as const, reason }))
-    .finally(() => { settled = true; });
-  try {
-    await second.promise;
-    await new Promise<void>(resolve => setImmediate(resolve));
-    assert.equal(settled, false);
-    release.resolve();
-    const result = await outcome;
-    assert.equal(result.succeeded, false);
-    if (!result.succeeded) assert.ok(result.reason === failure ||
-      result.reason instanceof AggregateError && result.reason.errors.includes(failure));
-    assert.equal(readFileSync(path.join(root, 'a.json'), 'utf8'), '{"a":1}');
-    assert.equal(readFileSync(path.join(root, 'b.json'), 'utf8'), '{"b":2}');
-  } finally { release.resolve(); await outcome; rmSync(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(async () => {
+    const release = deferred(), second = deferred();
+    const failure = new Error('publication fence failed');
+    let calls = 0, settled = false;
+    writeFileSync(path.join(root, 'a.json'), '{"a":1}');
+    writeFileSync(path.join(root, 'b.json'), '{"b":2}');
+    const outcome = formatOutputFiles(root, ['a.json', 'b.json'], async () => {
+      if (++calls === 1) await release.promise;
+      else { second.resolve(); throw failure; }
+    }).then(() => ({ succeeded: true as const }), reason => ({ succeeded: false as const, reason }))
+      .finally(() => { settled = true; });
+    try {
+      await second.promise;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(settled, false);
+      release.resolve();
+      const result = await outcome;
+      assert.equal(result.succeeded, false);
+      if (!result.succeeded) assert.ok(result.reason === failure ||
+        result.reason instanceof AggregateError && result.reason.errors.includes(failure));
+      assert.equal(readFileSync(path.join(root, 'a.json'), 'utf8'), '{"a":1}');
+      assert.equal(readFileSync(path.join(root, 'b.json'), 'utf8'), '{"b":2}');
+    } finally { release.resolve(); await outcome; }
+  }, async () => { rmSync(root, { recursive: true, force: true }); });
 }, 30_000);
 
 test('formatter refuses to overwrite a changed preimage at its publication fence', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-format-preimage-'));
   const file = path.join(root, 'a.json');
-  writeFileSync(file, '{"a":1}');
   try {
+    writeFileSync(file, '{"a":1}');
     await assert.rejects(formatOutputFiles(root, ['a.json'], async () => { writeFileSync(file, '{"user":true}'); }), /preimage/);
     assert.equal(readFileSync(file, 'utf8'), '{"user":true}');
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -57,8 +60,8 @@ test('real parent cancellation at the formatter fence prevents publication', asy
   const root = mkdtempSync(path.join(tmpdir(), 'sec-format-abort-'));
   const file = path.join(root, 'a.json'), controller = new AbortController();
   const reason = new Error('cancelled');
-  writeFileSync(file, '{"a":1}');
   try {
+    writeFileSync(file, '{"a":1}');
     await assert.rejects(formatOutputFiles(root, ['a.json'], async () => controller.abort(reason), controller.signal), error => error === reason);
     assert.equal(readFileSync(file, 'utf8'), '{"a":1}');
   } finally { rmSync(root, { recursive: true, force: true }); }

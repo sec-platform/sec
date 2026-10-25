@@ -1,3 +1,4 @@
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -73,7 +74,8 @@ function fixture(consumer: 'plan' | 'manifest' | 'override' | 'all') {
     return { root, planPath, manifestPath, overridePath, options, manifest,
       cleanup() { manifestCache.clearWorkspace(root); rmSync(root, { recursive: true, force: true }); } };
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({ primary: { label: 'workspace fixture construction', error },
+      cleanup: [{ label: 'workspace fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
     throw error;
   }
 }
