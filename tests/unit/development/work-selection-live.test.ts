@@ -479,21 +479,15 @@ describe('work-selection live contract', () => {
     const fixtureParent = mkdtempSync(path.join(tmpdir(), 'sec-terminal-provider-replay-'));
     const root = path.join(fixtureParent, 'repository');
     try {
-      const clone = spawnSync('git', [
-        '-c', 'core.longpaths=true',
-        'clone', '--quiet', '--no-hardlinks', process.cwd(), root
-      ], {
-        encoding: 'buffer',
-        windowsHide: true
-      });
-      if (clone.status !== 0) {
-        throw new Error(Buffer.from(clone.stderr ?? '').toString('utf8'));
-      }
+      // The live reader consumes the exact control files and refs built below,
+      // not this repository's unrelated source tree or prior commit history.
+      mkdirSync(root);
+      runFixtureGit(root, ['init', '--quiet', '-b', 'main']);
       expect(() => lstatSync(path.join(root, '.git', 'objects', 'info', 'alternates')))
         .toThrow(expect.objectContaining({ code: 'ENOENT' }));
       runFixtureGit(root, ['config', 'user.name', 'SEC Test']);
       runFixtureGit(root, ['config', 'user.email', 'sec-test@example.invalid']);
-      runFixtureGit(root, ['checkout', '--quiet', '-B', 'main', 'HEAD']);
+      runFixtureGit(root, ['commit', '--quiet', '--allow-empty', '-m', 'fixture: seed']);
 
       const prior = transitionCatalog();
       const seedSha = fixtureGitSha(root, 'HEAD');
@@ -510,7 +504,6 @@ describe('work-selection live contract', () => {
         + `acceptance:\n  - terminal fixture remains self contained\n`
         + `tests:\n  - tests/unit/development/work-selection-live.test.ts\n---\n`;
       const manifestDirectory = path.join(root, 'config', 'repository', 'work-packages');
-      rmSync(manifestDirectory, { recursive: true, force: true });
       mkdirSync(manifestDirectory, { recursive: true });
       writeFileSync(
         path.join(root, 'config', 'repository', 'current-state.yaml'),

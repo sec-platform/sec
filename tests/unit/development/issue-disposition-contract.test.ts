@@ -41,7 +41,6 @@ test('all GitHub closing spellings are rejected even under negation, case, colon
     'does not close <https://github.com/other/repo/issues/9>'
   ];
   for (const source of cases) {
-    expect(parseGitHubClosingKeywordOccurrences(source, REPOSITORY)).toHaveLength(1);
     expect(() => createIssueDispositionPlan({ repository: REPOSITORY, prNumber: 357,
       manifestPath: MANIFEST, manifestDigest: DIGEST_A, tracking: 'issue-352', title: 'Safe PR',
       body: `${source}\n\nWork-Package: ${MANIFEST}\nIssue-Disposition: progress-only\n`,

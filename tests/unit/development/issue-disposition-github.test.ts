@@ -46,8 +46,6 @@ test('Issue observation binds exact ordinary-Issue identity, specification, stat
 test('Issue observation rejects PR resources, identity drift, and malformed provider shape', () => {
   expect(() => parseGitHubIssueObservation({ source: issue({ pull_request: {} }),
     repository: REPOSITORY, issueNumber: 352 })).toThrow('cannot target a pull request');
-  expect(() => parseGitHubIssueObservation({ source: issue({ number: 351 }),
-    repository: REPOSITORY, issueNumber: 352 })).toThrow('differs');
   expect(() => parseGitHubIssueObservation({ source: 'provider raw secret',
     repository: REPOSITORY, issueNumber: 352 })).toThrow(/decoded response digest sha256:/u);
   const failure = (source: string) => {
@@ -60,6 +58,7 @@ test('Issue observation rejects PR resources, identity drift, and malformed prov
   };
   const first = failure(issue({ number: 351 }));
   const second = failure(issue({ number: 350 }));
+  expect(first).toContain('differs');
   expect(first).toMatch(/decoded response digest sha256:[0-9a-f]{64}/u);
   expect(second).toMatch(/decoded response digest sha256:[0-9a-f]{64}/u);
   expect(first).not.toBe(second);
