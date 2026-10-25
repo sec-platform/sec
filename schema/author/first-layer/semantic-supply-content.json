@@ -4,8 +4,13 @@
   "members": [
     {
       "path": "SEMANTICS.md",
-      "bytes": 82313,
-      "sha256": "64bdd41339f352e11026644872cf3fddc53222f867b5c6cc9774403a8343583a"
+      "bytes": 82927,
+      "sha256": "374b406d574ce640ab289c4e11e0de66300b23060432e8f36d32bfa9e139e56d"
+    },
+    {
+      "path": "codec-parameters.json",
+      "bytes": 25206,
+      "sha256": "7d84c05420fdeff9a99a56f235ba883f8ec966d1bf5c101ec378b66fad4a6f51"
     },
     {
       "path": "consumer-signatures.json",
@@ -14,8 +19,8 @@
     },
     {
       "path": "names.schema.json",
-      "bytes": 2948,
-      "sha256": "05730941af1d637e9105de154fc7291154fd85b44b3039d807589f278a174d6b"
+      "bytes": 3077,
+      "sha256": "3cf91049891715aadeb0e9ab231ca62f89adedbb92a380f0b6bec26f5c6eb901"
     },
     {
       "path": "semantic-convergence.schema.json",
@@ -23,5 +28,5 @@
       "sha256": "26f278df1cc4a0fc652b96bf950bb7046044b7ca69571d8ab657ec7d6b7ce7d3"
     }
   ],
-  "digest": "sha256:a19189911fd1611357c7bd3b5ad4f8e1815a5dba6637eca18a09930339190c4f"
+  "digest": "sha256:d6caf017eec074a491289100492ebe5c6446b0edbb77eb329128691257ab21bc"
 }

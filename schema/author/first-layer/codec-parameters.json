@@ -1,0 +1,821 @@
+{
+  "schema": "gift.design-codec-parameters/1",
+  "scope": "complete-base-structure-only",
+  "resources": [
+    {
+      "path": "schema/author/universal-author-module-2.schema.json",
+      "id": "urn:gift:design-schema:universal-author-module-2",
+      "sha256": "596898a5d86ceb417cb88398e9bbf51f368336dcc25501e18f7cb6df9a49bdb5",
+      "candidateId": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "replacements": [
+        {
+          "pointer": "/properties/schema",
+          "expected": {
+            "const": "gift.author-module/2"
+          },
+          "replacement": {
+            "const": "gift.author-module/design-converged"
+          }
+        },
+        {
+          "pointer": "/$defs/Ref",
+          "expected": {
+            "type": "string",
+            "pattern": "^(local|[A-Za-z_][A-Za-z0-9_]*):[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef"
+          }
+        },
+        {
+          "pointer": "/$defs/MemberName",
+          "expected": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+            "description": "Record field and variant case name, shared by declarations, construction, access and matching. Definition and binder names retain Identifier."
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/properties/definitions/propertyNames",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/properties/exports/propertyNames",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/properties/imports/propertyNames",
+          "expected": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/Identifier"
+              },
+              {
+                "not": {
+                  "const": "local"
+                }
+              },
+              {
+                "not": {
+                  "const": "std"
+                }
+              }
+            ]
+          },
+          "replacement": {
+            "allOf": [
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              {
+                "not": {
+                  "enum": [
+                    "local",
+                    "std"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/properties/dialects/propertyNames",
+          "expected": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "replacement": {
+            "allOf": [
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              {
+                "not": {
+                  "enum": [
+                    "local",
+                    "std"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/LocalExport/properties/definitionId",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/ImportedExport/properties/export",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/ImportedExport/properties/import",
+          "expected": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/Identifier"
+              },
+              {
+                "not": {
+                  "enum": [
+                    "local",
+                    "std"
+                  ]
+                }
+              }
+            ]
+          },
+          "replacement": {
+            "allOf": [
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              {
+                "not": {
+                  "enum": [
+                    "local",
+                    "std"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/PortOperation/properties/name",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/Endpoint/properties/name",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/PublicEndpoint/properties/name",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/Expr/oneOf/13/properties/operation",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/OperationUse/properties/operation",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/ActivationCause/oneOf/2/properties/endpoint",
+          "expected": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/Definition/oneOf/22/properties/body/properties/dialectRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      ]
+    },
+    {
+      "path": "schema/requirements/requirement-structure-1.schema.json",
+      "id": "urn:gift:design-schema:requirement-structure-1",
+      "sha256": "3e3802e204c641ba330607a86c457791682d003fecbb0054918dd4055408814e",
+      "candidateId": "urn:gift:design-schema:requirement-structure-1-converged-base",
+      "replacements": [
+        {
+          "pointer": "/$defs/DefinitionRef/oneOf/0/properties/definitionId",
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/DefinitionRef/oneOf/1/properties/import",
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/DefinitionRef/oneOf/1/properties/export",
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      ]
+    },
+    {
+      "path": "schema/author/shared-semantic-structure-1.schema.json",
+      "id": "urn:gift:design-schema:shared-semantic-structure-1",
+      "sha256": "490f31cf83e2c3f58cdf77f377b44ef71206ffc95fe4aa6728cf3d1b3de35ce1",
+      "candidateId": "urn:gift:design-schema:shared-semantic-structure-1-converged-base",
+      "replacements": [
+        {
+          "pointer": "/$defs/DefinitionRef/oneOf/0/properties/definitionId",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/DefinitionRef/oneOf/1/properties/import",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/DefinitionRef/oneOf/1/properties/export",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/TypeTerm/oneOf/6/properties/record/items/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/RecordField/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/Expr/oneOf/5/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/ExprRef/oneOf/2/properties/constructor/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/Pattern/oneOf/6/properties/constructor/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/ClosedExpr/oneOf/1/properties/ref/oneOf/1/properties/constructor/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/ClosedExpr/oneOf/3/properties/fields/items/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/ClosedExpr/oneOf/4/properties/callee/properties/ref/properties/constructor/properties/name",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      ]
+    },
+    {
+      "path": "schema/semantics/intent-body-1.schema.json",
+      "id": "urn:gift:design-schema:intent-body-1",
+      "sha256": "7e467e9fcaab6a60f50747b6592002f427d51fc017a50b61e0874cce8c6826d5",
+      "candidateId": "urn:gift:design-schema:intent-body-1-converged-base",
+      "replacements": [
+        {
+          "pointer": "/properties/assumptions/items/properties/scopeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/role/properties/typeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/call/properties/meaningRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/observation/properties/meaningRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/clause/oneOf/0/properties/scopeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/clause/oneOf/1/properties/deadlineRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/clause/oneOf/1/properties/scopeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional exact obligation validity/scope reference; issuer, conflict, revocation, exception and role binding are owned by the qualified normative interpretation."
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional exact obligation validity/scope reference; issuer, conflict, revocation, exception and role binding are owned by the qualified normative interpretation."
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/clause/oneOf/2/properties/actionRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/clause/oneOf/2/properties/scopeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/clause/oneOf/3/properties/qualityRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/quantifier/properties/domainRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Ref to a typed enumerated domain, query, pure collection-producing function or qualified domain Provider; its allowed Kind/element type and identity scope are checked by the corresponding Owner."
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "description": "Ref to a typed enumerated domain, query, pure collection-producing function or qualified domain Provider; its allowed Kind/element type and identity scope are checked by the corresponding Owner."
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/quantifier/properties/scopeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/quantifier/properties/completenessRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional source assertion about domain completeness; its presence does not establish completeness. For unqualified open-world forall/count, truth stays undetermined."
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional source assertion about domain completeness; its presence does not establish completeness. For unqualified open-world forall/count, truth stays undetermined."
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/temporal/properties/clockRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/temporal/properties/rangeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Typed temporal interval/scope ref; if absent the modality/outer horizon decides the range. No implicit wall-clock or UTC assumption."
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "description": "Typed temporal interval/scope ref; if absent the modality/outer horizon decides the range. No implicit wall-clock or UTC assumption."
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/temporal/properties/completenessRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "path": "schema/semantics/semantic-pattern-1.schema.json",
+      "id": "urn:gift:design-schema:semantic-pattern-1",
+      "sha256": "4b53eb0565c3559fb34878e4a3596fbd6260cfae71891a3ab104e57784ffedbb",
+      "candidateId": "urn:gift:design-schema:semantic-pattern-1-converged-base",
+      "replacements": [
+        {
+          "pointer": "/$defs/role/properties/typeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/variation/properties/typeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/predicateClaim/properties/meaningRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/requirementUse/properties/requirementRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "path": "schema/semantics/semantic-pattern-use-2.schema.json",
+      "id": "urn:gift:design-schema:semantic-pattern-use-2",
+      "sha256": "1f32ebfb3499d5682866448463e17d63de30a59e0c760329470dc1d76a84d955",
+      "candidateId": "urn:gift:design-schema:semantic-pattern-use-2-converged-base",
+      "replacements": [
+        {
+          "pointer": "/$defs/definitionRef/oneOf/0/properties/definitionId",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/definitionRef/oneOf/1/properties/import",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        },
+        {
+          "pointer": "/$defs/definitionRef/oneOf/1/properties/export",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          }
+        }
+      ]
+    }
+  ],
+  "externals": [
+    {
+      "path": "schema/author/first-layer/names.schema.json",
+      "id": "urn:gift:design-schema:first-layer-names",
+      "sha256": "3cf91049891715aadeb0e9ab231ca62f89adedbb92a380f0b6bec26f5c6eb901"
+    }
+  ]
+}

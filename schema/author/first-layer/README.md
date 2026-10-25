@@ -5,6 +5,7 @@
 | 结构身份 | 本地文件 | 实际范围 |
 |---|---|---|
 | urn:gift:design-schema:first-layer-names | [names.schema.json](names.schema.json) | 名称与三空间SourceRef的终结符；完整递归文法及不升级的词法/身份域由[编码owner](../../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)规定 |
+| gift.design-codec-parameters/1 | [codec-parameters.json](codec-parameters.json) | 固定底座内容及准确节点替换；重建原/2完整分支与传递底座的候选结构图，不包含短形、新增四类Requirement的完整机器Body或语义/运行资格 |
 | urn:gift:design-schema:semantic-convergence | [semantic-convergence.schema.json](semantic-convergence.schema.json) | 专业模型/显式类型/操作语义样本的结构，不代签模型或类型资格 |
 | urn:gift:design-schema:surface-convergence | [surface-convergence.schema.json](surface-convergence.schema.json) | 四个精确局部短例，输入类型和规则由[surface-inputs.json](surface-inputs.json)与语义正文完整定义 |
 | urn:gift:design-schema:convergence-examples | [convergence-examples.schema.json](convergence-examples.schema.json) | 本次convergence与model-contracts模块的闭合校准外壳；**不是全部作者语言的新Schema**，不覆盖所有旧Body |

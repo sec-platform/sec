@@ -252,6 +252,11 @@ def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
               {name:data for name,data in captured.items() if name not in EXCLUDED_FROM_SOURCE_HASH})
     def read(path):return source_bytes(root,path,captured)
     def source_json(path):return decode(read(path),str(path))
+    if 'schema/author/first-layer/names.schema.json' in captured:
+        from codec_parameters import build_graph
+        # Bind the finite complete-base transformation to this same source set.
+        # Schema-engine and language-semantic evidence are separate consumers.
+        build_graph(captured)
     def projection_matches(name,value):
         if input_capture is not None:
             return name in input_capture and canonical(decode(input_capture[name],name))==canonical(value)

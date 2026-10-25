@@ -4,13 +4,18 @@
   "members": [
     {
       "path": "SEMANTICS.md",
-      "bytes": 82313,
-      "sha256": "64bdd41339f352e11026644872cf3fddc53222f867b5c6cc9774403a8343583a"
+      "bytes": 82927,
+      "sha256": "374b406d574ce640ab289c4e11e0de66300b23060432e8f36d32bfa9e139e56d"
+    },
+    {
+      "path": "codec-parameters.json",
+      "bytes": 25206,
+      "sha256": "7d84c05420fdeff9a99a56f235ba883f8ec966d1bf5c101ec378b66fad4a6f51"
     },
     {
       "path": "names.schema.json",
-      "bytes": 2948,
-      "sha256": "05730941af1d637e9105de154fc7291154fd85b44b3039d807589f278a174d6b"
+      "bytes": 3077,
+      "sha256": "3cf91049891715aadeb0e9ab231ca62f89adedbb92a380f0b6bec26f5c6eb901"
     },
     {
       "path": "surface-consumer-signatures.json",
@@ -28,5 +33,5 @@
       "sha256": "d6dd6a12731f9a67cf849b26c62966f1da068fb15357acc9f7f5b21110fc7104"
     }
   ],
-  "digest": "sha256:9cd446fe3654bcd0a8dced459e605e130ef86a655834b7945ef3a69dd52970a2"
+  "digest": "sha256:12535cd6268ddf13e32ea310856f20759ab576725952bfb964abb1b553bc8569"
 }

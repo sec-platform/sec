@@ -21,12 +21,12 @@
 
 选择此方案而不强制 NFC/NFKC 的理由：标准化可以是显式查找或公开命名政策，不能默默改变已有协议字节；结构 Ref 已解决解析歧义，无须牺牲原名。写 UTF-16 的编辑器和写 UTF-8 的内核继续按原版本化坐标转换。
 
-Name与SourceRef的机器终结符见[names.schema.json](names.schema.json)；其标量合法性仍在无损读取层检查。完整模块如何递归提升旧Ref/MemberName、意图Body单列引用槽、哪些Identifier与专业Body保持原义，唯一由[完整候选文法](../../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)规定。新完整Body不得无条件交给只认识旧Ref的Reader；有限专业样本Schema不代替这张完整文法图。工程根、包出口、源码直接运行/输入、原生选择及名称重构分别消费该同一名称域，不仅改模块声明。
+Name、SourceRef与仅含三个互斥对象的StructuredSourceRef见[names.schema.json](names.schema.json)；其标量合法性仍在无损读取层检查。完整模块如何递归提升旧Ref/MemberName、保留独立旧串的原解析空间、闭合Requirement/shared/pattern-use的名字选择器，以及哪些Identifier与专业Body保持原义，唯一由[完整候选文法](../../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)及其[参数表](codec-parameters.json)规定。旧DefinitionRef保留形状，候选中的definitionId/import/export改用Name；改名为空或含分隔符时，递归声明引用共同更新，不因原Body的旧minLength拒绝已接受名字。新完整Body不得无条件交给只认识旧Ref的Reader；有限专业样本Schema不代替完整文法。工程根、包出口、源码直接运行/输入、原生选择及名称重构分别消费该同一名称域，不仅改模块声明。
 
 <a id="legacy"></a>
 ## 旧需求声明的单源承接
 
-新容器的 requirement 声明空间增加现行原 owner 已定义的 `req:rule / req:subject / req:value-type / req:enum-value` 分派。不是新造四种业务能力，也不把它们强行改成 Bool Meaning。**选择重用其准确 Body 解码与语义，而不是手写一个不完整翻译器。** 新容器装载该已固定 requirement 方言；Body 始终由同一个专业 owner 维护。
+新容器的 requirement 声明空间增加现行原 owner 已定义的 `req:rule / req:subject / req:value-type / req:enum-value` 分派。不是新造四种业务能力，也不把它们强行改成 Bool Meaning。**复用其准确Body形状与语义，候选解码应用前述Name参数；不手写一个不完整的业务翻译器，也不声称旧二进制Reader自动接受新名字。** 新容器装载该已固定 requirement 方言；Body 始终由同一个专业 owner 维护。四类新增声明尚无完整机器Body Schema，convergence校准分支只覆盖所列样例；实现完整Reader时须按本节链接的原owner完成全部分派并取得符合性证据。
 
 | 原声明 | 保留的结构与身份 | 新容器实际消费者 |
 |---|---|---|

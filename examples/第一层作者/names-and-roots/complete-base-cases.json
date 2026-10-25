@@ -1,0 +1,1331 @@
+{
+  "scope": "Finite complete-base structure only. Expected true does not establish symbol resolution, original string Profile meaning, type/effect qualification or execution. Fixtures are outside sourceScopes.",
+  "cases": [
+    {
+      "name": "complete-perform-empty",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "perform",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": "",
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "invoke-is-not-perform-empty",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "invoke",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": "",
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "operation-is-name-not-ref-empty",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "perform",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": {
+                  "space": "local",
+                  "definition": ""
+                },
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "operation-name-does-not-widen-parameter-empty",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [
+                {
+                  "name": "",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  }
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "perform",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": "",
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "complete-perform-unicode",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "处理/请求",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "perform",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": "处理/请求",
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "invoke-is-not-perform-unicode",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "处理/请求",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "invoke",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": "处理/请求",
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "operation-is-name-not-ref-unicode",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "处理/请求",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "perform",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": {
+                  "space": "local",
+                  "definition": "处理/请求"
+                },
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "operation-name-does-not-widen-parameter-unicode",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "端口": {
+            "kind": "core:interface",
+            "body": {
+              "operations": [
+                {
+                  "name": "处理/请求",
+                  "input": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "output": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "errors": {
+                    "tag": "scalar",
+                    "name": "never"
+                  },
+                  "effects": []
+                }
+              ]
+            }
+          },
+          "调用": {
+            "kind": "core:function",
+            "body": {
+              "parameters": [
+                {
+                  "name": "",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  }
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "scalar",
+                  "name": "never"
+                }
+              },
+              "body": {
+                "op": "perform",
+                "portRef": {
+                  "space": "local",
+                  "definition": "端口"
+                },
+                "operation": "处理/请求",
+                "arguments": []
+              }
+            }
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "shared-recursive-types-and-members",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/TypeTerm",
+      "value": {
+        "core": "List",
+        "arguments": [
+          {
+            "record": [
+              {
+                "name": "",
+                "type": {
+                  "decl": {
+                    "import": "库/中文",
+                    "export": ""
+                  }
+                }
+              },
+              {
+                "name": "键/值",
+                "type": {
+                  "decl": {
+                    "definitionId": ""
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "name": "old-shared-type-rejects-empty-selector",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/TypeTerm",
+      "value": {
+        "core": "List",
+        "arguments": [
+          {
+            "record": [
+              {
+                "name": "",
+                "type": {
+                  "decl": {
+                    "import": "库/中文",
+                    "export": ""
+                  }
+                }
+              },
+              {
+                "name": "键/值",
+                "type": {
+                  "decl": {
+                    "definitionId": ""
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "name": "shared-closed-record-and-constructor-call",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/ClosedExpr",
+      "value": {
+        "tag": "record",
+        "fields": [
+          {
+            "name": "",
+            "value": {
+              "tag": "reference",
+              "ref": {
+                "import": "库/中文",
+                "export": ""
+              }
+            }
+          },
+          {
+            "name": "构造/值",
+            "value": {
+              "tag": "call",
+              "callee": {
+                "tag": "reference",
+                "ref": {
+                  "constructor": {
+                    "type": {
+                      "decl": {
+                        "definitionId": ""
+                      }
+                    },
+                    "name": ""
+                  }
+                }
+              },
+              "arguments": []
+            }
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "name": "shared-closed-constructor-ref",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/ClosedExpr",
+      "value": {
+        "tag": "reference",
+        "ref": {
+          "constructor": {
+            "type": {
+              "decl": {
+                "definitionId": ""
+              }
+            },
+            "name": ""
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "closed-expression-still-rejects-free-binding",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/ClosedExpr",
+      "value": {
+        "tag": "reference",
+        "ref": {
+          "binding": "x"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "shared-field-access-empty-name",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/Expr",
+      "value": {
+        "tag": "field",
+        "receiver": {
+          "tag": "record",
+          "fields": [
+            {
+              "name": "",
+              "value": {
+                "tag": "literal",
+                "type": "Unit"
+              }
+            }
+          ]
+        },
+        "name": ""
+      },
+      "expected": true
+    },
+    {
+      "name": "shared-binding-name-remains-nonempty",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/Binding",
+      "value": {
+        "key": "b",
+        "name": "",
+        "type": {
+          "core": "Unit"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "complete-requirement-recursive-selectors",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "约束": {
+            "kind": "req:composite",
+            "body": {
+              "parameters": {
+                "p": {
+                  "role": "value",
+                  "type": {
+                    "core": "List",
+                    "arguments": [
+                      {
+                        "record": [
+                          {
+                            "name": "",
+                            "type": {
+                              "decl": {
+                                "import": "库/中文",
+                                "export": ""
+                              }
+                            }
+                          },
+                          {
+                            "name": "键/值",
+                            "type": {
+                              "decl": {
+                                "definitionId": ""
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "default": {
+                    "expression": {
+                      "tag": "record",
+                      "fields": [
+                        {
+                          "name": "",
+                          "value": {
+                            "tag": "reference",
+                            "ref": {
+                              "import": "库/中文",
+                              "export": ""
+                            }
+                          }
+                        },
+                        {
+                          "name": "构造/值",
+                          "value": {
+                            "tag": "call",
+                            "callee": {
+                              "tag": "reference",
+                              "ref": {
+                                "constructor": {
+                                  "type": {
+                                    "decl": {
+                                      "definitionId": ""
+                                    }
+                                  },
+                                  "name": ""
+                                }
+                              }
+                            },
+                            "arguments": []
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "terms": [
+                {
+                  "all": [
+                    {
+                      "require": {
+                        "import": "库/中文",
+                        "export": ""
+                      },
+                      "fields": {
+                        "value": {
+                          "enum": {
+                            "definitionId": ""
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "requirement-selector-shapes-remain-disjoint",
+      "schema": "urn:gift:design-schema:requirement-structure-1-converged-base",
+      "value": {
+        "parameters": {
+          "p": {
+            "role": "value",
+            "type": {
+              "core": "List",
+              "arguments": [
+                {
+                  "record": [
+                    {
+                      "name": "",
+                      "type": {
+                        "decl": {
+                          "import": "库/中文",
+                          "export": ""
+                        }
+                      }
+                    },
+                    {
+                      "name": "键/值",
+                      "type": {
+                        "decl": {
+                          "definitionId": ""
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "default": {
+              "expression": {
+                "tag": "record",
+                "fields": [
+                  {
+                    "name": "",
+                    "value": {
+                      "tag": "reference",
+                      "ref": {
+                        "import": "库/中文",
+                        "export": ""
+                      }
+                    }
+                  },
+                  {
+                    "name": "构造/值",
+                    "value": {
+                      "tag": "call",
+                      "callee": {
+                        "tag": "reference",
+                        "ref": {
+                          "constructor": {
+                            "type": {
+                              "decl": {
+                                "definitionId": ""
+                              }
+                            },
+                            "name": ""
+                          }
+                        }
+                      },
+                      "arguments": []
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "all": [
+              {
+                "require": {
+                  "definitionId": "",
+                  "export": ""
+                },
+                "fields": {
+                  "value": {
+                    "enum": {
+                      "definitionId": ""
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "name": "requirement-subject-path-is-not-record-access",
+      "schema": "urn:gift:design-schema:requirement-structure-1-converged-base#/$defs/Value",
+      "value": {
+        "subject": "s",
+        "path": [
+          ""
+        ]
+      },
+      "expected": false
+    },
+    {
+      "name": "rule-field-id-is-not-record-member",
+      "schema": "urn:gift:design-schema:requirement-structure-1-converged-base#/$defs/Term",
+      "value": {
+        "require": {
+          "definitionId": ""
+        },
+        "fields": {
+          "": {
+            "literal": true
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "pattern-use-selector-empty",
+      "schema": "urn:gift:design-schema:semantic-pattern-use-2-converged-base#/$defs/definitionRef",
+      "value": {
+        "definitionId": ""
+      },
+      "expected": true
+    },
+    {
+      "name": "pattern-use-import-selector-empty",
+      "schema": "urn:gift:design-schema:semantic-pattern-use-2-converged-base#/$defs/definitionRef",
+      "value": {
+        "import": "库/中文",
+        "export": ""
+      },
+      "expected": true
+    },
+    {
+      "name": "pattern-use-selector-rejects-source-ref-shape",
+      "schema": "urn:gift:design-schema:semantic-pattern-use-2-converged-base#/$defs/definitionRef",
+      "value": {
+        "space": "local",
+        "definition": ""
+      },
+      "expected": false
+    },
+    {
+      "name": "pattern-preserves-original-non-ascii-string-domain",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "Pattern": {
+            "kind": "semantic:pattern",
+            "body": {
+              "roles": {
+                "input": {
+                  "typeRef": "类型：原引用",
+                  "multiplicity": "one"
+                }
+              },
+              "meaningImports": [],
+              "sharedClaims": [
+                {
+                  "id": "c",
+                  "modality": "achieve",
+                  "meaningRef": "含义：原引用",
+                  "bindings": {
+                    "input": "input"
+                  },
+                  "scope": "selected-snapshot"
+                }
+              ],
+              "variationPoints": [],
+              "observationBoundary": {
+                "scope": "snapshot",
+                "worldOrModel": "abstract-contract-only",
+                "authority": "design-only"
+              }
+            }
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "original-pattern-string-domain",
+      "schema": "urn:gift:design-schema:semantic-pattern-1",
+      "value": {
+        "roles": {
+          "input": {
+            "typeRef": "类型：原引用",
+            "multiplicity": "one"
+          }
+        },
+        "meaningImports": [],
+        "sharedClaims": [
+          {
+            "id": "c",
+            "modality": "achieve",
+            "meaningRef": "含义：原引用",
+            "bindings": {
+              "input": "input"
+            },
+            "scope": "selected-snapshot"
+          }
+        ],
+        "variationPoints": [],
+        "observationBoundary": {
+          "scope": "snapshot",
+          "worldOrModel": "abstract-contract-only",
+          "authority": "design-only"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "pattern-explicit-structured-selectors",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "Pattern": {
+            "kind": "semantic:pattern",
+            "body": {
+              "roles": {
+                "input": {
+                  "typeRef": {
+                    "space": "local",
+                    "definition": ""
+                  },
+                  "multiplicity": "one"
+                }
+              },
+              "meaningImports": [],
+              "sharedClaims": [
+                {
+                  "id": "c",
+                  "modality": "achieve",
+                  "meaningRef": {
+                    "space": "import",
+                    "alias": "库",
+                    "export": "含义/调用"
+                  },
+                  "bindings": {
+                    "input": "input"
+                  },
+                  "scope": "selected-snapshot"
+                }
+              ],
+              "variationPoints": [],
+              "observationBoundary": {
+                "scope": "snapshot",
+                "worldOrModel": "abstract-contract-only",
+                "authority": "design-only"
+              }
+            }
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "pattern-role-binder-remains-ascii",
+      "schema": "urn:gift:design-schema:semantic-pattern-1-converged-base",
+      "value": {
+        "roles": {
+          "": {
+            "typeRef": {
+              "space": "local",
+              "definition": ""
+            },
+            "multiplicity": "one"
+          }
+        },
+        "meaningImports": [],
+        "sharedClaims": [
+          {
+            "id": "c",
+            "modality": "achieve",
+            "meaningRef": {
+              "space": "import",
+              "alias": "库",
+              "export": "含义/调用"
+            },
+            "bindings": {
+              "input": "input"
+            },
+            "scope": "selected-snapshot"
+          }
+        ],
+        "variationPoints": [],
+        "observationBoundary": {
+          "scope": "snapshot",
+          "worldOrModel": "abstract-contract-only",
+          "authority": "design-only"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "pattern-malformed-object-cannot-fall-back-to-string",
+      "schema": "urn:gift:design-schema:semantic-pattern-1-converged-base",
+      "value": {
+        "roles": {
+          "input": {
+            "typeRef": {
+              "space": "local",
+              "definition": ""
+            },
+            "multiplicity": "one"
+          }
+        },
+        "meaningImports": [],
+        "sharedClaims": [
+          {
+            "id": "c",
+            "modality": "achieve",
+            "meaningRef": {
+              "space": "import",
+              "alias": "库"
+            },
+            "bindings": {
+              "input": "input"
+            },
+            "scope": "selected-snapshot"
+          }
+        ],
+        "variationPoints": [],
+        "observationBoundary": {
+          "scope": "snapshot",
+          "worldOrModel": "abstract-contract-only",
+          "authority": "design-only"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "complete-goal-structured-refs",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "Goal": {
+            "kind": "intent:goal",
+            "body": {
+              "roles": {
+                "input": {
+                  "typeRef": {
+                    "space": "import",
+                    "alias": "逻辑/库",
+                    "export": "布尔"
+                  },
+                  "cardinality": "one"
+                },
+                "outcome": {
+                  "typeRef": {
+                    "space": "import",
+                    "alias": "逻辑/库",
+                    "export": "布尔"
+                  },
+                  "cardinality": "one"
+                }
+              },
+              "clauses": [
+                {
+                  "id": "same_result",
+                  "modality": "achieve",
+                  "formula": {
+                    "op": "call",
+                    "meaningRef": {
+                      "space": "import",
+                      "alias": "逻辑/库",
+                      "export": "一致/关系"
+                    },
+                    "bindings": {
+                      "input": "input",
+                      "outcome": "outcome"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "goal-preserves-original-non-ascii-string-domain",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged",
+        "moduleId": "module:complete-base-witness",
+        "definitions": {
+          "Goal": {
+            "kind": "intent:goal",
+            "body": {
+              "roles": {
+                "input": {
+                  "typeRef": "原类型：中文",
+                  "cardinality": "one"
+                },
+                "outcome": {
+                  "typeRef": "原类型：中文",
+                  "cardinality": "one"
+                }
+              },
+              "clauses": [
+                {
+                  "id": "same_result",
+                  "modality": "achieve",
+                  "formula": {
+                    "op": "call",
+                    "meaningRef": "原含义：中文",
+                    "bindings": {
+                      "input": "input",
+                      "outcome": "outcome"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "original-goal-string-domain",
+      "schema": "urn:gift:design-schema:intent-body-1",
+      "value": {
+        "roles": {
+          "input": {
+            "typeRef": "原类型：中文",
+            "cardinality": "one"
+          },
+          "outcome": {
+            "typeRef": "原类型：中文",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "same_result",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "原含义：中文",
+              "bindings": {
+                "input": "input",
+                "outcome": "outcome"
+              }
+            }
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "name": "ascii-string-matches-only-original-string-branch",
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base",
+      "value": {
+        "roles": {
+          "input": {
+            "typeRef": "local:T",
+            "cardinality": "one"
+          },
+          "outcome": {
+            "typeRef": "local:T",
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "same_result",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "原含义：中文",
+              "bindings": {
+                "input": "input",
+                "outcome": "outcome"
+              }
+            }
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "name": "goal-reserved-import-alias-rejected",
+      "schema": "urn:gift:design-schema:intent-body-1-converged-base",
+      "value": {
+        "roles": {
+          "input": {
+            "typeRef": {
+              "space": "import",
+              "alias": "local",
+              "export": ""
+            },
+            "cardinality": "one"
+          },
+          "outcome": {
+            "typeRef": {
+              "space": "import",
+              "alias": "逻辑/库",
+              "export": "布尔"
+            },
+            "cardinality": "one"
+          }
+        },
+        "clauses": [
+          {
+            "id": "same_result",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": {
+                "space": "import",
+                "alias": "逻辑/库",
+                "export": "一致/关系"
+              },
+              "bindings": {
+                "input": "input",
+                "outcome": "outcome"
+              }
+            }
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "name": "legacy-definition-ref-is-not-structured-source-ref",
+      "schema": "urn:gift:design-schema:requirement-structure-1-converged-base#/$defs/DefinitionRef",
+      "value": {
+        "space": "local",
+        "definition": ""
+      },
+      "expected": false
+    },
+    {
+      "name": "structured-reference-does-not-accept-string",
+      "schema": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef",
+      "value": "local:T",
+      "expected": false
+    },
+    {
+      "name": "legacy-ref-rejects-trailing-newline",
+      "schema": "urn:gift:design-schema:first-layer-names#/$defs/SourceRef",
+      "value": "local:T\n",
+      "expected": false
+    }
+  ]
+}
