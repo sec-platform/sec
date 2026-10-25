@@ -130,23 +130,6 @@ mock.module('../../../src/adapters/providers/docker/runtime/container-engine-ses
     execute: async (operation: { kind: string; arguments: readonly string[] }) => {
       const args = operation.arguments;
       switch (operation.kind) {
-        case 'image-list': return stdout(environment.image.dockerProjectionDigest);
-        case 'image-inspect': return stdout([{
-          Id: environment.image.dockerProjectionDigest,
-          Config: { Labels: {
-            'sec.local-runner.image-schema': environment.image.lineageSchema,
-            'sec.local-runner.image-revision': environment.image.buildRevision,
-            'sec.local-runner.runner-version': environment.archives.runner.version,
-            'sec.local-runner.node-version': environment.archives.node.version,
-            'sec.local-runner.node-archive-sha256': environment.archives.node.digest.slice(7),
-            'sec.local-runner.github-cli-version': environment.archives.githubCli.version,
-            'sec.local-runner.github-cli-archive-sha256': environment.archives.githubCli.digest.slice(7),
-            'sec.local-runner.python-version': environment.runtime.pythonVersion,
-            'sec.local-runner.ubuntu-snapshot': environment.ubuntu.snapshot,
-            'sec.local-runner.bootstrap-ca-bundle-sha256': environment.archives.bootstrapCa.digest.slice(7),
-            'sec.local-runner.dockerfile-frontend': environment.provider.dockerfileFrontend.reference
-          } }
-        }]);
         case 'container-list': return stdout(containers.map((container) => `${container.Id}\t${container.Name.slice(1)}`).join('\n'));
         case 'container-inspect': return stdout(containers.filter((container) => container.Id === args[0]));
         case 'container-exec': {

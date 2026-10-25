@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { agentPlanningContext, agentReadPlanInput } from '../../helpers/agent-planning-input.ts';
 import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
 
 import { expect, test } from 'bun:test';
@@ -6,7 +7,6 @@ import { expect, test } from 'bun:test';
 import {
   compileOperationReadPlan,
   OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
-  OPERATION_READ_PLAN_INPUT_SCHEMA,
   type OperationReadPlan,
   type OperationReadPlanInput
 } from '../../../src/adapters/self-hosting/control/agent/read-plan.ts';
@@ -14,12 +14,10 @@ import {
   compileTaskCapsule,
   TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
   TASK_CAPSULE_INPUT_SCHEMA,
-  type AgentContentDigest,
   type TaskCapsulePlanningContext
 } from '../../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../../..');
-const digest = (character: string): AgentContentDigest => `sha256:${character.repeat(64)}`;
 
 function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlanInput['taskCapsule'] {
   return compileTaskCapsule({
@@ -31,63 +29,7 @@ function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlan
 
 function input(): OperationReadPlanInput {
   // Verification checks content binding only; live authority is tested separately below.
-  const head = 'a'.repeat(40);
-  return {
-    schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
-    taskCapsule: capsule({
-      operationId: 'issue-346-contract',
-      role: 'worker',
-      operationKind: 'implement',
-      goalDigest: digest('b'),
-      trustedRevision: head,
-      targetCandidate: head,
-      workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
-      workPackageProposalDigest: digest('c'),
-      workPackageProjectionId: digest('e'),
-      scopeGrantId: null,
-      ownerFacts: [{
-        id: 'development-governance',
-        ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
-        owner: 'development-governance-owner',
-        revision: 'owner-revision-v1'
-      }],
-      scopeProposal: {
-        readPaths: ['docs/开发/AI协作/规则装载与任务恢复.md'],
-        writePaths: ['platform/shared/'],
-        forbiddenPaths: ['.agents/skills/'],
-        authorizedResources: [],
-        authorizedGates: [],
-        changedPaths: []
-      },
-      verificationObligations: [{
-        id: 'operation-read-plan-focused',
-        revision: 'v1',
-        reasonCode: 'public-contract-change'
-      }],
-      skillCandidateIds: ['worker-development']
-    }),
-    requiredRefs: [{
-      id: 'development-governance',
-      ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
-      owner: 'development-governance-owner',
-      revision: 'owner-revision-v1',
-      reasonCode: 'canonical-operation-owner',
-      projection: null
-    }],
-    conditionalRefs: [],
-    forbiddenSources: [
-      'assistant-memory',
-      'chat-history',
-      'full-issue-census',
-      'full-skill-corpus',
-      'historical-pr-comments',
-      'unrelated-issue-census'
-    ],
-    maxSkillBodies: 1,
-    unresolvedFrontier: [],
-    readReceipts: [],
-    invalidationInputs: []
-  };
+  return agentReadPlanInput(capsule(agentPlanningContext()));
 }
 
 async function run(script: string, args: readonly string[]): Promise<{

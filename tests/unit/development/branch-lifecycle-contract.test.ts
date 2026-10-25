@@ -534,7 +534,7 @@ test('clone prune drift is a blocking lifecycle error, not a protected state', (
   expect(report.findings.filter(({ code }) => code === 'prune-configuration-drift')).toHaveLength(2);
 });
 
-test('active lifecycle admits only main and the exact active/open candidate', () => {
+test('active lifecycle admits the exact candidate and rejects the same open PR without its Work Package', () => {
   const active = inventory({
     localBranches: [
       { branch: 'main', sha: MAIN_SHA },
@@ -565,31 +565,14 @@ test('active lifecycle admits only main and the exact active/open candidate', ()
   expect(report.status).toBe('clean');
   expect(report.classifications.find(({ branch }) => branch === 'feat/example')?.classification)
     .toBe('active-candidate');
-});
 
-test('open PR without an active Work Package is unauthorized', () => {
-  const report = auditBranchLifecycle(inventory({
-    localBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    remoteBranches: [
-      { branch: 'main', sha: MAIN_SHA },
-      { branch: 'feat/example', sha: HEAD_SHA }
-    ],
-    pullRequests: [{
-      number: 42,
-      headBranch: 'feat/example',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      state: 'open',
-      isDraft: false,
-      isCrossRepository: false,
-      url: null
-    }]
-  }));
-  expect(report.status).toBe('drift');
-  expect(report.findings.some(({ code }) => code === 'open-pr-without-active-package')).toBe(true);
+  const unowned = auditBranchLifecycle({
+    ...active,
+    pullRequests: [{ ...active.pullRequests[0]!, url: null }],
+    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null }
+  });
+  expect(unowned.status).toBe('drift');
+  expect(unowned.findings.some(({ code }) => code === 'open-pr-without-active-package')).toBe(true);
 });
 
 test('dirty worktree is formally protected-pending instead of an active feature claim', () => {

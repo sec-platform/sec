@@ -49,6 +49,21 @@ const exactMainTree = 'b'.repeat(40);
 const activePackageId = 'active-v1';
 const candidates = ['candidate-two-v1', 'candidate-three-v1'] as const;
 
+const currentStateSource = `schema: sec-current-state-live-v1
+resolver:
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
+  repository: sec-platform/sec
+  remote: origin
+  defaultBranch: main
+  defaultRef: refs/remotes/origin/main
+  requireRemoteMatch: true
+stableFacts: {}
+`;
+const selectedWorkStateSource = currentStateSource.replace('stableFacts: {}', `stableFacts:
+  workSelection:
+    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
+    projection: sec-work-selection-live-v1-required`);
+
 function proposalManifest(packageId: string, tracking: string, base = exactMain): Buffer {
   return Buffer.from(`---
 schema: codex-development-work-package-v1
@@ -209,19 +224,7 @@ test('proposal-only freeze renders one authority-free tracking:none successor', 
   const proposalPackageId = 'private-sandbox-python-runtime-transition';
   const currentManifest = proposalManifest(activePackageId, 'issue-1');
   const targetManifest = proposalManifest(proposalPackageId, 'none');
-  const spec = parseCurrentStateSpec(`schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts:
-  workSelection:
-    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
-    projection: sec-work-selection-live-v1-required
-`);
+  const spec = parseCurrentStateSpec(selectedWorkStateSource);
   const currentPointerSource = renderActivePointer({
     spec,
     manifestPath: `config/repository/work-packages/${activePackageId}.md`,
@@ -382,19 +385,7 @@ tests:
 
 # Prior machine projection
 `, 'utf8');
-  const spec = parseCurrentStateSpec(`schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts:
-  workSelection:
-    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
-    projection: sec-work-selection-live-v1-required
-`);
+  const spec = parseCurrentStateSpec(selectedWorkStateSource);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
     targetManifest
   ) as `sha256:${string}`;
@@ -535,19 +526,7 @@ matchingDefaultBlob: none
     sourcePointerRevision: rawSha256(pointerSource),
     sourceRollingRevision: rawSha256(legacyRollingPlanSource())
   };
-  const spec = parseCurrentStateSpec(`schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts:
-  workSelection:
-    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
-    projection: sec-work-selection-live-v1-required
-`);
+  const spec = parseCurrentStateSpec(selectedWorkStateSource);
   const result = createFreezeProjection({
     spec,
     currentPointerSource: pointerSource,
@@ -1086,45 +1065,14 @@ matchingDefaultBlob: none
   expect(() => parseActivePointer(competingPointer))
     .toThrow('exactly one YAML selector block');
 
-  expect(() => parseCurrentStateSpec(`
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: false
-stableFacts: {}
-`)).toThrow('requireRemoteMatch must be true');
+  expect(() => parseCurrentStateSpec(
+    '\n' + currentStateSource.replace('requireRemoteMatch: true', 'requireRemoteMatch: false')
+  )).toThrow('requireRemoteMatch must be true');
 
-  const validSpec = parseCurrentStateSpec(`
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts: {}
-`);
+  const validSpec = parseCurrentStateSpec('\n' + currentStateSource);
   expect(() => resolveWorkSelectionProjectionMode(validSpec))
     .toThrow('workSelection stable fact is required');
-  const requiredWorkSelectionSpec = parseCurrentStateSpec(`
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts:
-  workSelection:
-    catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
-    projection: sec-work-selection-live-v1-required
-`);
+  const requiredWorkSelectionSpec = parseCurrentStateSpec('\n' + selectedWorkStateSource);
   expect(resolveWorkSelectionProjectionMode(requiredWorkSelectionSpec))
     .toBe('required-v1');
   expect(() => resolveWorkSelectionProjectionMode({
@@ -1143,17 +1091,7 @@ stableFacts:
         ? 'defaultBranch: main'
         : 'defaultRef: refs/remotes/origin/main';
     expect(() => parseCurrentStateSpec(
-      `
-schema: sec-current-state-live-v1
-resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
-  repository: sec-platform/sec
-  remote: origin
-  defaultBranch: main
-  defaultRef: refs/remotes/origin/main
-  requireRemoteMatch: true
-stableFacts: {}
-`.replace(original, invalidSource)
+      ('\n' + currentStateSource).replace(original, invalidSource)
     )).toThrow();
   }
   expect(() => parseActivePointer(`---

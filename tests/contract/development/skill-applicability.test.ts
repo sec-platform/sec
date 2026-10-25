@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { agentPlanningContext, agentReadPlanInput } from '../../helpers/agent-planning-input.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../../testkit/git-protocol.ts';
 
 import { expect, test } from 'bun:test';
@@ -60,60 +61,25 @@ function planInput(overrides: {
   const base = overrides.base ?? head;
   const candidates = overrides.candidates ?? ['worker-development'];
   const observedChangedPaths = overrides.changedPaths ?? [];
-  return {
-    schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
-    taskCapsule: capsule({
-      operationId: 'skill-applicability-contract',
-      role: overrides.role ?? 'worker',
-      operationKind: overrides.operationKind ?? 'implement',
-      goalDigest: digest('b'),
-      trustedRevision: base,
-      targetCandidate: head,
-      workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
-      workPackageProposalDigest: digest('c'),
-      workPackageProjectionId: digest('e'),
-      scopeGrantId: null,
-      ownerFacts: [{
-        id: 'development-governance',
-        ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
-        owner: 'development-governance-owner',
-        revision: 'owner-revision-v1'
-      }],
-      scopeProposal: {
-        readPaths: ['docs/开发/AI协作/规则装载与任务恢复.md'],
-        writePaths: overrides.writePaths ?? (observedChangedPaths.length > 0
-          ? observedChangedPaths
-          : ['platform/shared/']),
-        forbiddenPaths: overrides.forbiddenPaths ?? [],
-        authorizedResources: overrides.authorizedResources ?? [],
-        authorizedGates: overrides.authorizedGates ?? [],
-        changedPaths: observedChangedPaths
-      },
-      verificationObligations: [],
-      skillCandidateIds: candidates
-    }),
-    requiredRefs: [{
-      id: 'development-governance',
-      ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
-      owner: 'development-governance-owner',
-      revision: 'owner-revision-v1',
-      reasonCode: 'canonical-operation-owner',
-      projection: null
-    }],
-    conditionalRefs: [],
-    forbiddenSources: [
-      'assistant-memory',
-      'chat-history',
-      'full-issue-census',
-      'full-skill-corpus',
-      'historical-pr-comments',
-      'unrelated-issue-census'
-    ],
-    maxSkillBodies: candidates.length === 0 ? 0 : 1,
-    unresolvedFrontier: [],
-    readReceipts: [],
-    invalidationInputs: []
-  };
+  return agentReadPlanInput(capsule(agentPlanningContext({
+    operationId: 'skill-applicability-contract',
+    role: overrides.role ?? 'worker',
+    operationKind: overrides.operationKind ?? 'implement',
+    trustedRevision: base,
+    targetCandidate: head,
+    scopeProposal: {
+      readPaths: ['docs/开发/AI协作/规则装载与任务恢复.md'],
+      writePaths: overrides.writePaths ?? (observedChangedPaths.length > 0
+        ? observedChangedPaths
+        : ['platform/shared/']),
+      forbiddenPaths: overrides.forbiddenPaths ?? [],
+      authorizedResources: overrides.authorizedResources ?? [],
+      authorizedGates: overrides.authorizedGates ?? [],
+      changedPaths: observedChangedPaths
+    },
+    verificationObligations: [],
+    skillCandidateIds: candidates
+  })), { maxSkillBodies: candidates.length === 0 ? 0 : 1 });
 }
 
 function evaluatePlan(input: OperationReadPlanInput): SkillApplicabilityDecision {
