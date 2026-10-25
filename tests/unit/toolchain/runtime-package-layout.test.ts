@@ -25,9 +25,12 @@ const FIXTURE_ENTRYPOINT = Object.freeze({
   source: 'source/cli.ts'
 });
 
-async function createPackageFixture(form: 'bundle' | 'source' = 'source'): Promise<string> {
+async function withPackageFixture<T>(
+  run: (packageRoot: string) => Promise<T>,
+  form: 'bundle' | 'source' = 'source'
+): Promise<T> {
   const packageRoot = await mkdtemp(path.join(tmpdir(), 'sec-runtime-layout-'));
-  try {
+  return settleWorkspaceCallback(async () => {
     await writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
       ...(form === 'source' ? { source: `./${FIXTURE_ENTRYPOINT.source}` } : {}),
       bin: { [FIXTURE_ENTRYPOINT.command]: `./${FIXTURE_ENTRYPOINT.artifact}` },
@@ -37,17 +40,13 @@ async function createPackageFixture(form: 'bundle' | 'source' = 'source'): Promi
           : packageArtifactLauncherScript(FIXTURE_ENTRYPOINT.artifact)
       }
     })}\n`, 'utf8');
-    return packageRoot;
-  } catch (error) {
-    return settleWorkspaceCallback(async () => { throw error; },
-      () => rm(packageRoot, { recursive: true, force: true }));
-  }
+    return run(packageRoot);
+  }, () => rm(packageRoot, { recursive: true, force: true }));
 }
 
 describe('compiler runtime layout', () => {
   test('source mode derives the CLI and release entrypoints from its package manifest', async () => {
-    const packageRoot = await createPackageFixture();
-    try {
+    return withPackageFixture(async packageRoot => {
       const modulePath = path.join(packageRoot, SOURCE_RUNTIME_MODULE_RELATIVE_PATH);
       const layout = resolveCompilerRuntimeLayout(pathToFileURL(modulePath).href);
 
@@ -79,14 +78,11 @@ describe('compiler runtime layout', () => {
           COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialRegistry
         )
       });
-    } finally {
-      await rm(packageRoot, { force: true, recursive: true });
-    }
+    });
   });
 
   test('bundle mode derives its executable and asset root from the same package manifest', async () => {
-    const packageRoot = await createPackageFixture('bundle');
-    try {
+    return withPackageFixture(async packageRoot => {
       const modulePath = path.join(packageRoot, ...FIXTURE_ENTRYPOINT.artifact.split('/'));
       const layout = resolveCompilerRuntimeLayout(pathToFileURL(modulePath).href);
       const runtimeAssetRoot = path.dirname(modulePath);
@@ -105,23 +101,18 @@ describe('compiler runtime layout', () => {
         sourceEntrypointRelativePath: null
       });
       expect(Object.isFrozen(resolveCompilerRuntimeResources(layout))).toBe(true);
-    } finally {
-      await rm(packageRoot, { force: true, recursive: true });
-    }
+    }, 'bundle');
   });
 
   test('unknown module locations and non-file URLs fail closed', async () => {
-    const packageRoot = await createPackageFixture();
-    try {
+    return withPackageFixture(async packageRoot => {
       expect(() => resolveCompilerRuntimeLayout(
         pathToFileURL(path.join(packageRoot, 'lib/runtime-layout.js')).href
       )).toThrow('Unsupported SEC runtime module layout');
       expect(() => resolveCompilerRuntimeLayout('https://example.com/output/cli.js')).toThrow(
         'file URL'
       );
-    } finally {
-      await rm(packageRoot, { force: true, recursive: true });
-    }
+    });
   });
 
   test('the live source module resolves the current package and CLI entrypoint', () => {
