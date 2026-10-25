@@ -26,6 +26,10 @@ for (const canceled of ['parent', 'child'] as const) {
     assert.strictEqual(second.signal.reason, reason);
     assert.strictEqual(second.signal, contextOf(second).signal);
     if (canceled === 'child') assert.equal(parent.signal.aborted, false);
+    else {
+      Object.defineProperty(parent.signal, 'aborted', { value: false });
+      assert.throws(() => normalize({ ...first, signal: child.signal }), error => error === reason);
+    }
   });
 }
 

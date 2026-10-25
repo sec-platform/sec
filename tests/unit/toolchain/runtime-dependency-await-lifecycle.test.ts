@@ -234,7 +234,10 @@ for (const terminal of ['success', 'provider failure', 'cancellation', 'deadline
       signal: source.signal,
       lockTimeoutMs: terminal === 'deadline' ? 20 : 1000,
       monotonicNowMs: () => 0,
-      beforeCommit: () => provider.promise
+      beforeCommit: () => {
+        if (terminal === 'success') source.signal.dispatchEvent(new Event('abort'));
+        return provider.promise;
+      }
     });
     Object.defineProperty(AbortSignal.prototype, 'addEventListener', {
       configurable: true,

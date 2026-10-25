@@ -124,6 +124,7 @@ for (const phase of ['bind', 'budget', 'provider'] as const) {
     Object.defineProperty(abort.signal, 'throwIfAborted', { value() { assert.fail('public method invoked'); } });
     const reason = Object.freeze({ cancelled: phase });
     const original = phase === 'bind' ? undefined : bind({ lockTimeoutMs: 100, signal: abort.signal });
+    Object.defineProperty(abort.signal, 'aborted', { value: false });
     abort.abort(reason);
     if (phase === 'bind') {
       assert.throws(() => bind({ signal: abort.signal }), (error) => error === reason);

@@ -118,6 +118,7 @@ test('dependency wait preserves an explicit null cancellation reason', async () 
 
 test('dependency wait preserves cancellation reason identity during sleep', async () => {
   const controller = new AbortController();
+  controller.signal.addEventListener('abort', event => event.stopImmediatePropagation(), { once: true });
   const reason = { kind: 'cancel' };
   const failure = await rejectionOf(waitForRuntimeDependencyOperation({ signal: controller.signal }, 1, () => {
     controller.abort(reason);

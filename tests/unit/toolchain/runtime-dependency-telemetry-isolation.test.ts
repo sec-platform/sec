@@ -101,13 +101,20 @@ test('classification does not inspect an unrelated message field', () => {
 test('existing cancellation and deadline outcome projections retain their precedence', () => {
   const controller = new AbortController();
   const options = runtimeDependencyOperationOptions({ signal: controller.signal, monotonicNowMs: () => 0 });
+  const failure = new Error('provider');
+  Object.defineProperty(controller.signal, 'aborted', { value: true, configurable: true });
+  assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { throw failure; }), error => error === failure);
+  Object.defineProperty(controller.signal, 'aborted', { value: false });
   const deadline = new CodedFailure('RUNTIME-DEPS-003', 'operation DEADLINE exhausted');
   assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { throw deadline; }), (error: unknown) => error === deadline);
   assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { controller.abort(deadline); throw deadline; }), (error: unknown) => error === deadline);
+  const abortedFailure = Object.freeze({ abort: 'native' });
+  assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { throw abortedFailure; }), error => error === abortedFailure);
   const phase = readRuntimeDependencyOperationTelemetry(options).phases[0]!;
   assert.equal(phase.outcomes['deadline-exhausted'], 1);
-  assert.equal(phase.outcomes.aborted, 1);
-  assert.equal(phase.count, 2);
+  assert.equal(phase.outcomes.aborted, 2);
+  assert.equal(phase.outcomes.failed, 1);
+  assert.equal(phase.count, 4);
 });
 
 test('successful durations accumulate without mutating previously published snapshots', () => {
