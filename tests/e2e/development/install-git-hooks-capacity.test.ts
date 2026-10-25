@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { chmod, lstat, mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -35,7 +36,7 @@ test('unknown managed generations remain retained and bounded capacity blocks ne
 test('linked hook installation reserves only a missing generation when bootstrap already exists', async () => {
   await withRepository(async (repoRoot) => {
     const linkedRoot = path.join(path.dirname(repoRoot), 'l');
-    try {
+    await settleWorkspaceCallback(async () => {
       await writeFile(path.join(repoRoot, '.gitattributes'), '/.githooks/* text eol=lf\n', 'utf8');
       git(repoRoot, ['add', '.gitattributes']);
       git(repoRoot, ['commit', '--quiet', '-m', 'keep hook fixture LF']);
@@ -63,8 +64,8 @@ test('linked hook installation reserves only a missing generation when bootstrap
       }
       expect((await readdir(commonRoot)).filter((name) => name.startsWith('generation-')))
         .toHaveLength(8);
-    } finally {
+    }, async () => {
       git(repoRoot, ['worktree', 'remove', '--force', linkedRoot]);
-    }
+    });
   });
 }, { timeout: 30_000 });

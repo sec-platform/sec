@@ -1,3 +1,5 @@
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { lstat, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -43,7 +45,7 @@ test('hook installer rejects a symlinked managed hook without replacing it', asy
 
 test('hook installer rejects repository and common-Git ancestor links before any config effect', async () => {
   let alias: string | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     await withRepository(async (repoRoot) => {
       alias = `${repoRoot}-ancestor-alias`;
       await symlink(repoRoot, alias, process.platform === 'win32' ? 'junction' : 'dir');
@@ -64,14 +66,17 @@ test('hook installer rejects repository and common-Git ancestor links before any
           process.platform === 'win32' ? 'junction' : 'dir'
         );
       } catch (error) {
-        await rename(retainedCommonDir, commonGitDir);
+        await settleResourcesAsync({
+          primary: { label: 'hook-fixture-link', error },
+          cleanup: [{ label: 'hook-fixture-common-dir', settle: () => rename(retainedCommonDir, commonGitDir) }]
+        });
         throw error;
       }
       expect(await installGitHooks({ repoRoot, lifecycle: true }))
         .toMatchObject({ status: 'conflict' });
       expect((await lstat(commonGitDir)).isSymbolicLink()).toBe(true);
     });
-  } finally {
+  }, async () => {
     if (alias !== null) await rm(alias, { recursive: true, force: true });
-  }
+  });
 });

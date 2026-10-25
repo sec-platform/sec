@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { spawnSync } from 'node:child_process';
 import { access, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -345,7 +346,7 @@ test('synchronized staged apply publishes exact bytes to index and worktree with
   const stagedBytes = Buffer.from(`${source('unsorted')}// ${largeSentinel}\n`);
   const messages: string[] = [];
   const originalLog = console.log;
-  try {
+  await settleWorkspaceCallback(async () => {
     await writeFile(fixturePath, stagedBytes);
     git(repoRoot, ['add', 'fixture.ts']);
     console.log = (...values: unknown[]) => {
@@ -359,10 +360,12 @@ test('synchronized staged apply publishes exact bytes to index and worktree with
     const presentation = messages.join('\n');
     expect(presentation).not.toContain(largeSentinel);
     expect(Buffer.byteLength(presentation, 'utf8')).toBeLessThan(1024);
-  } finally {
-    console.log = originalLog;
-    await rm(repoRoot, { recursive: true, force: true });
-  }
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'import-fixture-console', settle: () => { console.log = originalLog; } },
+      { label: 'import-fixture-root', settle: () => rm(repoRoot, { recursive: true, force: true }) }
+    ] });
+  });
 });
 
 test('synchronized staged apply accepts a target that normalizes back to the candidate base', async () => {

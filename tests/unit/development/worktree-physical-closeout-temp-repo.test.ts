@@ -1,4 +1,4 @@
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -404,6 +404,7 @@ test('common-dir writer excludes worktree unregister and evidence retirement unt
 test('empty ignored documentation coordination retirement requires native writer exclusion', async () => {
   const value = fixture({ documentationCoordination: true });
   const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
+  let primary: ResourceSettlementFailure | undefined;
   try {
     mkdirSync(path.dirname(lock));
     writeFileSync(lock, '');
@@ -436,8 +437,14 @@ test('empty ignored documentation coordination retirement requires native writer
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: authorization.authorizationPath
     })).terminal).toBe('completed');
+  } catch (error) {
+    primary = { label: 'worktree-fixture-subject', error };
+    throw error;
   } finally {
-    rmSync(value.root, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{
+      label: 'worktree-fixture-root',
+      settle: () => { rmSync(value.root, { recursive: true, force: true }); }
+    }] });
   }
 }, 30_000);
 
@@ -518,7 +525,7 @@ test('completed worktree GC rejects unknown operation evidence instead of deleti
 
 test('one branch settlement retires completed current worktree evidence it makes eligible', async () => {
   const value = fixture();
-  try {
+  await settleWorkspaceCallback(async () => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -597,9 +604,9 @@ test('one branch settlement retires completed current worktree evidence it makes
     expect(result.worktreeEvidenceGc.ownerRetired).toBeTrue();
     expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
     expect(existsSync(authorization.proofRoot.path)).toBeFalse();
-  } finally {
+  }, async () => {
     rmSync(value.root, { recursive: true, force: true });
-  }
+  });
 }, 40_000);
 
 test('prepared worktree evidence remains a recovery root', async () => {
@@ -1258,6 +1265,7 @@ test('dependency owner retires settled compiler staging intents in a linked work
 test('a collapsed ignored control ancestor admits only the exact held lease namespace', async () => {
   for (const foreignSibling of [false, true]) {
     const value = fixture();
+    let primary: ResourceSettlementFailure | undefined;
     try {
       writeFileSync(path.join(value.target, '.gitignore'), '.sec/\n', 'utf8');
       git(value.target, ['add', '.gitignore']);
@@ -1297,8 +1305,14 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
       });
       expect(receipt.terminal).toBe('completed');
       expect(existsSync(value.target)).toBe(false);
+    } catch (error) {
+      primary = { label: 'worktree-fixture-subject', error };
+      throw error;
     } finally {
-      rmSync(value.root, { recursive: true, force: true });
+      settleResources({ primary, cleanup: [{
+        label: 'worktree-fixture-root',
+        settle: () => { rmSync(value.root, { recursive: true, force: true }); }
+      }] });
     }
   }
 }, 60_000);
@@ -1603,7 +1617,7 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
     expect(existsSync(tombstone.path)).toBe(false);
 
     const second = fixture();
-    try {
+    await settleWorkspaceCallback(async () => {
       const secondAuthorization = await prepareWorktreePhysicalCloseout({
         repositoryRoot: second.repository, targetPath: second.target, expectedBranch: second.branch,
         expectedHeadSha: second.headSha, expectedTreeSha: second.treeSha,
@@ -1622,7 +1636,9 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
       });
       expect(blocked.terminal).toBe('blocked');
       expect(readFileSync(path.join(second.target, 'new-owner.txt'), 'utf8')).toBe('must survive\n');
-    } finally { rmSync(second.root, { recursive: true, force: true }); }
+    }, async () => {
+      rmSync(second.root, { recursive: true, force: true });
+    });
   }, async () => {
     rmSync(value.root, { recursive: true, force: true });
   });

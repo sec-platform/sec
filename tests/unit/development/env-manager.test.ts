@@ -196,7 +196,7 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('a rea
     `${namespace}.lock`
   );
   let server: Awaited<ReturnType<typeof acquireTestWorkspaceSupervisorChallengeServer>> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     await fs.mkdir(executionSnapshotRoot, { recursive: true });
     const compilerPaths = getWorkspacePaths(compilerRoot);
     const sourceRoot = compilerPaths.srcRoot;
@@ -330,10 +330,11 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('a rea
       stderr: 'pipe'
     });
     expect(await replay.exited).not.toBe(0);
-  } finally {
+  }, async () => {
+    // Server closure remains a prerequisite for retiring its physical root.
     await server?.close();
     await fs.rm(repositoryRoot, { recursive: true, force: true });
-  }
+  });
 }, 20_000);
 
 test('opaque retained cleanup removes only the prepared physical child beneath its caller scope', async () => {
