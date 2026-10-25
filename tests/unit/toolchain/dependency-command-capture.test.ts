@@ -1,16 +1,14 @@
 import { expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { runRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 // The delayed domain records only; no real dependency cleanup is performed.
 // Native cwd changes and the actual Commander action execute in a child.
 test('dependency clean captures request before delayed loading and cwd change', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-dependency-command-'));
   const repo = fileURLToPath(new URL('../../../', import.meta.url));
-  try {
+  await runRetainedBunTestWorkspace('sec-dependency-command-', async root => {
     const decoy = path.join(root, 'decoy'); await mkdir(decoy);
     const script = path.join(root, 'capture.ts');
     await writeFile(script, `
@@ -39,7 +37,8 @@ test('dependency clean captures request before delayed loading and cwd change', 
         throw new Error('cleanup scope was expanded during loading');
       console.log('original target and scope retained');
     `);
-    const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
-    expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('original target and scope retained');
-  } finally { await rm(root, { recursive: true, force: true }); }
+    return { args: [script], options: { cwd: root }, observe: ({ code, stdout, stderr }) => {
+      expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('original target and scope retained');
+    } };
+  });
 });

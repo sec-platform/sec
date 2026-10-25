@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { affectedGitSelectionDigest, issueAffectedGitSelectionSource, rebindAffectedGitSelectionSource } from '../../../src/adapters/verification/platform/test-impact/runtime/affected-git-source.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestCommands } from '../../testkit/process-resource.ts';
 import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 
 import { withAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/authority.ts';
@@ -113,7 +113,8 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
 });
 
 test('trusted Git reads isolate ambient config and alternate index injection', async () => {
-  await withRepository('sec-dev-git-config-isolation-', async (root) => {
+  const root = await createRepository('sec-dev-git-config-isolation-');
+  await withRetainedBunTestCommands(root, async run => {
     const alternateIndex = path.join(root, '.git', 'outside.index');
     const hostileEnvironment = { ...process.env, GIT_INDEX_FILE: alternateIndex };
     const emptyIndex = spawnSync('git', ['read-tree', '--empty'], {
@@ -139,7 +140,7 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
       "return { status: config.status, stdoutByteLength: config.stdout.byteLength, indexStatus: index.status, indexPaths: index.stdout.toString('utf8') }; });",
       "process.stdout.write(JSON.stringify(result));"
     ].join('\n');
-    const ambientChild = await runRetainedBunTestCommand(['--no-env-file', '--eval', source], {
+    const ambientChild = await run(['--no-env-file', '--eval', source], {
       cwd: process.cwd(),
       timeoutMs: 30_000,
       env: {
@@ -160,7 +161,7 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
     });
     expect(await fs.readFile(alternateIndex)).toEqual(alternateIndexBytes);
     expect(await fs.readFile(path.join(root, '.git', 'index'))).toEqual(canonicalIndexBytes);
-  });
+  }, () => rm(root, { recursive: true, force: true }));
 });
 
 test('exact committed blobs and attribute policy are isolated from .git/info/attributes overrides', async () => {
