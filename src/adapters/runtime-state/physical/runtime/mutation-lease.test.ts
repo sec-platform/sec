@@ -1,4 +1,3 @@
-import { type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -7,6 +6,7 @@ import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import { settleResources } from '../../../../execution/resource-settlement.ts';
 import { createRawTestExecutableFixture } from '../../../../../tests/testkit/raw-process.ts';
+import { settleWorkspaceCallbackSync } from '../../../../../tests/testkit/workspace-cleanup.ts';
 
 import {
   PHYSICAL_MUTATION_LEASE_SCHEMA,
@@ -41,7 +41,7 @@ function legacyOwner(overrides: Partial<PhysicalMutationLeaseOwner> = {}): Physi
   return {
     schema: PHYSICAL_MUTATION_LEASE_SCHEMA,
     host: hostname(),
-    pid: exitedPid(),
+    pid: overrides.pid ?? exitedPid(),
     processNonce: randomUUID(),
     token: randomUUID(),
     createdAtMs,
@@ -68,6 +68,15 @@ function fixture(options: Readonly<{ namespace?: boolean }> = {}) {
   }
 }
 
+function withFixture(
+  use: (value: ReturnType<typeof fixture>) => void,
+  options: Readonly<{ namespace?: boolean }> = {}
+): void {
+  const value = fixture(options);
+  settleWorkspaceCallbackSync(() => use(value),
+    () => rmSync(value.root, { recursive: true, force: true }));
+}
+
 function expectBlocked(action: () => unknown, status: 'legacy-unproven' | 'unknown'): void {
   let blocked: unknown;
   try { action(); } catch (error) { blocked = error; }
@@ -75,93 +84,60 @@ function expectBlocked(action: () => unknown, status: 'legacy-unproven' | 'unkno
   expect((blocked as PhysicalMutationCoordinationBlockedError).status).toBe(status);
 }
 
-test('strict read and prepare preserve a dead local legacy record and its existing namespace', () => {
-  const { root, parent, writeLegacy } = fixture({ namespace: true });
-  let fixtureFailure3: ResourceSettlementFailure | undefined;
-  try {
-    const legacy = legacyOwner();
-    const legacyBytes = writeLegacy(legacy);
-    const recordIdentity = inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME);
-    const namespaceIdentity = inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target;
-    writeFileSync(path.join(root, NAMESPACE_LEAF, 'sentinel'), 'original namespace payload');
-    const payloadIdentity = inspectNoFollowOrdinaryFileEntry(namespaceIdentity, 'sentinel');
-    expectBlocked(() => readPhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
-    expectBlocked(() => preparePhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
-    expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(legacyBytes);
-    expect(inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME)).toEqual(recordIdentity);
-    expect(inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target).toEqual(namespaceIdentity);
-    expect(readdirSync(root).sort()).toEqual([LEASE_NAME, NAMESPACE_LEAF].sort());
-    expect(readFileSync(path.join(root, NAMESPACE_LEAF, 'sentinel'), 'utf8')).toBe('original namespace payload');
-    expect(readdirSync(namespaceIdentity.path)).toEqual(['sentinel']);
-    expect(inspectNoFollowOrdinaryFileEntry(namespaceIdentity, 'sentinel')).toEqual(payloadIdentity);
-  } catch (error) {
-    fixtureFailure3 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure3,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test('strict read and prepare preserve a dead local legacy record and its existing namespace', () => withFixture(({ root, parent, writeLegacy }) => {
+  const legacy = legacyOwner();
+  const legacyBytes = writeLegacy(legacy);
+  const recordIdentity = inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME);
+  const namespaceIdentity = inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target;
+  writeFileSync(path.join(root, NAMESPACE_LEAF, 'sentinel'), 'original namespace payload');
+  const payloadIdentity = inspectNoFollowOrdinaryFileEntry(namespaceIdentity, 'sentinel');
+  expectBlocked(() => readPhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
+  expectBlocked(() => preparePhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
+  expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(legacyBytes);
+  expect(inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME)).toEqual(recordIdentity);
+  expect(inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target).toEqual(namespaceIdentity);
+  expect(readdirSync(root).sort()).toEqual([LEASE_NAME, NAMESPACE_LEAF].sort());
+  expect(readFileSync(path.join(root, NAMESPACE_LEAF, 'sentinel'), 'utf8')).toBe('original namespace payload');
+  expect(readdirSync(namespaceIdentity.path)).toEqual(['sentinel']);
+  expect(inspectNoFollowOrdinaryFileEntry(namespaceIdentity, 'sentinel')).toEqual(payloadIdentity);
+}, { namespace: true }));
 
-test('a legacy record without a namespace cannot authorize a namespace or anchor birth', () => {
-  const { root, parent, writeLegacy } = fixture();
-  let fixtureFailure2: ResourceSettlementFailure | undefined;
-  try {
-    const legacy = legacyOwner();
-    const bytes = writeLegacy(legacy);
-    const identity = inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME);
-    expectBlocked(() => preparePhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
-    expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(bytes);
-    expect(inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME)).toEqual(identity);
-    expect(readdirSync(root)).toEqual([LEASE_NAME]);
-  } catch (error) {
-    fixtureFailure2 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure2,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test('a legacy record without a namespace cannot authorize a namespace or anchor birth', () => withFixture(({ root, parent, writeLegacy }) => {
+  const legacy = legacyOwner();
+  const bytes = writeLegacy(legacy);
+  const identity = inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME);
+  expectBlocked(() => preparePhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
+  expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(bytes);
+  expect(inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME)).toEqual(identity);
+  expect(readdirSync(root)).toEqual([LEASE_NAME]);
+}));
 
-test('a present legacy-shaped anchor cannot authorize an unproven legacy record', () => {
-  const { root, parent, writeLegacy } = fixture({ namespace: true });
-  let fixtureFailure1: ResourceSettlementFailure | undefined;
-  try {
-    const legacyBytes = writeLegacy(legacyOwner());
-    const material = {
-      resourceGeneration: randomUUID(),
-      schema: 'sec-physical-namespace-coordination-anchor-v1',
-      parent: Object.freeze({ device: parent.device, inode: parent.inode, objectId: parent.objectId }),
-      leaseName: LEASE_NAME,
-      resourceName: NAMESPACE_LEAF,
-      effectDomain: 'namespace-coordination'
-    };
-    const anchorBytes = Buffer.from(`${JSON.stringify(material)}\n`, 'utf8');
-    publishExclusiveDurableCanonicalFile({
-      parent, name: ANCHOR_NAME, bytes: anchorBytes,
-      validate: candidate => { if (!Buffer.from(candidate).equals(anchorBytes)) throw new Error('fixture anchor differs'); }
-    });
-    const recordIdentity = inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME);
-    const anchorIdentity = inspectNoFollowOrdinaryFileEntry(parent, ANCHOR_NAME);
-    const namespaceIdentity = inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target;
-    expectBlocked(() => preparePhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
-    expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(legacyBytes);
-    expect(readFileSync(path.join(root, ANCHOR_NAME)).equals(anchorBytes)).toBe(true);
-    expect(inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME)).toEqual(recordIdentity);
-    expect(inspectNoFollowOrdinaryFileEntry(parent, ANCHOR_NAME)).toEqual(anchorIdentity);
-    expect(inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target).toEqual(namespaceIdentity);
-    expect(readdirSync(root).sort()).toEqual([LEASE_NAME, NAMESPACE_LEAF, ANCHOR_NAME].sort());
-  } catch (error) {
-    fixtureFailure1 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure1,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
-});
+test('a present legacy-shaped anchor cannot authorize an unproven legacy record', () => withFixture(({ root, parent, writeLegacy }) => {
+  const legacyBytes = writeLegacy(legacyOwner());
+  const material = {
+    resourceGeneration: randomUUID(),
+    schema: 'sec-physical-namespace-coordination-anchor-v1',
+    parent: Object.freeze({ device: parent.device, inode: parent.inode, objectId: parent.objectId }),
+    leaseName: LEASE_NAME,
+    resourceName: NAMESPACE_LEAF,
+    effectDomain: 'namespace-coordination'
+  };
+  const anchorBytes = Buffer.from(`${JSON.stringify(material)}\n`, 'utf8');
+  publishExclusiveDurableCanonicalFile({
+    parent, name: ANCHOR_NAME, bytes: anchorBytes,
+    validate: candidate => { if (!Buffer.from(candidate).equals(anchorBytes)) throw new Error('fixture anchor differs'); }
+  });
+  const recordIdentity = inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME);
+  const anchorIdentity = inspectNoFollowOrdinaryFileEntry(parent, ANCHOR_NAME);
+  const namespaceIdentity = inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target;
+  expectBlocked(() => preparePhysicalMutationCoordinationResource(parent, LEASE_NAME, NAMESPACE_LEAF), 'legacy-unproven');
+  expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(legacyBytes);
+  expect(readFileSync(path.join(root, ANCHOR_NAME)).equals(anchorBytes)).toBe(true);
+  expect(inspectNoFollowOrdinaryFileEntry(parent, LEASE_NAME)).toEqual(recordIdentity);
+  expect(inspectNoFollowOrdinaryFileEntry(parent, ANCHOR_NAME)).toEqual(anchorIdentity);
+  expect(inspectNoFollowDirectoryChain(path.join(root, NAMESPACE_LEAF)).target).toEqual(namespaceIdentity);
+  expect(readdirSync(root).sort()).toEqual([LEASE_NAME, NAMESPACE_LEAF, ANCHOR_NAME].sort());
+}, { namespace: true }));
 
 test('unexpired, live, foreign or non-legacy preimages are preserved without adoption', () => {
   const cases: ReadonlyArray<Readonly<{ name: string; owner: PhysicalMutationLeaseOwner | null; status: 'legacy-unproven' | 'unknown' }>> = [
@@ -171,8 +147,7 @@ test('unexpired, live, foreign or non-legacy preimages are preserved without ado
     { name: 'non-legacy bytes', owner: null, status: 'unknown' }
   ];
   for (const scenario of cases) {
-    const { root, parent, writeLegacy } = fixture({ namespace: true });
-    try {
+    withFixture(({ root, parent, writeLegacy }) => {
       const bytes = scenario.owner === null
         ? (() => { writeFileSync(path.join(root, LEASE_NAME), '{"schema":"sec-physical-mutation-lease-v1"}\n', 'utf8'); return null; })()
         : writeLegacy(scenario.owner);
@@ -180,8 +155,6 @@ test('unexpired, live, foreign or non-legacy preimages are preserved without ado
       expect(readFileSync(path.join(root, LEASE_NAME), 'utf8')).toBe(
         bytes ?? '{"schema":"sec-physical-mutation-lease-v1"}\n');
       expect(readdirSync(root).sort()).toEqual([LEASE_NAME, NAMESPACE_LEAF].sort());
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    }, { namespace: true });
   }
 });

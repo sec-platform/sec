@@ -1,6 +1,6 @@
 import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback, settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -58,17 +58,7 @@ async function withAsyncFixtureRoot(use: (root: string) => Promise<void>): Promi
 // the responsibility of each case and must settle before this callback returns.
 function withFixtureRoot(use: (root: string) => void): void {
   const root = fixtureRoot();
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    use(root);
-  } catch (error) {
-    primary = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  settleWorkspaceCallbackSync(() => use(root), () => rmSync(root, { recursive: true, force: true }));
 }
 
 function expectPhysicalCode(action: () => unknown, code: PhysicalNoFollowError['code']): void {

@@ -1,5 +1,5 @@
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback, settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,16 +19,7 @@ import {
 
 function withFixtureRoot(prefix: string, use: (root: string) => void): void {
   const root = mkdtempSync(path.join(tmpdir(), prefix));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    use(root);
-  } catch (error) {
-    primary = { label: 'fixture operation', error };
-  } finally {
-    settleResources({ primary, cleanup: [
-      { label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }
-    ] });
-  }
+  settleWorkspaceCallbackSync(() => use(root), () => rmSync(root, { recursive: true, force: true }));
 }
 
 async function withAsyncFixtureRoot(prefix: string, use: (root: string) => Promise<void>): Promise<void> {

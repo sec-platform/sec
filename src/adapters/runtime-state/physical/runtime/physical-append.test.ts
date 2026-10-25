@@ -1,3 +1,4 @@
+import { settleWorkspaceCallbackSync } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { closeSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,10 +9,7 @@ import { appendExistingNoFollowOrdinaryFile, inspectNoFollowDirectoryChain, reta
 
 function fixture(run: (root: string) => void) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-physical-append-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try { run(root); } catch (error) { primary = { label: 'append-fixture', error }; }
-  settleResources({ primary, cleanup: [{ label: 'append-fixture-root',
-    settle: () => rmSync(root, { recursive: true, force: true }) }] });
+  settleWorkspaceCallbackSync(() => run(root), () => rmSync(root, { recursive: true, force: true }));
 }
 const append = (root: string, name = 'output', maximumFileBytes = 1024) => appendExistingNoFollowOrdinaryFile({
   parent: inspectNoFollowDirectoryChain(root), name, bytes: Buffer.from('value=ok\n'), maximumFileBytes

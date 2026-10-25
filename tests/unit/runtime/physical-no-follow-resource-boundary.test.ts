@@ -1,9 +1,9 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleWorkspaceCallback, settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { expect, spyOn, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { settleResources, withAcquiredResource, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleResources, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import * as treeObservation from '../../../src/adapters/runtime-state/physical/runtime/physical-directory-tree-observation.ts';
 
 import {
@@ -37,14 +37,7 @@ function fixture() {
 // Every invocation keeps its own source root and original native observation.
 function withFixture(use: (value: ReturnType<typeof fixture>) => void): void {
   const value = fixture();
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    use(value);
-  } catch (error) {
-    primary = { label: 'physical-resource-test', error };
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'physical-resource-fixture', settle: () => value.cleanup() }] });
-  }
+  settleWorkspaceCallbackSync(() => use(value), () => value.cleanup());
 }
 
 function withAsyncFixture(use: (value: ReturnType<typeof fixture>) => Promise<void>): Promise<void> {

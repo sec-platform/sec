@@ -1,5 +1,4 @@
-import { type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { settleWorkspaceCallback, settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -54,17 +53,7 @@ function fixture(): Readonly<{
 // Native lease and child settlement remains explicit inside the case.
 function withFixture(use: (value: ReturnType<typeof fixture>) => void): void {
   const value = fixture();
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    use(value);
-  } catch (error) {
-    primary = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(value.root, { recursive: true, force: true }); } }]
-    });
-  }
+  settleWorkspaceCallbackSync(() => use(value), () => rmSync(value.root, { recursive: true, force: true }));
 }
 
 function replaceLeaseBytes(
