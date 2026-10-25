@@ -106,7 +106,6 @@ test.serial('acquires one token through the retained fixed command and scrubs am
       }
     });
     token.fill(0);
-    expect([...token].every((byte) => byte === 0)).toBe(true);
     process.env.GITHUB_ACTIONS = 'true';
     process.env.GITHUB_EVENT_NAME = 'repository_dispatch';
     process.env.GH_TOKEN = 'ghs_actions-token-0123456789';

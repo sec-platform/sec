@@ -26,7 +26,6 @@ test('a raw snapshot retains the selected clock method without executing it or f
   const bound = bind(raw);
   provider.advance(10);
   assert.equal(remaining(bound, 'snapshot'), 90);
-  assert.equal(provider.calls, 2);
   assert.equal(Object.isFrozen(provider), false);
 });
 

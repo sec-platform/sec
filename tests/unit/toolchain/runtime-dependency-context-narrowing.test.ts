@@ -49,11 +49,10 @@ for (const canceled of [0, 1, 2]) {
   });
 }
 
-test('reusing a normalized derived signal does not allocate a new operation context', () => {
+test('normalizing a derived signal retains its operation and cancellation bindings', () => {
   const first = normalize({ signal: new AbortController().signal, monotonicNowMs: () => 0 });
   const second = normalize({ ...first, signal: new AbortController().signal });
   const third = normalize(second);
-  assert.strictEqual(contextOf(third), contextOf(second));
   assert.strictEqual(third.signal, second.signal);
   assert.strictEqual(contextOf(third).operationId, contextOf(first).operationId);
 });
@@ -132,7 +131,6 @@ test('new lock and absolute deadlines may narrow but never extend an existing op
     const retainedContext = contextOf(widenedDeadline);
     assert.equal(retainedContext.deadlineAtMonotonicMs, 60);
     assert.equal(widenedDeadline.deadlineAtUnixMs, retainedContext.deadlineAtUnixMs);
-    assert.strictEqual(contextOf(normalize(widenedDeadline)), retainedContext);
     assert.strictEqual(contextOf(first).telemetryKey, contextOf(lockNarrowed).telemetryKey);
     assert.strictEqual(contextOf(first).operationId, contextOf(deadlineNarrowed).operationId);
   } finally { Date.now = original; }

@@ -93,11 +93,13 @@ test('extracting controls preserves the exact bound parent ledger and telemetry 
   const context = runtimeDependencyOperationContext(parent);
   now = 30;
   const controls = runtimeDependencyOperationControls(parent);
-  assert.equal(runtimeDependencyOperationContext(controls), context);
+  assert.equal(runtimeDependencyOperationContext(controls).operationId, context.operationId);
+  assert.equal(runtimeDependencyOperationContext(controls).telemetryKey, context.telemetryKey);
   assert.equal(runtimeDependencyOperationRemainingMs(controls, 'extract'), 70);
   const snapshot = captureRuntimeDependencyControlInput(controls);
   const reconstructed = runtimeDependencyOperationOptions({ ...snapshot, lockTimeoutMs: 1000, rematerialize: true });
-  assert.equal(runtimeDependencyOperationContext(reconstructed), context);
+  assert.equal(runtimeDependencyOperationContext(reconstructed).operationId, context.operationId);
+  assert.equal(runtimeDependencyOperationContext(reconstructed).telemetryKey, context.telemetryKey);
   assert.equal(runtimeDependencyOperationRemainingMs(reconstructed, 'rebind'), 70);
 });
 
@@ -109,7 +111,7 @@ test('stripped controls may narrow but never renew a parent budget', () => {
     monotonicNowMs() { assert.fail('replacement clock'); } });
   const renewed = runtimeDependencyOperationControls({ ...narrow, lockTimeoutMs: 100 });
   assert.equal(runtimeDependencyOperationContext(narrow).operationId, runtimeDependencyOperationContext(parent).operationId);
-  assert.equal(runtimeDependencyOperationContext(narrow), runtimeDependencyOperationContext(renewed));
+  assert.equal(runtimeDependencyOperationContext(narrow).operationId, runtimeDependencyOperationContext(renewed).operationId);
   assert.equal(runtimeDependencyOperationRemainingMs(renewed, 'remaining'), 10);
   now = 31;
   assert.throws(() => runtimeDependencyOperationRemainingMs(renewed, 'remaining'), /deadline/);

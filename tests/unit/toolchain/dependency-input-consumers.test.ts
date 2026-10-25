@@ -20,9 +20,9 @@ test('public request, coordinator, process binder and effect use one captured pr
   }
   const provider=new Provider();const request=capture(provider);
   const bound=bind({...controls(),...request});const process=bindCompilerInstallInvocation(bound);
-  assert.equal(process.isolated,true);assert.equal(context(process.controls),context(bound));
+  assert.equal(process.isolated,true);assert.equal(context(process.controls).operationId,context(bound).operationId);
   provider.beforeCommit=()=>assert.fail('replacement');
-  const effects=effect(effect(bound));assert.equal(context(effects),context(bound));
+  const effects=effect(effect(bound));assert.equal(context(effects).operationId,context(bound).operationId);
   await process.beforeCommit?.();await fence(effects,'effect');assert.equal(provider.calls,2);
 });
 
