@@ -206,7 +206,7 @@ export function readyTransactionFixture(requestId = 'request:add-transition') {
   return { request, auth, base, staged, plan, verification };
 }
 
-export type RecoveryDraft = Omit<
+type RecoveryDraft = Omit<
   SemanticMutationRecoveryRecord,
   'formatRevision' | 'sequence' | 'previousRecordRevision' | 'terminalSequence' | 'recordRevision'
 >;

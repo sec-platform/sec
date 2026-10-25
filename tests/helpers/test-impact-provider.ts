@@ -58,13 +58,13 @@ type ExactGitFixtureBase = Readonly<{
   dispose(): void;
 }>;
 
-export type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Readonly<{
+type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Readonly<{
   cacheStatus: 'hit' | 'miss';
   compilationReceiptDigest: `sha256:${string}`;
   projectionDigest: `sha256:${string}`;
 }>;
 
-export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
+type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
   workspaceSnapshot: ReturnType<typeof acquireExactGitTreeWorkspaceSourceSnapshot>;
   workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeWorkspaceSourceSnapshot>>;
   indexStageOutput: Uint8Array;
@@ -72,7 +72,7 @@ export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
   affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
 }>;
 
-export type RemovedDocumentationTestImpactFixture = Readonly<{
+type RemovedDocumentationTestImpactFixture = Readonly<{
   provider: CodexDevelopmentTestImpactSourceProvider;
   transition: CodexDevelopmentTestImpactTransitionObservation;
   dispose(): void;

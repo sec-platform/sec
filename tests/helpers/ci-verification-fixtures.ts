@@ -40,7 +40,7 @@ tests:
 `;
 }
 
-export function exactManifest(testIdentity: string) {
+function exactManifest(testIdentity: string) {
   const source = `${manifestSource()}\n<!-- test-run:${bytesDigest(testIdentity)} -->\n`;
   return {
     blobSha: createHash('sha1').update(source).digest('hex'),

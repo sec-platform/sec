@@ -30,6 +30,7 @@ import type { VerificationSessionHostedEnvelope, VerificationSessionHostedFacts,
 import type { MergeGateResult } from '../../../src/execution/verification/integration.ts';
 import type { GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, GitHubWorkflowRunObservation, ScopeAuthorization, SessionDigest, VerificationSession } from '../../../src/execution/verification/session.ts';
 import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 export const HEAD = '2222222222222222222222222222222222222222';
 export const BASE = '1111111111111111111111111111111111111111';
@@ -327,23 +328,28 @@ async function withPrivateGitHubHttp<T>(
   const root = mkdtempSync(path.join(tmpdir(), 'sec-private-github-http-'));
   const previousPath = process.env.PATH;
   const previousFetch = globalThis.fetch;
-  process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
-  globalThis.fetch = (async (target: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(typeof target === 'string' || target instanceof URL ? target : target.url);
-    if (url.origin !== 'https://api.github.com') throw new Error('Fixture received a foreign host');
-    const value = url.pathname === '/user'
-      ? {login:'enrollment',node_id:'ENROLLMENT',id:1}
-      : url.pathname.endsWith('/collaborators/enrollment/permission') ? {permission:'maintain'}
-      : respond(url, init);
-    return new Response(typeof value === 'string' ? value : JSON.stringify(value),
-      {status:200,headers:{'content-type':'application/json'}});
-  }) as typeof fetch;
-  try { return await operation(root); }
-  finally {
-    globalThis.fetch = previousFetch;
-    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
-    rmSync(root,{recursive:true,force:true});
-  }
+  return settleWorkspaceCallback(async () => {
+    process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
+    globalThis.fetch = (async (target: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof target === 'string' || target instanceof URL ? target : target.url);
+      if (url.origin !== 'https://api.github.com') throw new Error('Fixture received a foreign host');
+      const value = url.pathname === '/user'
+        ? {login:'enrollment',node_id:'ENROLLMENT',id:1}
+        : url.pathname.endsWith('/collaborators/enrollment/permission') ? {permission:'maintain'}
+        : respond(url, init);
+      return new Response(typeof value === 'string' ? value : JSON.stringify(value),
+        {status:200,headers:{'content-type':'application/json'}});
+    }) as typeof fetch;
+    return operation(root);
+  }, async () => {
+    settleResources({ cleanup: [
+      { label: 'private-github-fetch', settle: () => { globalThis.fetch = previousFetch; } },
+      { label: 'private-github-path', settle: () => {
+        if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+      } },
+      { label: 'private-github-http-root', settle: () => rmSync(root, { recursive: true, force: true }) }
+    ] });
+  });
 }
 
 async function observePrivateGhProviderBarrier(
