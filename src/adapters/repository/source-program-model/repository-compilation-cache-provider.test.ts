@@ -165,7 +165,6 @@ afterEach(() => {
 });
 
 function fixture(
-  value = 1,
   additionalFiles: readonly Readonly<{ path: string; source: string; contentDigest: `sha256:${string}` }>[] = []
 ) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-generation-'));
@@ -175,7 +174,7 @@ function fixture(
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
   const descriptorPath = 'src/example/module.json';
-  const source = `export const value = ${value};\n`;
+  const source = 'export const value = 1;\n';
   const secondSource = 'export const SECOND = true;\n';
   const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
   const files = Object.freeze([
@@ -422,7 +421,7 @@ function storeGeneration(
 
 test.serial('immutable generations rebind semantic projections, aliased exports and snapshot identity', () => {
   const source = "export { value, value as renamedValue, value as 'quoted-value' } from './operation.ts';\n";
-  const value = fixture(1, [Object.freeze({
+  const value = fixture([Object.freeze({
     path: 'src/example/reexport.ts', source, contentDigest: rawSha256(source)
   })]);
   const cold = compileVirtualRepositorySourceProgramCompilation(value.input);

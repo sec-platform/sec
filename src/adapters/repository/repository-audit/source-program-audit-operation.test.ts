@@ -40,8 +40,7 @@ import {
   type CompileScopedCandidateTestObligationsAuditOperationInput,
   type CompileSourceProgramAuditOperationInput,
   type CompileTestObligationsAuditOperationInput,
-  type CompileWholeSourceProgramAuditOperationInput,
-  type SourceProgramAuditOperationInput
+  type CompileWholeSourceProgramAuditOperationInput
 } from './source-program-audit-operation.ts';
 
 import { compileSourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';

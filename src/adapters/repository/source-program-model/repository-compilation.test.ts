@@ -34,10 +34,10 @@ import {
   type WorkspaceSourceSnapshotSubject
 } from './workspace-source-snapshot.ts';
 
-function fixture(value: number) {
+function fixture() {
   const descriptorPath = 'src/example/module.json';
   const sources = Object.freeze({
-    'src/example/operation.ts': `export const value = ${value};\n`,
+    'src/example/operation.ts': 'export const value = 1;\n',
     'tsconfig.json': `${JSON.stringify({
       compilerOptions: { strict: true },
       include: ['src/**/*.ts']
@@ -87,7 +87,7 @@ function virtualSnapshotSubject(identity: string): WorkspaceSourceSnapshotSubjec
 }
 
 test('one owner-issued virtual snapshot compiles one graph for every Source Program projection', () => {
-  const input = fixture(1);
+  const input = fixture();
   const mutableFile = { ...input.files[0]! };
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
@@ -134,8 +134,8 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
 });
 
 test('repository compilation contexts reject fact mixing and keep virtual mutation explicit', () => {
-  const left = fixture(1);
-  const right = fixture(1);
+  const left = fixture();
+  const right = fixture();
   const leftContext = compileVirtualWorkspaceSourceSnapshot({
     ...left,
     subject: virtualSnapshotSubject('left-observation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
@@ -182,7 +182,7 @@ test('repository compilation contexts reject fact mixing and keep virtual mutati
 });
 
 test('cache absence and open, read, or publish failure preserve the cold semantic generation', () => {
-  const input = fixture(1);
+  const input = fixture();
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
     subject: virtualSnapshotSubject('cache-failure-fallback') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
@@ -238,7 +238,7 @@ test('cache absence and open, read, or publish failure preserve the cold semanti
 });
 
 test('read-only cache consumption preserves reads and the semantic receipt without publication', () => {
-  const input = fixture(1);
+  const input = fixture();
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
     subject: virtualSnapshotSubject('read-only-cache') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
@@ -278,7 +278,7 @@ test('read-only cache consumption preserves reads and the semantic receipt witho
 });
 
 test('one bounded compilation reports exact phases and rejects late cache publication', () => {
-  const input = fixture(1);
+  const input = fixture();
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
     subject: virtualSnapshotSubject('bounded-compilation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { rawSha256, sha256, canonicalJson } from '../../../contracts/canonical.ts';
+import { sha256, canonicalJson } from '../../../contracts/canonical.ts';
 import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
