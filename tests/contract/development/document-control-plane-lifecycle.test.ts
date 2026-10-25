@@ -1215,10 +1215,18 @@ async function createProposalFreezeFixture(): Promise<ProposalFreezeFixture> {
   }
 }
 
-test('proposal-only recovery preserves its PROPOSED identity, rejects the activation lane and completes', async () => {
+async function withProposalFreezeFixture<T>(
+  operation: (prepared: ProposalFreezeFixture) => Promise<T>
+): Promise<T> {
   const prepared = await createProposalFreezeFixture();
-  const { fixture, proposalId, proposalJournalPath, proposalPath } = prepared;
-  await settleWorkspaceCallback(async () => {
+  return settleWorkspaceCallback(() => operation(prepared), async () => {
+    await prepared.fixture.dispose();
+  });
+}
+
+test('proposal-only recovery preserves its PROPOSED identity, rejects the activation lane and completes', async () => {
+  await withProposalFreezeFixture(async (prepared) => {
+    const { fixture, proposalId, proposalJournalPath, proposalPath } = prepared;
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
@@ -1285,15 +1293,12 @@ test('proposal-only recovery preserves its PROPOSED identity, rejects the activa
       await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8')
     ).activePackageId).toBe(proposalId);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  }, async () => {
-    await fixture.dispose();
   });
 }, 30_000);
 
 test('proposal-only live readback rejects pointer and manifest identity drift', async () => {
-  const prepared = await createProposalFreezeFixture();
-  const { fixture, proposalBytes, proposalFile, proposalPath } = prepared;
-  await settleWorkspaceCallback(async () => {
+  await withProposalFreezeFixture(async (prepared) => {
+    const { fixture, proposalBytes, proposalFile, proposalPath } = prepared;
     await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
@@ -1321,15 +1326,12 @@ test('proposal-only live readback rejects pointer and manifest identity drift', 
       });
     await writeFile(proposalFile, proposalBytes);
     runGit(fixture.repositoryRoot, ['add', proposalPath]);
-  }, async () => {
-    await fixture.dispose();
   });
 }, 30_000);
 
 test('a completed proposal is idempotent only through the proposal-only lane', async () => {
-  const prepared = await createProposalFreezeFixture();
-  const { fixture, proposalPath } = prepared;
-  await settleWorkspaceCallback(async () => {
+  await withProposalFreezeFixture(async (prepared) => {
+    const { fixture, proposalPath } = prepared;
     const proposed = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
@@ -1354,8 +1356,6 @@ test('a completed proposal is idempotent only through the proposal-only lane', a
       manifestDigest: proposed.manifestDigest
     });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  }, async () => {
-    await fixture.dispose();
   });
 }, 30_000);
 
@@ -1924,8 +1924,7 @@ async function expectFreezeTransactionRetired(repositoryRoot: string): Promise<v
 
 
 bunTest.skipIf(process.platform !== 'linux')('production recovery preserves observed source and freeze state on refusal then resumes its exact journal operation', async () => {
-  const { fixture, proposalPath, proposalFile, proposalJournalPath } = await createProposalFreezeFixture();
-  await settleWorkspaceCallback(async () => {
+  await withProposalFreezeFixture(async ({ fixture, proposalPath, proposalFile, proposalJournalPath }) => {
     await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
       reviewedOn: '2026-08-09', proposalOnly: true, faultAfter: 'after-pointer-publish' }))
       .rejects.toThrow('Injected document control freeze fault: after-pointer-publish.');
@@ -1949,12 +1948,11 @@ bunTest.skipIf(process.platform !== 'linux')('production recovery preserves obse
     expect(recovered.candidateTreeSha).toBe(journal.candidateTreeSha);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  }, async () => { await fixture.dispose(); });
+  });
 }, 90_000);
 
 bunTest('production first and revised proposals publish exact state and retire their terminal transactions', async () => {
-  const { fixture, proposalPath, proposalFile } = await createProposalFreezeFixture();
-  await settleWorkspaceCallback(async () => {
+  await withProposalFreezeFixture(async ({ fixture, proposalPath, proposalFile }) => {
     const first = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
@@ -1985,14 +1983,11 @@ bunTest('production first and revised proposals publish exact state and retire t
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     )).toMatchObject({ manifest: proposalPath, manifestDigest: revised.manifestDigest });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  }, async () => {
-    await fixture.dispose();
   });
 }, 90_000);
 
 bunTest('terminal retirement preserves its journal when the manifest changes between sessions', async () => {
-  const { fixture, proposalFile, proposalJournalPath, proposalPath } = await createProposalFreezeFixture();
-  await settleWorkspaceCallback(async () => {
+  await withProposalFreezeFixture(async ({ fixture, proposalFile, proposalJournalPath, proposalPath }) => {
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
@@ -2006,8 +2001,6 @@ bunTest('terminal retirement preserves its journal when the manifest changes bet
     })).rejects.toThrow('Terminal freeze continuation no longer matches the manifest or review date.');
     const journal = JSON.parse(await readFile(proposalJournalPath, 'utf8')) as { phase: string };
     expect(journal.phase).toBe('terminal');
-  }, async () => {
-    await fixture.dispose();
   });
 }, 90_000);
 
@@ -2108,6 +2101,15 @@ async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixture> {
   }
 }
 
+async function withIndexPublishTupleFixture<T>(
+  operation: (prepared: PublishTupleFixture) => Promise<T>
+): Promise<T> {
+  const prepared = await prepareIndexPublishTupleFixture();
+  return settleWorkspaceCallback(() => operation(prepared), async () => {
+    await prepared.fixture.dispose();
+  });
+}
+
 async function writePublishTuple(
   prepared: PublishTupleFixture,
   entries: Readonly<{
@@ -2203,12 +2205,9 @@ for (const invalidCase of [
   }
 ] as const) {
   test(`pre-effect tuple rejects ${invalidCase.name} without any publisher effect`, async () => {
-    const prepared = await prepareIndexPublishTupleFixture();
-    await settleWorkspaceCallback(async () => {
+    await withIndexPublishTupleFixture(async (prepared) => {
       await writePublishTuple(prepared, invalidCase.entries(prepared));
       await expectPreEffectTupleRejection(prepared);
-    }, async () => {
-      await prepared.fixture.dispose();
     });
   }, 60_000);
 }
@@ -2222,8 +2221,7 @@ if (process.platform === 'win32') {
     faultAfter: FreezeFault;
   }>[]) {
     test(`Windows entry CAS state ${stateCase.name} is recoverable under its retained-entry semantics`, async () => {
-      const prepared = await prepareIndexPublishTupleFixture();
-      await settleWorkspaceCallback(async () => {
+      await withIndexPublishTupleFixture(async (prepared) => {
         expect(await readFile(prepared.paths.target)).toEqual(prepared.pre);
         await expect(freezeDocumentControlPlane({
           cwd: prepared.fixture.repositoryRoot,
@@ -2254,16 +2252,13 @@ if (process.platform === 'win32') {
         expect(runGit(prepared.fixture.repositoryRoot, ['write-tree']))
           .toBe(prepared.journal.candidateTreeSha);
         await expectFreezeTransactionRetired(prepared.fixture.repositoryRoot);
-      }, async () => {
-        await prepared.fixture.dispose();
       });
     }, 60_000);
   }
 
   test('Windows terminal-Q cleanup rejects a NEXT that appears after tuple classification', async () => {
-    const prepared = await prepareIndexPublishTupleFixture();
-    let injected = false;
-    await settleWorkspaceCallback(async () => {
+    await withIndexPublishTupleFixture(async (prepared) => {
+      let injected = false;
       await expect(freezeDocumentControlPlane({
         cwd: prepared.fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2289,14 +2284,11 @@ if (process.platform === 'win32') {
       expect(after.tuple.target).toEqual(before.tuple.target);
       expect(after.tuple.next.bytes).toBe(prepared.next.toString('base64'));
       expect(after.tuple.quarantine.present).toBe(false);
-    }, async () => {
-      await prepared.fixture.dispose();
     });
   }, 60_000);
 
   test('Windows W3 preserves a later active NEXT without cleanup or publisher effects', async () => {
-    const prepared = await prepareIndexPublishTupleFixture();
-    await settleWorkspaceCallback(async () => {
+    await withIndexPublishTupleFixture(async (prepared) => {
       await freezeDocumentControlPlane({
         cwd: prepared.fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2320,19 +2312,16 @@ if (process.platform === 'win32') {
       expect(journalRecoveryDurability.map((event) => event.stage)).toEqual([]);
       expect(durability.filter((event) => !journalRecoveryDurability.includes(event))).toEqual([]);
       expect(cleanups).toEqual([]);
-    }, async () => {
-      await prepared.fixture.dispose();
     });
   }, 60_000);
 
   test('Windows retained rename flush rejects a post-namespace replacement without a follow-on edge', async () => {
-    const fixture = await createFreezeFixture();
-    const replacement = Buffer.from('replacement pointer after namespace mutation\n', 'utf8');
-    const pointerRenameLabels: string[] = [];
-    const pointerStages: DurabilityEvent['stage'][] = [];
-    let replacementPath: string | undefined;
-    let heldPublishedPath: string | undefined;
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const replacement = Buffer.from('replacement pointer after namespace mutation\n', 'utf8');
+      const pointerRenameLabels: string[] = [];
+      const pointerStages: DurabilityEvent['stage'][] = [];
+      let replacementPath: string | undefined;
+      let heldPublishedPath: string | undefined;
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2361,8 +2350,6 @@ if (process.platform === 'win32') {
       expect(await readFile(heldPublishedPath!)).toEqual(Buffer.from(journal.files.pointer.next, 'base64'));
       expect(pointerStages).toEqual(['renamed']);
       expect(pointerRenameLabels).toEqual(['Active pointer PRE quarantine', 'Active pointer NEXT install']);
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 }
@@ -2442,12 +2429,9 @@ if (process.platform === 'linux') {
   ];
   for (const invalidCase of linuxInvalidTupleCases) {
     test(`pre-effect tuple Linux rejects ${invalidCase.name} without any publisher effect`, async () => {
-      const prepared = await prepareIndexPublishTupleFixture();
-      await settleWorkspaceCallback(async () => {
+      await withIndexPublishTupleFixture(async (prepared) => {
         await invalidCase.setup(prepared);
         await expectPreEffectTupleRejection(prepared);
-      }, async () => {
-        await prepared.fixture.dispose();
       });
     }, 60_000);
   }
@@ -2699,10 +2683,9 @@ if (process.platform === 'linux') {
 
 if (process.platform === 'linux') {
   test('Linux S1 journal transition remains activation-in-progress and recovers the same candidate', async () => {
-    const fixture = await createFreezeFixture();
-    const fault = new Error('Injected Linux journal S1 fault');
-    let selectedHooks = 0;
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const fault = new Error('Injected Linux journal S1 fault');
+      let selectedHooks = 0;
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2752,16 +2735,13 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 
   test('Linux S1 pointer projection proves target identity and rolls the writeAtomicCas family forward', async () => {
-    const fixture = await createFreezeFixture();
-    const fault = new Error('Injected Linux pointer S1 fault');
-    let selectedHooks = 0;
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const fault = new Error('Injected Linux pointer S1 fault');
+      let selectedHooks = 0;
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2808,16 +2788,13 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 
   test('Linux S1 Git index recovery preserves PRE identity and completes without a competing projection', async () => {
-    const fixture = await createFreezeFixture();
-    const fault = new Error('Injected Linux Git index S1 fault');
-    let selectedHooks = 0;
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const fault = new Error('Injected Linux Git index S1 fault');
+      let selectedHooks = 0;
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2867,15 +2844,12 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 
   test('Linux S1 terminal journal witness remains in-progress and recovers the same operation idempotently', async () => {
-    const fixture = await createFreezeFixture();
-    const fault = new Error('Injected Linux terminal journal S1 fault');
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const fault = new Error('Injected Linux terminal journal S1 fault');
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2918,15 +2892,12 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 
   test('Linux S1 rolling-plan witness preserves read-only status and recovers the same candidate', async () => {
-    const fixture = await createFreezeFixture();
-    const fault = new Error('Injected Linux rolling-plan S1 fault');
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const fault = new Error('Injected Linux rolling-plan S1 fault');
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2969,8 +2940,6 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 }
@@ -2987,12 +2956,11 @@ if (process.platform === 'linux') {
   for (const installedCase of installedNextCases) {
     for (const state of ['S3', 'S4'] as const) {
       test(`Linux ${installedCase.kind} ${state} rejects same-byte different-inode NEXT authority without effects`, async () => {
-        const fixture = await createFreezeFixture();
-        const durability: DurabilityEvent[] = [];
-        const renames: unknown[] = [];
-        const creates: unknown[] = [];
-        const cleanups: unknown[] = [];
-        await settleWorkspaceCallback(async () => {
+        await withFreezeFixture(async (fixture) => {
+          const durability: DurabilityEvent[] = [];
+          const renames: unknown[] = [];
+          const creates: unknown[] = [];
+          const cleanups: unknown[] = [];
           await expect(freezeDocumentControlPlane({
             cwd: fixture.repositoryRoot,
             manifestPath: FREEZE_TARGET_PATH,
@@ -3066,8 +3034,6 @@ if (process.platform === 'linux') {
           expect(await readFile(targetPath)).toEqual(Buffer.from(exactNext));
           expect(await readFile(competingPath)).toEqual(Buffer.from(exactNext));
           expect(await readFile(heldPath)).toEqual(Buffer.from(exactNext));
-        }, async () => {
-          await fixture.dispose();
         });
       }, 60_000);
     }
@@ -3319,9 +3285,8 @@ test('published freeze index survives Git metadata refresh without replaying ind
 }, 60_000);
 
 test('journal recovery census blocks and preserves an unknown exact PRE recovery entry', async () => {
-  const fixture = await createFreezeFixture();
-  const unknown = Buffer.from('unknown journal PRE recovery bytes\n', 'utf8');
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const unknown = Buffer.from('unknown journal PRE recovery bytes\n', 'utf8');
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3337,8 +3302,6 @@ test('journal recovery census blocks and preserves an unknown exact PRE recovery
       .rejects.toThrow(/PRE quarantine|unknown bytes/u);
     expect(await readFile(prePath)).toEqual(unknown);
     expect(await readFile(active.filePath)).toEqual(Buffer.from(active.bytes));
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
@@ -3387,9 +3350,8 @@ test('journal residue census blocks canonical absence with an exact retired NEXT
 }, 60_000);
 
 test('journal residue census blocks an unbound direct entry beside canonical terminal authority', async () => {
-  const fixture = await createFreezeFixture();
-  const unknown = Buffer.from('unbound entry recovery bytes\n', 'utf8');
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const unknown = Buffer.from('unbound entry recovery bytes\n', 'utf8');
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3407,15 +3369,12 @@ test('journal residue census blocks an unbound direct entry beside canonical ter
       .rejects.toThrow(`Unbound freeze entry recovery residue is preserved: ${path.basename(unboundPath)}`);
     expect(await readFile(unboundPath)).toEqual(unknown);
     expect(await readFile(journalPath)).toEqual(Buffer.from(journalBefore));
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
 test('journal residue census double-read blocks a raced residue replacement and preserves its bytes', async () => {
-  const fixture = await createFreezeFixture();
-  const replacement = Buffer.from('raced replacement residue bytes\n', 'utf8');
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const replacement = Buffer.from('raced replacement residue bytes\n', 'utf8');
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3449,15 +3408,12 @@ test('journal residue census double-read blocks a raced residue replacement and 
     expect(raced).toBe(true);
     expect(await readFile(residuePath)).toEqual(replacement);
     if (process.platform === 'linux') expect(await readFile(companionPath)).toEqual(Buffer.from(original));
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
 test('closed-world transaction census blocks an orphan partial temporary index without journal authority', async () => {
-  const fixture = await createFreezeFixture();
-  const partial = Buffer.from('partial unbound temporary index bytes\n', 'utf8');
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const partial = Buffer.from('partial unbound temporary index bytes\n', 'utf8');
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     await mkdir(transactionRoot, { recursive: true });
     const temporaryIndexPath = path.join(transactionRoot, 'index-123-456.next');
@@ -3466,8 +3422,6 @@ test('closed-world transaction census blocks an orphan partial temporary index w
       .rejects.toThrow('Freeze journal is absent while direct transaction residues remain');
     expect(await readFile(temporaryIndexPath)).toEqual(partial);
     await expect(readFile(path.join(transactionRoot, 'journal.json'))).rejects.toMatchObject({ code: 'ENOENT' });
-  }, async () => {
-    await fixture.dispose();
   });
 }, 30_000);
 
@@ -3524,12 +3478,11 @@ test('freeze journal rejects V1–V3 authorities and detects index transport cor
 }, 120_000);
 
 test('candidate index staging stays outside the transaction root before journal publication', async () => {
-  const fixture = await createFreezeFixture();
-  const stop = new Error('stop after external candidate-index staging');
-  const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
-  let observedNames: readonly string[] | undefined;
-  let observedTransactionRootAbsent = false;
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const stop = new Error('stop after external candidate-index staging');
+    const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
+    let observedNames: readonly string[] | undefined;
+    let observedTransactionRootAbsent = false;
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3549,8 +3502,6 @@ test('candidate index staging stays outside the transaction root before journal 
     expect(observedTransactionRootAbsent).toBe(true);
     await expect(readdir(transactionRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(path.join(transactionRoot, 'journal.json'))).rejects.toMatchObject({ code: 'ENOENT' });
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
@@ -3991,9 +3942,8 @@ for (const faultAfter of [
   'after-pointer-next-install'
 ] as const satisfies readonly FreezeFault[]) {
   test(`entry CAS rolls forward the exact ${faultAfter} crash state`, async () => {
-    const fixture = await createFreezeFixture();
-    const entryEvents: Array<Readonly<{ label: string; sourcePath: string; targetPath: string }>> = [];
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const entryEvents: Array<Readonly<{ label: string; sourcePath: string; targetPath: string }>> = [];
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -4039,19 +3989,16 @@ for (const faultAfter of [
       expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
       expect(await readFile(pointerPath)).toEqual(next);
       await expect(readFile(nextPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 }
 
 test('entry CAS preserves a target materialized after PRE quarantine', async () => {
-  const fixture = await createFreezeFixture();
-  const unknown = Buffer.from('unknown target collision bytes\n', 'utf8');
-  let nextSourcePath: string | undefined;
-  const preRecoveryPaths: string[] = [];
-  let injected = false;
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const unknown = Buffer.from('unknown target collision bytes\n', 'utf8');
+    let nextSourcePath: string | undefined;
+    const preRecoveryPaths: string[] = [];
+    let injected = false;
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4080,18 +4027,15 @@ test('entry CAS preserves a target materialized after PRE quarantine', async () 
     for (const recoveryPath of preRecoveryPaths) {
       expect(await readFile(recoveryPath)).toEqual(pre);
     }
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
 if (process.platform === 'linux') {
   test('Linux entry CAS blocks a swapped NEXT source after opening its exact fd', async () => {
-    const fixture = await createFreezeFixture();
-    const unknown = Buffer.from('unknown Linux source collision bytes\n', 'utf8');
-    let originalNextPath: string | undefined;
-    let heldNextPath: string | undefined;
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const unknown = Buffer.from('unknown Linux source collision bytes\n', 'utf8');
+      let originalNextPath: string | undefined;
+      let heldNextPath: string | undefined;
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -4112,18 +4056,15 @@ if (process.platform === 'linux') {
         'utf8'
       )) as { files: { pointer: { next: string } } };
       expect(await readFile(heldNextPath!)).toEqual(Buffer.from(journal.files.pointer.next, 'base64'));
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 }
 
 test('journal entry CAS preserves a concurrently materialized unknown canonical target', async () => {
-  const fixture = await createFreezeFixture();
-  const unknown = Buffer.from('unknown canonical journal collision\n', 'utf8');
-  let journalPath: string | undefined;
-  let nextPath: string | undefined;
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const unknown = Buffer.from('unknown canonical journal collision\n', 'utf8');
+    let journalPath: string | undefined;
+    let nextPath: string | undefined;
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4140,18 +4081,15 @@ test('journal entry CAS preserves a concurrently materialized unknown canonical 
     expect(nextPath).toBeDefined();
     expect(await readFile(journalPath!)).toEqual(unknown);
     expect(JSON.parse(await readFile(nextPath!, 'utf8'))).toMatchObject({ phase: 'prepared' });
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
 test('journal entry CAS blocks a name-swapped temporary NEXT source and preserves both entries', async () => {
-  const fixture = await createFreezeFixture();
-  const unknown = Buffer.from('unknown journal temporary replacement\n', 'utf8');
-  let journalPath: string | undefined;
-  let nextPath: string | undefined;
-  let heldPath: string | undefined;
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const unknown = Buffer.from('unknown journal temporary replacement\n', 'utf8');
+    let journalPath: string | undefined;
+    let nextPath: string | undefined;
+    let heldPath: string | undefined;
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4172,19 +4110,16 @@ test('journal entry CAS blocks a name-swapped temporary NEXT source and preserve
     await expect(readFile(journalPath!)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(nextPath!)).toEqual(unknown);
     expect(JSON.parse(await readFile(heldPath!, 'utf8'))).toMatchObject({ phase: 'prepared' });
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
 if (process.platform === 'win32') {
   test('exact cleanup preserves a replacement entry and fails closed after its opened-object byte check', async () => {
-    const fixture = await createFreezeFixture();
-    const unknown = Buffer.from('unknown cleanup replacement\n', 'utf8');
-    let cleanupPath: string | undefined;
-    let heldPath: string | undefined;
-    let heldBytes: Buffer | undefined;
-    await settleWorkspaceCallback(async () => {
+    await withFreezeFixture(async (fixture) => {
+      const unknown = Buffer.from('unknown cleanup replacement\n', 'utf8');
+      let cleanupPath: string | undefined;
+      let heldPath: string | undefined;
+      let heldBytes: Buffer | undefined;
       await expect(freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -4202,8 +4137,6 @@ if (process.platform === 'win32') {
       expect(heldPath).toBeDefined();
       expect(await readFile(cleanupPath!)).toEqual(unknown);
       expect((await readFile(heldPath!)).equals(heldBytes!)).toBe(true);
-    }, async () => {
-      await fixture.dispose();
     });
   }, 60_000);
 }
@@ -4668,9 +4601,8 @@ test('unsupported parent barrier fails typed before index advancement and remain
 }, 30_000);
 
 test('a complete terminal transaction recovers after the whole worktree moves', async () => {
-  const fixture = await createFreezeFixture();
-  const movedRoot = path.join(fixture.parent, 'repository-moved');
-  await settleWorkspaceCallback(async () => {
+  await withFreezeFixture(async (fixture) => {
+    const movedRoot = path.join(fixture.parent, 'repository-moved');
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -4692,8 +4624,6 @@ test('a complete terminal transaction recovers after the whole worktree moves', 
     expect(recovered.candidateHeadSha).toBeNull();
     expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
     await expectFreezeTransactionRetired(movedRoot);
-  }, async () => {
-    await fixture.dispose();
   });
 }, 60_000);
 
