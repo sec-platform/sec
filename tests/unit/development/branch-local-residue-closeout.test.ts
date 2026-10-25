@@ -215,6 +215,14 @@ async function withEffectFixture<T>(
   });
 }
 
+function withoutMergedPr(fixture: ReturnType<typeof createEffectFixture>) {
+  return (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+    command === 'gh' && args[0] === 'pr'
+      ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+      : fixture.run(command, args, cwd, input)
+  );
+}
+
 function writeDuplicateRecoveryBundle(fixture: ReturnType<typeof createEffectFixture>) {
   const authorizationName = readdirSync(fixture.recoveryRoot)
     .find((name) => name.endsWith('.authorization.json'))!;
@@ -783,11 +791,7 @@ test('a branch bound to a new worktree after authorization retains its ref and r
 
 test('retained native refs require explicit exact targets and leave other refs untouched', async () => {
   await withEffectFixture('retained-exact-target', async (fixture) => {
-    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
-      command === 'gh' && args[0] === 'pr'
-        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-        : fixture.run(command, args, cwd, input)
-    ));
+    const noMergedPr = withoutMergedPr(fixture);
     const withoutSelection = await executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
@@ -816,11 +820,7 @@ for (const lane of ['merged', 'retained'] as const) {
     await withEffectFixture(`journal-before-ref-${lane}`, async (fixture) => {
       const commonDir = path.join(fixture.repositoryRoot, '.git');
       const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
-      const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
-        command === 'gh' && args[0] === 'pr'
-          ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-          : fixture.run(command, args, cwd, input)
-      ));
+      const noMergedPr = withoutMergedPr(fixture);
       if (lane === 'retained') {
         writeFileSync(path.join(fixture.repositoryRoot, 'caller-index-only.txt'), 'unrelated staged bytes\n');
         git(fixture.repositoryRoot, ['add', 'caller-index-only.txt']);
@@ -862,11 +862,7 @@ for (const lane of ['merged', 'retained'] as const) {
   test(`${lane} local ref preserves recovery and ref when a development journal is unknown`, async () => {
     await withEffectFixture(`journal-unknown-${lane}`, async (fixture) => {
       const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'unknown');
-      const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
-        command === 'gh' && args[0] === 'pr'
-          ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-          : fixture.run(command, args, cwd, input)
-      ));
+      const noMergedPr = withoutMergedPr(fixture);
       await expect(executeMergedLocalBranchResidueCloseout({
         repositoryRoot: fixture.repositoryRoot,
         recoveryRoot: fixture.recoveryRoot,
@@ -985,11 +981,7 @@ test('absent local ref recovery refuses a late valid applied journal outside the
 
 test('retained authorization resumes without repeating its selected targets', async () => {
   await withEffectFixture('retained-resume', async (fixture) => {
-    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
-      command === 'gh' && args[0] === 'pr'
-        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-        : fixture.run(command, args, cwd, input)
-    ));
+    const noMergedPr = withoutMergedPr(fixture);
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
@@ -1013,11 +1005,7 @@ test('retained authorization resumes without repeating its selected targets', as
 
 test('a divergent retained target stays unresolved without owner-issued review evidence', async () => {
   await withEffectFixture('retained-review-required', async (fixture) => {
-    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
-      command === 'gh' && args[0] === 'pr'
-        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-        : fixture.run(command, args, cwd, input)
-    ));
+    const noMergedPr = withoutMergedPr(fixture);
     git(fixture.repositoryRoot, ['checkout', '-b', 'fix/divergent', 'main']);
     writeFileSync(path.join(fixture.repositoryRoot, 'divergent.txt'), 'not in main\n');
     git(fixture.repositoryRoot, ['add', 'divergent.txt']);
