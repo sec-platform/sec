@@ -80,7 +80,10 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
           inspectNoFollowDirectoryChain(path.join(root, '.git'), 'Merged journal fixture root').target);
         expect(writer.createExclusiveFsync(journalPath, source)).toBe(true);
       }
-      const unrelated = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'main without adoption anchor']);
+      // Only the anchor-loss case observes this independently rewritten main.
+      const unrelated = mode === 'anchor-lost'
+        ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'main without adoption anchor'])
+        : main;
       const oldMerge = retainedCarrier
         ? git(root, ['commit-tree', baseTree, '-m', 'merge discarded by default history rewrite']) : originalBase;
       const carrierRepository = path.join(harness, 'carrier.git');

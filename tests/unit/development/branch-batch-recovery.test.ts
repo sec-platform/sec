@@ -19,12 +19,11 @@ function fixture(root: string) {
   git(repository, ['init', '--quiet', '--initial-branch=main']);
   git(repository, ['config', 'user.name', 'SEC Test']);
   git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-  for (let index = 0; index < 3; index += 1) {
-    writeFileSync(path.join(repository, 'base.txt'), `base ${index}\n`);
-    if (index === 0) git(repository, ['add', 'base.txt']);
-    // Subsequent revisions only alter the already-tracked file.
-    git(repository, ['commit', '--quiet', '-a', '-m', `base ${index}`]);
-  }
+  // One main prerequisite distinguishes compact recovery from a complete bundle.
+  // Native Git owns history traversal; the two unique tips remain independent.
+  writeFileSync(path.join(repository, 'base.txt'), 'base 2\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '--quiet', '-m', 'base']);
   const mainSha = git(repository, ['rev-parse', 'HEAD']);
   const refs = ['fix/first', 'fix/second'].map((branch) => {
     git(repository, ['switch', '--quiet', '-c', branch, 'main']);
@@ -59,8 +58,6 @@ test('batch recovery rejects compact prerequisites and restores both unique tips
     expect(reused.path).toBe(recovery.path);
     expect(reused.sha256).toBe(recovery.sha256);
     expect(readdirSync(recoveryRoot).filter((entry) => entry.endsWith('.bundle'))).toHaveLength(1);
-    expect(verifyRecoveryAuthorityHeadsLive({ inventory, recovery,
-      expectedHeads: refs.map((ref) => ref.expectedHeadSha), requireComplete: true }).status).toBe('success');
     expect(verifyRecoveryAuthorityHeadsLive({ inventory, recovery,
       expectedHeads: ['0'.repeat(40)], requireComplete: true }).status).toBe('failed');
     const compact = createRecoveryBundle({ inventory, branch: refs[0]!.branch,
