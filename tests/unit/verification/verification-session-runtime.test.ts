@@ -1,3 +1,4 @@
+import { retainedCommandFailureTreeClosed } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -1845,6 +1846,8 @@ describe('qualified exact-repository Session consumers', () => {
 
   test('Session local quick DAG keeps durable journals in external Runtime State and executes exact detached candidate', async () => {
   const authorityRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-authority-'));
+  let fixtureRetirementAllowed = true;
+  let nativeCleanupUnknown = false;
   const priorStateHome = process.env.SEC_STATE_HOME;
   const priorCacheHome = process.env.SEC_CACHE_HOME;
   const runGit = (cwd: string, args: readonly string[]): string => {
@@ -1877,12 +1880,18 @@ describe('qualified exact-repository Session consumers', () => {
       if (priorCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
       else process.env.SEC_CACHE_HOME = priorCacheHome;
     } },
-    { label: 'authority fixture root', settle: () => rmSync(authorityRoot, { recursive: true, force: true }) }
+    { label: 'authority fixture root', settle: () => {
+      if (!fixtureRetirementAllowed) throw new Error(`Session native settlement is unknown; retain authority fixture ${authorityRoot}.`);
+      rmSync(authorityRoot, { recursive: true, force: true });
+    } }
   ];
   let sessionFailure: ResourceSettlementFailure | undefined;
   try {
     const runtimeRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-runtime-'));
-    cleanup.push({ label: 'runtime fixture root', settle: () => rmSync(runtimeRoot, { recursive: true, force: true }) });
+    cleanup.push({ label: 'runtime fixture root', settle: () => {
+      if (!fixtureRetirementAllowed) throw new Error(`Session native settlement is unknown; retain runtime fixture ${runtimeRoot}.`);
+      rmSync(runtimeRoot, { recursive: true, force: true });
+    } });
     const runtimeStateRoot = path.join(runtimeRoot, 'state');
     const runtimeCacheRoot = path.join(runtimeRoot, 'cache');
     process.env.SEC_STATE_HOME = runtimeStateRoot;
@@ -1933,12 +1942,24 @@ describe('qualified exact-repository Session consumers', () => {
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs('.bun-version') }))
       .toThrow(/\.bun-version drifted from the trusted base/i);
+    fixtureRetirementAllowed = false;
     const result = await executeLocalVerificationActionDag({ authorityRoot, candidateRoot,
       actionPlanClosure: closure, executionEnvironment,
       inspectRepository,
       testProcessIssuer: VERIFICATION_ACTION_TEST_PROCESS_ISSUER,
-      testProcessProvider: (_operation, process) =>
-        runRetainedBunTestProcess(process, candidateRoot) });
+      testProcessProvider: async (_operation, process) => {
+        try {
+          return await runRetainedBunTestProcess(process, candidateRoot);
+        } catch (error) {
+          // Only the original process owner's observation qualifies a rejected run.
+          // A later successful Action must not erase an earlier unknown outcome.
+          if (retainedCommandFailureTreeClosed(error) !== true) nativeCleanupUnknown = true;
+          throw error;
+        }
+      } });
+    // The DAG's finally has closed its own runner. Its blocked result alone is
+    // not a child-tree certificate, so retain the sticky native observation too.
+    fixtureRetirementAllowed = !nativeCleanupUnknown;
     expect(result.status).toBe('passed');
     expect(result.actionPlanDigest).toBe(closure.actionPlanDigest);
     expect(result.actionResults.every((entry) => entry.terminal?.status === 'passed')).toBe(true);
