@@ -49,11 +49,15 @@ class DocumentationIdentity(TestCase):
     def capture(self):
         return s.capture_source_manifest(self.root)
 
-    def test_rich_requirement_heading_requires_stable_anchor_in_projection_domain(self):
+    def test_stable_requirement_anchor_is_required_for_rich_and_preferred_for_plain_headings(self):
+        path = self.root / 'docs/产品/产品要求与工作约束.md'
+        plain = path.read_text()
         self.write('docs/产品/产品要求与工作约束.md', '### REQ001｜**rich**\n\nBody.')
         with self.assertRaisesRegex(ValueError, 'stable explicit'):
             s.requirement_projection(self.root)
         self.write('docs/产品/产品要求与工作约束.md', '<a id="req001"></a>\n\n### REQ001｜**rich**\n\nBody.')
+        self.assertEqual(s.requirement_projection(self.root)['items'][0]['fragment'], 'req001')
+        path.write_text('<a id="req001"></a>\n\n' + plain)
         self.assertEqual(s.requirement_projection(self.root)['items'][0]['fragment'], 'req001')
 
     def test_cache_absence_change_and_corruption_do_not_change_source_identity(self):
@@ -187,11 +191,6 @@ class DocumentationIdentity(TestCase):
     def test_unknown_metadata_role_is_not_silently_authoritative(self):
         self.write('.documentation/new-data.json', '{}')
         with self.assertRaisesRegex(ValueError, 'metadata role'): self.capture()
-
-    def test_stable_req_anchor_is_preferred_to_rename_sensitive_heading(self):
-        path = self.root / 'docs/产品/产品要求与工作约束.md'
-        path.write_text('<a id="req001"></a>\n\n' + path.read_text())
-        self.assertEqual(s.requirement_projection(self.root)['items'][0]['fragment'], 'req001')
 
     def test_two_projection_writers_are_refused_without_waiting_or_stealing(self):
         with s.projection_writer(self.root):

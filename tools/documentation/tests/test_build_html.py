@@ -224,23 +224,18 @@ class ReadingTests(unittest.TestCase):
         for fragment in ('title-next','','rich-code','-inline','custom'):
             self.assertIn(('id="'+b.fragment_id('config/guide.md',fragment)+'"').encode(),output)
         self.assertEqual(book.build({'state':'not-rendered'}),(output,meta))
-    def test_typescript_raw_sources(self):
+    def test_typescript_and_sql_sources_are_readable_as_inert_text(self):
         self.write('examples/public.d.ts', 'export declare function normalize(x: bigint): bigint;\n')
         self.write('examples/fixture.ts', 'export const value = "<script>never_execute()</script>";\n')
-        self.run_build(); p=Originals(); p.feed(self.out.read_text())
-        for name in ('examples/public.d.ts', 'examples/fixture.ts'):
-            self.assertEqual(p.files[name], (self.root/name).read_bytes())
-        audit=b.AuditHTML(); audit.feed(self.out.read_text())
+        self.write('docs/design/control.sql','CREATE TABLE operation(id TEXT PRIMARY KEY);\n-- <script>unsafe()</script>\n')
+        self.write('README.md','# Fixture\n[SQL design](docs/design/control.sql)\n')
+        self.run_build();text=self.out.read_text();originals=Originals();originals.feed(text)
+        for name in ('examples/public.d.ts', 'examples/fixture.ts', 'docs/design/control.sql'):
+            self.assertEqual(originals.files[name], (self.root/name).read_bytes())
+        audit=b.AuditHTML();audit.feed(text)
         self.assertFalse(audit.handlers)
         self.assertFalse(audit.remote)
-        self.assertNotIn('<script>never_execute()</script>', self.out.read_text())
-    def test_sql_design_source_is_readable_as_inert_text(self):
-        source='CREATE TABLE operation(id TEXT PRIMARY KEY);\n-- <script>unsafe()</script>\n'
-        self.write('docs/design/control.sql',source)
-        self.write('README.md','# Fixture\n[SQL design](docs/design/control.sql)\n')
-        self.run_build();text=self.out.read_text()
-        originals=Originals();originals.feed(text)
-        self.assertEqual(originals.files['docs/design/control.sql'],(self.root/'docs/design/control.sql').read_bytes())
+        self.assertNotIn('<script>never_execute()</script>',text)
         self.assertIn('CREATE TABLE operation(id TEXT PRIMARY KEY);',text)
         self.assertNotIn('<script>unsafe()</script>',text)
     def test_ordinary_reading_does_not_open_or_embed_local_projections(self):
@@ -336,16 +331,14 @@ class ReadingTests(unittest.TestCase):
         self.write('docs/主题.md','# 主题\n## 字段\n```text\nunclosed\n');self.assert_publication_preserves_previous('unclosed fenced code block',error=ValueError)
     def test_unsafe_scheme(self):
         self.write('docs/主题.md','# 主题\n## 字段\n<a href="javascript:alert(1)">x</a>\n');self.assert_publication_preserves_previous('Unsupported/active URI')
-    def test_raw_script_is_inert(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n<script>alert("bad")</script>\n');self.run_build()
+    def test_raw_script_is_inert_and_unquoted_type_is_preserved(self):
+        self.write('docs/主题.md','# 主题\n## 字段\n<script>alert("bad")</script>\n\nType<T>\n');self.run_build()
         s=self.out.read_text();self.assertIn('&lt;script&gt;',s)
+        self.assertIn('Type&lt;T&gt;',s)
         audit=b.AuditHTML();audit.feed(s);self.assertEqual(len(audit.scripts),1);self.assertFalse(audit.handlers)
     def test_events_are_not_executed(self):
         self.write('docs/主题.md','# 主题\n## 字段\n<span onclick="alert(1)">label</span>\n');r=self.run_build()
         self.assertTrue(r['raw_html_review']);a=b.AuditHTML();a.feed(self.out.read_text());self.assertFalse(a.handlers)
-    def test_unquoted_type_is_not_lost(self):
-        self.write('docs/主题.md','# 主题\n## 字段\nType<T>\n');self.run_build()
-        self.assertIn('Type&lt;T&gt;',self.out.read_text())
     def test_remote_image_rejected(self):
         self.write('docs/主题.md','# 主题\n## 字段\n![x](https://example.invalid/image.png)\n');self.assert_publication_preserves_previous('Expected local reference')
     def test_remote_link_not_fetched(self):
