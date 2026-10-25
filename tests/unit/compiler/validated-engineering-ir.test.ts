@@ -95,47 +95,14 @@ test('validator rejects forged Entity, Fact, Assertion, and validity identities'
   expectCodedFailure(() => validateEngineeringIR(staleValidity, source), 'IR-VALIDATION-009');
 });
 
-test('raw IR identity admission cannot execute getter or Proxy-controlled id reads', () => {
+test('raw IR admission rejects accessors, Proxy objects and serialization hooks without execution', () => {
   const source = input();
-  for (const pick of [
-    (ir: ReturnType<typeof buildEngineeringIR>) => ir.entities[0]!,
-    (ir: ReturnType<typeof buildEngineeringIR>) => ir.facts[0]!,
-    (ir: ReturnType<typeof buildEngineeringIR>) => ir.facts[0]!.assertions[0]!
-  ]) {
-    const ir = clone(buildEngineeringIR(source));
-    let getterCalls = 0;
-    Object.defineProperty(pick(ir), 'id', {
-      enumerable: true, configurable: true,
-      get() { getterCalls += 1; throw new Error('identity getter must never run'); }
-    });
-    expectCodedFailure(() => validateEngineeringIR(ir, source), 'IR-VALIDATION-005');
-    expect(getterCalls).toBe(0);
-  }
-  const withProxy = clone(buildEngineeringIR(source));
-  let proxyTraps = 0;
-  withProxy.facts[0]!.assertions[0] = new Proxy(withProxy.facts[0]!.assertions[0]!, {
-    get() { proxyTraps += 1; throw new Error('identity Proxy trap must never run'); },
-    getOwnPropertyDescriptor() { proxyTraps += 1; throw new Error('descriptor trap must never run'); }
-  });
-  expectCodedFailure(() => validateEngineeringIR(withProxy, source), 'IR-VALIDATION-005');
-  expect(proxyTraps).toBe(0);
-});
-
-test('raw IR root field access refuses getters before reading semantics', () => {
-  const source = input();
-  const ir = clone(buildEngineeringIR(source));
-  let reads = 0;
-  Object.defineProperty(ir, 'facts', {
-    enumerable: true, configurable: true,
-    get() { reads += 1; throw new Error('root getter must never run'); }
-  });
-  expectCodedFailure(() => validateEngineeringIR(ir, source), 'IR-VALIDATION-005');
-  expect(reads).toBe(0);
-});
-
-test('all nested raw IR properties reject accessors before semantic readers run', () => {
-  const source = input();
+  const base = buildEngineeringIR(source);
   for (const select of [
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir, key: 'facts' }),
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.entities[0]!, key: 'id' }),
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.facts[0]!, key: 'id' }),
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.facts[0]!.assertions[0]!, key: 'id' }),
     (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.entities[0]!, key: 'kind' }),
     (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.facts[0]!, key: 'predicate' }),
     (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.facts[0]!.object, key: 'kind' }),
@@ -143,7 +110,7 @@ test('all nested raw IR properties reject accessors before semantic readers run'
       record: ir.facts[0]!.assertions[0]!.provenance[0]!, key: 'sourceId'
     })
   ]) {
-    const ir = clone(buildEngineeringIR(source));
+    const ir = clone(base);
     const { record, key } = select(ir);
     let calls = 0;
     Object.defineProperty(record, key, {
@@ -153,11 +120,17 @@ test('all nested raw IR properties reject accessors before semantic readers run'
     expectCodedFailure(() => validateEngineeringIR(ir, source), 'IR-VALIDATION-005');
     expect(calls).toBe(0);
   }
-});
 
-test('raw IR rejects nested Proxy, custom iterators and executable toJSON without calling them', () => {
-  const source = input();
-  const proxied = clone(buildEngineeringIR(source));
+  const withProxy = clone(base);
+  let identityProxyTraps = 0;
+  withProxy.facts[0]!.assertions[0] = new Proxy(withProxy.facts[0]!.assertions[0]!, {
+    get() { identityProxyTraps += 1; throw new Error('identity Proxy trap must never run'); },
+    getOwnPropertyDescriptor() { identityProxyTraps += 1; throw new Error('descriptor trap must never run'); }
+  });
+  expectCodedFailure(() => validateEngineeringIR(withProxy, source), 'IR-VALIDATION-005');
+  expect(identityProxyTraps).toBe(0);
+
+  const proxied = clone(base);
   let proxyTraps = 0;
   proxied.facts[0]!.object = new Proxy(proxied.facts[0]!.object, {
     get() { proxyTraps += 1; throw Error('Nested Proxy get must not run'); },
@@ -166,7 +139,7 @@ test('raw IR rejects nested Proxy, custom iterators and executable toJSON withou
   expectCodedFailure(() => validateEngineeringIR(proxied, source), 'IR-VALIDATION-005');
   expect(proxyTraps).toBe(0);
 
-  const iterable = clone(buildEngineeringIR(source));
+  const iterable = clone(base);
   let iteratorCalls = 0;
   Object.defineProperty(iterable.entities, Symbol.iterator, {
     value() { iteratorCalls += 1; throw Error('Custom iterator must not run'); }
@@ -174,7 +147,7 @@ test('raw IR rejects nested Proxy, custom iterators and executable toJSON withou
   expectCodedFailure(() => validateEngineeringIR(iterable, source), 'IR-VALIDATION-005');
   expect(iteratorCalls).toBe(0);
 
-  const hook = clone(buildEngineeringIR(source));
+  const hook = clone(base);
   let calls = 0;
   Object.defineProperty(hook.facts[0]!, 'toJSON', {
     value() { calls += 1; throw Error('toJSON must not run'); }

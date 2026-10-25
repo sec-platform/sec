@@ -4,27 +4,24 @@ import { buildSemanticViewSet } from '../../../src/compiler/projection/build-sem
 import { projectArchitectureView } from '../../../src/compiler/projection/project-architecture-view.ts';
 import { projectScenarioView } from '../../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../../src/compiler/projection/project-state-view.ts';
-import { buildSemanticInspector } from '../../../src/compiler/projection/semantic-view-utils.ts';
 import { semanticViewFactIds } from '../../../src/semantics/projection/types.ts';
 import { addFact, entity, projectionSnapshot, viewIR } from '../../fixtures/semantic-view-data.ts';
 
 const code = (value: string) => (error: unknown): boolean =>
   error !== null && typeof error === 'object' && Reflect.get(error, 'code') === value;
 
-test('architecture includes both ends of eligible facts but not scenario or literal relations', () => {
-  const ir = viewIR();
+test('architecture projection and inspector preserve exact incident membership and self-relation direction', () => {
+  const ir = viewIR(4);
   const self = addFact(ir, 'operation:0', 'AWAITS', 'operation:0');
-  const view = projectArchitectureView(projectionSnapshot(ir));
+  const snapshot = projectionSnapshot(ir);
+  const view = projectArchitectureView(snapshot, 'operation:0');
   const included = new Set(view.nodes.map((node) => node.entityId));
   assert.equal(included.has('scenario:0'), false); assert.equal(included.has('scenario:0#step:a'), false);
   for (const edge of view.edges) { assert.ok(included.has(edge.source)); assert.ok(included.has(edge.target!)); }
   const operation = view.nodes.find((node) => node.entityId === 'operation:0')!;
   assert.equal(operation.references.filter((ref) => ref.kind === 'fact' && ref.ref === self.id).length, 1);
   assert.ok(operation.badges.includes('async'));
-});
 
-test('architecture node facts agree with an independent incident-edge selection', () => {
-  const snapshot = projectionSnapshot(viewIR(4)); const view = projectArchitectureView(snapshot);
   const eligibleIds = new Set(snapshot.ir.entities
     .filter(entity => entity.kind !== 'scenario' && entity.kind !== 'scenario-step')
     .map(entity => entity.id));
@@ -36,27 +33,22 @@ test('architecture node facts agree with an independent incident-edge selection'
       .map(fact => fact.id);
     assert.deepEqual(node.references.filter((ref) => ref.kind === 'fact').map((ref) => ref.ref).sort(), [...new Set(expected)].sort());
   }
+  assert.equal(view.inspector.find((section) => section.id === 'EVIDENCE')!.items.filter((item) => item.key === self.id).length, 2);
 });
 
-test('scenario projection does not gain relations from unrelated incoming step edges', () => {
+test('scenario projection keeps local control flow and global operation evidence without foreign step relations', () => {
   const ir = viewIR(2); const foreign = addFact(ir, 'scenario:1#step:b', 'PRECEDES', 'scenario:0#step:a');
+  const global = addFact(ir, 'operation:0', 'READS', 'state:1');
   const view = projectScenarioView(projectionSnapshot(ir), 'scenario:0');
   assert.ok(view.nodes.find((node) => node.id === 'scenario:0#step:a')!.badges.includes('entry'));
   assert.equal(semanticViewFactIds(view).includes(foreign.id), false);
-});
 
-test('scenario keeps retry values, referenced operations, async badges and step provenance', () => {
-  const view = projectScenarioView(projectionSnapshot(viewIR()), 'scenario:0');
   assert.ok(view.nodes.find((node) => node.id === 'scenario:0#step:a')!.badges.includes('async'));
   assert.ok(view.nodes.find((node) => node.id === 'scenario:0#step:b')!.badges.includes('retry'));
   const retry = view.edges.find((edge) => edge.relation === 'RETRIES')!;
   assert.deepEqual(retry.value, { maxAttempts: 3 }); assert.equal(retry.label, 'retries up to 3');
   assert.ok(retry.references.some((ref) => ref.kind === 'scenario-step' && ref.ref === 'scenario:0#step:b'));
-});
 
-test('an operation shared with other domains retains its global operation facts in a scenario node', () => {
-  const ir = viewIR(2); const global = addFact(ir, 'operation:0', 'READS', 'state:1');
-  const view = projectScenarioView(projectionSnapshot(ir), 'scenario:0');
   const operation = view.nodes.find((node) => node.id === 'operation:0')!;
   assert.ok(operation.references.some((ref) => ref.kind === 'fact' && ref.ref === global.id));
 });
@@ -95,36 +87,28 @@ test('view-set output matches separate public projections with immutable input',
   const result = buildSemanticViewSet(snapshot);
   // The composition equality proves wiring; this independent fixture witness
   // prevents two mutually empty or incorrectly selected projections passing.
-  assert.deepEqual(result.views.map(view => [view.viewKind, view.subject ?? null]), [
-    ['architecture', null],
+  assert.deepEqual(result.views.map(view => view.viewKind === 'architecture' ? [view.viewKind] : [view.viewKind, view.subject]), [
+    ['architecture'],
     ['scenario', 'scenario:0'], ['scenario', 'scenario:1'], ['scenario', 'scenario:2'],
     ['state', 'state:0'], ['state', 'state:1'], ['state', 'state:2']
   ]);
+  assert.deepEqual(result.views[0]!.nodes.filter(node => node.entityKind === 'app').map(node => node.entityId), ['app:fixture']);
   assert.equal(result.formatVersion, '1');
   assert.deepEqual(result.views, expected);
   assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.views));
   assert.ok(Object.isFrozen(result.views[0]?.nodes));
   assert.deepEqual(buildSemanticViewSet(snapshot), result);
   assert.equal(JSON.stringify(snapshot.ir), before);
-});
 
-test('mutating one returned projection does not affect later projections sharing read indexes', () => {
-  const snapshot = projectionSnapshot(viewIR());
-  const first = projectScenarioView(snapshot, 'scenario:0'); const before = JSON.stringify(first);
+  const first = expected[1]!; const beforeProjection = JSON.stringify(first);
   first.nodes[0]!.label = 'overwritten'; first.edges.length = 0;
-  assert.equal(JSON.stringify(projectScenarioView(snapshot, 'scenario:0')), before);
+  assert.equal(JSON.stringify(projectScenarioView(snapshot, 'scenario:0')), beforeProjection);
 });
 
 test('additional disjoint domains cannot change an already selected scenario or state view', () => {
   const first = projectionSnapshot(viewIR()); const expanded = projectionSnapshot(viewIR(20));
   assert.deepEqual(projectScenarioView(first, 'scenario:0'), projectScenarioView(expanded, 'scenario:0'));
   assert.deepEqual(projectStateView(first, 'state:0'), projectStateView(expanded, 'state:0'));
-});
-
-test('inspector preserves the two directional observations of a self-relation', () => {
-  const ir = viewIR(); const fact = addFact(ir, 'operation:0', 'AWAITS', 'operation:0');
-  const sections = buildSemanticInspector(projectionSnapshot(ir), 'operation:0');
-  assert.equal(sections.find((section) => section.id === 'EVIDENCE')!.items.filter((item) => item.key === fact.id).length, 2);
 });
 
 test('public projection subject errors retain their domain codes', () => {

@@ -17,7 +17,7 @@ test('revision strings cannot alias different immutable input generations', () =
   assert.equal(a.entityById.has('state:1'), false); assert.equal(b.entityById.has('state:1'), true);
 });
 
-test('cached maps and their membership buckets prevent caller mutation', () => {
+test('cached indexes preserve the complete readonly Map contract without exposing mutable storage', () => {
   const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
   for (const field of READ_INDEX_FIELDS) {
     const map = index[field];
@@ -35,15 +35,21 @@ test('cached maps and their membership buckets prevent caller mutation', () => {
       assert.equal(Reflect.set(bucket, 0, null), false);
     }
   }
-});
 
-test('read index iterators support native Map copies with detached entry tuples', () => {
-  const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
   const copy = new Map(index.entityById); assert.equal(copy.size, index.entityById.size);
   const pair = index.entityById.entries().next().value!;
   const original = pair[0]; pair[0] = 'changed'; pair[1] = entity('changed', 'app');
   assert.equal(index.entityById.has(original), true); assert.equal(index.entityById.has('changed'), false);
   assert.deepEqual([...copy.values()], [...index.entityById.values()]);
+
+  const receiver = {}; const seen: string[] = []; let hookCalled = false;
+  const callback = function (this: object, value: SemanticEntity, key: string, map: ReadonlyMap<string, SemanticEntity>): void {
+    seen.push(key); assert.equal(this, receiver); assert.equal(map, index.entityById);
+    assert.equal(map.get(key), value); assert.equal(Reflect.get(map, 'set'), undefined);
+  };
+  Object.defineProperty(callback, 'call', { value: () => { hookCalled = true; } });
+  index.entityById.forEach(callback, receiver);
+  assert.deepEqual(seen, [...index.entityById.keys()]); assert.equal(hookCalled, false);
 });
 
 test('an empty immutable graph still provides the complete readonly query contract', () => {
@@ -53,6 +59,7 @@ test('an empty immutable graph still provides the complete readonly query contra
     const map = index[field];
     assert.equal(map.size, 0); assert.deepEqual([...map], []); assert.equal(map.has('missing' as never), false);
   }
+  assert.throws(() => index.entityById.forEach(null as never), TypeError);
 });
 
 test('self edges and repeated input identities retain existing index occurrence semantics', () => {
@@ -89,22 +96,4 @@ test('caller-local result replacement and mutable indexing cannot corrupt cached
   expectMembers(second);
   expectMembers(indexValidatedEngineeringIR(snapshot));
   expectMembers(indexValidatedEngineeringIR({ ...snapshot }));
-});
-
-test('empty read maps reject noncallable forEach callbacks like a native map', () => {
-  const ir = emptyIR(); ir.entities = [];
-  const index = indexValidatedEngineeringIR(projectionSnapshot(ir));
-  assert.throws(() => index.entityById.forEach(null as never), TypeError);
-});
-
-test('forEach invokes the callback itself rather than its replaceable call property', () => {
-  const index = indexValidatedEngineeringIR(projectionSnapshot(viewIR()));
-  const receiver = {}; const seen: string[] = []; let hookCalled = false;
-  const callback = function (this: object, value: SemanticEntity, key: string, map: ReadonlyMap<string, SemanticEntity>): void {
-    seen.push(key); assert.equal(this, receiver); assert.equal(map, index.entityById);
-    assert.equal(map.get(key), value); assert.equal(Reflect.get(map, 'set'), undefined);
-  };
-  Object.defineProperty(callback, 'call', { value: () => { hookCalled = true; } });
-  index.entityById.forEach(callback, receiver);
-  assert.deepEqual(seen, [...index.entityById.keys()]); assert.equal(hookCalled, false);
 });

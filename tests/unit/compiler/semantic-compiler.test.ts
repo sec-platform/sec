@@ -36,8 +36,9 @@ test('compilation preserves canonical results across caller mutation and indepen
   expect(first.snapshot.ir.entities.filter(entity => entity.kind === 'app').map(entity => entity.id))
     .toEqual(['app:first']);
   expect(first.generatorPlan.tasks).toEqual([]);
-  expect(first.semanticViews.views.map(view => [view.viewKind, view.subject ?? null]))
-    .toEqual([['architecture', null]]);
+  expect(first.semanticViews.views.map(view => view.viewKind)).toEqual(['architecture']);
+  expect(first.semanticViews.views[0]!.nodes.filter(node => node.entityKind === 'app').map(node => node.entityId))
+    .toEqual(['app:first']);
   expect(first).not.toBeInstanceOf(Promise);
   expect(Object.isFrozen(first)).toBe(true);
 
