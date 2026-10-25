@@ -4,6 +4,10 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { worktreePhysicalCloseoutOperations } from '../../../src/bootstrap/runtime-state/worktree-closeout.ts';
+import { runObservedCommand, type ObservedCommandOutcome } from '../../../src/adapters/runtime-state/physical/runtime/observed-process-stdin.ts';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { detailDigest } from '../../../src/adapters/runtime-state/worktree-closeout-contract.ts';
 import { assertTrustedCompletedWorktreePhysicalCloseout, prepareTrustedWorktreePhysicalCloseout } from '../../../src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
@@ -46,8 +50,11 @@ function recoveryTreeBytes(root: string): readonly unknown[] {
 
 test('real child death before terminal preserves durable recovery evidence without authorizing stale takeover', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-closeout-crash-')); const remote = path.join(root, 'remote.git'); const repository = path.join(root, 'repository'); const target = path.join(root, 'candidate');
-  let activeChild: { readonly pid: number; readonly exitCode: number | null; readonly exited: Promise<number> } | undefined;
-  try {
+  let executable: ReturnType<typeof createRawTestExecutableFixture> | undefined;
+  let activeChild: Promise<ObservedCommandOutcome> | undefined;
+  let controller: AbortController | undefined;
+  await settleWorkspaceCallback(async () => {
+    executable = createRawTestExecutableFixture();
     git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'user.name', 'SEC']); git(repository, ['config', 'user.email', 'sec@example.invalid']); git(repository, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(repository, 'a.txt'), 'a\n'); git(repository, ['add', '.']); git(repository, ['commit', '-m', 'base']); git(repository, ['remote', 'add', 'origin', remote]); git(repository, ['push', '-u', 'origin', 'main']); git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']); git(repository, ['remote', 'set-head', 'origin', 'main']);
     const branch = 'codex/crash'; git(repository, ['branch', branch]); git(repository, ['worktree', 'add', target, branch]);
@@ -61,11 +68,14 @@ test('real child death before terminal preserves durable recovery evidence witho
     const fixture = path.join(import.meta.dir, './worktree-physical-closeout-crash-fixture.ts');
     const firstOutput = path.join(root, 'first-receipt.json');
     const handshake = path.join(root, 'fence-before-terminal.json');
-    const child = Bun.spawn([
-      'bun', fixture, JSON.stringify(input), firstOutput,
+    controller = new AbortController();
+    activeChild = runObservedCommand(executable.command, [
+      fixture, JSON.stringify(input), firstOutput,
       'pause-after-fence-before-terminal', handshake
-    ], { stdout: 'pipe', stderr: 'pipe' });
-    activeChild = child;
+    ], { cwd: process.cwd(), signal: controller.signal });
+    // Observe startup rejection during the handshake wait without replacing
+    // the original promise: both later awaits still receive its original error.
+    void activeChild.catch(() => undefined);
     const proofRoot = prepared.authorization.proofRoot.path;
     const observed = await waitFor(() => {
       if (!existsSync(handshake)) return false;
@@ -76,8 +86,16 @@ test('real child death before terminal preserves durable recovery evidence witho
         fenceEntries.some((name) => /^\.workspace-write-lease-retired-[0-9a-f]{64}\.json$/u.test(name));
     });
     if (!observed) throw new Error(`fixture never exposed the exact durable-fence/terminal-pending shape:\n${diagnosticTree(root).join('\n')}`);
-    expect(JSON.parse(readFileSync(handshake, 'utf8'))).toMatchObject({ stage: 'acquisition-fence-durable-terminal-pending', proofRoot: path.resolve(proofRoot) });
-    killFixtureTree(child.pid); expect(await child.exited).not.toBe(0);
+    const checkpoint = JSON.parse(readFileSync(handshake, 'utf8'));
+    expect(checkpoint).toMatchObject({ stage: 'acquisition-fence-durable-terminal-pending', proofRoot: path.resolve(proofRoot) });
+    expect(Number.isSafeInteger(checkpoint.pid) && checkpoint.pid > 0).toBe(true);
+    // Keep the original abrupt kill at the exact durable checkpoint. The
+    // observer, not a fulfilled root-exit promise, owns tree/stream settlement.
+    killFixtureTree(checkpoint.pid);
+    const killed = await activeChild;
+    expect(killed.started).toBe(true);
+    expect(killed.exitCode).not.toBe(0);
+    expect(killed.termination).toMatchObject({ childCloseObserved: true, streamsDrained: true, treeClosed: true });
     const proofNames = readdirSync(proofRoot).sort();
     const fenceNames = readdirSync(path.dirname(target))
       .filter(name => /^\.workspace-write-lease-retired-[0-9a-f]{64}\.json$/u.test(name)).sort();
@@ -102,18 +120,26 @@ test('real child death before terminal preserves durable recovery evidence witho
     // window elapse without releasing or rewriting the original leases.
     await Bun.sleep(36_000);
     const resumedOutput = path.join(root, 'resumed-receipt.json');
-    const resumed = Bun.spawn(['bun', fixture, JSON.stringify(input), resumedOutput], { stdout: 'pipe', stderr: 'pipe' });
-    activeChild = resumed;
+    controller = new AbortController();
+    const stderr: Buffer[] = [];
+    activeChild = runObservedCommand(executable.command, [fixture, JSON.stringify(input), resumedOutput], {
+      cwd: process.cwd(), signal: controller.signal, maxObservedOutputBytes: 1024 * 1024,
+      onOutput(stream, chunk) { if (stream === 'stderr') stderr.push(Buffer.from(chunk)); }
+    });
     // Keep the original bounded child window; a fresh process must refuse
     // stale takeover, not manufacture a terminal from process death.
-    const status = await Promise.race([resumed.exited, Bun.sleep(90_000).then(() => null)]);
-    if (status === null) {
+    const resumed = await Promise.race([activeChild, Bun.sleep(90_000).then(() => null)]);
+    if (resumed === null) {
       const snapshot = diagnosticTree(root).join('\n');
-      killFixtureTree(resumed.pid);
-      throw new Error(`fresh child did not finish its stale-recovery refusal: ${await new Response(resumed.stderr).text()}\n${snapshot}`);
+      controller.abort();
+      throw new Error(`fresh child did not finish its stale-recovery refusal: ${Buffer.concat(stderr).toString('utf8')}\n${snapshot}`);
     }
-    expect(status).not.toBe(0);
-    expect(await new Response(resumed.stderr).text()).toContain(
+    expect(resumed.status).toBe('exited');
+    expect(resumed.started).toBe(true);
+    expect(resumed.exitCode).not.toBe(0);
+    expect(resumed.termination).toMatchObject({ childCloseObserved: true, streamsDrained: true, treeClosed: true });
+    expect(resumed.stderr.observerTruncated).toBe(false);
+    expect(Buffer.concat(stderr).toString('utf8')).toContain(
       'Workspace writer lease predecessor process/effect settlement is unproven; legacy state is preserved'
     );
     expect(existsSync(resumedOutput)).toBe(false);
@@ -133,12 +159,18 @@ test('real child death before terminal preserves durable recovery evidence witho
       token: prepared.token, repositoryRoot: repository, targetPath: target,
       branch, headSha, treeSha, recoveryAuthorityDigest
     })).toThrow('did not witness this process-held retirement');
-  } finally {
-    try {
-      if (activeChild?.exitCode === null) killFixtureTree(activeChild.pid);
-      await activeChild?.exited;
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+  }, async () => {
+    controller?.abort();
+    if (activeChild !== undefined) {
+      const outcome = await activeChild;
+      if (!outcome.termination.treeClosed || !outcome.termination.streamsDrained ||
+          (outcome.started && !outcome.termination.childCloseObserved)) {
+        throw new Error('Crash fixture process/effect settlement is unproven; executable and repository retained.');
+      }
     }
-  }
+    await settleResourcesAsync({ cleanup: [
+      { label: 'crash fixture executable', settle: () => executable?.dispose() },
+      { label: 'crash fixture repository', settle: () => rmSync(root, { recursive: true, force: true }) }
+    ] });
+  });
 }, 180_000);

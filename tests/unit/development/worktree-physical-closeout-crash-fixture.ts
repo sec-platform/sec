@@ -30,7 +30,7 @@ if (mode === 'pause-after-fence-before-terminal') {
     const relocatedNamespace = entries.some((name) => /^workspace-write-lease-retired-namespace-[0-9a-f]{64}$/u.test(name));
     const fencePresent = readdirSync(fenceParent).some((name) => /^\.workspace-write-lease-retired-[0-9a-f]{64}\.json$/u.test(name));
     if (transition && !relocatedNamespace && fencePresent) {
-      writeFileSync(handshakePath, `${JSON.stringify({ stage: 'acquisition-fence-durable-terminal-pending', proofRoot: path.resolve(proofRoot) })}\n`, { encoding: 'utf8', flag: 'wx' });
+      writeFileSync(handshakePath, `${JSON.stringify({ stage: 'acquisition-fence-durable-terminal-pending', proofRoot: path.resolve(proofRoot), pid: process.pid })}\n`, { encoding: 'utf8', flag: 'wx' });
       Atomics.wait(blocker, 0, 0, 60_000);
     }
   }, 1);
