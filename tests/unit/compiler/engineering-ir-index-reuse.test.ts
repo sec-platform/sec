@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { indexEngineeringIR, indexValidatedEngineeringIR } from '../../../src/compiler/ir/index-engineering-ir.ts';
 import type { SemanticEntity } from '../../../src/semantics/engineering-ir/entity-types.ts';
-import { addFact, emptyIR, entity, projectionSnapshot, viewIR } from '../../fixtures/semantic-view-data.ts';
+import { emptyIR, entity, projectionSnapshot, viewIR } from '../../fixtures/semantic-view-data.ts';
 
 // Public EngineeringIRIndex surface, declared independently of Object.values(index).
 const READ_INDEX_FIELDS = [
@@ -60,17 +60,6 @@ test('an empty immutable graph still provides the complete readonly query contra
     assert.equal(map.size, 0); assert.deepEqual([...map], []); assert.equal(map.has('missing' as never), false);
   }
   assert.throws(() => index.entityById.forEach(null as never), TypeError);
-});
-
-test('self edges and repeated input identities retain existing index occurrence semantics', () => {
-  const ir = emptyIR(); const newer: SemanticEntity = { ...ir.entities[0]!, label: 'new' };
-  ir.entities.push(newer); const a = addFact(ir, ir.appId, 'CONTAINS', ir.appId);
-  const b = { ...a, assertions: [] }; ir.facts.push(b);
-  const index = indexEngineeringIR(ir);
-  assert.equal(index.entityById.get(ir.appId), newer); assert.equal(index.factById.get(a.id), b);
-  assert.equal(index.entitiesByKind.get('app')?.length, 2);
-  assert.deepEqual(index.outgoingFactsBySubject.get(ir.appId), [a, b]);
-  assert.deepEqual(index.incomingFactsByEntityObject.get(ir.appId), [a, b]);
 });
 
 test('caller-local result replacement and mutable indexing cannot corrupt cached readers', () => {

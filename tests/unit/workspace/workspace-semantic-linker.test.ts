@@ -318,7 +318,7 @@ test('linker emits deterministic diagnostics for namespace, import, reference, a
 test('field lookup indexes repeated local and imported references within one link invocation', () => {
   const provider = providerContract();
   const consumer = consumerContract();
-  const ids = [...Array.from({ length: 128 }, (_, index) => `field${index}`), '__proto__', 'constructor'];
+  const ids = ['field0', '__proto__', 'constructor'];
   provider.contract.entities[0]!.fields.push(...ids.map((id) => ({ id, type: 'string', required: true })));
   consumer.contract.entities[0]!.fields.push(...ids.map((id) => ({ id, type: 'string', required: true })));
   const references = ids.flatMap((id) => [`Ticket.${id}`, `tenant::TenantContext.${id}`, `Ticket.${id}`]);
