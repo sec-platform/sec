@@ -1,4 +1,4 @@
-import { access, cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -82,8 +82,7 @@ test('SM-3 transaction root binding rejects copied authority under another valid
 
 test('SM-3 transaction root binding rejects ancestor and transaction reparse aliases before writes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-transaction-escape-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       await symlink(
         externalRoot,
         path.join(workspaceRoot, '.sec'),
@@ -98,9 +97,7 @@ test('SM-3 transaction root binding rejects ancestor and transaction reparse ali
       )).rejects.toThrow('transaction root binding');
       await expect(lstat(path.join(externalRoot, 'semantic-mutation')))
         .rejects.toMatchObject({ code: 'ENOENT' });
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-transaction-escape-');
   }, 'engineering-compiler-sm3-transaction-ancestor-junction-');
 
   await withTempWorkspace(async (workspaceRoot) => {
@@ -117,8 +114,7 @@ test('SM-3 transaction root binding rejects ancestor and transaction reparse ali
 
 test('SM-3 recovery records reject a pre-existing reparse directory without writing through it', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-records-escape-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const draft = recoveryDraft('request:records-junction');
       const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
       await mkdir(transactionRoot, { recursive: true });
@@ -133,16 +129,13 @@ test('SM-3 recovery records reject a pre-existing reparse directory without writ
       await expect(loadSemanticMutationRecoveryRecords(transactionRoot))
         .rejects.toThrow('journal directory binding');
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-records-escape-');
   }, 'engineering-compiler-sm3-records-junction-');
 });
 
 test('SM-3 terminal receipts reject a pre-existing reparse directory without writing through it', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-terminal-order-escape-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'v1');
       await mkdir(journalRoot, { recursive: true });
       await symlink(
@@ -170,16 +163,13 @@ test('SM-3 terminal receipts reject a pre-existing reparse directory without wri
         allowCommit
       )).rejects.toThrow('journal directory binding');
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-terminal-order-escape-');
   }, 'engineering-compiler-sm3-terminal-order-junction-');
 });
 
 test('SM-3 recovery record revalidates containment after the open fence', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-records-pre-open-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const draft = recoveryDraft('request:records-pre-open-junction');
       const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
       const records = path.join(transactionRoot, 'records');
@@ -202,16 +192,13 @@ test('SM-3 recovery record revalidates containment after the open fence', async 
       expect(swapped).toBe(true);
       expect(await readdir(parkedRecords)).toEqual([]);
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-records-pre-open-');
   }, 'engineering-compiler-sm3-records-pre-open-junction-');
 });
 
 test('SM-3 terminal completion revalidates containment after the open fence', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-completion-pre-open-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const draft = recoveryDraft('request:completion-pre-open-junction');
       const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
       const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'v1');
@@ -240,16 +227,13 @@ test('SM-3 terminal completion revalidates containment after the open fence', as
       expect(swapped).toBe(true);
       expect(await readdir(parkedTerminalOrder)).toEqual([]);
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-completion-pre-open-');
   }, 'engineering-compiler-sm3-completion-pre-open-junction-');
 });
 
 test('SM-3 rejected terminal revalidates containment after the open fence', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-rejected-pre-open-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const draft = recoveryDraft('request:rejected-pre-open-junction');
       const result = rejectedResult(draft);
       if (result.status !== 'rejected') throw new Error('Expected rejected result');
@@ -283,16 +267,13 @@ test('SM-3 rejected terminal revalidates containment after the open fence', asyn
       expect(swapped).toBe(true);
       expect(await readdir(parkedTransaction)).toEqual([]);
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-rejected-pre-open-');
   }, 'engineering-compiler-sm3-rejected-pre-open-junction-');
 });
 
 test('SM-3 recovery record post-open directory swap preserves containment failure without external cleanup', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-records-post-open-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const draft = recoveryDraft('request:records-post-open-junction');
       const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
       const records = path.join(transactionRoot, 'records');
@@ -322,16 +303,13 @@ test('SM-3 recovery record post-open directory swap preserves containment failur
       expect(await readFile(externalDecoy, 'utf8')).toBe('attacker-owned');
       await rm(externalDecoy);
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-records-post-open-');
   }, 'engineering-compiler-sm3-records-post-open-junction-');
 });
 
 test('SM-3 terminal completion post-open directory swap preserves containment failure without external cleanup', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-completion-post-open-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const draft = recoveryDraft('request:completion-post-open-junction');
       const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
       const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'v1');
@@ -368,16 +346,13 @@ test('SM-3 terminal completion post-open directory swap preserves containment fa
       expect(await readFile(externalDecoy, 'utf8')).toBe('attacker-owned');
       await rm(externalDecoy);
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-completion-post-open-');
   }, 'engineering-compiler-sm3-completion-post-open-junction-');
 });
 
 test('SM-3 rejected terminal post-open directory swap preserves root failure without external cleanup', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-rejected-post-open-'));
-    try {
+    await withTempWorkspace(async (externalRoot) => {
       const draft = recoveryDraft('request:rejected-post-open-junction');
       const result = rejectedResult(draft);
       if (result.status !== 'rejected') throw new Error('Expected rejected result');
@@ -418,9 +393,7 @@ test('SM-3 rejected terminal post-open directory swap preserves root failure wit
       expect(await readFile(externalDecoy, 'utf8')).toBe('attacker-owned');
       await rm(externalDecoy);
       expect(await readdir(externalRoot)).toEqual([]);
-    } finally {
-      await rm(externalRoot, { recursive: true, force: true });
-    }
+    }, 'sm3-rejected-post-open-');
   }, 'engineering-compiler-sm3-rejected-post-open-junction-');
 });
 
