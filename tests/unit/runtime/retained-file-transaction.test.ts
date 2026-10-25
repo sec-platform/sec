@@ -17,9 +17,29 @@ import {
 } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 
+function withFixtureRoot(prefix: string, use: (root: string) => void): void {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    use(root);
+  } catch (error) {
+    primary = { label: 'fixture operation', error };
+  } finally {
+    settleResources({ primary, cleanup: [
+      { label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }
+    ] });
+  }
+}
+
+async function withAsyncFixtureRoot(prefix: string, use: (root: string) => Promise<void>): Promise<void> {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  await settleWorkspaceCallback(() => use(root), async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
+}
+
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction transfers a cross-parent file and retires its exact successor', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
-  await settleWorkspaceCallback(async () => {
+  await withAsyncFixtureRoot('sec-retained-file-transaction-', async root => {
     mkdirSync(path.join(root, 'source'));
     mkdirSync(path.join(root, 'destination'));
     const sourcePath = path.join(root, 'source', 'next');
@@ -62,15 +82,11 @@ test.skipIf(process.platform !== 'win32')('Windows retained file transaction tra
     expect(durability).toEqual([
       'renamed', 'namespace-hook', 'file-flushed', 'parent-barrier'
     ]);
-  }, async () => {
-    rmSync(root, { recursive: true, force: true });
   });
 });
 
 test('retained file transaction exposes its retained root identity and current fence', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-root-'));
-  let fixtureFailure7: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot('sec-retained-file-transaction-root-', root => {
     const expected = inspectNoFollowDirectoryChain(root, 'retained root fixture').target;
     const transaction = retainNoFollowFileTransaction(root, 'retained root fixture');
     try {
@@ -80,19 +96,11 @@ test('retained file transaction exposes its retained root identity and current f
     } finally {
       transaction.dispose();
     }
-  } catch (error) {
-    fixtureFailure7 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure7,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction revalidates bytes after an awaited pre-effect actor', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
-  await settleWorkspaceCallback(async () => {
+  await withAsyncFixtureRoot('sec-retained-file-transaction-', async root => {
     mkdirSync(path.join(root, 'source'));
     mkdirSync(path.join(root, 'destination'));
     const sourcePath = path.join(root, 'source', 'next');
@@ -117,14 +125,11 @@ test.skipIf(process.platform !== 'win32')('Windows retained file transaction rev
     } finally {
       transaction.dispose();
     }
-  }, async () => {
-    rmSync(root, { recursive: true, force: true });
   });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction cannot report a parent barrier before its real pre-barrier seam succeeds', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
-  await settleWorkspaceCallback(async () => {
+  await withAsyncFixtureRoot('sec-retained-file-transaction-', async root => {
     mkdirSync(path.join(root, 'source'));
     mkdirSync(path.join(root, 'destination'));
     writeFileSync(path.join(root, 'source', 'next'), 'barrier bytes\n', 'utf8');
@@ -155,15 +160,11 @@ test.skipIf(process.platform !== 'win32')('Windows retained file transaction can
     } finally {
       transaction.dispose();
     }
-  }, async () => {
-    rmSync(root, { recursive: true, force: true });
   });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows no-follow directory creation reports only real create and parent-barrier phases', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-directory-create-actor-'));
-  let fixtureFailure6: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot('sec-directory-create-actor-', root => {
     const stages: string[] = [];
     const actor = createNoFollowDirectoryCreateTestActorForTests({
       beforeCreate: ({ parentPath, targetPath }) => {
@@ -183,20 +184,11 @@ test.skipIf(process.platform !== 'win32')('Windows no-follow directory creation 
     expect(stages).toEqual(['before-create', 'before-parent-barrier', 'parent-barrier']);
     createNoFollowOrdinaryDirectoryChain(identity, ['document-control-plane-freeze-v1'], actor);
     expect(stages).toEqual(['before-create', 'before-parent-barrier', 'parent-barrier']);
-  } catch (error) {
-    fixtureFailure6 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure6,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows no-follow directory creation adopts and barriers an exact competing child', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-directory-create-race-'));
-  let fixtureFailure5: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot('sec-directory-create-race-', root => {
     const target = path.join(root, 'joined-generation');
     const actor = createNoFollowDirectoryCreateTestActorForTests({
       beforeCreate: ({ targetPath }) => {
@@ -209,20 +201,11 @@ test.skipIf(process.platform !== 'win32')('Windows no-follow directory creation 
 
     expect(joined.path).toBe(target);
     expect(joined.inode).toBe(inspectNoFollowDirectoryChain(target, 'joined directory').target.inode);
-  } catch (error) {
-    fixtureFailure5 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure5,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows no-follow directory creation cannot report a barrier when its pre-barrier actor fails', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-directory-create-actor-'));
-  let fixtureFailure4: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot('sec-directory-create-actor-', root => {
     const stages: string[] = [];
     const actor = createNoFollowDirectoryCreateTestActorForTests({
       beforeCreate: () => { stages.push('before-create'); },
@@ -238,20 +221,11 @@ test.skipIf(process.platform !== 'win32')('Windows no-follow directory creation 
     );
     expect(stages).toEqual(['before-create', 'before-parent-barrier']);
     expect(existsSync(path.join(root, 'created'))).toBe(true);
-  } catch (error) {
-    fixtureFailure4 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure4,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test('direct no-follow metadata census does not traverse or charge nested entries', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-direct-metadata-'));
-  let fixtureFailure3: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot('sec-direct-metadata-', root => {
     const nested = path.join(root, 'nested');
     mkdirSync(nested);
     for (let index = 0; index < 32; index += 1) {
@@ -277,20 +251,11 @@ test('direct no-follow metadata census does not traverse or charge nested entrie
     })).toThrow(expect.objectContaining({
       code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
     }));
-  } catch (error) {
-    fixtureFailure3 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure3,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows absolute directory chains distinguish a missing ancestor from unsafe existing entries', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-missing-chain-'));
-  let fixtureFailure2: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot('sec-missing-chain-', root => {
     const docs = path.join(root, 'docs');
     mkdirSync(docs);
     expect(() => inspectNoFollowDirectoryChain(
@@ -313,20 +278,11 @@ test.skipIf(process.platform !== 'win32')('Windows absolute directory chains dis
       path.join(junction, 'nested'),
       'junction ancestor'
     )).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' }));
-  } catch (error) {
-    fixtureFailure2 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure2,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows ordinary-file inspection classifies directory and junction leaves as unsafe', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-file-kind-mismatch-'));
-  let fixtureFailure1: ResourceSettlementFailure | undefined;
-  try {
+  withFixtureRoot('sec-file-kind-mismatch-', root => {
     const parentPath = path.join(root, 'work');
     const external = path.join(root, 'external');
     mkdirSync(parentPath);
@@ -339,19 +295,11 @@ test.skipIf(process.platform !== 'win32')('Windows ordinary-file inspection clas
         expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' })
       );
     }
-  } catch (error) {
-    fixtureFailure1 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure1,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
-    });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction atomically replaces the exact name without changing its permission surface', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-rewrite-'));
-  await settleWorkspaceCallback(async () => {
+  await withAsyncFixtureRoot('sec-retained-file-rewrite-', async root => {
     mkdirSync(path.join(root, 'work'));
     const target = path.join(root, 'work', 'value.txt');
     writeFileSync(target, 'before\\n', 'utf8');
@@ -375,14 +323,11 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
     } finally {
       transaction.dispose();
     }
-  }, async () => {
-    rmSync(root, { recursive: true, force: true });
   });
 });
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction refuses to rewrite a hard-linked inode', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-hardlink-'));
-  await settleWorkspaceCallback(async () => {
+  await withAsyncFixtureRoot('sec-retained-file-hardlink-', async root => {
     mkdirSync(path.join(root, 'work'));
     const target = path.join(root, 'work', 'value.txt');
     const alias = path.join(root, 'alias.txt');
@@ -399,7 +344,5 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
     } finally {
       transaction.dispose();
     }
-  }, async () => {
-    rmSync(root, { recursive: true, force: true });
   });
 });
