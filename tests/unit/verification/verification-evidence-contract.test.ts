@@ -1,4 +1,5 @@
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { expect, spyOn, test } from 'bun:test';
 import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,6 +13,11 @@ import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVer
 import { buildCiQuickGatePlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../src/assurance/verification/contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
+
+function withEvidenceRoot(prefix: string, use: (root: string) => void): void {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  settleWorkspaceCallbackSync(() => use(root), () => rmSync(root, { recursive: true, force: true }));
+}
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
 const candidate: CiVerificationActionCandidate = {
@@ -139,9 +145,7 @@ test('reuse preserves known failure and never promotes non-pass to PASS', () => 
 });
 
 test('verification evidence preserves configured ordinary output paths and invalidates the old artifact before execution', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-verification-evidence-output-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  withEvidenceRoot('sec-verification-evidence-output-', root => {
     const parent = path.join(root, 'configured output 雪', 'nested');
     const target = path.join(parent, 'evidence.json');
     expect(CodexDevelopmentPrepareVerificationEvidenceTarget(target)).toBe(path.resolve(target));
@@ -159,19 +163,12 @@ test('verification evidence preserves configured ordinary output paths and inval
     CodexDevelopmentWriteVerificationEvidenceV4Atomic(target, failed);
     expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(failed);
     expect(readdirSync(parent)).toEqual(['evidence.json']);
-  } catch (error) {
-    primary = { label: 'evidence assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 for (const kind of ['symlink', 'hardlink'] as const) {
   test(`verification evidence preparation and publication preserve a ${kind} output and its source`, () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'sec-verification-evidence-alias-'));
-    let primary: ResourceSettlementFailure | undefined;
-    try {
+    withEvidenceRoot('sec-verification-evidence-alias-', root => {
       const source = path.join(root, 'source.json');
       const target = path.join(root, 'evidence.json');
       const original = '{"owner":"outside output"}\n';
@@ -192,19 +189,12 @@ for (const kind of ['symlink', 'hardlink'] as const) {
         expect(current.ino).toBe(identity.ino);
         expect(readdirSync(root).sort()).toEqual(originalNames);
       }
-    } catch (error) {
-      primary = { label: 'evidence assertions', error };
-      throw error;
-    } finally {
-      settleResources({ primary, cleanup: [{ label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-    }
+    });
   });
 }
 
 test('verification evidence rejects a symlink parent before creating missing output directories', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-verification-evidence-parent-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  withEvidenceRoot('sec-verification-evidence-parent-', root => {
     const outside = path.join(root, 'outside');
     const alias = path.join(root, 'alias');
     mkdirSync(outside);
@@ -213,12 +203,7 @@ test('verification evidence rejects a symlink parent before creating missing out
     expect(() => CodexDevelopmentPrepareVerificationEvidenceTarget(target)).toThrow(physical.PhysicalNoFollowError);
     expect(() => CodexDevelopmentWriteVerificationEvidenceV4Atomic(target, evidence())).toThrow(physical.PhysicalNoFollowError);
     expect(readdirSync(outside)).toEqual([]);
-  } catch (error) {
-    primary = { label: 'evidence assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('verification evidence readback failure reports failure and preserves the already published effect', () => {
@@ -226,8 +211,7 @@ test.skipIf(process.platform !== 'linux')('verification evidence readback failur
   const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
     { label: 'evidence fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }
   ];
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  settleWorkspaceCallbackSync(() => {
     const target = path.join(root, 'evidence.json');
     writeFileSync(target, '{"stale":true}\n');
     const next = evidence();
@@ -247,10 +231,5 @@ test.skipIf(process.platform !== 'linux')('verification evidence readback failur
     expect(finalReadbackObserved).toBe(true);
     expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(next);
     expect(readdirSync(root)).toEqual(['evidence.json']);
-  } catch (error) {
-    primary = { label: 'evidence readback assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup });
-  }
+  }, () => settleResources({ cleanup }));
 });

@@ -33,7 +33,16 @@ import {
 } from '../../../src/adapters/verification/platform/trust/compiler.ts';
 import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, parseSecTrustedBootstrapRegistry, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, type SecTrustedBootstrapRegistry } from '../../../src/adapters/verification/platform/trust/contract/root.ts';
 import { rawSha256 } from '../../../src/contracts/canonical.ts';
-import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
+
+function withTcbCandidateRoot(prefix: string, use: (root: string) => void): void {
+  const createdRoot = mkdtempSync(path.join(tmpdir(), prefix));
+  settleWorkspaceCallbackSync(
+    () => use(realpathSync.native(createdRoot)),
+    () => rmSync(createdRoot, { recursive: true, force: true })
+  );
+}
 
 const LIVE_TCB_CLOSURE = compileTrustedRuntimeClosure();
 const TCB_CLOSURE_LOCK = computeTcbClosureLock(LIVE_TCB_CLOSURE);
@@ -110,10 +119,7 @@ test('TCB fixed resources preserve raw bytes while existing TypeScript normaliza
   for (const { owner, resource, specifier } of reviewedRuntimeResources) {
     const resourceSource = "import { fileURLToPath } from 'node:url';\n"
       + "const HELPER_PATH = fileURLToPath(new URL('" + specifier + "', import.meta.url));\n";
-    const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-python-bytes-'));
-    let primary: ResourceSettlementFailure | undefined;
-    try {
-      const root = realpathSync.native(createdRoot);
+    withTcbCandidateRoot('sec-tcb-python-bytes-', root => {
       mkdirSync(path.join(root, path.posix.dirname(owner)), { recursive: true });
       writeFileSync(path.join(root, owner), resourceSource.replaceAll('\n', '\r\n'));
       const helper = path.join(root, resource);
@@ -139,12 +145,7 @@ test('TCB fixed resources preserve raw bytes while existing TypeScript normaliza
         .toThrow('not a reviewed resource edge');
       expect(() => trustedRuntimeClosure([owner, resource], { candidateRoot: root }))
         .toThrow('not a reviewed resource edge');
-    } catch (error) {
-      primary = { label: 'runtime-resource-assertions', error };
-    } finally {
-      settleResources({ primary, cleanup: [{ label: 'runtime-resource-fixture',
-        settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
-    }
+    });
   }
 });
 
@@ -152,10 +153,7 @@ test('TCB fixed resources reject absent and nonordinary bytes through the origin
   for (const { owner, resource, specifier } of reviewedRuntimeResources) {
     const resourceSource = "import { fileURLToPath } from 'node:url';\n"
       + "const HELPER_PATH = fileURLToPath(new URL('" + specifier + "', import.meta.url));\n";
-    const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-python-ordinary-'));
-    let primary: ResourceSettlementFailure | undefined;
-    try {
-      const root = realpathSync.native(createdRoot);
+    withTcbCandidateRoot('sec-tcb-python-ordinary-', root => {
       mkdirSync(path.join(root, path.posix.dirname(owner)), { recursive: true });
       writeFileSync(path.join(root, owner), resourceSource);
       const helper = path.join(root, resource);
@@ -170,12 +168,7 @@ test('TCB fixed resources reject absent and nonordinary bytes through the origin
       rmSync(helper);
       linkSync(other, helper);
       expect(() => trustedRuntimeClosure([owner], { candidateRoot: root })).toThrow();
-    } catch (error) {
-      primary = { label: 'runtime-resource-assertions', error };
-    } finally {
-      settleResources({ primary, cleanup: [{ label: 'runtime-resource-fixture',
-        settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
-    }
+    });
   }
 });
 
@@ -191,10 +184,7 @@ test('TCB fixed native dependency entry retains its real transitive TypeScript s
 });
 
 test('TCB candidate root exclusively drives closure discovery and hashing', () => {
-  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    const root = realpathSync.native(createdRoot);
+  withTcbCandidateRoot('sec-tcb-candidate-root-', root => {
     writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
     writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
     const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
@@ -213,19 +203,11 @@ test('TCB candidate root exclusively drives closure discovery and hashing', () =
       expect(lock.moduleContentDigests[module]).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
     }
     finalizeTcbClosureCandidateSnapshot(snapshot);
-  } catch (error) {
-    primary = { label: 'TCB candidate assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'TCB candidate root', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('one explicit candidate snapshot rejects discovery-to-hash mutation and missing-path appearance', () => {
-  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-snapshot-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    const root = realpathSync.native(createdRoot);
+  withTcbCandidateRoot('sec-tcb-candidate-snapshot-', root => {
     writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
     writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
     const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
@@ -241,12 +223,7 @@ test('one explicit candidate snapshot rejects discovery-to-hash mutation and mis
     writeFileSync(path.join(root, 'appeared.ts'), 'export const appeared = true;\n', 'utf8');
     expect(() => finalizeTcbClosureCandidateSnapshot(missingSnapshot))
       .toThrow('after observing a missing module');
-  } catch (error) {
-    primary = { label: 'TCB candidate assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'TCB candidate root', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('TCB candidate root rejects aliases, traversal, and non-regular candidate leaves', () => {
@@ -254,8 +231,7 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
   const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
     { label: 'TCB candidate root', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }
   ];
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  settleWorkspaceCallbackSync(() => {
     const root = realpathSync.native(createdRoot);
     const createdOutside = mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-outside-'));
     cleanup.push({ label: 'TCB outside root', settle: () => rmSync(createdOutside, { recursive: true, force: true }) });
@@ -295,12 +271,7 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
     expect(statSync(outsideFile, { bigint: true })).toMatchObject({
       dev: outsideIdentity.dev, ino: outsideIdentity.ino, nlink: outsideIdentity.nlink
     });
-  } catch (error) {
-    primary = { label: 'TCB candidate assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary, cleanup });
-  }
+  }, () => settleResources({ cleanup }));
 });
 
 test('TCB closure models direct OS identity reads without admitting identity mutation or computed process access', () => {
@@ -509,10 +480,7 @@ test('TCB empty and inline-type edges cannot bypass classified external import p
 });
 
 test('TCB empty and inline-type edges bind transitive bytes and reject an unreviewed terminal', () => {
-  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-module-evaluation-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    const root = realpathSync.native(createdRoot);
+  withTcbCandidateRoot('sec-tcb-module-evaluation-', root => {
     writeFileSync(path.join(root, 'entry.ts'), "import './bridge.ts';\n");
     for (const statement of [
       "import {} from './terminal.ts';",
@@ -535,12 +503,7 @@ test('TCB empty and inline-type edges bind transitive bytes and reject an unrevi
       expect(() => trustedRuntimeClosure(['entry.ts'], { candidateRoot: root }))
         .toThrow('unreviewed network dispatcher terminal.ts::function-declaration:unreviewedFetch::globalThis.fetch#1');
     }
-  } catch (error) {
-    primary = { label: 'module-evaluation-assertions', error };
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'module-evaluation-fixture',
-      settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('TCB statement-level type imports and re-exports erase module evaluation', () => {
@@ -848,10 +811,7 @@ test('MainHealth compiler boundary composes canonical policy and causal identiti
 });
 
 test('compiler boundary only cuts the reviewed importer and still observes target bytes', () => {
-  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-boundary-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    const root = realpathSync.native(createdRoot);
+  withTcbCandidateRoot('sec-tcb-boundary-', root => {
     const importer = 'src/adapters/self-hosting/control/main-health/post-merge-plan.ts';
     const foreignImporter = 'src/adapters/self-hosting/control/main-health/unreviewed-plan.ts';
     const target = SEC_TCB_CLOSURE_RUNTIME_PATH;
@@ -876,14 +836,7 @@ test('compiler boundary only cuts the reviewed importer and still observes targe
     expect([...closure.reviewedBoundaryEdges]).toEqual([`${importer} -> ${target}`]);
     writeFileSync(path.join(root, target), 'export const changed = true;\n');
     expect(() => finalizeTcbClosureCandidateSnapshot(snapshot)).toThrow('snapshot changed');
-  } catch (error) {
-    primary = { label: 'compiler-boundary-assertions', error };
-  } finally {
-    settleResources({
-      primary,
-      cleanup: [{ label: 'compiler-boundary-fixture', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }]
-    });
-  }
+  });
 });
 
 test('TCB closure keeps Linux endpoint native effects in the reviewed physical owner', () => {

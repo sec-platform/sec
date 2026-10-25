@@ -585,6 +585,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // This scope owns console restoration, including per-case output captures.
   console.log = previousConsoleLog;
   console.error = previousConsoleError;
   if (previousTestWorkspaceNamespace === undefined) {
@@ -1096,52 +1097,43 @@ test.serial('explicit inner concurrency is byte-preserved while managed outer co
   const explicit = String(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.globalBudget);
   devCommandExitCodes.push(7, 0);
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
-  try {
-    const code = await runFastTests([
-      ...selectedFiles,
-      '--max-concurrency',
-      explicit
-    ]);
+  const code = await runFastTests([
+    ...selectedFiles,
+    '--max-concurrency',
+    explicit
+  ]);
 
-    expect(code).toBe(7);
-    expect(devCommandCalls).toHaveLength(selectedFiles.length);
-    for (const call of devCommandCalls) {
-      const explicitIndex = call.args.indexOf('--max-concurrency');
-      expect(explicitIndex).toBeGreaterThanOrEqual(0);
-      expect(call.args.slice(explicitIndex, explicitIndex + 2))
-        .toEqual(['--max-concurrency', explicit]);
-    }
-    expect(errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
-      .toHaveLength(1);
-  } finally {
-    console.error = originalError;
+  expect(code).toBe(7);
+  expect(devCommandCalls).toHaveLength(selectedFiles.length);
+  for (const call of devCommandCalls) {
+    const explicitIndex = call.args.indexOf('--max-concurrency');
+    expect(explicitIndex).toBeGreaterThanOrEqual(0);
+    expect(call.args.slice(explicitIndex, explicitIndex + 2))
+      .toEqual(['--max-concurrency', explicit]);
   }
+  expect(errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
+    .toHaveLength(1);
 });
 
 test.serial('managed fast tests reject over-budget explicit concurrency before spawning', async () => {
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
   const impossible = DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.globalBudget + 1;
 
-  try {
-    const code = await runFastTests([
-      'tests/unit/workspace/path-containment.test.ts',
-      `--max-concurrency=${impossible}`
-    ]);
+  const code = await runFastTests([
+    'tests/unit/workspace/path-containment.test.ts',
+    `--max-concurrency=${impossible}`
+  ]);
 
-    expect(code).toBe(1);
-    expect(devCommandCalls).toEqual([]);
-    expect(errors).toContain(
-      `Bun --max-concurrency ${impossible} exceeds the managed fast-test global budget `
-      + `${DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.globalBudget}.`
-    );
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(errors).toContain(
+    `Bun --max-concurrency ${impossible} exceeds the managed fast-test global budget `
+    + `${DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.globalBudget}.`
+  );
+
 });
 
 
@@ -1168,7 +1160,6 @@ test.serial('failed explicit resource batch settles started siblings then emits 
     devCommandStartObservers.push(undefined, siblingStarted.resolve);
   }
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
   try {
@@ -1207,7 +1198,6 @@ test.serial('failed explicit resource batch settles started siblings then emits 
     }
   } finally {
     siblingSettlement.resolve();
-    console.error = originalError;
   }
 });
 
@@ -1226,63 +1216,58 @@ test.serial('observed failure receipt bounds terminal, integrity, argv, and UTF-
     stderrTail: `${longText}stderr sentinel`
   });
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
-  try {
-    expect(await runFastTests([
-      file,
-      longArg
-    ])).toBe(1);
-    expect(devCommandCalls).toEqual([{
-      command: 'bun',
-      args: ['test', `./${file}`, ...DEFAULT_MANAGED_INNER_ARGS, longArg, '--timeout', '180000']
-    }]);
+  expect(await runFastTests([
+    file,
+    longArg
+  ])).toBe(1);
+  expect(devCommandCalls).toEqual([{
+    command: 'bun',
+    args: ['test', `./${file}`, ...DEFAULT_MANAGED_INNER_ARGS, longArg, '--timeout', '180000']
+  }]);
 
-    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(receipts).toHaveLength(1);
-    const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
-      failures: Array<{
-        kind: string;
-        selectedTestFiles: string[];
-        terminal: { kind: string; error?: string };
-        observationIntegrity: { kind: string; error?: string };
-        effectiveArgv: string[];
-        effectiveArgvTruncated: boolean;
-        stdoutTail: string;
-        stderrTail: string;
-      }>;
-    };
-    expect(receipt).toMatchObject({
-      schema: 'sec-fast-test-failure-receipt-v3',
-      replayAuthority: 'none-diagnostic-only',
-      queue: 'independent-process'
-    });
-    expect(receipt.failures).toHaveLength(1);
-    const failure = receipt.failures[0]!;
-    expect(failure.kind).toBe('observed-command-failure');
-    expect(failure.selectedTestFiles).toEqual([file]);
-    expect(failure.effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([`./${file}`]);
-    expect(failure.terminal.kind).toBe('spawn-failed');
-    expect(failure.observationIntegrity.kind).toBe('failed');
-    expect(failure.effectiveArgvTruncated).toBe(true);
-    expect(failure.effectiveArgv.some((arg) => arg.endsWith('argv sentinel'))).toBe(true);
-    for (const arg of failure.effectiveArgv) {
-      expect(Buffer.byteLength(arg, 'utf8')).toBeLessThanOrEqual(512);
-      expect(arg).not.toContain('�');
-    }
-    expect(Buffer.byteLength(failure.stdoutTail, 'utf8')).toBeLessThanOrEqual(2 * 1024);
-    expect(Buffer.byteLength(failure.stderrTail, 'utf8')).toBeLessThanOrEqual(2 * 1024);
-    expect(Buffer.byteLength(failure.terminal.error ?? '', 'utf8')).toBeLessThanOrEqual(1024);
-    expect(Buffer.byteLength(failure.observationIntegrity.error ?? '', 'utf8'))
-      .toBeLessThanOrEqual(1024);
-    expect(failure.stdoutTail.endsWith('sentinel')).toBe(true);
-    expect(failure.stderrTail.endsWith('sentinel')).toBe(true);
-    expect(failure.terminal.error).not.toContain('�');
-    expect(failure.observationIntegrity.error).not.toContain('�');
-  } finally {
-    console.error = originalError;
+  const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+  expect(receipts).toHaveLength(1);
+  const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
+    failures: Array<{
+      kind: string;
+      selectedTestFiles: string[];
+      terminal: { kind: string; error?: string };
+      observationIntegrity: { kind: string; error?: string };
+      effectiveArgv: string[];
+      effectiveArgvTruncated: boolean;
+      stdoutTail: string;
+      stderrTail: string;
+    }>;
+  };
+  expect(receipt).toMatchObject({
+    schema: 'sec-fast-test-failure-receipt-v3',
+    replayAuthority: 'none-diagnostic-only',
+    queue: 'independent-process'
+  });
+  expect(receipt.failures).toHaveLength(1);
+  const failure = receipt.failures[0]!;
+  expect(failure.kind).toBe('observed-command-failure');
+  expect(failure.selectedTestFiles).toEqual([file]);
+  expect(failure.effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([`./${file}`]);
+  expect(failure.terminal.kind).toBe('spawn-failed');
+  expect(failure.observationIntegrity.kind).toBe('failed');
+  expect(failure.effectiveArgvTruncated).toBe(true);
+  expect(failure.effectiveArgv.some((arg) => arg.endsWith('argv sentinel'))).toBe(true);
+  for (const arg of failure.effectiveArgv) {
+    expect(Buffer.byteLength(arg, 'utf8')).toBeLessThanOrEqual(512);
+    expect(arg).not.toContain('�');
   }
+  expect(Buffer.byteLength(failure.stdoutTail, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+  expect(Buffer.byteLength(failure.stderrTail, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+  expect(Buffer.byteLength(failure.terminal.error ?? '', 'utf8')).toBeLessThanOrEqual(1024);
+  expect(Buffer.byteLength(failure.observationIntegrity.error ?? '', 'utf8'))
+    .toBeLessThanOrEqual(1024);
+  expect(failure.stdoutTail.endsWith('sentinel')).toBe(true);
+  expect(failure.stderrTail.endsWith('sentinel')).toBe(true);
+  expect(failure.terminal.error).not.toContain('�');
+  expect(failure.observationIntegrity.error).not.toContain('�');
 });
 
 test.serial('observer rejection receipt bounds planned argv and UTF-8 error', async () => {
@@ -1290,43 +1275,38 @@ test.serial('observer rejection receipt bounds planned argv and UTF-8 error', as
   const longArg = `--test-name-pattern=${longText}argv sentinel`;
   devCommandFailures.push(new Error(`${longText}observer rejection sentinel`));
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
-  try {
-    expect(await runFastTests([
-      'tests/integration/workspace/pipeline-kernel.test.ts',
-      longArg
-    ])).toBe(1);
+  expect(await runFastTests([
+    'tests/integration/workspace/pipeline-kernel.test.ts',
+    longArg
+  ])).toBe(1);
 
-    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(receipts).toHaveLength(1);
-    const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
-      failures: Array<{
-        kind: string;
-        plannedArgv: string[];
-        plannedArgvTruncated: boolean;
-        error: string;
-        effectiveArgv?: string[];
-      }>;
-    };
-    expect(receipt.failures).toHaveLength(1);
-    const failure = receipt.failures[0]!;
-    expect(failure.kind).toBe('observer-rejected');
-    expect(failure).not.toHaveProperty('effectiveArgv');
-    expect(failure.plannedArgv[0]).toBe('bun');
-    expect(failure.plannedArgvTruncated).toBe(true);
-    expect(failure.plannedArgv.some((arg) => arg.endsWith('argv sentinel'))).toBe(true);
-    for (const arg of failure.plannedArgv) {
-      expect(Buffer.byteLength(arg, 'utf8')).toBeLessThanOrEqual(512);
-      expect(arg).not.toContain('�');
-    }
-    expect(Buffer.byteLength(failure.error, 'utf8')).toBeLessThanOrEqual(1024);
-    expect(failure.error.endsWith('observer rejection sentinel')).toBe(true);
-    expect(failure.error).not.toContain('�');
-  } finally {
-    console.error = originalError;
+  const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+  expect(receipts).toHaveLength(1);
+  const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
+    failures: Array<{
+      kind: string;
+      plannedArgv: string[];
+      plannedArgvTruncated: boolean;
+      error: string;
+      effectiveArgv?: string[];
+    }>;
+  };
+  expect(receipt.failures).toHaveLength(1);
+  const failure = receipt.failures[0]!;
+  expect(failure.kind).toBe('observer-rejected');
+  expect(failure).not.toHaveProperty('effectiveArgv');
+  expect(failure.plannedArgv[0]).toBe('bun');
+  expect(failure.plannedArgvTruncated).toBe(true);
+  expect(failure.plannedArgv.some((arg) => arg.endsWith('argv sentinel'))).toBe(true);
+  for (const arg of failure.plannedArgv) {
+    expect(Buffer.byteLength(arg, 'utf8')).toBeLessThanOrEqual(512);
+    expect(arg).not.toContain('�');
   }
+  expect(Buffer.byteLength(failure.error, 'utf8')).toBeLessThanOrEqual(1024);
+  expect(failure.error.endsWith('observer rejection sentinel')).toBe(true);
+  expect(failure.error).not.toContain('�');
 });
 
 test.serial('runFastTests never lets an ordinary sibling failure hide an unresolved terminal', async () => {
@@ -1364,7 +1344,6 @@ test.serial('runFastTests never lets an ordinary sibling failure hide an unresol
   }
 
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
   try {
@@ -1402,7 +1381,6 @@ test.serial('runFastTests never lets an ordinary sibling failure hide an unresol
     expect(devCommandCalls).toHaveLength(expectedFirstBatchSize);
   } finally {
     siblingSettlement.resolve();
-    console.error = originalError;
   }
 });
 
@@ -1496,68 +1474,58 @@ test.serial('each resource class obeys its own bounded batches and deterministic
 test.serial('settled test failure preserves its exit while independent later classes still run', async () => {
   devCommandExitCodes.push(7, 0, 0, 0);
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
-  try {
-    const code = await runFastTests([
-      'tests/integration/workspace/pipeline-kernel.test.ts',
-      'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
-    ]);
+  const code = await runFastTests([
+    'tests/integration/workspace/pipeline-kernel.test.ts',
+    'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
+  ]);
 
-    expect(code).toBe(7);
-    expect(devCommandCalls).toHaveLength(2);
-    expect(invocationTestFiles(devCommandCalls[0].args)).toEqual([
-      'tests/integration/workspace/pipeline-kernel.test.ts'
-    ]);
-    expect(invocationTestFiles(devCommandCalls[1].args)).toEqual([
-      'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
-    ]);
-    const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(JSON.parse(receipt!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
-      queue: 'independent-process'
-    });
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(7);
+  expect(devCommandCalls).toHaveLength(2);
+  expect(invocationTestFiles(devCommandCalls[0].args)).toEqual([
+    'tests/integration/workspace/pipeline-kernel.test.ts'
+  ]);
+  expect(invocationTestFiles(devCommandCalls[1].args)).toEqual([
+    'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
+  ]);
+  const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+  expect(JSON.parse(receipt!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
+    queue: 'independent-process'
+  });
 });
 
 test.serial('explicit fast test files bootstrap once, preserve their environment and settle their invocation runtime', async () => {
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
-  try {
-    const code = await runTests(['tests/unit/workspace/path-containment.test.ts', '--timeout', '10000']);
+  const code = await runTests(['tests/unit/workspace/path-containment.test.ts', '--timeout', '10000']);
 
-    expect(code).toBe(0);
-    expect(fastDependencyBootstrapCalls).toBe(1);
-    expect(devCommandCalls).toEqual([{
-      command: 'bun',
-      args: [
-        'test',
-        './tests/unit/workspace/path-containment.test.ts',
-        ...DEFAULT_MANAGED_INNER_ARGS,
-        '--timeout',
-        '10000'
-      ]
-    }]);
-    expect(devCommandEnvironments).toHaveLength(1);
-    const environment = devCommandEnvironments[0]!;
-    expect(environment.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
-    expect(environment.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
-    expect(environment.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
-    expect(environment.SEC_STATE_HOME).toMatch(/[\\/]invocation-runtime[\\/]parallel-001$/u);
-    expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]invocation-runtime[\\/]parallel-001$/u);
-    expect(path.basename(environment.SEC_STATE_HOME!)).toBe('parallel-001');
-    expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('parallel-001');
-    const runtimeRoots = fastInvocationRunRoots(environment);
-    await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(errors.some((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
-      .toBe(false);
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(0);
+  expect(fastDependencyBootstrapCalls).toBe(1);
+  expect(devCommandCalls).toEqual([{
+    command: 'bun',
+    args: [
+      'test',
+      './tests/unit/workspace/path-containment.test.ts',
+      ...DEFAULT_MANAGED_INNER_ARGS,
+      '--timeout',
+      '10000'
+    ]
+  }]);
+  expect(devCommandEnvironments).toHaveLength(1);
+  const environment = devCommandEnvironments[0]!;
+  expect(environment.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
+  expect(environment.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
+  expect(environment.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
+  expect(environment.SEC_STATE_HOME).toMatch(/[\\/]invocation-runtime[\\/]parallel-001$/u);
+  expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]invocation-runtime[\\/]parallel-001$/u);
+  expect(path.basename(environment.SEC_STATE_HOME!)).toBe('parallel-001');
+  expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('parallel-001');
+  const runtimeRoots = fastInvocationRunRoots(environment);
+  await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  expect(errors.some((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
+    .toBe(false);
 });
 
 test.serial('composite check reuses one materialized compiler capability without a second bootstrap', async () => {
@@ -1954,58 +1922,43 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
 test.serial('invocation runtime cleanup failure remains visible and nonzero', async () => {
   invocationRuntimeCleanupFailure = new Error('runtime cleanup sentinel');
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
-  try {
-    const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
+  const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
 
-    expect(code).toBe(1);
-    expect(devCommandCalls).toHaveLength(1);
-    expect(errors).toContain('Fast test invocation runtime cleanup failed: runtime cleanup sentinel');
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(1);
+  expect(devCommandCalls).toHaveLength(1);
+  expect(errors).toContain('Fast test invocation runtime cleanup failed: runtime cleanup sentinel');
 });
 
 test.serial('final workspace cleanup failure remains visible and nonzero', async () => {
   cleanupFailure = new Error('cleanup sentinel');
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
-  try {
-    const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
+  const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
 
-    expect(code).toBe(1);
-    expect(devCommandCalls).toHaveLength(1);
-    expect(errors).toContain('Fast test workspace cleanup failed: cleanup sentinel');
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(1);
+  expect(devCommandCalls).toHaveLength(1);
+  expect(errors).toContain('Fast test workspace cleanup failed: cleanup sentinel');
 });
 
 test.serial('cleanup failure preserves a more specific child exit and its receipt', async () => {
   cleanupFailure = new Error('cleanup after child sentinel');
   devCommandExitCodes.push(7);
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
-  try {
-    const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
+  const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
 
-    expect(code).toBe(7);
-    const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(JSON.parse(receipt!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
-      failures: [{ terminal: { kind: 'exited', exitCode: 7 } }]
-    });
-    expect(errors).toContain(
-      'Fast test workspace cleanup failed: cleanup after child sentinel'
-    );
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(7);
+  const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+  expect(JSON.parse(receipt!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
+    failures: [{ terminal: { kind: 'exited', exitCode: 7 } }]
+  });
+  expect(errors).toContain(
+    'Fast test workspace cleanup failed: cleanup after child sentinel'
+  );
 });
 
 test.serial('cleanup failure remains additive to a preserved bootstrap exception', async () => {
@@ -2013,12 +1966,38 @@ test.serial('cleanup failure remains additive to a preserved bootstrap exception
   configureTestDependencyBootstrapFailure(bootstrapFailure);
   cleanupFailure = new Error('cleanup secondary sentinel');
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
+  let caught = false;
+  let thrown: unknown;
   try {
+    await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
+  } catch (error) {
+    caught = true;
+    thrown = error;
+  }
+
+  expect(caught).toBe(true);
+  expect(thrown).toBe(bootstrapFailure);
+  expect(fastDependencyBootstrapCalls).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(devCommandEnvironments).toEqual([]);
+  expect(errors).toContain('Fast test workspace cleanup failed: cleanup secondary sentinel');
+});
+
+test.serial('cleanup remains additive while an undefined primary is rethrown unchanged', async () => {
+  const cases = [
+    { label: 'undefined', value: undefined }
+  ] as const;
+  const errors: string[] = [];
+  console.error = (message?: unknown) => { errors.push(String(message)); };
+
+  for (const { label, value } of cases) {
+    configureTestDependencyBootstrapFailure(value);
+    cleanupFailure = new Error(`cleanup secondary ${label}`);
     let caught = false;
-    let thrown: unknown;
+    let thrown: unknown = Symbol('not-thrown');
+
     try {
       await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
     } catch (error) {
@@ -2027,46 +2006,10 @@ test.serial('cleanup failure remains additive to a preserved bootstrap exception
     }
 
     expect(caught).toBe(true);
-    expect(thrown).toBe(bootstrapFailure);
-    expect(fastDependencyBootstrapCalls).toBe(1);
-    expect(devCommandCalls).toEqual([]);
-    expect(devCommandEnvironments).toEqual([]);
-    expect(errors).toContain('Fast test workspace cleanup failed: cleanup secondary sentinel');
-  } finally {
-    console.error = originalError;
+    expect(thrown).toBe(value);
+    expect(errors).toContain(`Fast test workspace cleanup failed: cleanup secondary ${label}`);
   }
-});
-
-test.serial('cleanup remains additive while an undefined primary is rethrown unchanged', async () => {
-  const cases = [
-    { label: 'undefined', value: undefined }
-  ] as const;
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (message?: unknown) => { errors.push(String(message)); };
-
-  try {
-    for (const { label, value } of cases) {
-      configureTestDependencyBootstrapFailure(value);
-      cleanupFailure = new Error(`cleanup secondary ${label}`);
-      let caught = false;
-      let thrown: unknown = Symbol('not-thrown');
-
-      try {
-        await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
-      } catch (error) {
-        caught = true;
-        thrown = error;
-      }
-
-      expect(caught).toBe(true);
-      expect(thrown).toBe(value);
-      expect(errors).toContain(`Fast test workspace cleanup failed: cleanup secondary ${label}`);
-    }
-    expect(devCommandCalls).toEqual([]);
-  } finally {
-    console.error = originalError;
-  }
+  expect(devCommandCalls).toEqual([]);
 });
 
 test.serial('thrown isolated child preserves nonzero result and retires its invocation runtime', async () => {
@@ -2096,20 +2039,15 @@ test.serial('thrown isolated child preserves nonzero result and retires its invo
 
 test.serial('fast tests reject explicit slow file selectors', async () => {
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => {
     errors.push(String(message));
   };
 
-  try {
-    const code = await runFastTests(['tests/e2e/toolchain/registry.test.ts']);
+  const code = await runFastTests(['tests/e2e/toolchain/registry.test.ts']);
 
-    expect(code).toBe(1);
-    expect(devCommandCalls).toEqual([]);
-    expect(errors).toContain('Fast test runner cannot run slow test files: tests/e2e/toolchain/registry.test.ts');
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(errors).toContain('Fast test runner cannot run slow test files: tests/e2e/toolchain/registry.test.ts');
 });
 
 test.serial('slow suite selector applies the shared default timeout', async () => {
@@ -2135,39 +2073,29 @@ test.serial('slow suite selector preserves an explicit timeout override', async 
 
 test.serial('slow suite selector rejects unknown suite ids', async () => {
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => {
     errors.push(String(message));
   };
 
-  try {
-    const code = await runSlowTests(['--suite', 'not-a-suite']);
+  const code = await runSlowTests(['--suite', 'not-a-suite']);
 
-    expect(code).toBe(1);
-    expect(devCommandCalls).toEqual([]);
-    expect(errors[0]).toContain('Unknown slow test suite "not-a-suite". Available suites:');
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(errors[0]).toContain('Unknown slow test suite "not-a-suite". Available suites:');
 });
 
 test.serial('affected tests fail before dependency bootstrap for unresolved source ownership', async () => {
   const errors: string[] = [];
-  const originalError = console.error;
   console.error = (message?: unknown) => {
     errors.push(String(message));
   };
 
-  try {
-    const code = await runAffectedTests();
+  const code = await runAffectedTests();
 
-    expect(code).toBe(1);
-    expect(devCommandCalls).toEqual([]);
-    expect(devCommandEnvironments).toEqual([]);
-    expect(errors).toContain('Affected test ownership is unresolved for changed paths: platform/unmapped-source.ts');
-  } finally {
-    console.error = originalError;
-  }
+  expect(code).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(devCommandEnvironments).toEqual([]);
+  expect(errors).toContain('Affected test ownership is unresolved for changed paths: platform/unmapped-source.ts');
 });
 
 test.serial('affected tests fail closed for mixed mapped and unresolved paths before any child', async () => {
@@ -2186,36 +2114,31 @@ test.serial('affected tests fail closed for mixed mapped and unresolved paths be
 test.serial('affected plan reports resolved selection without dependency or test execution', async () => {
   changedFiles = ['tests/unit/workspace/path-containment.test.ts'];
   const logs: string[] = [];
-  const originalLog = console.log;
   console.log = (message?: unknown) => {
     logs.push(String(message));
   };
 
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+  const code = await runAffectedTests(['--plan']);
+  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
 
-    expect(code).toBe(0);
-    expect(plan).toMatchObject({
-      schema: 'sec-affected-test-plan-v1',
-      changedPaths: ['tests/unit/workspace/path-containment.test.ts'],
-      owners: ['dev-runner', 'verification.test-governance'],
-      selectedFastTests: [
-        TEST_ARCHITECTURE_POLICY_TEST_FILE,
-        FAST_TEST_PROCESS_POLICY_TEST_FILE,
-        'tests/unit/workspace/path-containment.test.ts'
-      ],
-      unresolvedPaths: [],
-      resolved: true,
-      verificationResult: { status: 'not-run', reasonCode: 'not-dispatched', applicability: 'required' },
-      selectionTrustBoundary: 'applicable-with-tests'
-    });
-    expect(fastDependencyBootstrapCalls).toBe(0);
-    expect(devCommandCalls).toEqual([]);
-    expect(devCommandEnvironments).toEqual([]);
-  } finally {
-    console.log = originalLog;
-  }
+  expect(code).toBe(0);
+  expect(plan).toMatchObject({
+    schema: 'sec-affected-test-plan-v1',
+    changedPaths: ['tests/unit/workspace/path-containment.test.ts'],
+    owners: ['dev-runner', 'verification.test-governance'],
+    selectedFastTests: [
+      TEST_ARCHITECTURE_POLICY_TEST_FILE,
+      FAST_TEST_PROCESS_POLICY_TEST_FILE,
+      'tests/unit/workspace/path-containment.test.ts'
+    ],
+    unresolvedPaths: [],
+    resolved: true,
+    verificationResult: { status: 'not-run', reasonCode: 'not-dispatched', applicability: 'required' },
+    selectionTrustBoundary: 'applicable-with-tests'
+  });
+  expect(fastDependencyBootstrapCalls).toBe(0);
+  expect(devCommandCalls).toEqual([]);
+  expect(devCommandEnvironments).toEqual([]);
 });
 
 test.serial('canonical docs-only Git selection does not construct ProjectInput or select tests', async () => {
@@ -2237,62 +2160,52 @@ test.serial('canonical docs-only Git selection does not construct ProjectInput o
 test.serial('affected plan applies the same process-policy sentinel to a default-excluded fast test', async () => {
   changedFiles = ['tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'];
   const logs: string[] = [];
-  const originalLog = console.log;
   console.log = (message?: unknown) => {
     logs.push(String(message));
   };
 
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+  const code = await runAffectedTests(['--plan']);
+  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
 
-    expect(code).toBe(0);
-    expect(plan).toMatchObject({
-      changedPaths: ['tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'],
-      owners: ['dev-runner', 'verification.test-governance'],
-      selectedFastTests: [
-        TEST_ARCHITECTURE_POLICY_TEST_FILE,
-        'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts',
-        FAST_TEST_PROCESS_POLICY_TEST_FILE
-      ],
-      unresolvedPaths: [],
-      resolved: true
-    });
-    expect(devCommandCalls).toEqual([]);
-  } finally {
-    console.log = originalLog;
-  }
+  expect(code).toBe(0);
+  expect(plan).toMatchObject({
+    changedPaths: ['tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'],
+    owners: ['dev-runner', 'verification.test-governance'],
+    selectedFastTests: [
+      TEST_ARCHITECTURE_POLICY_TEST_FILE,
+      'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts',
+      FAST_TEST_PROCESS_POLICY_TEST_FILE
+    ],
+    unresolvedPaths: [],
+    resolved: true
+  });
+  expect(devCommandCalls).toEqual([]);
 });
 
 test.serial('deleted test paths remain changed facts without becoming runnable tests', async () => {
   changedFiles = ['tests/integration/project-runtime.test.ts'];
   const logs: string[] = [];
-  const originalLog = console.log;
   console.log = (message?: unknown) => {
     logs.push(String(message));
   };
 
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+  const code = await runAffectedTests(['--plan']);
+  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
 
-    expect(code).toBe(0);
-    expect(plan).toMatchObject({
-      schema: 'sec-affected-test-plan-v1',
-      changedPaths: ['tests/integration/project-runtime.test.ts'],
-      owners: ['dev-runner', 'verification.test-governance'],
-      selectedFastTests: [
-        TEST_ARCHITECTURE_POLICY_TEST_FILE,
-        FAST_TEST_PROCESS_POLICY_TEST_FILE
-      ],
-      selectedSlowTests: [],
-      unresolvedPaths: [],
-      resolved: true
-    });
-    expect(devCommandCalls).toEqual([]);
-  } finally {
-    console.log = originalLog;
-  }
+  expect(code).toBe(0);
+  expect(plan).toMatchObject({
+    schema: 'sec-affected-test-plan-v1',
+    changedPaths: ['tests/integration/project-runtime.test.ts'],
+    owners: ['dev-runner', 'verification.test-governance'],
+    selectedFastTests: [
+      TEST_ARCHITECTURE_POLICY_TEST_FILE,
+      FAST_TEST_PROCESS_POLICY_TEST_FILE
+    ],
+    selectedSlowTests: [],
+    unresolvedPaths: [],
+    resolved: true
+  });
+  expect(devCommandCalls).toEqual([]);
 });
 
 test.serial('resolved affected plan executes only after its final Git revalidation', async () => {
@@ -2371,34 +2284,29 @@ test.serial('affected plan lists every unresolved path and exits nonzero without
     'platform/unmapped-source.ts'
   ];
   const logs: string[] = [];
-  const originalLog = console.log;
   console.log = (message?: unknown) => {
     logs.push(String(message));
   };
 
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+  const code = await runAffectedTests(['--plan']);
+  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
 
-    expect(code).toBe(1);
-    expect(plan).toMatchObject({
-      changedPaths: [
-        'assets/new.bin',
-        'platform/unmapped-source.ts'
-      ],
-      unresolvedPaths: [
-        'assets/new.bin',
-        'platform/unmapped-source.ts'
-      ],
-      resolved: false,
-      verificationResult: { status: 'invalidated', reasonCode: 'selection-unresolved', applicability: 'unresolved' },
-      selectionTrustBoundary: 'unresolved-ownership'
-    });
-    expect(devCommandCalls).toEqual([]);
-    expect(devCommandEnvironments).toEqual([]);
-  } finally {
-    console.log = originalLog;
-  }
+  expect(code).toBe(1);
+  expect(plan).toMatchObject({
+    changedPaths: [
+      'assets/new.bin',
+      'platform/unmapped-source.ts'
+    ],
+    unresolvedPaths: [
+      'assets/new.bin',
+      'platform/unmapped-source.ts'
+    ],
+    resolved: false,
+    verificationResult: { status: 'invalidated', reasonCode: 'selection-unresolved', applicability: 'unresolved' },
+    selectionTrustBoundary: 'unresolved-ownership'
+  });
+  expect(devCommandCalls).toEqual([]);
+  expect(devCommandEnvironments).toEqual([]);
 });
 
 test.serial('affected base ref validation rejects option-like, NUL, and oversized values before Git effect', async () => {
@@ -2484,8 +2392,6 @@ test.serial('affected tests run the architecture policy sentinel for changed slo
   changedFiles = ['tests/e2e/toolchain/registry.test.ts'];
   const logs: string[] = [];
   const errors: string[] = [];
-  const originalLog = console.log;
-  const originalError = console.error;
   console.log = (message?: unknown) => {
     logs.push(String(message));
   };
@@ -2493,41 +2399,32 @@ test.serial('affected tests run the architecture policy sentinel for changed slo
     errors.push(String(message));
   };
 
-  try {
-    const code = await runAffectedTests();
+  const code = await runAffectedTests();
 
-    expect(code).toBe(0);
-    expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
-      .toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
-    expect(errors).toEqual([]);
-    expect(logs).toContain('Changed slow test files require canonical slow-test closure or release/full verification: tests/e2e/toolchain/registry.test.ts');
-    expect(logs.some((line) => line.includes(TEST_ARCHITECTURE_POLICY_TEST_FILE))).toBe(true);
-  } finally {
-    console.log = originalLog;
-    console.error = originalError;
-  }
+  expect(code).toBe(0);
+  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
+    .toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
+  expect(errors).toEqual([]);
+  expect(logs).toContain('Changed slow test files require canonical slow-test closure or release/full verification: tests/e2e/toolchain/registry.test.ts');
+  expect(logs.some((line) => line.includes(TEST_ARCHITECTURE_POLICY_TEST_FILE))).toBe(true);
 });
 
 test.serial('affected plan projects required policy coverage for a changed slow test (Issue #206)', async () => {
   changedFiles = ['tests/e2e/toolchain/registry.test.ts'];
   const logs: string[] = [];
-  const originalLog = console.log;
   console.log = (message?: unknown) => {
     logs.push(String(message));
   };
 
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+  const code = await runAffectedTests(['--plan']);
+  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
 
-    expect(code).toBe(0);
-    const vr = plan.verificationResult as Record<string, unknown>;
-    expect(vr.status).toBe('not-run');
-    expect(vr.reasonCode).toBe('not-dispatched');
-    expect(vr.applicability).toBe('required');
-    expect(plan.selectionTrustBoundary).toBe('applicable-with-tests');
-    expect(plan.selectedFastTests).toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
-  } finally {
-    console.log = originalLog;
-  }
+  expect(code).toBe(0);
+  const vr = plan.verificationResult as Record<string, unknown>;
+  expect(vr.status).toBe('not-run');
+  expect(vr.reasonCode).toBe('not-dispatched');
+  expect(vr.applicability).toBe('required');
+  expect(plan.selectionTrustBoundary).toBe('applicable-with-tests');
+  expect(plan.selectedFastTests).toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
+
 });
