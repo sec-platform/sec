@@ -129,7 +129,7 @@ test('deepFreeze preserves primitive identity and the existing function boundary
   assert.equal(Object.isFrozen(fn), false);
 });
 
-test('deepFreeze freezes mixed cyclic and shared graphs', () => {
+test('deepFreeze freezes mixed cyclic and shared own-data graphs without invoking getters', () => {
   const first: Record<string, unknown> = {};
   const second: unknown[] = [first];
   const shared = { leaf: {} };
@@ -137,9 +137,20 @@ test('deepFreeze freezes mixed cyclic and shared graphs', () => {
   first.second = second;
   first.shared = shared;
   second.push(shared);
+  const key = Symbol('child'), hidden = { leaf: {} }, symbolChild = {};
+  let reads = 0;
+  Object.defineProperty(first, key, { value: symbolChild, enumerable: true, configurable: true, writable: true });
+  Object.defineProperty(first, 'hidden', { value: hidden, enumerable: false, configurable: true });
+  Object.defineProperty(first, 'computed', {
+    enumerable: true, configurable: true,
+    get() { reads += 1; throw new Error('Getter must not run'); }
+  });
   assert.strictEqual(deepFreeze(first), first);
   assert.strictEqual(first.self, first);
-  for (const value of [first, second, shared, shared.leaf]) assert.equal(Object.isFrozen(value), true);
+  for (const value of [first, second, shared, shared.leaf, hidden, hidden.leaf, symbolChild]) {
+    assert.equal(Object.isFrozen(value), true);
+  }
+  assert.equal(reads, 0);
 });
 
 test('deepFreeze handles shallow-frozen roots and intermediates in a cycle', () => {
@@ -150,29 +161,6 @@ test('deepFreeze handles shallow-frozen roots and intermediates in a cycle', () 
   Object.freeze(root);
   deepFreeze(root);
   assert.equal(Object.isFrozen(leaf), true);
-});
-
-test('deepFreeze follows symbol and non-enumerable data properties', () => {
-  const key = Symbol('child');
-  const hidden = { leaf: {} };
-  const symbolChild = {};
-  const root = { [key]: symbolChild };
-  Object.defineProperty(root, 'hidden', { value: hidden, enumerable: false, configurable: true });
-  deepFreeze(root);
-  for (const value of [root, hidden, hidden.leaf, symbolChild]) assert.equal(Object.isFrozen(value), true);
-});
-
-test('deepFreeze never invokes own getters', () => {
-  let reads = 0;
-  const root = {};
-  Object.defineProperty(root, 'computed', {
-    enumerable: true,
-    configurable: true,
-    get() { reads += 1; throw new Error('Getter must not run'); }
-  });
-  deepFreeze(root);
-  assert.equal(reads, 0);
-  assert.equal(Object.isFrozen(root), true);
 });
 
 test('deepFreeze handles a 50000-edge chain with bounded native stack use', () => {

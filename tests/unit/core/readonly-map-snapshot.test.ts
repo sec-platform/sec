@@ -26,12 +26,17 @@ test('snapshot preserves insertion order and SameValueZero lookup without sharin
   assert.equal(generated.get(NaN), 'last-nan');
 });
 
-test('no mutation interface or native Map receiver can change the snapshot', () => {
+test('snapshot membership survives mutation attempts, escaped entry changes and callback failure', () => {
   const view = readonlyMapSnapshot([['a', 1]]);
   assert.ok(Object.isFrozen(view));
   for (const name of ['set', 'delete', 'clear']) assert.equal((view as unknown as Record<string, unknown>)[name], undefined);
   assert.throws(() => Map.prototype.clear.call(view), TypeError);
   assert.equal(Reflect.set(view, 'size', 0), false); assert.equal(view.get('a'), 1);
+  const entry = view.entries().next().value!; entry[0] = 'other'; entry[1] = 9;
+  assert.equal(view.get('a'), 1); assert.equal(view.has('other'), false);
+  const failure = {};
+  assert.throws(() => view.forEach(() => { throw failure; }), error => error === failure);
+  assert.deepEqual([...view], [['a', 1]]);
 });
 
 test('forEach provides the readonly view rather than leaking its backing map', () => {
@@ -45,21 +50,8 @@ test('forEach provides the readonly view rather than leaking its backing map', (
   assert.deepEqual(entries, [...view]);
 });
 
-test('entry iterators do not expose a mutable pair stored in the map', () => {
-  const view = readonlyMapSnapshot([['a', 1]]);
-  const entry = view.entries().next().value!; entry[0] = 'other'; entry[1] = 9;
-  assert.equal(view.get('a'), 1); assert.equal(view.has('other'), false);
-});
-
-
 test('an empty view still rejects an invalid forEach callback', () => {
   const view = readonlyMapSnapshot<string, number>([]);
   assert.equal(view.size, 0); assert.deepEqual([...view], []);
   assert.throws(() => view.forEach(undefined as never), TypeError);
-});
-
-test('callback failures are preserved without changing the snapshot', () => {
-  const view = readonlyMapSnapshot([['a', 1]]), failure = {};
-  assert.throws(() => view.forEach(() => { throw failure; }), error => error === failure);
-  assert.deepEqual([...view], [['a', 1]]);
 });
