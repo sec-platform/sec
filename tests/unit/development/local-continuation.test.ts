@@ -78,15 +78,6 @@ test('checkpoint carries only irreducible remote/frozen facts and admission deri
     nextAuthorityBoundary: 'trusted-base-physical-verification'
   });
   expect(admitted.admissionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
-
-test('checkpoint parser rejects input beyond the canonical byte bound before JSON admission', () => {
-  expect(() => parseLocalContinuationCheckpoint(' '.repeat(LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES + 1)))
-    .toThrow('checkpoint input exceeds the canonical byte bound');
-});
-
-test('checkpoint tamper and local identity/scope admission drift fail closed', () => {
-  const frozen = checkpoint();
   const serialized = JSON.parse(encodeVerificationActionData(frozen)) as Record<string, unknown>;
   serialized.headSha = '5'.repeat(40);
   expect(() => parseLocalContinuationCheckpoint(JSON.stringify(serialized)))
@@ -108,30 +99,29 @@ test('checkpoint tamper and local identity/scope admission drift fail closed', (
       observation: Object.freeze({ ...observation(), ...patch })
     })).toThrow();
   }
-});
-
-test('checkpoint rejects invalid branch names and inactive same-base head', () => {
   for (const invalidBranch of ['@', '.hidden', 'refs//double', 'topic.lock', 'topic@{x}', 'topic..x']) {
     expect(() => createLocalContinuationCheckpoint({
-      ...checkpoint(),
+      ...frozen,
       branch: invalidBranch,
       checkpointDigest: undefined
     } as never)).toThrow('branch');
   }
   expect(() => createLocalContinuationCheckpoint({
-    ...checkpoint(),
+    ...frozen,
     headSha: BASE,
     checkpointDigest: undefined
   } as never)).toThrow('headSha must differ from baseSha');
-});
-
-test('admission requires one-parent child of the frozen base', () => {
   expect(() => admitLocalContinuation({
-    checkpoint: checkpoint(),
+    checkpoint: frozen,
     observation: Object.freeze({ ...observation(), parentShas: Object.freeze([BASE, '9'.repeat(40)]) })
   })).toThrow('one-parent child');
   expect(() => admitLocalContinuation({
-    checkpoint: checkpoint(),
+    checkpoint: frozen,
     observation: Object.freeze({ ...observation(), parentShas: Object.freeze(['9'.repeat(40)]) })
   })).toThrow('one-parent child');
+});
+
+test('checkpoint parser rejects input beyond the canonical byte bound before JSON admission', () => {
+  expect(() => parseLocalContinuationCheckpoint(' '.repeat(LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES + 1)))
+    .toThrow('checkpoint input exceeds the canonical byte bound');
 });

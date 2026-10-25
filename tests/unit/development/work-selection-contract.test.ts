@@ -331,14 +331,9 @@ test('current-spec revision invalidates candidate-set, input, decision, and stal
   expect(afterDecision.selectedCurrentSpecRevision).toBe(digest('d'));
   expect(() => assertWorkDecision(beforeDecision, afterInput))
     .toThrow(/does not equal the canonical decision/u);
-});
-
-test('decision validation recompiles the exact input and rejects semantic tampering', () => {
-  const source = input([candidate('issue-470')]);
-  const decision = compileWorkDecision(source);
-  expect(assertWorkDecision(decision, source)).toEqual(decision);
+  expect(assertWorkDecision(beforeDecision, beforeInput)).toEqual(beforeDecision);
   expect(() => assertWorkDecision({
-    ...decision,
+    ...beforeDecision,
     selectedWorkId: 'issue-999'
-  }, source)).toThrow(/does not equal the canonical decision/u);
+  }, beforeInput)).toThrow(/does not equal the canonical decision/u);
 });
