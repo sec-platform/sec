@@ -732,10 +732,34 @@ function hostedProviderInputs(
   });
 }
 
-test('CI runner executes an ordinary gate through Action and publishes only V4', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-action-'));
+function withCiFixtureRoot<T>(prefix: string, use: (root: string) => T): T {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
   let rootFailure: ResourceSettlementFailure | undefined;
   try {
+    return use(root);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
+  } finally {
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+  }
+}
+
+async function withCiFixtureRootAsync<T>(prefix: string, use: (root: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  let rootFailure: ResourceSettlementFailure | undefined;
+  try {
+    return await use(root);
+  } catch (error) {
+    rootFailure = { label: 'fixture assertions', error };
+    throw error;
+  } finally {
+    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+  }
+}
+
+test('CI runner executes an ordinary gate through Action and publishes only V4', async () => {
+  await withCiFixtureRootAsync('sec-ci-action-', async (root) => {
     let evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     const calls: string[] = [];
     const refs: string[] = [];
@@ -761,18 +785,11 @@ test('CI runner executes an ordinary gate through Action and publishes only V4',
     expect(() => CodexDevelopmentAssertVerificationEvidenceV4(captured, {
       actionPlan: captured!.actionPlan
     }, new Date('2026-08-09T00:01:00.000Z'))).not.toThrow();
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('formal hosted mode fails closed before physical execution without complete Session/Action closure', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-formal-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withCiFixtureRootAsync('sec-ci-formal-', async (root) => {
     let spawns = 0;
     let writes = 0;
     const code = await CodexDevelopmentCiVerificationMainForTests({
@@ -787,18 +804,11 @@ test('formal hosted mode fails closed before physical execution without complete
     expect(code).toBe(1);
     expect(spawns).toBe(0);
     expect(writes).toBe(0);
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('Action journal reuse is not Evidence without an independent durable result resolver', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-reuse-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withCiFixtureRootAsync('sec-ci-reuse-', async (root) => {
     let first: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
@@ -819,18 +829,11 @@ test('Action journal reuse is not Evidence without an independent durable result
     })).toBe(1);
     expect(physical).toBe(0);
     expect(writes).toBe(0);
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('trusted bootstrap cleanliness excludes only its exact nested candidate checkout', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-bootstrap-nested-candidate-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  withCiFixtureRoot('sec-bootstrap-nested-candidate-', (root) => {
     const baseRoot = path.join(root, 'base');
     const candidateRoot = path.join(baseRoot, 'candidate-sut');
     mkdirSync(baseRoot, { recursive: true });
@@ -888,12 +891,7 @@ test('trusted bootstrap cleanliness excludes only its exact nested candidate che
     expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot: candidateSubdirectory
     })).toThrow(/two exact Git checkout roots/);
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('hosted SUT builds the isolated command plan and terminalizes retained archive drift', async () => {
@@ -1163,9 +1161,7 @@ test('parent event binds the canonical one-key Session request wrapper', () => {
 
 test('capability success and directory cleanup cannot promote a pre-namespace supervisor failure to executed', async () => {
   const resolution = hostedResolution();
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-pre-namespace-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withCiFixtureRootAsync('sec-hosted-pre-namespace-', async (root) => {
     const archive = path.join(root, 'prepared-candidate.tar');
     writeFileSync(archive, 'pre-namespace-fixture');
     const archiveInventory = {
@@ -1198,12 +1194,7 @@ test('capability success and directory cleanup cannot promote a pre-namespace su
     expect(terminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
     expect(rawResult.sandboxReceipt.execution.lifecycle.candidateStarted).toBeNull();
     expect(rawResult.sandboxReceipt.cleanup.exitCode).toBe(0);
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('capability requires the post-runtime marker and rejects a missing Python executable', async () => {
@@ -1278,9 +1269,7 @@ test.each([
 
 test('capability unsupported or ambiguous terminalizes without invoking the candidate executor', async () => {
   const resolution = hostedResolution();
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-capability-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withCiFixtureRootAsync('sec-hosted-capability-', async (root) => {
     const archive = path.join(root, 'prepared-candidate.tar');
     writeFileSync(archive, 'capability-fixture');
     const archiveInventory: HostedSutInventory = {
@@ -1349,19 +1338,12 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
     expect(ambiguousTerminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
     expect(ambiguous.sandboxReceipt.capability.lifecycle.candidateUnitSettled).toBeNull();
     expect(executions).toBe(0);
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('raw receipt preserves reported truncation and excludes hostile command-channel output', async () => {
   const resolution = hostedResolution();
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-output-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withCiFixtureRootAsync('sec-hosted-output-', async (root) => {
     const archive = path.join(root, 'prepared-candidate.tar');
     writeFileSync(archive, 'output-fixture');
     const archiveInventory = {
@@ -1402,12 +1384,7 @@ test('raw receipt preserves reported truncation and excludes hostile command-cha
     expect(encoded).not.toContain('\u001b');
     expect(encoded).not.toContain('\\u001b');
     expect(raw.sandboxReceipt.rootIsolation.candidateEnvironmentNames).not.toContain('GITHUB_OUTPUT');
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('raw archive metadata rejects traversal, special files, unsafe links, duplicates and case conflicts', () => {
@@ -1559,9 +1536,7 @@ test('archive decoded read and discard share one budget across finite streams an
 });
 
 test('retained archive inventory bounds extended headers before payload and preserves compressed PAX links', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-inventory-bounds-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  withCiFixtureRoot('sec-hosted-inventory-bounds-', (root) => {
     const archive = path.join(root, 'candidate.tar');
     // Every platform executes the production parsing body against this exact file.
     // Only Linux also exercises the retained-FD/RLIMIT production entry below.
@@ -1651,12 +1626,7 @@ test('retained archive inventory bounds extended headers before payload and pres
         .toBe(ordinary?.physicalContentDigest);
       expect(inventory.entries.find((entry) => entry.path === 'symlink')?.linkTarget).toBe('forward');
     }
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('trusted dependency archive projection binds one stable physical generation', () => {
@@ -1770,9 +1740,7 @@ test('trusted dependency archive projection binds one stable physical generation
 });
 
 test.skipIf(process.platform !== 'linux')('linux retained bootstrap archive relocates dependency links without mutating source', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dependency-archive-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  withCiFixtureRoot('sec-hosted-dependency-archive-', (root) => {
     const candidateRoot = path.join(root, 'candidate');
     const dependencyRoot = path.join(root, 'node_modules');
     const outputDirectory = path.join(root, 'output');
@@ -1816,19 +1784,12 @@ test.skipIf(process.platform !== 'linux')('linux retained bootstrap archive relo
     expect(readFileSync(path.join(
       extractedRoot, 'node_modules', 'pkg', '.sec-relocatable-link-collision.tmp'
     ), 'utf8')).toBe('foreign-name-preserved\n');
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('pre-start archive inspection authenticates raw bytes and exact dependency and Git closure without extraction', () => {
   const resolution = hostedResolution();
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-prestart-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  withCiFixtureRoot('sec-hosted-prestart-', (root) => {
     const archive = path.join(root, 'prepared-candidate.tar');
     writeFileSync(archive, 'authenticated raw archive');
     const dependencyClosureDigest = DEPENDENCY_CLOSURE;
@@ -1881,18 +1842,11 @@ test('pre-start archive inspection authenticates raw bytes and exact dependency 
         return inventory;
       }
     })).toThrow(/changed after authentication/u);
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('dependency authority is exact-base only and materializer environment cannot inherit registry exfiltration', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dependency-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  withCiFixtureRoot('sec-hosted-dependency-', (root) => {
     const base = path.join(root, 'base');
     const candidate = path.join(root, 'candidate');
     mkdirSync(base, { recursive: true });
@@ -1919,12 +1873,7 @@ test('dependency authority is exact-base only and materializer environment canno
     expect(() => CodexDevelopmentAssertHostedActionDependencyInputsV1({
       baseRoot: base, candidateRoot: candidate, baseSha: BASE
     })).toThrow(/drifted/u);
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 test('trusted bootstrap dependency materialization retries only one exact Bun extraction failure', () => {
@@ -2229,9 +2178,7 @@ test('credential sanitizer never treats provider environment identity as a writa
 });
 
 test('CI V3 reader binds exact raw plan bytes and preserves observed base checks before execution', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-v3-reader-'));
-  let rootFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withCiFixtureRootAsync('sec-ci-v3-reader-', async (root) => {
     const options = baseOptions(root);
     const legacy = new TextDecoder().decode(options.readExactGitBlob().bytes);
     const v3 = legacy.replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
@@ -2261,12 +2208,7 @@ test('CI V3 reader binds exact raw plan bytes and preserves observed base checks
     expect(starts).toBeGreaterThan(0);
     expect(evidence).not.toBeNull();
     expect(JSON.stringify(evidence)).toContain(bytesDigest(v3));
-  } catch (error) {
-    rootFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: rootFailure, cleanup: [{ label: 'fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
-  }
+  });
 });
 
 
