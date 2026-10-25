@@ -90,7 +90,13 @@ CodeQL projection、真实 review submission、inline finding/thread、人工裁
 
 编译依赖阶段意图的退休在首个文件删除前持久发布绑定三阶段原字节与物理身份的标记；任一删除切点中断后，原 dependency owner 在相同协调租约内认证标记并续退。普通读取遇到该标记必须返回明确恢复入口，不把缺少阶段文件误判为外来残片。
 
-编译依赖锁保护的安装进程树尚未证明终结时，父 PID 缺席、锁龄或 reclaim 标记 TTL 都不能授权删除原锁、退休 stage 或启动竞争安装。当前及已认证旧协调位置的 compiler lock 保留原字节与物理对象，并返回绑定原 root、lock 和 `migrateDependencyTransitionJournal` 入口的 `recovery-required`；该提示不声称入口已经取得效果静止依据。原持有者在进程树真实结算后按准确 token／物理身份释放，以及已认证的协调 cutover、原租约内阶段和 journal 恢复仍可完成。无合格终结证据的崩溃锁恢复仍缺 pre-lease 启动检查点与后继完整启动接合，不能用下面仅针对旧 consumer 记录的恢复机制代签；Linux 也尚无相匹配的启动边界签发者。
+编译依赖锁保护的安装进程树尚未证明终结时，父 PID 缺席、锁龄或 reclaim 标记 TTL 都不能授权删除原锁、退休 stage 或启动竞争安装。当前及已认证旧协调位置的 compiler lock 保留原字节与物理对象，并返回绑定原 root、lock 和 `migrateDependencyTransitionJournal` 入口的 `recovery-required`；该提示不声称入口已经取得效果静止依据。原持有者在进程树真实结算后按准确 token／物理身份释放，以及已认证的协调 cutover、原租约内阶段和 journal 恢复仍可完成。崩溃锁通过同一入口的显式宿主维护参数在取得旧锁之前恢复，不能用下面仅针对旧 consumer 记录的恢复机制代签。
+
+此维护能力只接纳同一 Windows x64 宿主的完整启动边界，以及现有原生 local-volume guard 实际接受的本地 NTFS/ReFS 卷；UNC、共享卷或原生证明不可用时保留原状。当前 compiler installer 的固定参数包含 `--ignore-scripts`；维护前提是原作用属于本宿主的这些安装进程，而非另一宿主、外部服务或可跨启动自行续写的委派。操作者须有该宿主维护与完整重启授权，保持维护窗口，并从首次直接返回值经可信外部通道保管**原 checkpoint 字符串**，不得从待恢复工作区中的自述文件、备份或第三方输入恢复授权。不能克隆、回滚或更换宿主启动域/存储后沿用 checkpoint。该外部输入是显式维护信任前提，不是密码学签名、自动陈旧检测或 PID/TTL 证明；完整重启本身仍须另有授权，入口不会替操作者执行重启。
+
+实际 API 是既有 `createDependencyOperation({ workspaceRoot }).migrateDependencyTransitionJournal(root, request, maintenance)`，原两参调用语义不变。先调用第三参 `{ action: 'prepare' }`，取得 `{ state: 'requires-host-restart', checkpoint }`；此步绑定准确 owner/协调目录物理身份、旧 lock/reclaim 字节与身份、既有 cutover/locator 以及原生 boot，不删除锁、stage 或 journal，也不在工作区写一个可自证的恢复文件。操作者完整重启同一宿主后，用原外部字符串调用第三参 `{ action: 'complete', checkpoint }`。入口只在原生启动序列和最新完整启动事件记录号都严格前进时继续，休眠、快速启动、相同/回退/缺失/未知启动证据均不代签。
+
+恢复先核整个选定集合，再以现有 retained byte-CAS 先退役准确 reclaim、后退役准确 lock；未知格式、不同字节、替换对象或 owner/协调绑定漂移保留对象并报错。中断重入只容许原选定项已缺席，不把新锁算作旧锁。旧协调的永久 cutover lock/marker 与 locator 只是绑定依据，不能被本恢复删除。若正常迁移已产生永久 cutover 后中断，回到原两参入口完成 locator/日记续接，不将旧 legacy checkpoint 套到新的协调锁；新位置仍有未闭合锁时须另取该位置的原 checkpoint。锁退役后，入口重新取得原正常租约，复用原 stage/journal owner 恢复；只有这条恢复也完成才返回 `{ state: 'completed' }`，不在 pre-lease 阶段退休 stage。Linux 尚无对应启动边界签发者；源码接合与同 boot 拒绝测试不证明一次真实跨重启成功，实际宿主维护资格与执行证据须分别说明。
 
 旧依赖占用记录丢失原持有者身份时，普通进程清单、目录可改名或重开一个新 capability 都不能证明原借用结束。Windows 恢复由原 dependency owner 的 `recoverObsoleteCompilerDependencyConsumers(root, generationPaths)` 承担：首次调用只将明确选择的非活动 canonical generation、原 acquired 字节及物理身份绑定到原生启动序列和最新完整启动事件，持久保存一个恢复意图，不撤销借用。再次调用复用该意图；只有原生启动序列与完整启动事件记录号都严格前进，且最新启动确认为完整启动时，才能退役这批旧代次记录。休眠、快速启动、未知事件版本、日志缺失或回退均不能满足条件。完整重启影响整个宿主，必须另有相应授权。
 

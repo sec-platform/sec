@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createDependencyOperation } from '../../../src/bootstrap/toolchain/dependency-operation.ts';
 import type { PhysicalDirectoryIdentity } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import type { ProcessResourceSession } from '../../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import { compilerDependencyStoragePaths } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts';
@@ -464,6 +465,60 @@ describe('compiler dependency installation', () => {
         // this exact fixture lock does not qualify production orphan recovery.
         await removeLock?.();
       });
+    }));
+
+  effectfulTest(test.skipIf(process.platform !== 'win32' || process.arch !== 'x64'),
+    'exports exact external maintenance checkpoints before the old lease and rejects same-boot recovery', {
+      operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
+    }, (effectfulContext) =>
+    withCompilerTestWorkspace(effectfulContext, 'engineering-compiler-lock-maintenance-', async (tempRoot, operation) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const maintenance = createDependencyOperation({ workspaceRoot: tempRoot });
+      const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal };
+      const legacyLockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await fs.mkdir(path.dirname(legacyLockPath), { recursive: true });
+      const lockBytes = `${JSON.stringify({ createdAt: '2026-01-01T00:00:00.000Z',
+        pid: 2_147_483_647, token: 'maintenance-fixture-owner' })}\n`;
+      const check = async (lockPath: string, mode: 'legacy' | 'current') => {
+        await withInjectedFile(lockPath, lockBytes, async () => {
+          await withInjectedFile(`${lockPath}.reclaim`, '123e4567-e89b-42d3-a456-426614174000\n', async () => {
+            const before = observeNoFollowOwnedFile(lockPath, 'Maintenance fixture lock')!;
+            const markerBefore = observeNoFollowOwnedFile(`${lockPath}.reclaim`, 'Maintenance fixture marker')!;
+            const names = (await fs.readdir(path.dirname(lockPath))).sort();
+            const prepared = await maintenance.migrateDependencyTransitionJournal(tempRoot, request, { action: 'prepare' });
+            expect(prepared.state).toBe('requires-host-restart');
+            if (prepared.state !== 'requires-host-restart') throw new Error('Maintenance did not issue an external checkpoint.');
+            const checkpoint = JSON.parse(prepared.checkpoint);
+            expect(checkpoint).toMatchObject({ ownerRoot: tempRoot, mode,
+              lock: { bytes: Buffer.from(lockBytes).toString('base64'), device: before.device, inode: before.inode, size: before.size },
+              reclaim: { device: markerBefore.device, inode: markerBefore.inode, size: markerBefore.size } });
+            expect(checkpoint.boot.sequence).toBeGreaterThan(0);
+            expect(BigInt(checkpoint.boot.fullBootEventRecordId)).toBeGreaterThan(0n);
+            const unrelated = createDependencyOperation({ workspaceRoot: path.dirname(lockPath) });
+            await expect(unrelated.migrateDependencyTransitionJournal(tempRoot, request, {
+              action: 'complete', checkpoint: prepared.checkpoint
+            })).rejects.toThrow('Dependency producer workspace is outside this bound operation');
+            await expect(maintenance.migrateDependencyTransitionJournal(tempRoot, request, {
+              action: 'complete', checkpoint: prepared.checkpoint
+            })).rejects.toThrow('a subsequent complete host boot is required');
+            expect(observeNoFollowOwnedFile(lockPath, 'Maintenance preserved lock')).toEqual(before);
+            expect(observeNoFollowOwnedFile(`${lockPath}.reclaim`, 'Maintenance preserved marker')).toEqual(markerBefore);
+            expect(readNoFollowOwnedFileBytes(before, 'Maintenance preserved lock bytes').toString('utf8')).toBe(lockBytes);
+            expect(readNoFollowOwnedFileBytes(markerBefore, 'Maintenance preserved marker bytes').toString('utf8'))
+              .toBe('123e4567-e89b-42d3-a456-426614174000\n');
+            expect((await fs.readdir(path.dirname(lockPath))).sort()).toEqual(names);
+          });
+        });
+      };
+      await check(legacyLockPath, 'legacy');
+      await ensureCompilerDepsReady({ ...operation, materialize: async (_args, command) => {
+        await installCompilerDependencyFixture(command.cwd, 'maintenance-current');
+        return { code: 0, stdout: 'ok', stderr: '' };
+      } }, tempRoot);
+      await check(compilerCoordinationLockPath(tempRoot), 'current');
+      // No boot observer is replaced and no artificial older checkpoint is
+      // submitted. A successful cross-boot run needs a real maintenance host.
     }));
 
   effectfulTest(test, 'preserves dead compiler owners and reclaim markers without effect-closure evidence', {

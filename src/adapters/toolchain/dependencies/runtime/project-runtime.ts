@@ -19,9 +19,10 @@ import {
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
-import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import { settleResources, withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { isFileNotFoundError, readJson } from "../../../filesystem/files.ts";
-import { assertPhysicalGenerationRetirementReceipt, assertPhysicallyDisjointDirectoryChains, assertRetainedNoFollowProvenDirectoryGeneration, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, readNoFollowProvenDirectoryGenerationProof, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertPhysicalGenerationRetirementReceipt, assertPhysicallyDisjointDirectoryChains, assertRetainedNoFollowProvenDirectoryGeneration, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, readNoFollowProvenDirectoryGenerationProof, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, tryRetainExclusiveFileGuard, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { observeWindowsKernelBootBoundary, type WindowsKernelBootBoundary } from '../../../runtime-state/physical/runtime/windows-kernel-boot.ts';
 import { WindowsHostDirectoryAuthorityError } from '../../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
@@ -3506,21 +3507,264 @@ async function settleCompilerDependencyRecoveryUnderLease(
   });
 }
 
-/**
- * Perform the sole durable v1-to-v2 journal migration entry.  The caller can
- * provide only the owner root and bounded operation options; source records,
- * target records, and the migration intent are derived and authenticated by
- * this owner while holding the compiler-root lease.
- */
+/** Explicit maintenance input, never loaded from workspace recovery state.
+ * The caller must preserve the original checkpoint in a trusted external
+ * channel on this same Windows host, without storage rollback or cloning. */
+export type CompilerDependencyLockMaintenanceRequest = Readonly<
+  { action: 'prepare' } | { action: 'complete'; checkpoint: string }
+>;
+export type CompilerDependencyLockMaintenanceResult = Readonly<
+  { state: 'requires-host-restart'; checkpoint: string } | { state: 'completed' }
+>;
+
+type CompilerLockMaintenanceFile = Readonly<{
+  bytes: string;
+  device: string;
+  inode: string;
+  size: number;
+}>;
+type CompilerLockMaintenanceCheckpoint = Readonly<{
+  schema: 'sec-compiler-lock-external-maintenance-v1';
+  ownerRoot: string;
+  ownerRootPhysical: GeneratedStatePhysicalIdentity;
+  lockParent: string;
+  lockParentPhysical: GeneratedStatePhysicalIdentity;
+  mode: 'legacy' | 'current';
+  boot: WindowsKernelBootBoundary;
+  lock: CompilerLockMaintenanceFile | null;
+  reclaim: CompilerLockMaintenanceFile | null;
+  legacyLock: CompilerLockMaintenanceFile | null;
+  cutover: CompilerLockMaintenanceFile | null;
+  locator: CompilerLockMaintenanceFile | null;
+}>;
+type CompilerLockMaintenanceObservedFile = Readonly<{
+  observation: NoFollowOwnedFileObservation;
+  record: CompilerLockMaintenanceFile;
+}>;
+
+function compilerLockMaintenanceFailure(detail: string): CodedFailure {
+  return new CodedFailure('RUNTIME-DEPS-003', `Compiler lock maintenance: ${detail}; remaining state is preserved`, {
+    recoveryRequired: true, recoveryEntry: 'migrateDependencyTransitionJournal'
+  });
+}
+
+function observeCompilerLockMaintenanceFile(filePath: string): CompilerLockMaintenanceObservedFile | null {
+  const observation = observeNoFollowOwnedFile(filePath, 'Compiler lock maintenance');
+  if (observation === null) return null;
+  // The existing native guard admits at most 8192 immutable anchor bytes.
+  if (observation.size < 1 || observation.size > 8192) {
+    throw compilerLockMaintenanceFailure('lock metadata is outside the native guard domain');
+  }
+  const bytes = readNoFollowOwnedFileBytes(observation, 'Compiler lock maintenance');
+  return { observation, record: { bytes: bytes.toString('base64'), device: observation.device,
+    inode: observation.inode, size: observation.size } };
+}
+
+function observeCompilerLockMaintenanceLocation(ownerRoot: string) {
+  const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Compiler lock maintenance owner').target;
+  const legacyLockPath = path.join(ownerRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+  const locator = observeCompilerLockMaintenanceFile(compilerDependencyCoordinationLocatorPath(ownerRoot));
+  const cutover = observeCompilerLockMaintenanceFile(`${legacyLockPath}.reclaim`);
+  if (locator !== null) {
+    const resolved = resolveCompilerDependencyCoordinationRoots(ownerRoot);
+    const lockParent = inspectNoFollowDirectoryChain(path.join(resolved.roots.workspaceStateRoot,
+      'compiler-dependency-coordination', 'v1'), 'Compiler lock maintenance coordination').target;
+    const legacyLock = observeCompilerLockMaintenanceFile(legacyLockPath);
+    if (legacyLock === null || cutover === null) throw compilerLockMaintenanceFailure('cutover lineage is incomplete');
+    return { owner, lockParent, mode: 'current' as const, legacyLock, cutover, locator,
+      lock: observeCompilerLockMaintenanceFile(path.join(lockParent.path, 'compiler.lock')),
+      reclaim: observeCompilerLockMaintenanceFile(path.join(lockParent.path, 'compiler.lock.reclaim')) };
+  }
+  if (cutover !== null) {
+    let terminalCutover = false;
+    try { parseCompilerDependencyCoordinationCutover(Buffer.from(cutover.record.bytes, 'base64')); terminalCutover = true; } catch { /* Grammar only. */ }
+    if (terminalCutover) throw compilerLockMaintenanceFailure('finish the existing terminal coordination cutover before preparing maintenance');
+  }
+  const lockParent = inspectNoFollowDirectoryChain(path.dirname(legacyLockPath), 'Compiler lock maintenance legacy coordination').target;
+  return { owner, lockParent, mode: 'legacy' as const, legacyLock: null, cutover: null, locator: null,
+    lock: observeCompilerLockMaintenanceFile(legacyLockPath), reclaim: cutover };
+}
+type CompilerLockMaintenanceLocation = ReturnType<typeof observeCompilerLockMaintenanceLocation>;
+
+function compilerLockMaintenanceCheckpoint(location: CompilerLockMaintenanceLocation,
+  boot: WindowsKernelBootBoundary): CompilerLockMaintenanceCheckpoint {
+  return { schema: 'sec-compiler-lock-external-maintenance-v1', ownerRoot: location.owner.path,
+    ownerRootPhysical: generatedStatePhysicalIdentity(location.owner), lockParent: location.lockParent.path,
+    lockParentPhysical: generatedStatePhysicalIdentity(location.lockParent), mode: location.mode, boot,
+    lock: location.lock?.record ?? null, reclaim: location.reclaim?.record ?? null,
+    legacyLock: location.legacyLock?.record ?? null, cutover: location.cutover?.record ?? null,
+    locator: location.locator?.record ?? null };
+}
+
+function parseCompilerLockMaintenanceCheckpoint(text: string): CompilerLockMaintenanceCheckpoint {
+  if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > 64 * 1024) {
+    throw compilerLockMaintenanceFailure('external checkpoint is outside its bounded grammar');
+  }
+  const value: unknown = JSON.parse(text);
+  if (!hasExactObjectKeys(value, ['schema', 'ownerRoot', 'ownerRootPhysical', 'lockParent',
+    'lockParentPhysical', 'mode', 'boot', 'lock', 'reclaim', 'legacyLock', 'cutover', 'locator'])) {
+    throw compilerLockMaintenanceFailure('external checkpoint keys are invalid');
+  }
+  const checkpoint = value as CompilerLockMaintenanceCheckpoint;
+  if (checkpoint.schema !== 'sec-compiler-lock-external-maintenance-v1' ||
+      !isCanonicalAbsolutePath(checkpoint.ownerRoot) || !isCanonicalAbsolutePath(checkpoint.lockParent) ||
+      !isCanonicalGeneratedStatePhysicalIdentity(checkpoint.ownerRootPhysical) ||
+      !isCanonicalGeneratedStatePhysicalIdentity(checkpoint.lockParentPhysical) ||
+      (checkpoint.mode !== 'legacy' && checkpoint.mode !== 'current') ||
+      !hasExactObjectKeys(checkpoint.boot, ['sequence', 'fullBootEventRecordId']) ||
+      !Number.isSafeInteger(checkpoint.boot.sequence) || checkpoint.boot.sequence <= 0 || checkpoint.boot.sequence > 0xffff_ffff ||
+      typeof checkpoint.boot.fullBootEventRecordId !== 'string' || !/^[1-9][0-9]*$/u.test(checkpoint.boot.fullBootEventRecordId) ||
+      checkpoint.boot.fullBootEventRecordId.length > 20 || BigInt(checkpoint.boot.fullBootEventRecordId) > 0xffff_ffff_ffff_ffffn) {
+    throw compilerLockMaintenanceFailure('external checkpoint binding is invalid');
+  }
+  for (const file of [checkpoint.lock, checkpoint.reclaim, checkpoint.legacyLock, checkpoint.cutover, checkpoint.locator]) {
+    if (file === null) continue;
+    if (!hasExactObjectKeys(file, ['bytes', 'device', 'inode', 'size']) ||
+        typeof file.device !== 'string' || file.device.length === 0 || typeof file.inode !== 'string' || file.inode.length === 0 ||
+        typeof file.bytes !== 'string' || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > 8192 ||
+        Buffer.from(file.bytes, 'base64').length !== file.size || Buffer.from(file.bytes, 'base64').toString('base64') !== file.bytes) {
+      throw compilerLockMaintenanceFailure('external checkpoint file binding is invalid');
+    }
+  }
+  if ((checkpoint.lock === null && checkpoint.reclaim === null) ||
+      (checkpoint.mode === 'legacy' ? checkpoint.legacyLock !== null || checkpoint.cutover !== null || checkpoint.locator !== null
+        : checkpoint.legacyLock === null || checkpoint.cutover === null || checkpoint.locator === null) ||
+      formatJsonFile(canonicalJson(checkpoint)) !== text) {
+    throw compilerLockMaintenanceFailure('external checkpoint is not the original canonical maintenance record');
+  }
+  return checkpoint;
+}
+
+function assertCompilerLockMaintenanceLocation(checkpoint: CompilerLockMaintenanceCheckpoint,
+  location: CompilerLockMaintenanceLocation, allowRetired: boolean): void {
+  const actual = compilerLockMaintenanceCheckpoint(location, checkpoint.boot);
+  for (const key of ['lock', 'reclaim'] as const) {
+    if (allowRetired && actual[key] === null) continue;
+    if (!canonicalEquals(actual[key], checkpoint[key])) throw compilerLockMaintenanceFailure(`${key} was replaced`);
+  }
+  const { lock: _lock, reclaim: _reclaim, ...actualBinding } = actual;
+  const { lock: _expectedLock, reclaim: _expectedReclaim, ...expectedBinding } = checkpoint;
+  if (!canonicalEquals(actualBinding, expectedBinding)) throw compilerLockMaintenanceFailure('owner or coordination lineage changed');
+}
+
+async function withCompilerLockMaintenanceGuards<Value>(location: CompilerLockMaintenanceLocation,
+  use: () => Promise<Value>): Promise<Value> {
+  const guards: Array<NonNullable<ReturnType<typeof tryRetainExclusiveFileGuard>>> = [];
+  let result: { value: Value } | undefined;
+  let primary: { label: string; error: unknown } | undefined;
+  try {
+    // Each retained anchor proves the existing local NTFS/ReFS volume, exact
+    // bytes and one-link identity. It does not prove old installer closure.
+    // Current coordination also retains its permanent legacy owner anchor.
+    for (const file of [location.legacyLock, location.lock, location.reclaim]) {
+      if (file === null) continue;
+      const guard = tryRetainExclusiveFileGuard(file.observation.parent, file.observation.name,
+        file.observation, Buffer.from(file.record.bytes, 'base64'));
+      if (guard === null) throw compilerLockMaintenanceFailure('another maintenance operation holds an anchor');
+      guards.push(guard);
+    }
+    result = { value: await use() };
+  } catch (error) { primary = { label: 'Compiler lock maintenance', error }; }
+  settleResources({ ...(primary === undefined ? {} : { primary }),
+    cleanup: guards.reverse().map(guard => ({ label: 'Compiler lock maintenance native guard', settle: () => guard.dispose() })) });
+  return result!.value;
+}
+
+async function maintainCompilerDependencyLock(ownerRoot: string, options: RuntimeDependencyOperationOptions,
+  maintenance: CompilerDependencyLockMaintenanceRequest): Promise<CompilerDependencyLockMaintenanceResult> {
+  // No caller-supplied boot provider, PID/TTL inference or on-disk checkpoint.
+  runtimeDependencyOperationRemainingMs(options, 'Compiler lock explicit maintenance admission');
+  const boot = observeWindowsKernelBootBoundary();
+  const location = observeCompilerLockMaintenanceLocation(ownerRoot);
+  if (maintenance.action === 'prepare') {
+    if (location.lock === null && location.reclaim === null) throw compilerLockMaintenanceFailure('no existing compiler lock or reclaim marker was selected');
+    if (location.lock !== null && parseInstallLockOwner(JSON.parse(Buffer.from(location.lock.record.bytes, 'base64').toString('utf8'))) === null) {
+      throw compilerLockMaintenanceFailure('unknown lock owner grammar');
+    }
+    if (location.reclaim !== null) {
+      const bytes = Buffer.from(location.reclaim.record.bytes, 'base64');
+      let owner: InstallLockReclaimOwner | null = null;
+      try { owner = parseInstallLockReclaimOwner(JSON.parse(bytes.toString('utf8'))); } catch { /* Grammar only. */ }
+      if (owner === null && !isLegacyInstallLockReclaimBytes(bytes)) throw compilerLockMaintenanceFailure('unknown reclaim marker grammar');
+      if (owner !== null && location.lock !== null && (owner.lock.device !== location.lock.record.device ||
+          owner.lock.inode !== location.lock.record.inode || owner.lock.size !== location.lock.record.size)) {
+        throw compilerLockMaintenanceFailure('reclaim marker names another lock');
+      }
+    }
+    const checkpoint = compilerLockMaintenanceCheckpoint(location, boot);
+    await runtimeDependencyOperationEffectFence(options, 'Compiler lock maintenance checkpoint');
+    return withCompilerLockMaintenanceGuards(location, async () => {
+      runtimeDependencyOperationRemainingMs(options, 'Compiler lock maintenance checkpoint readback');
+      assertCompilerLockMaintenanceLocation(checkpoint, observeCompilerLockMaintenanceLocation(ownerRoot), false);
+      if (!canonicalEquals(boot, observeWindowsKernelBootBoundary())) throw compilerLockMaintenanceFailure('boot changed during checkpoint capture');
+      return { state: 'requires-host-restart' as const, checkpoint: formatJsonFile(canonicalJson(checkpoint)) };
+    });
+  }
+  const checkpoint = parseCompilerLockMaintenanceCheckpoint(maintenance.checkpoint);
+  if (checkpoint.ownerRoot !== ownerRoot) throw compilerLockMaintenanceFailure('external checkpoint belongs to another owner');
+  if (boot.sequence <= checkpoint.boot.sequence || BigInt(boot.fullBootEventRecordId) <= BigInt(checkpoint.boot.fullBootEventRecordId)) {
+    throw compilerLockMaintenanceFailure('a subsequent complete host boot is required');
+  }
+  assertCompilerLockMaintenanceLocation(checkpoint, location, true);
+  await withCompilerLockMaintenanceGuards(location, async () => {
+    await runtimeDependencyOperationEffectFence(options, 'Compiler lock explicit maintenance');
+    if (!canonicalEquals(boot, observeWindowsKernelBootBoundary())) throw compilerLockMaintenanceFailure('boot changed during maintenance');
+    // Preflight the entire selected set before the first mutation. On resume,
+    // only absence of an original subject is accepted, never a new identity.
+    assertCompilerLockMaintenanceLocation(checkpoint, observeCompilerLockMaintenanceLocation(ownerRoot), true);
+    for (const key of ['reclaim', 'lock'] as const) {
+      const current = observeCompilerLockMaintenanceLocation(ownerRoot);
+      assertCompilerLockMaintenanceLocation(checkpoint, current, true);
+      const file = current[key];
+      if (file === null) continue;
+      runtimeDependencyOperationRemainingMs(options, 'Compiler lock maintenance exact deletion');
+      deleteRetainedNoFollowEntry({ root: file.observation.parent, relativePath: file.observation.name,
+        kind: 'file', device: file.observation.device, inode: file.observation.inode,
+        expectedFileBytes: Buffer.from(file.record.bytes, 'base64'), ancestorDirectories: [] });
+      if (observeNoFollowOwnedFile(path.join(file.observation.parent.path, file.observation.name), 'Compiler lock maintenance deletion readback') !== null) {
+        throw compilerLockMaintenanceFailure(`${key} deletion did not establish absence`);
+      }
+    }
+  });
+  return { state: 'completed' };
+}
+
+/** The ordinary migration remains under its original lease. Explicit host
+ * maintenance first retires only the externally checkpointed lock subjects,
+ * then reacquires that same lease before any stage or journal recovery. */
+export function migrateDependencyTransitionJournal(ownerRoot: string, options?: RuntimeDependencyInstallOptions): Promise<void>;
+export function migrateDependencyTransitionJournal(ownerRoot: string, options: RuntimeDependencyInstallOptions,
+  maintenance: CompilerDependencyLockMaintenanceRequest): Promise<CompilerDependencyLockMaintenanceResult>;
 export async function migrateDependencyTransitionJournal(
   ownerRoot: string,
-  options: RuntimeDependencyInstallOptions = {}
-): Promise<void> {
+  options: RuntimeDependencyInstallOptions = {},
+  maintenance?: CompilerDependencyLockMaintenanceRequest
+): Promise<void | CompilerDependencyLockMaintenanceResult> {
+  ownerRoot = path.resolve(ownerRoot);
+  let captured: CompilerDependencyLockMaintenanceRequest | undefined;
+  if (maintenance !== undefined) {
+    if (maintenance === null || typeof maintenance !== 'object') throw compilerLockMaintenanceFailure('maintenance request is invalid');
+    const { action } = maintenance;
+    if (action !== 'prepare' && action !== 'complete') throw compilerLockMaintenanceFailure('maintenance action is invalid');
+    if (!hasExactObjectKeys(maintenance, action === 'prepare' ? ['action'] : ['action', 'checkpoint'])) {
+      throw compilerLockMaintenanceFailure('maintenance request keys are invalid');
+    }
+    captured = action === 'prepare' ? { action } : { action, checkpoint: maintenance.checkpoint };
+  }
+  // Preserve the existing bootstrap owner admission before pre-lease effects.
+  // Its lifecycle factory only selects hooks and observes the original locator;
+  // it does not create/repair state or acquire the compiler lock. Bind once so
+  // explicit maintenance and journal recovery share one operation budget.
   const operationOptions = selectGeneratedStateLifecycle(runtimeDependencyOperationOptions(options), ownerRoot);
+  if (captured !== undefined) {
+    const result = await maintainCompilerDependencyLock(ownerRoot, operationOptions, captured);
+    if (result.state === 'requires-host-restart') return result;
+  }
   const alreadyCutOver = await migrateCompilerDependencyCoordination(ownerRoot, operationOptions);
   if (alreadyCutOver) {
     await withCompilerDependencyTransitionLease(ownerRoot, operationOptions, async () => undefined);
   }
+  if (captured !== undefined) return { state: 'completed' };
 }
 
 export interface CompilerDependencyStageIntentRetirementReceipt {
