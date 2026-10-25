@@ -26,6 +26,42 @@ async function withRootFixture(prefix: string, use: (root: string) => Promise<vo
   await settleWorkspaceCallback(() => use(root), () => rm(root, { recursive: true, force: true }));
 }
 
+// Failed acquisition or retirement does not prove that the native ACL owner
+// relinquished this root. Keep that fact even if a later operation succeeds.
+function authorityRootOwner(root: string) {
+  let retained = false;
+  const releases = new WeakMap<object, Promise<void>>();
+  const retain = (phase: string, error: unknown): void => {
+    retained = true;
+    console.warn(`Retaining Windows ACL fixture root after unresolved ${phase}: ${root}`, error);
+  };
+  return {
+    async acquire<T>(acquire: () => Promise<T>): Promise<T> {
+      try {
+        return await acquire();
+      } catch (error) {
+        retain('acquisition', error);
+        throw error;
+      }
+    },
+    release(authority: { release(): Promise<void> } | undefined): Promise<void> {
+      if (authority === undefined) return Promise.resolve();
+      let pending = releases.get(authority);
+      if (pending === undefined) {
+        pending = Promise.resolve().then(() => authority.release()).catch(error => {
+          retain('retirement', error);
+          throw error;
+        });
+        releases.set(authority, pending);
+      }
+      return pending;
+    },
+    async removeRoot(): Promise<void> {
+      if (!retained) await rm(root, { recursive: true, force: true });
+    }
+  };
+}
+
 function windowsRuntimeAuthorityInput(root: string): Readonly<{
   repositoryRoot: string;
   stateRoot: string;
@@ -44,6 +80,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows persisted generation retirement restores exact move and delete authority',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-generation-retire-'));
+    const owner = authorityRootOwner(root);
     const generationRoot = path.join(root, 'generation');
     const retiredRoot = path.join(root, 'retired');
     const sourcePath = path.join(generationRoot, 'source.ts');
@@ -57,43 +94,43 @@ test.skipIf(process.platform !== 'win32')(
     await settleWorkspaceCallback(async () => {
       await mkdir(generationRoot);
       await writeFile(sourcePath, 'export const value = 1;\n');
-      const sealed = await sealWindowsReadOnlyTreeGeneration(
+      const sealed = await owner.acquire(() => sealWindowsReadOnlyTreeGeneration(
         generationRoot,
         [sourcePath],
         binding
-      );
+      ));
       sealedAuthority = sealed.authority;
       await sealed.authority.assertCurrent();
+      await owner.release(sealed.authority);
       sealedAuthority = undefined;
-      await sealed.authority.release();
-      const reopened = await openWindowsReadOnlyTreeGeneration(
+      const reopened = await owner.acquire(() => openWindowsReadOnlyTreeGeneration(
         generationRoot,
         sealed.proofText,
         binding
-      );
+      ));
       reopenedAuthority = reopened;
       await reopened.assertCurrent();
+      await owner.release(reopened);
       reopenedAuthority = undefined;
-      await reopened.release();
-      await retireWindowsReadOnlyTreeGeneration(
+      await owner.acquire(() => retireWindowsReadOnlyTreeGeneration(
         generationRoot,
         sealed.proofText,
         binding
-      );
-      await retireWindowsReadOnlyTreeGeneration(
+      ));
+      await owner.acquire(() => retireWindowsReadOnlyTreeGeneration(
         generationRoot,
         sealed.proofText,
         binding
-      );
+      ));
       await rename(generationRoot, retiredRoot);
       await rm(retiredRoot, { recursive: true });
       expect(await readdir(root)).toEqual([]);
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'sealed generation authority', settle: async () => { await sealedAuthority?.release(); } },
-        { label: 'reopened generation authority', settle: async () => { await reopenedAuthority?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'sealed generation authority', settle: async () => { await owner.release(sealedAuthority); } },
+        { label: 'reopened generation authority', settle: async () => { await owner.release(reopenedAuthority); } }
       ] });
+      await owner.removeRoot();
     });
   }
 );
@@ -125,6 +162,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows read-only tree reuses its physically-bound ACL proof on warm readback',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-proof-reuse-'));
+    const owner = authorityRootOwner(root);
     const repositoryRoot = path.join(root, 'repository');
     const generationRoot = path.join(repositoryRoot, 'generation');
     const executablePath = path.join(generationRoot, 'compiler.exe');
@@ -134,7 +172,7 @@ test.skipIf(process.platform !== 'win32')(
       await mkdir(generationRoot, { recursive: true });
       await writeFile(executablePath, 'immutable compiler generation');
       const before = observeWindowsAclSessionLifecycleForTests();
-      authority = await sealExistingWindowsReadOnlyTreeAuthority(
+      authority = await owner.acquire(() => sealExistingWindowsReadOnlyTreeAuthority(
         generationRoot,
         [executablePath],
         {
@@ -142,7 +180,7 @@ test.skipIf(process.platform !== 'win32')(
           ownership: 'repository-dependency-generation',
           repositoryRootPath: repositoryRoot
         }
-      );
+      ));
       const cold = observeWindowsAclSessionLifecycleForTests();
       expect(cold.descriptorReads).toBeGreaterThan(before.descriptorReads);
       await authority.assertCurrent();
@@ -152,9 +190,9 @@ test.skipIf(process.platform !== 'win32')(
       );
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'tree authority', settle: async () => { await authority?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'tree authority', settle: async () => { await owner.release(authority); } }
       ] });
+      await owner.removeRoot();
     });
   }
 );
@@ -163,6 +201,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows read-only tree invalidates a published ACL proof on permission change',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-acl-drift-'));
+    const owner = authorityRootOwner(root);
     const repositoryRoot = path.join(root, 'repository');
     const generationRoot = path.join(repositoryRoot, 'generation');
     const executablePath = path.join(generationRoot, 'compiler.exe');
@@ -171,7 +210,7 @@ test.skipIf(process.platform !== 'win32')(
     await settleWorkspaceCallback(async () => {
       await mkdir(generationRoot, { recursive: true });
       await writeFile(executablePath, 'immutable compiler generation');
-      authority = await sealExistingWindowsReadOnlyTreeAuthority(
+      authority = await owner.acquire(() => sealExistingWindowsReadOnlyTreeAuthority(
         generationRoot,
         [executablePath],
         {
@@ -179,7 +218,7 @@ test.skipIf(process.platform !== 'win32')(
           ownership: 'repository-dependency-generation',
           repositoryRootPath: repositoryRoot
         }
-      );
+      ));
       const systemRoot = process.env.SystemRoot;
       if (!systemRoot) throw new Error('Windows SystemRoot is unavailable');
       const changed = Bun.spawnSync([
@@ -194,9 +233,9 @@ test.skipIf(process.platform !== 'win32')(
       });
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'tree authority', settle: async () => { await authority?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'tree authority', settle: async () => { await owner.release(authority); } }
       ] });
+      await owner.removeRoot();
     });
   }
 );
@@ -205,6 +244,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows read-only tree rejects physical replacement and will not restore onto it',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-object-drift-'));
+    const owner = authorityRootOwner(root);
     const repositoryRoot = path.join(root, 'repository');
     const generationRoot = path.join(repositoryRoot, 'generation');
     const executablePath = path.join(generationRoot, 'compiler.exe');
@@ -213,7 +253,7 @@ test.skipIf(process.platform !== 'win32')(
     await settleWorkspaceCallback(async () => {
       await mkdir(generationRoot, { recursive: true });
       await writeFile(executablePath, 'immutable compiler generation');
-      authority = await sealExistingWindowsReadOnlyTreeAuthority(
+      authority = await owner.acquire(() => sealExistingWindowsReadOnlyTreeAuthority(
         generationRoot,
         [executablePath],
         {
@@ -221,7 +261,7 @@ test.skipIf(process.platform !== 'win32')(
           ownership: 'repository-dependency-generation',
           repositoryRootPath: repositoryRoot
         }
-      );
+      ));
       const systemRoot = process.env.SystemRoot;
       if (!systemRoot) throw new Error('Windows SystemRoot is unavailable');
       const reset = Bun.spawnSync([
@@ -238,13 +278,14 @@ test.skipIf(process.platform !== 'win32')(
       await expect(authority.assertCurrent()).rejects.toMatchObject({
         failure: 'physical-identity-changed'
       });
-      await expect(authority.release()).rejects.toMatchObject({ failure: 'acl-untrusted' });
+      await expect(owner.release(authority)).rejects.toMatchObject({ failure: 'acl-untrusted' });
+      // The expected retirement refusal retains the replacement root.
       authority = undefined;
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'tree authority', settle: async () => { await authority?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'tree authority', settle: async () => { await owner.release(authority); } }
       ] });
+      await owner.removeRoot();
     });
   }
 );
@@ -276,14 +317,15 @@ test.skipIf(process.platform !== 'win32')(
   'Windows native host authority revalidates through directory writes and rejects use after release',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-native-authority-'));
+    const owner = authorityRootOwner(root);
     const authorityRoot = path.join(root, 'state');
     let authority: Awaited<ReturnType<typeof hardenExistingWindowsHostDirectoryAuthority>> | undefined;
     await settleWorkspaceCallback(async () => {
       await mkdir(authorityRoot);
-      authority = await hardenExistingWindowsHostDirectoryAuthority(
+      authority = await owner.acquire(() => hardenExistingWindowsHostDirectoryAuthority(
         authorityRoot,
         { knownNew: true }
-      );
+      ));
       await authority.assertCurrent({ deadlineAtMs: Date.now() + 10_000 });
       expect(authority.rootPath).toBe(path.resolve(authorityRoot));
       await expect(authority.assertCurrent({ deadlineAtMs: Date.now() - 1 }))
@@ -294,15 +336,15 @@ test.skipIf(process.platform !== 'win32')(
       await writeFile(path.join(operationRoot, 'record.json'), '{}');
       await rm(operationRoot, { recursive: true });
       await authority.assertCurrent();
-      await authority.release();
+      await owner.release(authority);
       await expect(authority.assertCurrent()).rejects.toMatchObject({
         failure: 'session-closed'
       });
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'host authority', settle: async () => { await authority?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'host authority', settle: async () => { await owner.release(authority); } }
       ] });
+      await owner.removeRoot();
     });
   }
 );
@@ -311,6 +353,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows native host authority converges concurrent hardening on one physical root',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-native-concurrent-'));
+    const owner = authorityRootOwner(root);
     const authorityRoot = path.join(root, 'state');
     const authorities: Array<Awaited<ReturnType<
       typeof hardenExistingWindowsHostDirectoryAuthority
@@ -320,7 +363,7 @@ test.skipIf(process.platform !== 'win32')(
     await settleWorkspaceCallback(async () => {
       await mkdir(authorityRoot);
       acquisitions = Array.from({ length: 8 }, async () => {
-        const authority = await hardenExistingWindowsHostDirectoryAuthority(authorityRoot, { knownNew: true });
+        const authority = await owner.acquire(() => hardenExistingWindowsHostDirectoryAuthority(authorityRoot, { knownNew: true }));
         authorities.push(authority);
       });
       await settleWorkspaceCleanups(acquisitions.map(pending => () => pending));
@@ -333,9 +376,9 @@ test.skipIf(process.platform !== 'win32')(
       await Promise.allSettled(acquisitions);
       await Promise.allSettled(observations);
       await settleResourcesAsync({ cleanup: [
-        { label: 'concurrent host authorities', settle: () => settleWorkspaceCleanups(authorities.map(authority => () => authority.release())) },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'concurrent host authorities', settle: () => settleWorkspaceCleanups(authorities.map(authority => () => owner.release(authority))) }
       ] });
+      await owner.removeRoot();
     });
   }
 );
@@ -344,6 +387,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows native host authority rejects ACL and physical-object replacement',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-native-drift-'));
+    const owner = authorityRootOwner(root);
     const aclRoot = path.join(root, 'acl');
     const physicalRoot = path.join(root, 'physical');
     let aclAuthority: Awaited<ReturnType<typeof hardenExistingWindowsHostDirectoryAuthority>> |
@@ -353,10 +397,10 @@ test.skipIf(process.platform !== 'win32')(
     await settleWorkspaceCallback(async () => {
       await mkdir(aclRoot);
       await mkdir(physicalRoot);
-      aclAuthority = await hardenExistingWindowsHostDirectoryAuthority(
+      aclAuthority = await owner.acquire(() => hardenExistingWindowsHostDirectoryAuthority(
         aclRoot,
         { knownNew: true }
-      );
+      ));
       const systemRoot = process.env.SystemRoot;
       if (!systemRoot) throw new Error('Windows SystemRoot is unavailable');
       const icacls = Bun.spawnSync([
@@ -373,10 +417,10 @@ test.skipIf(process.platform !== 'win32')(
         failure: 'acl-untrusted'
       });
 
-      physicalAuthority = await hardenExistingWindowsHostDirectoryAuthority(
+      physicalAuthority = await owner.acquire(() => hardenExistingWindowsHostDirectoryAuthority(
         physicalRoot,
         { knownNew: true }
-      );
+      ));
       await rm(physicalRoot, { recursive: true, force: true });
       await mkdir(physicalRoot);
       await expect(physicalAuthority.assertCurrent()).rejects.toMatchObject({
@@ -384,10 +428,10 @@ test.skipIf(process.platform !== 'win32')(
       });
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'ACL authority', settle: async () => { await aclAuthority?.release(); } },
-        { label: 'physical authority', settle: async () => { await physicalAuthority?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'ACL authority', settle: async () => { await owner.release(aclAuthority); } },
+        { label: 'physical authority', settle: async () => { await owner.release(physicalAuthority); } }
       ] });
+      await owner.removeRoot();
     });
   }
 );
@@ -428,6 +472,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows Runtime State authority shares one live generation and releases it after the last capability',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-runtime-generation-'));
+    const owner = authorityRootOwner(root);
     const input = windowsRuntimeAuthorityInput(root);
     let before!: ReturnType<typeof observeWindowsAclSessionLifecycleForTests>;
     let first: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
@@ -439,8 +484,8 @@ test.skipIf(process.platform !== 'win32')(
       await mkdir(input.cacheRoot);
       before = observeWindowsAclSessionLifecycleForTests();
       await settleWorkspaceCleanups([
-        async () => { first = await acquireSecRuntimeStatePhysicalAuthority(input); },
-        async () => { second = await acquireSecRuntimeStatePhysicalAuthority(input); }
+        async () => { first = await owner.acquire(() => acquireSecRuntimeStatePhysicalAuthority(input)); },
+        async () => { second = await owner.acquire(() => acquireSecRuntimeStatePhysicalAuthority(input)); }
       ]);
       if (first === undefined || second === undefined) throw new Error('Runtime authority acquisition did not return both capabilities');
       const shared = observeWindowsAclSessionLifecycleForTests();
@@ -448,23 +493,23 @@ test.skipIf(process.platform !== 'win32')(
       await first.assertCurrent();
       await second.assertCurrent();
 
-      await first.release();
+      await owner.release(first);
       await expect(first.assertCurrent()).rejects.toMatchObject({ failure: 'session-closed' });
       await second.assertCurrent();
       expect(observeWindowsAclSessionLifecycleForTests().closed - before.closed).toBe(0);
 
-      await second.release();
+      await owner.release(second);
       expect(observeWindowsAclSessionLifecycleForTests().closed - before.closed).toBe(1);
-      reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      reopened = await owner.acquire(() => acquireSecRuntimeStatePhysicalAuthority(input));
       expect(observeWindowsAclSessionLifecycleForTests().opened - before.opened).toBe(2);
       await reopened.assertCurrent();
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'first runtime capability', settle: async () => { await first?.release(); } },
-        { label: 'second runtime capability', settle: async () => { await second?.release(); } },
-        { label: 'reopened runtime capability', settle: async () => { await reopened?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'first runtime capability', settle: async () => { await owner.release(first); } },
+        { label: 'second runtime capability', settle: async () => { await owner.release(second); } },
+        { label: 'reopened runtime capability', settle: async () => { await owner.release(reopened); } }
       ] });
+      await owner.removeRoot();
     });
     const settled = observeWindowsAclSessionLifecycleForTests();
     expect(settled.closed - before.closed).toBe(2);
@@ -475,6 +520,7 @@ test.skipIf(process.platform !== 'win32')(
   'Windows Runtime State authority retires ACL drift and a later operation repairs a new generation',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-runtime-repair-'));
+    const owner = authorityRootOwner(root);
     const input = windowsRuntimeAuthorityInput(root);
     let stale: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
     let repaired: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
@@ -482,7 +528,7 @@ test.skipIf(process.platform !== 'win32')(
       await mkdir(input.repositoryRoot);
       await mkdir(input.stateRoot);
       await mkdir(input.cacheRoot);
-      stale = await acquireSecRuntimeStatePhysicalAuthority(input);
+      stale = await owner.acquire(() => acquireSecRuntimeStatePhysicalAuthority(input));
       const systemRoot = process.env.SystemRoot;
       if (!systemRoot) throw new Error('Windows SystemRoot is unavailable');
       const icacls = Bun.spawnSync([
@@ -498,15 +544,15 @@ test.skipIf(process.platform !== 'win32')(
       await expect(stale.assertCurrent()).rejects.toMatchObject({ failure: 'acl-untrusted' });
       await expect(stale.assertCurrent()).rejects.toMatchObject({ failure: 'session-closed' });
 
-      repaired = await acquireSecRuntimeStatePhysicalAuthority(input);
+      repaired = await owner.acquire(() => acquireSecRuntimeStatePhysicalAuthority(input));
       await repaired.assertCurrent();
       await expect(stale.assertCurrent()).rejects.toMatchObject({ failure: 'session-closed' });
     }, async () => {
       await settleResourcesAsync({ cleanup: [
-        { label: 'stale runtime capability', settle: async () => { await stale?.release(); } },
-        { label: 'repaired runtime capability', settle: async () => { await repaired?.release(); } },
-        { label: 'fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        { label: 'stale runtime capability', settle: async () => { await owner.release(stale); } },
+        { label: 'repaired runtime capability', settle: async () => { await owner.release(repaired); } }
       ] });
+      await owner.removeRoot();
     });
   }
 );
