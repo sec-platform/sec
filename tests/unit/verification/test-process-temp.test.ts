@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  PhysicalNoFollowError,
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
@@ -76,7 +77,8 @@ test('test invocation runtime advertises only platforms with retained physical a
 for (const drift of ['none', 'binding', 'identity', 'cache-absent', 'tmp-absent', 'leases-absent', 'empty-state'] as const) {
   test.skipIf(process.platform !== 'win32')(`explicit disposable invocation discard preserves unknown history and rejects ${drift} drift`, async () => {
     const root = generation('sec-invocation-discard-');
-    try {
+    let rootMayBeRetired = true;
+    await settleWorkspaceCallback(async () => {
       const repositoryRoot = path.join(root, 'repository');
       const hostTempRoot = path.join(root, 'host-temp');
       const environment = { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') };
@@ -86,6 +88,7 @@ for (const drift of ['none', 'binding', 'identity', 'cache-absent', 'tmp-absent'
       // exiting does not certify its descendants or the historical attempt;
       // the subsequent callback authorizes disposal of this fixture today.
       const producer = new URL('../../../src/adapters/self-hosting/development/runner/test-process-temp.ts', import.meta.url).href;
+      rootMayBeRetired = false;
       const child = spawnSync(process.execPath, ['--eval', `
         const { createTestInvocationRuntimeRoots } = await import(${JSON.stringify(producer)});
         const invocation = await createTestInvocationRuntimeRoots(${JSON.stringify({ repositoryRoot, hostTempRoot, environment })});
@@ -134,18 +137,32 @@ for (const drift of ['none', 'binding', 'identity', 'cache-absent', 'tmp-absent'
       const discard = () => disposeRetainedTestInvocationRuntime({ repositoryRoot, environment, selection: selected,
         reviewDiscard: async () => ({ disposition: 'discard', reference: 'explicit fixture disposal by its test author' }) });
       if (drift === 'none' || drift === 'cache-absent' || drift === 'tmp-absent' || drift === 'leases-absent' || drift === 'empty-state') {
-        expect(await discard()).toEqual({ retentionReleased: true, historicalAttempt: 'UNVERIFIED' });
-        if (drift === 'empty-state') expect(await discard()).toEqual({ retentionReleased: true, historicalAttempt: 'UNVERIFIED' });
+        const discarded = await discard();
+        rootMayBeRetired = true;
+        expect(discarded).toEqual({ retentionReleased: true, historicalAttempt: 'UNVERIFIED' });
+        if (drift === 'empty-state') {
+          rootMayBeRetired = false;
+          const discardedAgain = await discard();
+          rootMayBeRetired = true;
+          expect(discardedAgain).toEqual({ retentionReleased: true, historicalAttempt: 'UNVERIFIED' });
+        }
         for (const directory of [containerPath, invocation.cacheRoot, invocation.stateRoot]) expect(existsSync(directory)).toBe(false);
         for (const original of [selection.runtimeLease, selection.invocationLease]) expect(existsSync(path.join(leaseParent.path, original.name))).toBe(false);
       } else {
         await expect(discard()).rejects.toThrow();
         expect(readFileSync(path.join(temporary.tempRoot, 'fixture.txt'), 'utf8')).toBe('disposable fixture');
         for (const original of [selection.runtimeLease, selection.invocationLease]) expect(readFileSync(path.join(leaseParent.path, original.name))).toEqual(Buffer.from(original.bytes));
+        // Restore only the fixture's own changed binding, then use the same
+        // explicit discard owner with the actual original physical selection.
+        if (drift === 'binding') writeFileSync(bindingPath, bindingBytes);
+        await disposeRetainedTestInvocationRuntime({ repositoryRoot, environment, selection,
+          reviewDiscard: async () => ({ disposition: 'discard', reference: 'explicit fixture disposal by its test author' }) });
+        rootMayBeRetired = true;
       }
-    } finally {
+    }, async () => {
+      if (!rootMayBeRetired) throw new Error(`Historical invocation disposal remains unresolved; fixture root retained: ${root}`);
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   }, DEFAULT_TEST_TIMEOUT_MS);
 }
 
@@ -180,57 +197,79 @@ test.skipIf(process.platform !== 'win32')('test process temp rejects an unavaila
 
 test('test process temp rejects OS temp overlap before creating a generation', async () => {
   const root = generation('sec-temp-owner-overlap-');
-  const repositoryRoot = path.join(root, 'repository');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  mkdirSync(stateRoot);
-  mkdirSync(cacheRoot);
-  try {
+  let admissionSettled = true;
+  await settleWorkspaceCallback(async () => {
+    const repositoryRoot = path.join(root, 'repository');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    mkdirSync(repositoryRoot);
+    mkdirSync(stateRoot);
+    mkdirSync(cacheRoot);
     const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
     const candidateParents = [repositoryRoot, stateRoot, cacheRoot];
     for (const hostTempRoot of candidateParents) {
       let unexpected: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
-      try {
+      await settleWorkspaceCallback(async () => {
+        admissionSettled = false;
         await expect(createTestInvocationRuntimeRoots({ repositoryRoot, hostTempRoot, environment })
           .then(runtime => { unexpected = runtime; return runtime; }))
           .rejects.toMatchObject({
             code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
             message: expect.stringContaining('must be physically disjoint')
           });
+        admissionSettled = true;
         expect(candidateParents.map(parent => readdirSync(parent))).toEqual([[], [], []]);
-      } finally {
-        await unexpected?.cleanup();
-      }
+      }, async () => {
+        if (unexpected !== undefined) {
+          await unexpected.cleanup();
+          admissionSettled = true;
+        }
+      });
     }
-  } finally {
+  }, async () => {
+    if (!admissionSettled) throw new Error(`Overlap admission remains unresolved; fixture root retained: ${root}`);
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('test invocation runtime owns private roots, rejects aliases, and surfaces replacement-safe cleanup', async () => {
   const root = generation('sec-invocation-runtime-owner-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateAlias = path.join(root, 'state-alias');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  mkdirSync(hostTempRoot);
-  symlinkSync(repositoryRoot, stateAlias, process.platform === 'win32' ? 'junction' : 'dir');
-  try {
+  let owned: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let replaced: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let unexpectedAlias: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let displaced: string | undefined;
+  let replacementInstalled = false;
+  let admissionSettled = true;
+  await settleWorkspaceCallback(async () => {
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    const stateAlias = path.join(root, 'state-alias');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    mkdirSync(repositoryRoot);
+    mkdirSync(hostTempRoot);
+    symlinkSync(repositoryRoot, stateAlias, process.platform === 'win32' ? 'junction' : 'dir');
+    admissionSettled = false;
     await expect(createTestInvocationRuntimeRoots({
       repositoryRoot,
       hostTempRoot,
       environment: { SEC_STATE_HOME: stateAlias, SEC_CACHE_HOME: cacheRoot }
+    }).then(runtime => { unexpectedAlias = runtime; return runtime; }, error => {
+      // This local symlink is rejected by no-follow admission before a retained
+      // authority is issued. An unrelated failure does not reopen the gate.
+      admissionSettled = error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH';
+      throw error;
     })).rejects.toThrow();
+    if (!admissionSettled) throw new Error(`Alias admission remains unresolved; fixture root retained: ${root}`);
     expect(existsSync(path.join(repositoryRoot, 'test-invocation-runs'))).toBe(false);
 
-    const owned = await createTestInvocationRuntimeRoots({
+    admissionSettled = false;
+    owned = await createTestInvocationRuntimeRoots({
       repositoryRoot,
       hostTempRoot,
       environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
     });
+    admissionSettled = true;
     expect(owned.stateRoot).not.toBe(owned.cacheRoot);
     if (process.platform === 'linux') {
       expect(lstatSync(owned.stateRoot).mode & 0o077).toBe(0);
@@ -246,18 +285,21 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
       chmodSync(stateRoot, 0o755);
       chmodSync(cacheRoot, 0o755);
     }
-    const replaced = await createTestInvocationRuntimeRoots({
+    admissionSettled = false;
+    replaced = await createTestInvocationRuntimeRoots({
       repositoryRoot,
       hostTempRoot,
       environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
     });
+    admissionSettled = true;
     if (process.platform === 'linux') {
       expect(lstatSync(stateRoot).mode & 0o077).toBe(0);
       expect(lstatSync(cacheRoot).mode & 0o077).toBe(0);
     }
-    const displaced = `${replaced.stateRoot}.displaced`;
+    displaced = `${replaced.stateRoot}.displaced`;
     renameSync(replaced.stateRoot, displaced);
     mkdirSync(replaced.stateRoot);
+    replacementInstalled = true;
     await expect(replaced.cleanup()).rejects.toMatchObject({
       code: 'TEST_PROCESS_TEMP_CLEANUP_FAILED',
       pendingRecovery: {
@@ -267,26 +309,50 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
     expect(existsSync(replaced.stateRoot)).toBe(true);
     expect(existsSync(displaced)).toBe(true);
     expect(existsSync(replaced.cacheRoot)).toBe(false);
-  } finally {
+  }, async () => {
+    if (unexpectedAlias !== undefined) {
+      await unexpectedAlias.cleanup();
+      admissionSettled = true;
+    }
+    if (!admissionSettled) throw new Error(`Invocation admission remains unresolved; fixture root retained: ${root}`);
+    if (replaced !== undefined && displaced !== undefined && existsSync(displaced)) {
+      if (replacementInstalled) {
+        rmSync(replaced.stateRoot, { recursive: true });
+        replacementInstalled = false;
+      } else if (existsSync(replaced.stateRoot)) {
+        throw new Error(`Replacement namespace is unresolved; fixture root retained: ${root}`);
+      }
+      renameSync(displaced, replaced.stateRoot);
+    }
+    await settleResourcesAsync({ cleanup: [
+      { label: 'replacement invocation', settle: async () => { await replaced?.cleanup(); } },
+      { label: 'original invocation', settle: async () => { await owned?.cleanup(); } }
+    ] });
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('direct test invocation binds and retires one State Cache and TMP generation then restores environment', async () => {
   const root = generation('sec-direct-test-runtime-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
-  const environment: NodeJS.ProcessEnv = {
-    SEC_STATE_HOME: stateRoot,
-    SEC_CACHE_HOME: cacheRoot,
-    TMP: 'original-tmp',
-    TEMP: 'original-temp'
-  };
-  try {
-    const runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
+  let runtime: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
+  let admissionSettled = true;
+  let cleanupAttempted = false;
+  let cleanupSettled = false;
+  await settleWorkspaceCallback(async () => {
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
+    const environment: NodeJS.ProcessEnv = {
+      SEC_STATE_HOME: stateRoot,
+      SEC_CACHE_HOME: cacheRoot,
+      TMP: 'original-tmp',
+      TEMP: 'original-temp'
+    };
+    admissionSettled = false;
+    runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
+    admissionSettled = true;
     expect(runtime.ownership).toBe('direct');
     expect(environment.SEC_STATE_HOME).toBe(runtime.stateRoot);
     expect(environment.SEC_CACHE_HOME).toBe(runtime.cacheRoot);
@@ -295,7 +361,9 @@ test('direct test invocation binds and retires one State Cache and TMP generatio
     expect(environment.TMPDIR).toBe(runtime.tempRoot);
     expect(runtime.tempRoot).toBe(path.join(runtime.processRoot, 'tmp'));
     expect(existsSync(runtime.processRoot)).toBe(true);
+    cleanupAttempted = true;
     await runtime.cleanup();
+    cleanupSettled = true;
     expect(existsSync(runtime.processRoot)).toBe(false);
     expect(existsSync(runtime.stateRoot)).toBe(false);
     expect(existsSync(runtime.cacheRoot)).toBe(false);
@@ -306,9 +374,17 @@ test('direct test invocation binds and retires one State Cache and TMP generatio
       TMP: 'original-tmp',
       TEMP: 'original-temp'
     });
-  } finally {
+  }, async () => {
+    if (runtime !== undefined && !cleanupAttempted) {
+      cleanupAttempted = true;
+      await runtime.cleanup();
+      cleanupSettled = true;
+    }
+    if (!admissionSettled || (runtime !== undefined && !cleanupSettled)) {
+      throw new Error(`Invocation admission or retirement remains unresolved; fixture root retained: ${root}`);
+    }
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('two direct invocations in one workspace own independent concurrent lifecycle generations', async () => {
@@ -361,53 +437,77 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
 
 test('runner-assigned test invocation adopts parent roots without creating a nested runtime generation', async () => {
   const root = generation('sec-assigned-test-runtime-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
-  const parent = await createTestInvocationRuntimeRoots({
-    repositoryRoot,
-    hostTempRoot,
-    environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
-  });
-  const environment = {
-    SEC_STATE_HOME: path.join(parent.stateRoot, 'invocation-runtime', 'assigned'),
-    SEC_CACHE_HOME: path.join(parent.cacheRoot, 'invocation-runtime', 'assigned')
-  } satisfies NodeJS.ProcessEnv;
-  const child = parent.prepareProcessTemp(environment);
-  try {
-    const runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
+  let parent: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let runtime: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
+  let admissionSettled = true;
+  let runtimeCleanupAttempted = false;
+  let runtimeCleanupSettled = false;
+  await settleWorkspaceCallback(async () => {
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
+    admissionSettled = false;
+    parent = await createTestInvocationRuntimeRoots({
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
+    });
+    admissionSettled = true;
+    const environment = {
+      SEC_STATE_HOME: path.join(parent.stateRoot, 'invocation-runtime', 'assigned'),
+      SEC_CACHE_HOME: path.join(parent.cacheRoot, 'invocation-runtime', 'assigned')
+    } satisfies NodeJS.ProcessEnv;
+    const child = parent.prepareProcessTemp(environment);
+    admissionSettled = false;
+    runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
+    admissionSettled = true;
     expect(runtime.ownership).toBe('parent-assigned');
     expect(runtime.stateRoot).toBe(environment.SEC_STATE_HOME);
     expect(runtime.cacheRoot).toBe(environment.SEC_CACHE_HOME);
     expect(runtime.processRoot).toBe(child.processRoot);
     expect(existsSync(path.join(parent.stateRoot, 'test-invocation-runs'))).toBe(false);
     expect(existsSync(path.join(parent.cacheRoot, 'test-invocation-runs'))).toBe(false);
+    runtimeCleanupAttempted = true;
     await runtime.cleanup();
+    runtimeCleanupSettled = true;
     expect(existsSync(child.processRoot)).toBe(true);
     await child.cleanup();
     expect(existsSync(child.processRoot)).toBe(false);
-  } finally {
-    await parent.cleanup();
+  }, async () => {
+    if (!admissionSettled) throw new Error(`Assigned invocation admission remains unresolved; fixture root retained: ${root}`);
+    if (runtime !== undefined && !runtimeCleanupAttempted) {
+      runtimeCleanupAttempted = true;
+      await runtime.cleanup();
+      runtimeCleanupSettled = true;
+    }
+    if (runtime !== undefined && !runtimeCleanupSettled) {
+      throw new Error(`Assigned invocation retirement remains unresolved; fixture root retained: ${root}`);
+    }
+    await parent?.cleanup();
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('parent supervisor owns child temp cleanup and retires a junction leaf without touching its target', async () => {
   const root = generation('sec-process-temp-parent-owner-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  const externalTarget = path.join(root, 'external-target');
-  for (const directory of [repositoryRoot, hostTempRoot, externalTarget]) mkdirSync(directory);
-  const runtime = await createTestInvocationRuntimeRoots({
-    repositoryRoot,
-    hostTempRoot,
-    environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
-  });
-  try {
+  let runtime: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let admissionSettled = true;
+  await settleWorkspaceCallback(async () => {
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    const externalTarget = path.join(root, 'external-target');
+    for (const directory of [repositoryRoot, hostTempRoot, externalTarget]) mkdirSync(directory);
+    admissionSettled = false;
+    runtime = await createTestInvocationRuntimeRoots({
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
+    });
+    admissionSettled = true;
     const environment: NodeJS.ProcessEnv = {};
     const generation = runtime.prepareProcessTemp(environment);
     const adopted = consumeTestProcessTempAssignment({ environment });
@@ -418,10 +518,11 @@ test('parent supervisor owns child temp cleanup and retires a junction leaf with
     await generation.cleanup();
     expect(existsSync(generation.processRoot)).toBe(false);
     expect(existsSync(path.join(externalTarget, 'preserved.txt'))).toBe(true);
-  } finally {
-    await runtime.cleanup();
+  }, async () => {
+    if (!admissionSettled) throw new Error(`Invocation admission remains unresolved; fixture root retained: ${root}`);
+    await runtime?.cleanup();
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('new invocation preserves unguarded predecessor bytes and native identities despite a dead PID claim', async () => {
@@ -496,24 +597,28 @@ test('new invocation preserves unguarded predecessor bytes and native identities
 
 test('failed temp retirement blocks unguarded successor takeover until original-owner settlement', async () => {
   const root = generation('sec-temp-failed-retirement-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  mkdirSync(repositoryRoot);
-  mkdirSync(hostTempRoot);
-  const input = {
-    repositoryRoot,
-    hostTempRoot,
-    environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
-    invocationKey: '10000000-0000-4000-8000-000000000002'
-  };
+  let abandoned: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
   let successor: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
-  try {
-    const abandoned = await createTestInvocationRuntimeRoots({
+  let admissionSettled = true;
+  await settleWorkspaceCallback(async () => {
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    mkdirSync(repositoryRoot);
+    mkdirSync(hostTempRoot);
+    const input = {
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
+      invocationKey: '10000000-0000-4000-8000-000000000002'
+    };
+    admissionSettled = false;
+    abandoned = await createTestInvocationRuntimeRoots({
       ...input,
       testOnlyOwnerPid: 41_003,
       testOnlyProcessAlive: () => 'alive',
       testOnlyProcessNonce: '20000000-0000-4000-8000-000000000003'
     });
+    admissionSettled = true;
     const owned = abandoned.prepareProcessTemp({});
     const displaced = `${owned.processRoot}.displaced`;
     renameSync(owned.processRoot, displaced);
@@ -522,22 +627,26 @@ test('failed temp retirement blocks unguarded successor takeover until original-
     expect(existsSync(displaced)).toBe(true);
     const preserved = observeUnguardedFixturePreservation(input,
       [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, displaced]);
+    admissionSettled = false;
     await expect(createTestInvocationRuntimeRoots({
       ...input,
       testOnlyOwnerPid: 41_004,
       testOnlyProcessAlive: pid => pid === 41_003 ? 'dead' : 'alive',
       testOnlyProcessNonce: '20000000-0000-4000-8000-000000000004'
     })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    admissionSettled = true;
     preserved();
     rmSync(owned.processRoot, { recursive: true });
     renameSync(displaced, owned.processRoot);
     await abandoned.cleanup();
+    admissionSettled = false;
     successor = await createTestInvocationRuntimeRoots({
       ...input,
       testOnlyOwnerPid: 41_004,
       testOnlyProcessAlive: pid => pid === 41_003 ? 'dead' : 'alive',
       testOnlyProcessNonce: '20000000-0000-4000-8000-000000000004'
     });
+    admissionSettled = true;
     expect(existsSync(owned.processRoot)).toBe(false);
     const next = successor.prepareProcessTemp({});
     const nextDisplaced = `${next.processRoot}.displaced`;
@@ -549,72 +658,22 @@ test('failed temp retirement blocks unguarded successor takeover until original-
     renameSync(nextDisplaced, next.processRoot);
     await successor.cleanup();
     expect(existsSync(next.processRoot)).toBe(false);
-  } finally {
-    await successor?.cleanup();
+  }, async () => {
+    if (!admissionSettled) throw new Error(`Shared invocation admission remains unresolved; fixture root retained: ${root}`);
+    await settleResourcesAsync({ cleanup: [
+      { label: 'successor invocation', settle: async () => { await successor?.cleanup(); } },
+      { label: 'original invocation', settle: async () => { await abandoned?.cleanup(); } }
+    ] });
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('unguarded successor remains blocked after generation restoration until original-owner settlement', async () => {
   const root = generation('sec-temp-failed-successor-reclaim-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  mkdirSync(repositoryRoot);
-  mkdirSync(hostTempRoot);
-  const input = {
-    repositoryRoot,
-    hostTempRoot,
-    environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
-    invocationKey: '10000000-0000-4000-8000-000000000003'
-  };
-  try {
-    const abandoned = await createTestInvocationRuntimeRoots({
-      ...input,
-      testOnlyOwnerPid: 41_005,
-      testOnlyProcessAlive: () => 'alive',
-      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000005'
-    });
-    const owned = abandoned.prepareProcessTemp({});
-    const displaced = `${owned.processRoot}.displaced`;
-    renameSync(owned.processRoot, displaced);
-    mkdirSync(owned.processRoot);
-    const preserved = observeUnguardedFixturePreservation(input,
-      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, displaced]);
-
-    await expect(createTestInvocationRuntimeRoots({
-      ...input,
-      testOnlyOwnerPid: 41_006,
-      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
-      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000006'
-    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
-    preserved();
-
-    rmSync(owned.processRoot, { recursive: true });
-    renameSync(displaced, owned.processRoot);
-    const restored = observeUnguardedFixturePreservation(input,
-      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot]);
-    await expect(createTestInvocationRuntimeRoots({
-      ...input,
-      testOnlyOwnerPid: 41_007,
-      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
-      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000007'
-    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
-    restored();
-    await abandoned.cleanup();
-    const successor = await createTestInvocationRuntimeRoots(input);
-    try {
-      expect(existsSync(owned.processRoot)).toBe(false);
-    } finally {
-      await successor.cleanup();
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test.each(['missing-state', 'changed-binding'] as const)(
-  'new invocation preserves unguarded original binding and native identities after %s', async (fault) => {
-    const root = generation('sec-runtime-recovery-binding-');
+  let abandoned: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let successor: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let admissionSettled = true;
+  await settleWorkspaceCallback(async () => {
     const repositoryRoot = path.join(root, 'repository');
     const hostTempRoot = path.join(root, 'host-temp');
     mkdirSync(repositoryRoot);
@@ -622,15 +681,88 @@ test.each(['missing-state', 'changed-binding'] as const)(
     const input = {
       repositoryRoot,
       hostTempRoot,
-      environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') }
+      environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
+      invocationKey: '10000000-0000-4000-8000-000000000003'
     };
-    try {
-      const abandoned = await createTestInvocationRuntimeRoots({
+    admissionSettled = false;
+    abandoned = await createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_005,
+      testOnlyProcessAlive: () => 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000005'
+    });
+    admissionSettled = true;
+    const owned = abandoned.prepareProcessTemp({});
+    const displaced = `${owned.processRoot}.displaced`;
+    renameSync(owned.processRoot, displaced);
+    mkdirSync(owned.processRoot);
+    const preserved = observeUnguardedFixturePreservation(input,
+      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, displaced]);
+
+    admissionSettled = false;
+    await expect(createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_006,
+      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000006'
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    admissionSettled = true;
+    preserved();
+
+    rmSync(owned.processRoot, { recursive: true });
+    renameSync(displaced, owned.processRoot);
+    const restored = observeUnguardedFixturePreservation(input,
+      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot]);
+    admissionSettled = false;
+    await expect(createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_007,
+      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000007'
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    admissionSettled = true;
+    restored();
+    await abandoned.cleanup();
+    admissionSettled = false;
+    successor = await createTestInvocationRuntimeRoots(input);
+    admissionSettled = true;
+    expect(existsSync(owned.processRoot)).toBe(false);
+    await successor.cleanup();
+  }, async () => {
+    if (!admissionSettled) throw new Error(`Shared invocation admission remains unresolved; fixture root retained: ${root}`);
+    await settleResourcesAsync({ cleanup: [
+      { label: 'successor invocation', settle: async () => { await successor?.cleanup(); } },
+      { label: 'original invocation', settle: async () => { await abandoned?.cleanup(); } }
+    ] });
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+test.each(['missing-state', 'changed-binding'] as const)(
+  'new invocation preserves unguarded original binding and native identities after %s', async (fault) => {
+    const root = generation('sec-runtime-recovery-binding-');
+    let abandoned: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+    let independent: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+    let successor: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+    let admissionSettled = true;
+    await settleWorkspaceCallback(async () => {
+      const repositoryRoot = path.join(root, 'repository');
+      const hostTempRoot = path.join(root, 'host-temp');
+      mkdirSync(repositoryRoot);
+      mkdirSync(hostTempRoot);
+      const input = {
+        repositoryRoot,
+        hostTempRoot,
+        environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') }
+      };
+      admissionSettled = false;
+      abandoned = await createTestInvocationRuntimeRoots({
         ...input,
         testOnlyOwnerPid: 41_011,
         testOnlyProcessAlive: () => 'alive',
         testOnlyProcessNonce: '20000000-0000-4000-8000-000000000011'
       });
+      admissionSettled = true;
       const owned = abandoned.prepareProcessTemp({});
       const bindingPath = path.join(abandoned.stateRoot, 'temp-parent-binding.json');
       const original = readFileSync(bindingPath);
@@ -654,32 +786,39 @@ test.each(['missing-state', 'changed-binding'] as const)(
         abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, foreignContainer,
         ...(fault === 'missing-state' ? [path.join(root, 'displaced-state'), path.join(root, 'displaced-cache')] : [])
       ]);
-      const independent = await createTestInvocationRuntimeRoots({
+      admissionSettled = false;
+      independent = await createTestInvocationRuntimeRoots({
         ...recovery,
         testOnlyOwnerPid: 41_012,
         testOnlyProcessNonce: '20000000-0000-4000-8000-000000000012'
       });
-      try { preserved(); } finally { await independent.cleanup(); }
+      admissionSettled = true;
+      await settleWorkspaceCallback(async () => { preserved(); }, async () => { await independent!.cleanup(); });
       preserved();
       if (fault === 'missing-state') {
         renameSync(path.join(root, 'displaced-state'), abandoned.stateRoot);
         renameSync(path.join(root, 'displaced-cache'), abandoned.cacheRoot);
       } else writeFileSync(bindingPath, original);
       await abandoned.cleanup();
-      const successor = await createTestInvocationRuntimeRoots({
+      admissionSettled = false;
+      successor = await createTestInvocationRuntimeRoots({
         ...recovery,
         testOnlyOwnerPid: 41_013,
         testOnlyProcessNonce: '20000000-0000-4000-8000-000000000013'
       });
-      try {
-        expect(existsSync(owned.processRoot)).toBe(false);
-        expect(existsSync(foreignContainer)).toBe(true);
-      } finally {
-        await successor.cleanup();
-      }
-    } finally {
+      admissionSettled = true;
+      expect(existsSync(owned.processRoot)).toBe(false);
+      expect(existsSync(foreignContainer)).toBe(true);
+      await successor.cleanup();
+    }, async () => {
+      if (!admissionSettled) throw new Error(`Recovery admission remains unresolved; fixture root retained: ${root}`);
+      await settleResourcesAsync({ cleanup: [
+        { label: 'successor invocation', settle: async () => { await successor?.cleanup(); } },
+        { label: 'independent invocation', settle: async () => { await independent?.cleanup(); } },
+        { label: 'original invocation', settle: async () => { await abandoned?.cleanup(); } }
+      ] });
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   }
 );
 
@@ -814,18 +953,22 @@ test('unguarded successor preserves live and PID-dead owners across generation A
 test.skipIf(process.platform !== 'linux')(
   'owned runtime cleanup retires read-only descendants without changing a linked foreign tree', async () => {
     const root = generation('sec-runtime-readonly-retirement-');
-    const repositoryRoot = path.join(root, 'repository');
-    const hostTempRoot = path.join(root, 'host-temp');
-    const external = path.join(root, 'external');
-    for (const directory of [repositoryRoot, hostTempRoot, external]) mkdirSync(directory);
-    writeFileSync(path.join(external, 'keep.txt'), 'foreign bytes');
-    const before = lstatSync(external).mode;
-    const runtime = await createTestInvocationRuntimeRoots({
-      repositoryRoot, hostTempRoot,
-      environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') }
-    });
-    const child = runtime.prepareProcessTemp({});
-    try {
+    let runtime: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+    let admissionSettled = true;
+    await settleWorkspaceCallback(async () => {
+      const repositoryRoot = path.join(root, 'repository');
+      const hostTempRoot = path.join(root, 'host-temp');
+      const external = path.join(root, 'external');
+      for (const directory of [repositoryRoot, hostTempRoot, external]) mkdirSync(directory);
+      writeFileSync(path.join(external, 'keep.txt'), 'foreign bytes');
+      const before = lstatSync(external).mode;
+      admissionSettled = false;
+      runtime = await createTestInvocationRuntimeRoots({
+        repositoryRoot, hostTempRoot,
+        environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') }
+      });
+      admissionSettled = true;
+      const child = runtime.prepareProcessTemp({});
       for (const ownerRoot of [runtime.stateRoot, runtime.cacheRoot, child.tempRoot]) {
         const sealed = path.join(ownerRoot, 'readonly-package');
         mkdirSync(sealed);
@@ -842,9 +985,10 @@ test.skipIf(process.platform !== 'linux')(
       expect(existsSync(runtime.cacheRoot)).toBe(false);
       expect(readFileSync(path.join(external, 'keep.txt'), 'utf8')).toBe('foreign bytes');
       expect(lstatSync(external).mode).toBe(before);
-    } finally {
-      await runtime.cleanup();
+    }, async () => {
+      if (!admissionSettled) throw new Error(`Invocation admission remains unresolved; fixture root retained: ${root}`);
+      await runtime?.cleanup();
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   }
 );
