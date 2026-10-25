@@ -1366,24 +1366,6 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
   }, 30_000);
 
-  test('parent coordinator emits one authenticated child wake-up without exposing raw dispatch', async () => {
-    fakeGh = new FakeGh();
-    trustedParentEnvironment();
-    const result = await ensureTransaction({
-      origin: parentCoordinateOrigin,
-      authority: { envelope, actionPlanClosure: closure },
-      intent: { kind: 'dispatch-child' }
-    });
-    expect(result.disposition).toBe('dispatched');
-    expect(result.actionKey).toBe(ACTION);
-    expect(fakeGh.dispatchCalls).toBe(1);
-    expect(fakeGh.dispatchBodies).toEqual([{
-      event_type: 'sec-produce-verification-action-v2',
-      client_payload: { payload: envelope }
-    }]);
-    expect(fakeGh.createCalls).toBe(0);
-  });
-
   test('coordinate-parent rejects another run, actor, or parent artifact without POST', async () => {
     const forgeries: Array<() => void> = [
       () => { process.env.GITHUB_RUN_ID = CURRENT_RUN_ID; },
@@ -1426,6 +1408,11 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       intent: { kind: 'dispatch-child' }
     });
     expect(stable.disposition).toBe('dispatched');
+    expect(stable.actionKey).toBe(ACTION);
+    expect(fakeGh.dispatchBodies).toEqual([{
+      event_type: 'sec-produce-verification-action-v2', client_payload: { payload: envelope }
+    }]);
+    expect(fakeGh.createCalls).toBe(0);
     expect(fakeGh.artifactListCalls).toContainEqual({ page: 1, perPage: 100 });
     expect(fakeGh.artifactListCalls).toContainEqual({ page: 2, perPage: 100 });
     expect(fakeGh.dispatchCalls).toBe(1);

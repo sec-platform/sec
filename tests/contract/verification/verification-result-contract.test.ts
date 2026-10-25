@@ -754,9 +754,9 @@ test('aggregate assertion rejects empty, control, and missing identities at ever
   candidates.push(controlGate);
   const missingGate = canonicalAggregateFixture();
   delete (missingGate.gates[0] as unknown as Record<string, unknown>).gateId;
-  expect(() => CodexDevelopmentAssertVerificationGateResultV1(missingGate.gates[0]))
-    .toThrow(/unknown or missing fields/);
-  candidates.push(missingGate);
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    missingGate.overall, aggregateInput(missingGate)
+  )).toThrow(/unknown or missing fields/);
 
   const emptyContributor = canonicalAggregateFixture();
   emptyContributor.overall.claimResults[0]!.contributingGateIds = [''];

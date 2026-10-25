@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { lockWorkspace } from '../../../src/bootstrap/engineering/cli.ts';
 
 import { projectAcceptanceCoverage, type AcceptanceTargetInspect } from '../../../src/application/acceptance-inspection.ts';
 import { projectPolicyReportInspection } from '../../../src/application/policy-report-inspection.ts';
@@ -225,7 +226,12 @@ test('CLI runs verify with JSON output for CI consumers', async () => {
         failedLanes: []
       },
       fast: { status: 'passed', policy: { status: 'passed' } },
-      runtime: { status: 'passed', acceptance: { status: 'skipped' } }
+      runtime: { status: 'passed', build: { status: 'skipped' }, unit: { status: 'passed' },
+        acceptance: { status: 'skipped' } }
+    });
+    // This root was actually verified above, not cloned from a verified template.
+    await expect(lockWorkspace(workspaceRoot)).rejects.toMatchObject({
+      code: 'LOCK-BLOCKED-002', message: 'lock requires a passing verify --lane all result'
     });
   });
 }, 180000);
