@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 
 import { readSemanticMutationWindowsFileAttributes } from '../../../src/adapters/mutation/windows-file-attributes.ts';
 import { inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, retainNoFollowOrdinaryFile } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -9,25 +10,38 @@ import { copyRetainedNoFollowFilePermissions } from '../../../src/adapters/runti
 
 async function fixture(mode = 0o444) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-permissions-'));
-  const original = path.join(root, 'original');
-  writeFileSync(original, 'original bytes\n');
-  chmodSync(original, mode);
-  const chain = inspectNoFollowDirectoryChain(root);
-  const source = retainNoFollowOrdinaryFile(chain, 'original');
-  const bytes = Buffer.from('authorized edited bytes\n');
-  const target = publishExclusiveDurableCanonicalFile({
-    parent: chain.target, name: 'replacement', bytes, permissionMode: 0o600,
-    validate(actual) { expect(Buffer.from(actual)).toEqual(bytes); }
-  });
-  const attributes = await readSemanticMutationWindowsFileAttributes(original);
-  const expectedWindowsAttributes = attributes === null ? null :
-    (attributes.readOnly ? 1 : 0) | (attributes.hidden ? 2 : 0) |
-    (attributes.system ? 4 : 0) | (attributes.archive ? 32 : 0);
-  return {
-    root, source, target, bytes, attributes,
-    input: { source, target, parent: chain.target, expectedSourceMode: statSync(original).mode & 0o7777, expectedWindowsAttributes },
-    close() { source.dispose(); rmSync(root, { recursive: true, force: true }); }
-  };
+  let acquiredSource: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
+  try {
+    const original = path.join(root, 'original');
+    writeFileSync(original, 'original bytes\n');
+    chmodSync(original, mode);
+    const chain = inspectNoFollowDirectoryChain(root);
+    const source = retainNoFollowOrdinaryFile(chain, 'original');
+    acquiredSource = source;
+    const bytes = Buffer.from('authorized edited bytes\n');
+    const target = publishExclusiveDurableCanonicalFile({
+      parent: chain.target, name: 'replacement', bytes, permissionMode: 0o600,
+      validate(actual) { expect(Buffer.from(actual)).toEqual(bytes); }
+    });
+    const attributes = await readSemanticMutationWindowsFileAttributes(original);
+    const expectedWindowsAttributes = attributes === null ? null :
+      (attributes.readOnly ? 1 : 0) | (attributes.hidden ? 2 : 0) |
+      (attributes.system ? 4 : 0) | (attributes.archive ? 32 : 0);
+    return {
+      root, source, target, bytes, attributes,
+      input: { source, target, parent: chain.target, expectedSourceMode: statSync(original).mode & 0o7777, expectedWindowsAttributes },
+      close() { source.dispose(); rmSync(root, { recursive: true, force: true }); }
+    };
+  } catch (error) {
+    settleResources({
+      primary: { label: 'retained-permissions-fixture-construction', error },
+      cleanup: [
+        { label: 'retained-permissions-fixture-source', settle: () => acquiredSource?.dispose() },
+        { label: 'retained-permissions-fixture-root', settle: () => rmSync(root, { recursive: true, force: true }) }
+      ]
+    });
+    throw error;
+  }
 }
 
 test('retained permissions preserve a readonly source mode on different authorized replacement bytes', async () => {
