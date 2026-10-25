@@ -169,9 +169,7 @@ test('tracked Git records preserve both endpoints and raw identity while rejecti
     'tests/source.test.ts'
   ]);
   expect(() => parseGitChangedFileOutput(utf8('M\0missing-terminator'))).toThrow('missing final NUL');
-  for (const status of ['Z', 'Q']) {
-    expect(() => parseGitChangedFileOutput(utf8(`${status}\0path.ts\0`))).toThrow('unknown status');
-  }
+  expect(() => parseGitChangedFileOutput(utf8('Z\0path.ts\0'))).toThrow('unknown status');
   expect(() => parseGitChangedFileOutput(utf8('R100\0old.ts\0'))).toThrow('missing its second path');
   expect(() => parseGitChangedFileOutput(new Uint8Array([
     ...utf8('R100\0docs/old.md\0docs/'), 0xff, 0

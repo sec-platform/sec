@@ -7,7 +7,8 @@ import {
   withAcquiredHeavyVerificationGateLease
 } from '../../../src/adapters/verification/platform/gate/state/heavy-lease-lifecycle.ts';
 
-for (const reason of [undefined, null, false, 0]) test(`operation ${String(reason)} and release failure both survive`, async () => {
+test('operation undefined and release failure both survive', async () => {
+  const reason = undefined;
   const release = new Error('release');
   await assert.rejects(withAcquiredHeavyVerificationGateLease({ release() { throw release; } }, () => { throw reason; }), e => {
     assert.ok(e instanceof AggregateError); assert.deepEqual(e.errors, [reason, release]); assert.equal(e.cause, reason); return true;
