@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { executeArtifactCommandInput } from '../../../src/entry/cli/artifact-com
 
 async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-artifact-read-'));
-  try { await run(root); } finally { await rm(root, { recursive: true, force: true }); }
+  await settleWorkspaceCallback(() => run(root), () => rm(root, { recursive: true, force: true }));
 }
 
 for (const value of [null, false, 0, '', [], { value: 7 }]) {
