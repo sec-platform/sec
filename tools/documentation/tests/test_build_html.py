@@ -129,6 +129,7 @@ class PublicationSettlement(unittest.TestCase):
 class ReadingTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='sec-reading-test-')
+        self.addCleanup(self.temp.cleanup)
         self.home=Path(self.temp.name);self.root=self.home/'SEC';self.root.mkdir()
         (self.root/'docs').mkdir();(self.root/'examples').mkdir()
         (self.root/'.documentation').mkdir()
@@ -136,7 +137,6 @@ class ReadingTests(unittest.TestCase):
         (self.root/'README.md').write_text('# Fixture\n\n[主题](docs/主题.md#字段)\n',encoding='utf-8')
         (self.root/'docs/主题.md').write_text('# 主题\n\n## 字段\n\n完整文字。\n',encoding='utf-8')
         self.out=self.home/'reading.html'
-    def tearDown(self):self.temp.cleanup()
     def write(self,name,text):
         p=self.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text,encoding='utf-8')
     def run_build(self,*extra):
