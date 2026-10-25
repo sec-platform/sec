@@ -2,7 +2,6 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
 import {
-  runtimeDependencyOperationContext,
   runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationOptions,
   waitForRuntimeDependencyOperation
@@ -181,22 +180,6 @@ test('the effect hook does not start after its budget is consumed before its mic
   assert.equal(result.kind, 'rejected');
   if (result.kind === 'rejected') assert.ok(result.error instanceof CodedFailure);
   assert.equal(calls, 0);
-});
-
-test('a successful fence retains its receiver, operation identity and public signal', async () => {
-  let receiver: unknown;
-  const controller = new AbortController();
-  const provider = { marker: 'retained', signal: controller.signal,
-    beforeCommit: async function () { receiver = this; } };
-  const options = runtimeDependencyOperationOptions(provider);
-  const context = runtimeDependencyOperationContext(options);
-  await runtimeDependencyOperationEffectFence(options, 'receiver');
-  assert.strictEqual(receiver, provider);
-  const after = runtimeDependencyOperationContext(options);
-  assert.strictEqual(after.operationId, context.operationId);
-  assert.strictEqual(after.telemetryKey, context.telemetryKey);
-  assert.equal(after.deadlineAtMonotonicMs, context.deadlineAtMonotonicMs);
-  assert.strictEqual(options.signal, controller.signal);
 });
 
 test('the fence performs a terminal budget check after a successfully resolved provider', async () => {

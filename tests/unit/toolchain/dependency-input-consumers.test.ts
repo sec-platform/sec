@@ -12,18 +12,25 @@ import { captureRuntimeDependencyInstallRequest as capture } from '../../../src/
 const controls=()=>({lockTimeoutMs:1000,monotonicNowMs:()=>0});
 
 test('public request, coordinator, process binder and effect use one captured provider receiver', async()=>{
+  const controller=new AbortController();
   class Provider {
     #calls=0;
-    async beforeCommit(){this.#calls++;}
+    signal=controller.signal;
+    async beforeCommit(){assert.equal(this,provider);this.#calls++;}
     installMode='offline-copy-only' as const;
     get calls(){return this.#calls;}
   }
   const provider=new Provider();const request=capture(provider);
   const bound=bind({...controls(),...request});const process=bindCompilerInstallInvocation(bound);
-  assert.equal(process.isolated,true);assert.equal(context(process.controls).operationId,context(bound).operationId);
+  const parent=context(bound);
+  assert.equal(process.isolated,true);assert.equal(context(process.controls).operationId,parent.operationId);
   provider.beforeCommit=()=>assert.fail('replacement');
   const effects=effect(effect(bound));assert.equal(context(effects).operationId,context(bound).operationId);
   await process.beforeCommit?.();await fence(effects,'effect');assert.equal(provider.calls,2);
+  const after=context(effects);
+  assert.equal(after.operationId,parent.operationId);assert.equal(after.telemetryKey,parent.telemetryKey);
+  assert.equal(after.deadlineAtMonotonicMs,parent.deadlineAtMonotonicMs);
+  assert.equal(bound.signal,controller.signal);assert.equal(effects.signal,controller.signal);
 });
 
 test('coordinator transmission does not turn an unissued materialization object into an authority',()=>{
