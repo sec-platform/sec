@@ -18,9 +18,10 @@ import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 for (const predecessorMode of [0o755, 0o555]) {
   test.skipIf(process.platform !== 'linux' || process.arch !== 'x64')(`the locked native checker preserves package lookup and retires a ${predecessorMode.toString(8)} fixture`, async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-native-package-layout-'));
+    const temporaryParent = tmpdir();
+    const parent = inspectNoFollowDirectoryChain(temporaryParent).target;
+    const root = await mkdtemp(path.join(temporaryParent, 'sec-native-package-layout-'));
     const rootIdentity = inspectNoFollowDirectoryChain(root).target;
-    const parent = inspectNoFollowDirectoryChain(path.dirname(root)).target;
     let generation: Awaited<ReturnType<typeof materializeRetainedNoFollowProvenDirectoryGeneration>> | undefined;
     await settleWorkspaceCallback(async () => {
       const nativeRoot = path.resolve('node_modules/@typescript/typescript-linux-x64');
