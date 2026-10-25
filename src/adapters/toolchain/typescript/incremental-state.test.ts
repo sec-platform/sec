@@ -67,7 +67,7 @@ test('invalid stable bytes select cold execution and are repaired only by retain
   await reused.dispose();
 });
 
-test('expired or cancelled incremental admission creates no private tree or stable seed', async () => {
+test('expired incremental admission creates no private tree or stable seed', async () => {
   const expired = await fixture('expired');
   await expect(prepareTypeScriptIncrementalState({
     ...expired,
@@ -76,12 +76,4 @@ test('expired or cancelled incremental admission creates no private tree or stab
   expect(await fs.readdir(expired.actionPrivateParent.path)).toEqual([]);
   await expect(fs.stat(expired.stableSeedFile)).rejects.toMatchObject({ code: 'ENOENT' });
 
-  const controller = new AbortController();
-  controller.abort();
-  await expect(prepareTypeScriptIncrementalState({
-    ...expired,
-    signal: controller.signal
-  })).rejects.toThrow('cancelled');
-  expect(await fs.readdir(expired.actionPrivateParent.path)).toEqual([]);
-  await expect(fs.stat(expired.stableSeedFile)).rejects.toMatchObject({ code: 'ENOENT' });
 });

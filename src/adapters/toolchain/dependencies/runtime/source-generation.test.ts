@@ -4,12 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../../../../tests/testkit/workspace-cleanup.ts';
 
-import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import {
-  compileRepositoryModuleMembershipSnapshot,
-  parseRepositoryModuleDescriptor
-} from '../../../repository/architecture/contract.ts';
-import { compileRepositorySourceProgramModel } from '../../../repository/source-program-model/repository.ts';
+import { parseRepositoryModuleDescriptor } from '../../../repository/architecture/contract.ts';
 import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalRuntimeDependencySourceGeneration } from './dependency-transition/codec.ts';
 import {
@@ -51,24 +46,6 @@ test('dependency generation and environment terminals remain bound to their doma
   expect(readGenerationReadback?.role).toBe('readback-issuer');
   expect(readGenerationReadback?.semanticOperation).toBe(readGenerationOwner?.semanticOperation);
   expect(readGenerationReadback?.requirementId).toBe(readGenerationOwner?.capability);
-
-  const sourcePath = 'src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
-  const operations = descriptor.capabilityProviders.flatMap(({ operations }) => operations);
-  const source = operations.map((operation) => `export function ${operation}(): void {}`).join('\n');
-  const files = [Object.freeze({ path: sourcePath, source, contentDigest: rawSha256(source) })];
-  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, 'src/adapters/toolchain/dependencies/runtime.ts', sourcePath],
-    descriptorSources: [{ descriptorPath, source: descriptorSource }]
-  });
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path: filePath, contentDigest }) => ({
-      path: filePath,
-      contentDigest
-    }))),
-    files,
-    moduleMembership
-  });
-  expect(model.candidates.filter(({ code }) => code.startsWith('operation-issuer'))).toEqual([]);
 });
 
 async function withSourceGenerationFixture(

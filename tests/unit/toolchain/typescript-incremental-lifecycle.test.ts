@@ -39,6 +39,7 @@ test('native aborted state cannot be masked by a shadow public getter',()=>fixtu
   Object.defineProperty(controller.signal,'aborted',{get(){assert.fail('shadow state getter');}});
   await assert.rejects(prepareTypeScriptIncrementalState({...input,signal:controller.signal}),/cancelled/);
   assert.deepEqual(await fs.readdir(input.actionPrivateParent.path),[]);
+  await assert.rejects(fs.stat(input.stableSeedFile),{code:'ENOENT'});
 }));
 
 test('false structural signals reject before creating any private resources',()=>fixture(async input=>{
