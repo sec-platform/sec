@@ -212,21 +212,6 @@ test('strict porcelain-z parser rejects truncation unknown duplicate and conflic
   ).toThrow('duplicate worktree path');
 });
 
-test('authorization binds exact repository target inventory and durable recovery paths', () => {
-  const value = authorization();
-  expect(value.schema).toBe(WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
-  expect(value.operationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(value.authorizationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(assertWorktreePhysicalCloseoutAuthorization(value)).toBe(value);
-  expect(value.generatedStateRetirement).toBeNull();
-  expect(isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(value)).toBeFalse();
-  const tampered = {
-    ...structuredClone(value),
-    target: { ...value.target, headSha: '9'.repeat(40) }
-  };
-  expect(() => assertWorktreePhysicalCloseoutAuthorization(tampered)).toThrow('canonical content mismatch');
-});
-
 test('fieldless historical authorization is validated exactly and normalized only in memory', () => {
   const current = authorization();
   const {
@@ -288,8 +273,19 @@ test('authorized residue admits only unchanged subsets and rejects new or replac
   expect(classifyAuthorizedWorktreeResidue(replaced, expected)).toEqual(['changed-residue:tracked.txt']);
 });
 
-test('completed receipt requires simultaneous registry and physical absence and is digest-bound', () => {
+test('exact authorization and completed receipt bind canonical content and simultaneous registry and physical absence', () => {
   const auth = authorization();
+  expect(auth.schema).toBe(WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
+  expect(auth.operationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(auth.authorizationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(assertWorktreePhysicalCloseoutAuthorization(auth)).toBe(auth);
+  expect(auth.generatedStateRetirement).toBeNull();
+  expect(isFieldlessLegacyWorktreePhysicalCloseoutAuthorization(auth)).toBeFalse();
+  const tamperedAuthorization = {
+    ...structuredClone(auth),
+    target: { ...auth.target, headSha: '9'.repeat(40) }
+  };
+  expect(() => assertWorktreePhysicalCloseoutAuthorization(tamperedAuthorization)).toThrow('canonical content mismatch');
   const receipt = createWorktreePhysicalCloseoutReceipt({
     operationId: auth.operationId,
     authorizationDigest: auth.authorizationDigest,

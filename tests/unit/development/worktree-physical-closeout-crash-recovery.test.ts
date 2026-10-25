@@ -51,10 +51,10 @@ test('real child death before terminal preserves durable recovery evidence witho
     git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'user.name', 'SEC']); git(repository, ['config', 'user.email', 'sec@example.invalid']); git(repository, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(repository, 'a.txt'), 'a\n'); git(repository, ['add', '.']); git(repository, ['commit', '-m', 'base']); git(repository, ['remote', 'add', 'origin', remote]); git(repository, ['push', '-u', 'origin', 'main']); git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']); git(repository, ['remote', 'set-head', 'origin', 'main']);
     const branch = 'codex/crash'; git(repository, ['branch', branch]); git(repository, ['worktree', 'add', target, branch]);
-    // A few hundred entries leave a real retained-cleanup interval after the
-    // durable marker without making the fresh convergence itself unbounded on
-    // Windows directory-durability barriers.
-    for (let i = 0; i < 50; i += 1) writeFileSync(path.join(target, `slow-${i}.txt`), `${i}\n`); git(target, ['add', '.']); git(target, ['commit', '-m', 'slow']);
+    // Keep a distinct tracked target commit. The child observes the durable
+    // fence/terminal-pending checkpoint and pauses there; file count is not a
+    // timing control for that lease-namespace transition.
+    writeFileSync(path.join(target, 'slow-0.txt'), '0\n'); git(target, ['add', '.']); git(target, ['commit', '-m', 'slow']);
     const headSha = git(target, ['rev-parse', 'HEAD']); const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']); const recoveryAuthorityDigest = detailDigest('crash-child');
     const prepared = await prepareTrustedWorktreePhysicalCloseout({ repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest }, worktreePhysicalCloseoutOperations);
     const input = { repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest, authorizationPath: prepared.authorization.authorizationPath };
@@ -126,9 +126,7 @@ test('real child death before terminal preserves durable recovery evidence witho
     const tombstoneAfter = lstatSync(tombstonePath, { bigint: true });
     expect([tombstoneAfter.dev, tombstoneAfter.ino]).toEqual([tombstoneBefore.dev, tombstoneBefore.ino]);
     expect(readFileSync(path.join(tombstonePath, 'a.txt'), 'utf8')).toBe('a\n');
-    for (let i = 0; i < 50; i += 1) {
-      expect(readFileSync(path.join(tombstonePath, `slow-${i}.txt`), 'utf8')).toBe(`${i}\n`);
-    }
+    expect(readFileSync(path.join(tombstonePath, 'slow-0.txt'), 'utf8')).toBe('0\n');
     expect(existsSync(target)).toBe(false);
     // A failed fresh attempt cannot upgrade the original process-local token.
     expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
