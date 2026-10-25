@@ -752,49 +752,42 @@ test('initially-absent T/N/R contract covers normalized tuples, malformed entrie
   const exactA = Object.freeze({ byteClass: 'exact-next' as const, identity: 'A' });
   const exactB = Object.freeze({ byteClass: 'exact-next' as const, identity: 'B' });
   const unknown = Object.freeze({ byteClass: 'unknown' as const, identity: 'A' });
-  const entries = [absent, exactA, exactB, unknown] as const;
   const tuple = (
     target: InitiallyAbsentTupleEntry = absent,
     next: InitiallyAbsentTupleEntry = absent,
     retiredNext: InitiallyAbsentTupleEntry = absent
   ): InitiallyAbsentTuple => Object.freeze({ target, next, retiredNext });
-  const expectedClassification = (
-    platform: InitiallyAbsentTuplePlatform,
-    observation: InitiallyAbsentTuple
-  ) => {
-    const values = [observation.target, observation.next, observation.retiredNext];
-    if (values.some((entry) => entry.byteClass === 'unknown')) {
-      return { status: 'invalid', reason: 'unknown-bytes' } as const;
-    }
-    const topology = values.map((entry) => entry.byteClass).join('/');
-    const stateByTopology: Readonly<Record<string, InitiallyAbsentTupleState>> = platform === 'win32'
-      ? {
-          'absent/absent/absent': 'win32-w0',
-          'absent/exact-next/absent': 'win32-w1',
-          'exact-next/absent/absent': 'win32-w2'
-        }
-      : {
-          'absent/absent/absent': 'linux-l0',
-          'absent/exact-next/absent': 'linux-l1',
-          'exact-next/exact-next/absent': 'linux-l2',
-          'exact-next/absent/exact-next': 'linux-l3'
-        };
-    const state = stateByTopology[topology];
-    if (state === undefined) return { status: 'invalid', reason: 'illegal-topology' } as const;
-    if ((state === 'linux-l2' && observation.target.identity !== observation.next.identity)
-        || (state === 'linux-l3' && observation.target.identity !== observation.retiredNext.identity)) {
-      return { status: 'invalid', reason: 'identity-mismatch' } as const;
-    }
-    return { status: 'legal', state } as const;
-  };
-
+  // Fixed topology truth table, rather than another implementation of the classifier.
+  const topologyCases: readonly Readonly<{
+    observation: InitiallyAbsentTuple;
+    win32: InitiallyAbsentTupleState | null;
+    linux: InitiallyAbsentTupleState | null;
+  }>[] = [
+    { observation: tuple(), win32: 'win32-w0', linux: 'linux-l0' },
+    { observation: tuple(absent, exactA), win32: 'win32-w1', linux: 'linux-l1' },
+    { observation: tuple(exactA), win32: 'win32-w2', linux: null },
+    { observation: tuple(absent, absent, exactA), win32: null, linux: null },
+    { observation: tuple(exactA, exactA), win32: null, linux: 'linux-l2' },
+    { observation: tuple(exactA, absent, exactA), win32: null, linux: 'linux-l3' },
+    { observation: tuple(absent, exactA, exactA), win32: null, linux: null },
+    { observation: tuple(exactA, exactA, exactA), win32: null, linux: null }
+  ];
   for (const platform of ['win32', 'linux'] as const) {
-    for (const target of entries) for (const next of entries) for (const retiredNext of entries) {
-      const observation = tuple(target, next, retiredNext);
-      expect(classifyInitiallyAbsentEntryTuple({ platform, tuple: observation })).toEqual(
-        expectedClassification(platform, observation)
+    for (const row of topologyCases) {
+      const state = row[platform];
+      expect(classifyInitiallyAbsentEntryTuple({ platform, tuple: row.observation })).toEqual(
+        state === null ? { status: 'invalid', reason: 'illegal-topology' } : { status: 'legal', state }
       );
     }
+    for (const observation of [tuple(unknown, exactB, exactB), tuple(exactB, unknown, exactB),
+      tuple(exactB, exactB, unknown)]) {
+      expect(classifyInitiallyAbsentEntryTuple({ platform, tuple: observation }))
+        .toEqual({ status: 'invalid', reason: 'unknown-bytes' });
+    }
+  }
+  for (const observation of [tuple(exactA, exactB), tuple(exactA, absent, exactB)]) {
+    expect(classifyInitiallyAbsentEntryTuple({ platform: 'linux', tuple: observation }))
+      .toEqual({ status: 'invalid', reason: 'identity-mismatch' });
   }
 
   const malformedRows = [
@@ -836,6 +829,10 @@ test('initially-absent T/N/R contract covers normalized tuples, malformed entrie
     win32: [tuple(), tuple(absent, exactA), tuple(exactA)],
     linux: [tuple(), tuple(absent, exactA), tuple(exactA, exactA), tuple(exactA, absent, exactA)]
   } as const;
+  const legalStates = {
+    win32: ['win32-w0', 'win32-w1', 'win32-w2'],
+    linux: ['linux-l0', 'linux-l1', 'linux-l2', 'linux-l3']
+  } as const;
   const edges = {
     win32: ['win32-w0->win32-w1', 'win32-w1->win32-w2'],
     linux: ['linux-l0->linux-l1', 'linux-l1->linux-l2', 'linux-l2->linux-l3']
@@ -853,7 +850,7 @@ test('initially-absent T/N/R contract covers normalized tuples, malformed entrie
             expectedEdge
           });
           if (successorIndex === predecessorIndex + 1 && expectedEdge === platformEdges[predecessorIndex]) {
-            expect(result).toEqual(expectedClassification(platform, states[successorIndex]!));
+            expect(result).toEqual({ status: 'legal', state: legalStates[platform][successorIndex]! });
           } else {
             expect(result).toEqual({ status: 'invalid', reason: 'illegal-topology' });
           }
