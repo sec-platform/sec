@@ -254,7 +254,7 @@ function expectDeepFrozen(value: unknown): void {
   for (const nested of Object.values(value as Record<string, unknown>)) expectDeepFrozen(nested);
 }
 
-test('preflight binds base, authorization, conditions, registry authority, and revision', () => {
+test('preflight binds authorization and revisions while enforcing condition and operation boundaries', () => {
   const value = fixture();
   const repeated = preflightSemanticMutation({ request: value.request, base: value.base, authorization: value.auth });
   expect(repeated).toEqual(value.preflight);
@@ -277,10 +277,6 @@ test('preflight binds base, authorization, conditions, registry authority, and r
   const denied = preflightSemanticMutation({ request: value.request, base: value.base, authorization: unauthorized });
   expect(denied).toMatchObject({ status: 'rejected', rejectedAt: 'source-resolution' });
   expect(denied.diagnostics[0]?.code).toBe('SEMANTIC-MUTATION-004');
-});
-
-test('preflight freezes entity, fact, and assertion condition variants plus operation conflicts', () => {
-  const value = fixture();
   const entity = value.before.ir.entities.find((entry) => entry.id === 'state:item:item-status')!;
   const fact = value.before.ir.facts.find((entry) => entry.subject === entity.id && entry.predicate === 'GUARANTEES')!;
   const assertion = fact.assertions[0]!;
@@ -354,7 +350,7 @@ test('preflight freezes entity, fact, and assertion condition variants plus oper
   expect(byRejected.diagnostics[0]?.code).toBe('SEMANTIC-MUTATION-004');
 });
 
-test('planner accepts only the exact registry effect and conservative isolated verification union', () => {
+test('planner preserves canonical ready evidence and rejects forged or unverified plan boundaries', () => {
   const value = fixture();
   const input = {
     request: value.request,
@@ -380,6 +376,33 @@ test('planner accepts only the exact registry effect and conservative isolated v
   expect(JSON.stringify(input)).toBe(beforeJson);
   expectDeepFrozen(plan);
   expect(() => assertSemanticMutationPlanInvariant(plan)).not.toThrow();
+
+  const missingStaged = structuredClone(plan) as unknown as Record<string, unknown>;
+  delete missingStaged.staged;
+  const { planRevision: _missingRevision, ...missingDraft } = missingStaged;
+  missingStaged.planRevision = semanticMutationPlanRevision(missingDraft as never);
+  expect(() => assertSemanticMutationPlanInvariant(missingStaged as unknown as SemanticMutationPlan))
+    .toThrow('invariants');
+
+  const emptyAdapter = structuredClone(plan) as unknown as Record<string, unknown>;
+  emptyAdapter.verificationAdapterId = '';
+  const { planRevision: _adapterRevision, ...adapterDraft } = emptyAdapter;
+  emptyAdapter.planRevision = semanticMutationPlanRevision(adapterDraft as never);
+  expect(() => assertSemanticMutationPlanInvariant(emptyAdapter as unknown as SemanticMutationPlan))
+    .toThrow('verification planning');
+
+  const unknownStatus = structuredClone(plan) as unknown as Record<string, unknown>;
+  unknownStatus.status = 'partial-success';
+  unknownStatus.rejectedAt = 'impact-verification';
+  unknownStatus.diagnostics = [{
+    origin: 'semantic-mutation',
+    code: 'SEMANTIC-MUTATION-010',
+    stage: 'impact-verification',
+    message: 'Unknown planning status must never become a public variant'
+  }];
+  delete unknownStatus.planRevision;
+  unknownStatus.planRevision = semanticMutationPlanRevision(unknownStatus as never);
+  expect(() => assertSemanticMutationPlanInvariant(unknownStatus as never)).toThrow('status');
 
   const blockedPlanning = buildSemanticMutationVerificationPlanningContext({
     adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
@@ -704,45 +727,6 @@ test('nested producer diagnostics preserve only trusted FACT/Impact failures and
       message: 'Unknown producer failure'
     }
   ]);
-});
-
-test('plan invariant rejects digest-correct wrong-stage shapes and empty Verification bindings', () => {
-  const value = fixture();
-  const plan = planSemanticMutation({
-    request: value.request,
-    base: value.base,
-    authorization: value.auth,
-    preparation: value.preparation,
-    verificationPlanning: value.verificationPlanning
-  });
-  if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
-
-  const missingStaged = structuredClone(plan) as unknown as Record<string, unknown>;
-  delete missingStaged.staged;
-  const { planRevision: _missingRevision, ...missingDraft } = missingStaged;
-  missingStaged.planRevision = semanticMutationPlanRevision(missingDraft as never);
-  expect(() => assertSemanticMutationPlanInvariant(missingStaged as unknown as SemanticMutationPlan))
-    .toThrow('invariants');
-
-  const emptyAdapter = structuredClone(plan) as unknown as Record<string, unknown>;
-  emptyAdapter.verificationAdapterId = '';
-  const { planRevision: _adapterRevision, ...adapterDraft } = emptyAdapter;
-  emptyAdapter.planRevision = semanticMutationPlanRevision(adapterDraft as never);
-  expect(() => assertSemanticMutationPlanInvariant(emptyAdapter as unknown as SemanticMutationPlan))
-    .toThrow('verification planning');
-
-  const unknownStatus = structuredClone(plan) as unknown as Record<string, unknown>;
-  unknownStatus.status = 'partial-success';
-  unknownStatus.rejectedAt = 'impact-verification';
-  unknownStatus.diagnostics = [{
-    origin: 'semantic-mutation',
-    code: 'SEMANTIC-MUTATION-010',
-    stage: 'impact-verification',
-    message: 'Unknown planning status must never become a public variant'
-  }];
-  delete unknownStatus.planRevision;
-  unknownStatus.planRevision = semanticMutationPlanRevision(unknownStatus as never);
-  expect(() => assertSemanticMutationPlanInvariant(unknownStatus as never)).toThrow('status');
 });
 
 test('result builder binds passed verification to exact plan, endpoint, source digest, and full union', () => {

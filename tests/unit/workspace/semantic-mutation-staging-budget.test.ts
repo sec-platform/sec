@@ -56,27 +56,7 @@ test('staging budget does not replace or swallow a failed authority fence', asyn
   await expect(options.assertCurrent()).rejects.toBe(failure);
 });
 
-test('staged failure diagnostics admit only a bounded own data error code', () => {
-  expect(semanticMutationStagedRebuildDiagnostic(Object.assign(
-    new Error('/private/workspace/secret.yaml'), { code: 'EACCES' }
-  ))).toMatchObject({ details: { errorCode: 'EACCES' } });
-  for (const error of [
-    null,
-    undefined,
-    'EACCES',
-    1,
-    Object.create({ code: 'EACCES' }),
-    { code: '/private/workspace/secret.yaml' },
-    { code: 'A'.repeat(65) },
-    { code: { toString: () => 'EACCES' } }
-  ]) {
-    const diagnostic = semanticMutationStagedRebuildDiagnostic(error);
-    expect(diagnostic).toMatchObject({ details: { errorCode: 'UNKNOWN' } });
-    expect(JSON.stringify(diagnostic)).not.toContain('/private/workspace');
-  }
-});
-
-test('staged failure diagnostics never invoke error accessors or proxy traps', () => {
+test('staged failure diagnostics admit bounded own data codes without executing caller hooks', () => {
   let calls = 0;
   const accessor = Object.defineProperty({}, 'code', {
     get() { calls += 1; throw new Error('accessor must not execute'); }
@@ -90,9 +70,23 @@ test('staged failure diagnostics never invoke error accessors or proxy traps', (
   });
   const revoked = Proxy.revocable({}, {});
   revoked.revoke();
-  for (const error of [accessor, proxy, revoked.proxy]) {
-    expect(semanticMutationStagedRebuildDiagnostic(error))
-      .toMatchObject({ details: { errorCode: 'UNKNOWN' } });
+  expect(semanticMutationStagedRebuildDiagnostic(Object.assign(
+    new Error('/private/workspace/secret.yaml'), { code: 'EACCES' }
+  ))).toMatchObject({ details: { errorCode: 'EACCES' } });
+  for (const error of [
+    null,
+    undefined,
+    'EACCES',
+    1,
+    Object.create({ code: 'EACCES' }),
+    { code: '/private/workspace/secret.yaml' },
+    { code: 'A'.repeat(65) },
+    { code: { toString: () => 'EACCES' } },
+    accessor, proxy, revoked.proxy
+  ]) {
+    const diagnostic = semanticMutationStagedRebuildDiagnostic(error);
+    expect(diagnostic).toMatchObject({ details: { errorCode: 'UNKNOWN' } });
+    expect(JSON.stringify(diagnostic)).not.toContain('/private/workspace');
   }
   expect(calls).toBe(0);
 });

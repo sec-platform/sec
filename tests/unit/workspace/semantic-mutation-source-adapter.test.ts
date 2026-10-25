@@ -282,7 +282,7 @@ test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, 
   });
 });
 
-test('SM-2 adds consecutive transitions to one state as canonical YAML nodes without style loss', () => {
+test('semantic YAML edits preserve canonical nodes and style while reporting typed syntax failures', () => {
   const before = sourceYaml({
     bom: true,
     eol: '\r\n',
@@ -328,9 +328,7 @@ test('SM-2 adds consecutive transitions to one state as canonical YAML nodes wit
   expect(text.match(/from:/gu)).toHaveLength(2);
   expect(text.endsWith('\n')).toBe(false);
   expect(text.replaceAll('\r\n', '')).not.toContain('\n');
-});
 
-test('semantic YAML syntax failure remains one typed mutation diagnostic', () => {
   const render = () => renderSemanticContractYamlEdit(
     new TextEncoder().encode('states: [unterminated\n'),
     []
