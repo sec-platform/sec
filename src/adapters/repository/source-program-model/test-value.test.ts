@@ -242,7 +242,15 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
     'tests/unit/unknown.test.ts'
   ];
   const sourceRevision = sourceRevisionFor(files);
-  const seed = compile(files, [], { baselineTestPaths });
+  const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
+    path, source, contentDigest: rawSha256(source)
+  }));
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision, files: sourceFiles, moduleMembership,
+    typescriptModel: compileExactTypeScriptModel(sourceFiles), unknowns: []
+  });
+  const input = { repositoryRoot, files: sourceFiles, model, baselineTestPaths };
+  const seed = compileSourceProgramTestValue(input);
   const replacementTestId = seed.records.find(({ path }) =>
     path === 'tests/unit/replacement.test.ts')?.testId;
   expect(replacementTestId).toMatch(/^sha256:[0-9a-f]{64}$/u);
@@ -261,8 +269,8 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
       census
     }
   });
-  const result = compile(files, [], {
-    baselineTestPaths,
+  const result = compileSourceProgramTestValue({
+    ...input,
     dispositions: [
       evidence('tests/unit/rewritten.test.ts', 'rewrite', {
         producerCount: 1,
@@ -289,24 +297,24 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
   ]);
   expect(result.findings.filter(({ path }) => path === 'tests/unit/unknown.test.ts')
     .every(({ disposition }) => disposition !== null)).toBe(true);
-  expect(() => compile(files, [], {
-    baselineTestPaths,
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     dispositions: [evidence('tests/unit/deleted.test.ts', 'delete', {
       producerCount: 0,
       consumerCount: 0,
       externalContractCount: 0
     })]
   })).toThrow('DELETE requires a Source Program supersession receipt');
-  expect(() => compile(files, [], {
-    baselineTestPaths,
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     dispositions: [evidence('tests/unit/deleted.test.ts', 'merge', {
       producerCount: 0,
       consumerCount: 0,
       externalContractCount: 0
     }, replacementTestId === undefined ? [] : [replacementTestId])]
   })).toThrow('MERGE requires a Source Program supersession receipt');
-  expect(() => compile(files, [], {
-    baselineTestPaths,
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     dispositions: [{
       ...evidence('tests/unit/deleted.test.ts', 'delete', {
         producerCount: 0,
@@ -338,7 +346,15 @@ test('repository rewrite decisions bind stable paths and reasons to exact curren
     observationDigest: sha256('baseline-observation'),
     census: Object.freeze({ producerCount: 0, consumerCount: 2, externalContractCount: 0 })
   })];
-  const observed = compile(files, [], { baselineTestPaths, baselineEvidence });
+  const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
+    path, source, contentDigest: rawSha256(source)
+  }));
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sourceRevisionFor(files), files: sourceFiles, moduleMembership,
+    typescriptModel: compileExactTypeScriptModel(sourceFiles), unknowns: []
+  });
+  const input = { repositoryRoot, files: sourceFiles, model, baselineTestPaths, baselineEvidence };
+  const observed = compileSourceProgramTestValue(input);
   const batch = Object.freeze({
     baselineDigest: observed.baselineDigest,
     owner: 'repository-test-value',
@@ -353,7 +369,7 @@ test('repository rewrite decisions bind stable paths and reasons to exact curren
     baselineEvidence,
     batches: [batch]
   });
-  const compiled = compile(files, [], { baselineTestPaths, baselineEvidence, dispositions });
+  const compiled = compileSourceProgramTestValue({ ...input, dispositions });
 
   expect(dispositions).toEqual([expect.objectContaining({
     path: deletedPath,
@@ -496,18 +512,22 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     { observationStatus: 'resolved', observationReason: null },
     { observationStatus: 'resolved', observationReason: null }
   ]);
-  expect(() => compile(candidateFiles, [], {
-    baselineTestPaths: baselinePaths,
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sourceRevisionFor(candidateFiles), files: candidateSourceFiles,
+    moduleMembership, typescriptModel: candidateModel, unknowns: []
+  });
+  const input = {
+    repositoryRoot, files: candidateSourceFiles, model, baselineTestPaths: baselinePaths
+  };
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     baselineEvidence: [{
       ...baselineEvidence[0],
       observationStatus: 'unresolved',
       observationReason: 'caller-invented-reason'
     }]
   })).toThrow('unresolved evidence requires one canonical reason');
-  const result = compile(candidateFiles, [], {
-    baselineTestPaths: baselinePaths,
-    baselineEvidence
-  });
+  const result = compileSourceProgramTestValue({ ...input, baselineEvidence });
   expect(result.baselineTestPaths).toEqual([...baselinePaths].sort());
   expect(result.dispositions.map(({ path, disposition }) => ({ path, disposition }))).toEqual([
     { path: 'tests/unit/empty.test.ts', disposition: 'unknown' },
@@ -550,12 +570,18 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
     source,
     contentDigest: rawSha256(source)
   }));
-  const initial = compile(candidateFiles, [], {
+  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles);
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sourceRevisionFor(candidateFiles), files: candidateSourceFiles,
+    moduleMembership, typescriptModel: candidateModel, unknowns: []
+  });
+  const initial = compileSourceProgramTestValue({
+    repositoryRoot, files: candidateSourceFiles, model,
     baselineTestPaths: [baselinePath],
     baselineEvidence: compileSourceProgramTestBaselineEvidence({
       baselineTestPaths: [baselinePath],
       baselineModel: compileExactTypeScriptModel(baselineFiles),
-      candidateModel: compileExactTypeScriptModel(candidateSourceFiles),
+      candidateModel,
       baselineRevision
     })
   });
