@@ -11,6 +11,19 @@ import {
 import { compileSourceProgramTestValue } from './test-value.ts';
 import { compileSupersessionFixture, compileSupersessionSnapshot } from './test/supersession-fixture.ts';
 
+// These exact, immutable evidence inputs are shared; each comparison keeps
+// its own registration, current generation and independent operation budget.
+const operationSources = {
+  'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+  'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+};
+let operationBaseline: ReturnType<typeof compileSupersessionSnapshot> | undefined;
+const dynamicSources = {
+  'src/example/operation.ts': "export async function execute(specifier: string) { return import(specifier); }\n",
+  'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', async () => { await execute('external'); });\n"
+};
+let dynamicBaseline: ReturnType<typeof compileSupersessionFixture> | undefined;
+
 test('supersession evidence preserves a zero input admission ceiling and rejects negative budgets', () => {
   const sources = {
     'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n"
@@ -58,16 +71,10 @@ test('supersession preserves production rename evidence without inventing test e
 });
 
 test('supersession retains unchanged legacy inputs without certifying test necessity', () => {
-  const production = "export function execute(): string { return 'ok'; }\n";
-  const testSource = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
-  const baseline = compileSupersessionSnapshot({
-    'src/example/operation.ts': production,
-    'tests/example.test.ts': testSource
-  });
+  const baseline = operationBaseline ??= compileSupersessionSnapshot(operationSources);
   const current = compileSupersessionSnapshot({
-    'src/example/operation.ts': production,
-    'tests/another.test.ts': testSource,
-    'tests/example.test.ts': testSource
+    ...operationSources,
+    'tests/another.test.ts': operationSources['tests/example.test.ts']
   });
 
   const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
@@ -383,10 +390,7 @@ test('source observations can invalidate but never expand an owner operation env
 });
 
 test('supersession rejects forged intent expansion and additional effect or failure categories as obligation proof', () => {
-  const baseline = compileSupersessionSnapshot({
-    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
-    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
-  });
+  const baseline = operationBaseline ??= compileSupersessionSnapshot(operationSources);
   const current = compileSupersessionSnapshot({
     'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
     'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { readFile } from 'node:fs/promises';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid state', async () => { expect(execute()).toBe('ok'); await readFile('observation'); expect(() => { throw new Error('invalid'); }).toThrow(); });\n"
@@ -445,10 +449,7 @@ test('supersession rejects forged intent expansion and additional effect or fail
 });
 
 test('supersession blocks a missing required production behavior', () => {
-  const baseline = compileSupersessionSnapshot({
-    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
-    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
-  });
+  const baseline = operationBaseline ??= compileSupersessionSnapshot(operationSources);
   const current = compileSupersessionSnapshot({
     'src/example/operation.ts': "export function execute(): string { return 'changed'; }\n",
     'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('changed'));\n"
@@ -463,10 +464,7 @@ test('supersession blocks a missing required production behavior', () => {
 });
 
 test('supersession retains unchanged unresolved evidence across identical and different revision locators', () => {
-  const fixture = compileSupersessionFixture({
-    'src/example/operation.ts': "export async function execute(specifier: string) { return import(specifier); }\n",
-    'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', async () => { await execute('external'); });\n"
-  });
+  const fixture = dynamicBaseline ??= compileSupersessionFixture(dynamicSources);
   const unchanged = compileSourceProgramSupersessionReceipt({
     baseline: fixture.evidence, current: fixture.evidence
   });
@@ -505,10 +503,7 @@ test('supersession retains unchanged unresolved evidence across identical and di
 });
 
 test('supersession blocks changed dynamic or external observations instead of inventing intent', () => {
-  const baseline = compileSupersessionSnapshot({
-    'src/example/operation.ts': "export async function execute(specifier: string) { return import(specifier); }\n",
-    'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', async () => { await execute('external'); });\n"
-  });
+  const baseline = (dynamicBaseline ??= compileSupersessionFixture(dynamicSources)).evidence;
   const current = compileSupersessionSnapshot({
     'src/example/operation.ts': "export async function execute(specifier: string) { return import(`prefix/${specifier}`); }\n",
     'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', async () => { await execute('external'); });\n"

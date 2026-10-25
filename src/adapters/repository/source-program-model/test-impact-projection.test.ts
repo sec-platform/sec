@@ -42,14 +42,17 @@ function fixture(sources: Readonly<Record<string, string>>) {
   return { repositoryCompilation, projection };
 }
 
+const projectionSources = {
+  'src/compiler/projection-fixture.ts': 'export const fixture = 1;',
+  'tests/unit/projection-fixture.test.ts': [
+    "import { fixture } from '../../src/compiler/projection-fixture.ts';",
+    'if (!fixture) throw new Error();'
+  ].join('\n')
+};
+let compactFixture: ReturnType<typeof fixture> | undefined;
+
 test('compact TestImpact projection retains exact bindings through its strict non-authoritative codec', () => {
-  const { repositoryCompilation, projection } = fixture({
-    'src/compiler/projection-fixture.ts': 'export const fixture = true;',
-    'tests/unit/projection-fixture.test.ts': [
-      "import { fixture } from '../../src/compiler/projection-fixture.ts';",
-      'if (!fixture) throw new Error();'
-    ].join('\n')
-  });
+  const { repositoryCompilation, projection } = compactFixture ??= fixture(projectionSources);
   expect(() => assertIssuedTestImpactProjection(projection)).toThrow('owner-issued');
   expect(projection.purpose).toBe('test-impact-selection');
   expect(projection.subjectDigest).toBe(repositoryCompilation.subjectDigest);
@@ -115,13 +118,10 @@ test('compact projection retains compiler-observed test consumers as canonical o
 });
 
 test('changed exact source bytes produce a different TestImpact projection identity', () => {
-  const first = fixture({
-    'src/compiler/change-fixture.ts': 'export const changed = 1;',
-    'tests/unit/change-fixture.test.ts': "import '../../src/compiler/change-fixture.ts';"
-  }).projection;
+  const first = (compactFixture ??= fixture(projectionSources)).projection;
   const second = fixture({
-    'src/compiler/change-fixture.ts': 'export const changed = 2;',
-    'tests/unit/change-fixture.test.ts': "import '../../src/compiler/change-fixture.ts';"
+    ...projectionSources,
+    'src/compiler/projection-fixture.ts': 'export const fixture = 2;'
   }).projection;
   expect(second.sourceRevision).not.toBe(first.sourceRevision);
   expect(second.snapshotDigest).not.toBe(first.snapshotDigest);
