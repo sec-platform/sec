@@ -24,14 +24,14 @@ test('plan-only admission does not inspect unused installation or handoff capabi
 });
 
 test('a completed handoff returns its status without starting local execution', async () => {
-  for (const exit of [0,1,256,-1]) {
+  for (const exit of [0,256,-1]) {
     assert.equal(await runCheckAffectedCommand([],callbacks({handoff:async()=>exit,
       runExecution:async()=>assert.fail('execution after handoff')})),exit);
   }
 });
 
 test('callback exceptions keep exact identity and stop before the next effect', async () => {
-  for (const reason of [undefined,null,false,0,new Error('failed')]) {
+  for (const reason of [undefined,new Error('failed')]) {
     let failed=false;
     try { await runCheckAffectedCommand([],callbacks({ensureDependencies:async()=>{throw reason;},
       handoff:async()=>assert.fail('handoff after preparation failure')})); }

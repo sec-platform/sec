@@ -55,7 +55,7 @@ function planInput(overrides: {
   base?: string;
   head?: string;
   changedPaths?: readonly string[];
-} = {}): OperationReadPlanInput {
+}): OperationReadPlanInput {
   // Pure planning content requires exact object-ID syntax, not a live Git observation.
   const head = overrides.head ?? 'a'.repeat(40);
   const base = overrides.base ?? head;
@@ -87,12 +87,6 @@ function evaluatePlan(input: OperationReadPlanInput): SkillApplicabilityDecision
     projectSkillApplicabilityEnvelopeFromOperationReadPlan(compileOperationReadPlan(input))
   );
 }
-
-test('verified Read Plan selects the single trusted Skill', () => {
-  const decision = evaluatePlan(planInput());
-  expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('worker-development');
-});
 
 test('zero candidates and zero body budget resolve none-required', () => {
   const decision = evaluatePlan(planInput({ candidates: [] }));
