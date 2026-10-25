@@ -106,6 +106,12 @@ test('introduce judgment joins only genuine new occurrences and cannot clear an 
   const baseline = compileSupersessionSnapshot(production);
   const current = compileSupersessionSnapshot({ ...production, [newPath]: source });
   const testId = current.tests[0]!.testId;
+  const unapproved = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations',
+    baseline, current, changedPaths: [newPath] });
+  expect(unapproved.status).toBe('owner-decision-required');
+  expect(unapproved.findings).toEqual([expect.objectContaining({
+    code: 'test-introduction-decision-required', baselineId: null, currentCandidateIds: [testId]
+  })]);
   const decision: SourceProgramTestAuthorDecision = { owner: 'example', replacementOwners: ['example'], disposition: 'introduce',
     baselineTestIds: [], currentTestIds: [testId], changedInputPaths: [newPath], baselineResponsibilities: [],
     currentResponsibilities: [{ testId, responsibility: constantResultResponsibility(testId, 'example') }],
@@ -116,6 +122,7 @@ test('introduce judgment joins only genuine new occurrences and cannot clear an 
   const receipt = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations', baseline, current,
     changedPaths: [newPath], authorAssessment: assessment, authorApproval: approval });
   expect(receipt.status).toBe('author-decision-conditional');
+  expect(receipt.findings).toEqual([]);
   expect(receipt.replacements).toEqual([]);
   expect(receipt.authorAssessedCurrentPaths).toEqual([]);
   const counterfeit = testAuthorPayload(current, current, [{ ...decision, changedInputPaths: [] }]);
@@ -129,6 +136,19 @@ test('introduce judgment joins only genuine new occurrences and cannot clear an 
     changedPaths, authorAssessment: proposedAssessment });
   expect(incomplete.status).toBe('owner-decision-required');
   expect(incomplete.findings).toContainEqual(expect.objectContaining({ code: 'required-test-boundary-missing', baselineId: old.tests[0]!.testId }));
+  const priorId = old.tests[0]!.testId;
+  const rewritePayload = testAuthorPayload(old, current, [{ ...decision, disposition: 'rewrite',
+    baselineTestIds: [priorId], changedInputPaths: changedPaths,
+    baselineResponsibilities: [{ testId: priorId, responsibility: constantResultResponsibility(priorId, 'example') }],
+    reason: 'Relocate the existing accepted obligation without introducing a new one.' }]);
+  const rewriteAssessment = assessSourceProgramTestAuthorDecision({ payload: rewritePayload,
+    baseline: old, current, changedPaths });
+  const rewrite = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations',
+    baseline: old, current, changedPaths, authorAssessment: rewriteAssessment });
+  expect(rewrite.status).toBe('author-decision-conditional');
+  expect(rewrite.findings).toEqual([]);
+  expect(rewrite.replacements).toEqual([expect.objectContaining({ baselineId: priorId,
+    currentIds: [testId], proof: 'owner-rewrite-judgment' })]);
 });
 
 function lateTransitionAuthorFixture() {
@@ -248,6 +268,15 @@ test('authored relocation retains exact counterpart pairs without reusing approv
     baseline, current, changedPaths });
   expect(automatic.status).toBe('owner-decision-required');
   expect(automatic.replacements).toEqual([]);
+  const partialPayload = testAuthorPayload(baseline, current, [{ ...decision,
+    baselineTestIds: [pairs[0]!.before], currentTestIds: [pairs[0]!.after] }]);
+  const partialAssessment = assessSourceProgramTestAuthorDecision({ payload: partialPayload,
+    baseline, current, changedPaths });
+  const partial = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations',
+    baseline, current, changedPaths, authorAssessment: partialAssessment });
+  expect(partial.status).toBe('owner-decision-required');
+  expect(partial.findings.filter(({ code }) => code === 'test-introduction-decision-required'))
+    .toEqual([expect.objectContaining({ currentCandidateIds: [pairs[1]!.after] })]);
   const missingInput = testAuthorPayload(baseline, current, [{ ...decision, changedInputPaths: [testPath] }]);
   expect(() => assessSourceProgramTestAuthorDecision({ payload: missingInput, baseline, current, changedPaths })).toThrow();
   const priorPayload = testAuthorPayload(baseline, baseline, [{

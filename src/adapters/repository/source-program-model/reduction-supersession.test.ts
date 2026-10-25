@@ -60,6 +60,8 @@ test('supersession preserves production rename evidence without inventing test e
   expect(receipt.findings).toEqual([expect.objectContaining({
     code: 'required-test-boundary-missing',
     baselinePaths: ['tests/example.test.ts']
+  }), expect.objectContaining({
+    code: 'test-introduction-decision-required', currentCandidateIds: [current.tests[0]!.testId]
   })]);
   expect(receipt.replacements.find(({ kind }) => kind === 'production')).toEqual(
     expect.objectContaining({
@@ -70,7 +72,7 @@ test('supersession preserves production rename evidence without inventing test e
   );
 });
 
-test('supersession retains unchanged legacy inputs without certifying test necessity', () => {
+test('supersession retains unchanged legacy inputs without admitting an unassessed introduction', () => {
   const baseline = operationBaseline ??= compileSupersessionSnapshot(operationSources);
   const current = compileSupersessionSnapshot({
     ...operationSources,
@@ -78,8 +80,11 @@ test('supersession retains unchanged legacy inputs without certifying test neces
   });
 
   const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
-  expect(receipt.status).toBe('retained-unassessed');
-  expect(receipt.findings).toEqual([]);
+  expect(receipt.status).toBe('owner-decision-required');
+  expect(receipt.findings).toEqual([expect.objectContaining({
+    code: 'test-introduction-decision-required', baselineId: null,
+    currentCandidateIds: [current.tests.find(({ path }) => path === 'tests/another.test.ts')!.testId]
+  })]);
   expect(receipt.replacements.filter(({ kind }) => kind === 'test')).toEqual([expect.objectContaining({
     baselinePaths: ['tests/example.test.ts'],
     currentPaths: ['tests/example.test.ts'],
@@ -401,6 +406,8 @@ test('supersession rejects forged intent expansion and additional effect or fail
   expect(receipt.findings).toEqual([expect.objectContaining({
     code: 'required-test-boundary-missing',
     currentCandidateIds: [current.tests[0]!.testId]
+  }), expect.objectContaining({
+    code: 'test-introduction-decision-required', currentCandidateIds: [current.tests[0]!.testId]
   })]);
   expect(receipt.replacements.filter(({ kind }) => kind === 'test')).toEqual([]);
   const owner = baseline.intentEvidence[0]!;

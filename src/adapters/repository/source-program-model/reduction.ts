@@ -1949,6 +1949,27 @@ export function compileSourceProgramSupersessionReceipt(
     ));
   }
 
+  // Existing-occurrence retention and exact authored replacements account for
+  // old obligations. Any remaining current-only registration needs its own
+  // INTRODUCE judgment; one unrelated author decision cannot approve it.
+  // Assessments remain conditional until the existing live host qualifies them.
+  const baselineTestIds = new Set(input.baseline.tests.map(({ testId }) => testId));
+  const accountedCurrentTestIds = new Set(replacements
+    .filter(({ kind }) => kind === 'test')
+    .flatMap(({ currentIds }) => currentIds));
+  for (const decision of input.authorAssessment?.decisions ?? []) {
+    if (decision.disposition !== 'introduce') continue;
+    for (const testId of decision.currentTestIds) accountedCurrentTestIds.add(testId);
+  }
+  for (const test of input.current.tests) {
+    if (baselineTestIds.has(test.testId) || accountedCurrentTestIds.has(test.testId)) continue;
+    findings.push(supersessionFinding(
+      'test-introduction-decision-required',
+      'a current-only registration has no exact prior-obligation replacement or INTRODUCE author judgment; live host adoption is required before acceptance',
+      { owner: test.owner, currentCandidateIds: [test.testId] }
+    ));
+  }
+
   findings.sort((left, right) => compareCodeUnits(left.code, right.code)
     || compareCodeUnits(left.baselineId ?? '', right.baselineId ?? '')
     || compareCodeUnits(left.baselinePaths.join('\0'), right.baselinePaths.join('\0')));
@@ -1988,7 +2009,6 @@ export function compileSourceProgramSupersessionReceipt(
       'a stronger replacement may be useful, but it cannot be called supersession until its selected implementation/test/owner/uncertainty lifecycle cost is strictly lower'
     ));
   }
-  const baselineTestIds = new Set(input.baseline.tests.map(({ testId }) => testId));
   const status: SourceProgramSupersessionStatus = findings.length > 0
     ? 'owner-decision-required'
     : input.authorAssessment !== undefined
