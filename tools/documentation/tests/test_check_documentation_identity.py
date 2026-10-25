@@ -39,7 +39,7 @@ class DocumentationIdentity(TestCase):
         (self.root / 'docs/产品').mkdir(parents=True)
         self.write(s.BASELINE_PATH, json.dumps(declaration(), ensure_ascii=False))
         self.write('docs/产品/产品要求与工作约束.md', '\n\n'.join(
-            f'### REQ{i:03d}｜Requirement {i}\n\nOriginal requirement {i}.' for i in range(1, 52)))
+            f'### REQ{i:03d}｜Requirement {i}\n\nOriginal requirement {i}.' for i in range(1, 3)))
 
     def write(self, name, text):
         target = self.root / name
@@ -137,25 +137,17 @@ class DocumentationIdentity(TestCase):
         self.write('docs/é.md', 'x'); self.write('docs/e\u0301.md', 'y')
         with self.assertRaisesRegex(ValueError, 'Unicode|collision'): self.capture()
 
-    def test_requirement_projection_not_a_second_handwritten_list(self):
+    def test_requirement_projection_tracks_real_edits_and_ignores_fenced_examples(self):
         original = s.requirement_projection(self.root)
         path = self.root / 'docs/产品/产品要求与工作约束.md'
-        path.write_text(path.read_text().replace('Original requirement 1.', 'Changed requirement 1.'))
+        path.write_text(path.read_text().replace('Original requirement 1.', 'Changed requirement 1.') +
+                        '\n\n### REQ003｜New obligation\nNew source meaning.\n\n```md\n### REQ999｜example\n```\n')
         updated = s.requirement_projection(self.root)
         self.assertNotEqual(original['items'][0], updated['items'][0])
-        self.assertEqual(original['items'][1:], updated['items'][1:])
+        self.assertEqual(original['items'][1:], updated['items'][1:2])
+        self.assertEqual([item['id'] for item in updated['items']], ['REQ001', 'REQ002', 'REQ003'])
 
-    def test_requirement_example_heading_is_data_not_requirement_identity(self):
-        path = self.root / 'docs/产品/产品要求与工作约束.md'
-        path.write_text(path.read_text() + '\n\n```md\n### REQ999｜example\n```\n')
-        self.assertEqual(len(s.requirement_projection(self.root)['items']), 51)
 
-    def test_authorized_new_requirement_is_derived_not_blocked_by_a_copied_count(self):
-        authority = self.root / 'docs/产品/产品要求与工作约束.md'
-        authority.write_text(authority.read_text() + '\n\n### REQ052｜New obligation\nNew source meaning.\n')
-        projection = s.requirement_projection(self.root)
-        self.assertEqual(len(projection['items']), 52)
-        self.assertEqual(projection['items'][-1]['id'], 'REQ052')
 
     def test_boolean_size_cannot_compare_equal_to_integer_size(self):
         self.write('docs/one.md', 'x')
@@ -163,18 +155,6 @@ class DocumentationIdentity(TestCase):
         next(m for m in value['members'] if m['path'] == 'docs/one.md')['bytes'] = True
         with self.assertRaises(ValueError): s.validate_source_manifest(value, self.root)
 
-    def test_refresh_is_idempotent_and_source_preserving(self):
-        boundary_before = (self.root / s.BASELINE_PATH).read_bytes()
-        source_before = self.capture()
-        self.assertIn(s.BASELINE_PATH, [x['path'] for x in source_before['members']])
-        result = s.refresh_source_manifest(self.root)
-        self.assertEqual((self.root / s.BASELINE_PATH).read_bytes(), boundary_before)
-        self.assertFalse(result['boundary_written'])
-        self.assertNotIn('source_set_sha256', s.load(self.root / s.BASELINE_PATH))
-        before = {n: (self.root / n).read_bytes() for n in s.PROJECTION_PATHS}
-        s.refresh_source_manifest(self.root)
-        self.assertEqual(source_before, self.capture())
-        self.assertEqual(before, {n: (self.root / n).read_bytes() for n in s.PROJECTION_PATHS})
 
     def test_interrupted_projection_publication_is_detectable_and_rebuildable(self):
         expected = self.capture()

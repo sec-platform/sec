@@ -84,7 +84,7 @@ class SourceBoundary(unittest.TestCase):
     def test_refresh_publishes_complete_canonical_members_and_matching_digest(self):
         authority = self.root / 'docs/产品/产品要求与工作约束.md'
         authority.parent.mkdir()
-        authority.write_text('\n\n'.join(f'### REQ{i:03d}｜R {i}\ntext' for i in range(1,52)))
+        authority.write_text('### REQ001｜R 1\ntext')
         expected_names = ['.documentation/baseline.json', 'docs/产品/产品要求与工作约束.md', 'docs/规则.md']
         expected_members = []
         for name in expected_names:
@@ -94,6 +94,7 @@ class SourceBoundary(unittest.TestCase):
         encoded_members = json.dumps(expected_members, ensure_ascii=False, sort_keys=True,
                                      separators=(',', ':'), allow_nan=False).encode('utf-8')
         expected_digest = hashlib.sha256(encoded_members).hexdigest()
+        source_before = {name: (self.root / name).read_bytes() for name in expected_names}
         result = refresh_source_manifest(self.root)
         manifest = load(self.root / '.documentation/source-manifest.json')
         baseline = load(self.root / '.documentation/baseline.json')
@@ -101,6 +102,12 @@ class SourceBoundary(unittest.TestCase):
         self.assertEqual(manifest['source_set_sha256'], expected_digest)
         self.assertNotIn('source_set_sha256', baseline)
         self.assertEqual(result['source_members'], 3)
+        self.assertFalse(result['boundary_written'])
+        projection_names = ('.documentation/source-manifest.json', '.documentation/requirements.json')
+        first = {name: (self.root / name).read_bytes() for name in projection_names}
+        refresh_source_manifest(self.root)
+        self.assertEqual(first, {name: (self.root / name).read_bytes() for name in projection_names})
+        self.assertEqual(source_before, {name: (self.root / name).read_bytes() for name in expected_names})
 
 
 if __name__ == '__main__':

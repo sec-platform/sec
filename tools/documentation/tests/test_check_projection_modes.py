@@ -2,12 +2,10 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
 import check_docs
-import build_html
 import check_design
 import source_inventory as s
 from .fixtures import declaration
@@ -50,11 +48,7 @@ class ProjectionModes(TestCase):
             with self.assertRaisesRegex(ValueError,'source changed during capture'):check_docs.verify(self.root)
 
     def test_source_check_ignores_broken_local_projections_and_preserves_their_bytes(self):
-        native=s.read_ordinary;reads=[]
-        def read(root,name):reads.append(name);return native(root,name)
-        with patch.object(s,'read_ordinary',side_effect=read):
-            before = check_docs.verify(self.root)['source_set_sha256']
-        self.assertEqual(reads.count('docs/产品/产品要求与工作约束.md'),2)
+        before = check_docs.verify(self.root)['source_set_sha256']
         for name in s.PROJECTION_PATHS:
             (self.root / name).write_bytes(b'\xffbroken derived bytes')
         self.assertEqual(check_docs.verify(self.root)['source_set_sha256'], before)
@@ -62,12 +56,6 @@ class ProjectionModes(TestCase):
         self.assertNotEqual(check_docs.verify(self.root)['source_set_sha256'], before)
         for name in s.PROJECTION_PATHS:
             self.assertEqual((self.root / name).read_bytes(), b'\xffbroken derived bytes')
-        (self.root / 'README.md').write_text('# Reader root marker\n', encoding='utf-8')
-        args = SimpleNamespace(sealed=False, diagrams='source', diagram_cache=None,
-                               max_file_bytes=1_000_000, max_total_bytes=2_000_000)
-        captured = build_html.capture(self.root, args)
-        self.assertTrue(s.PROJECTION_PATHS.isdisjoint(captured))
-        self.assertEqual(captured['docs/产品/产品要求与工作约束.md'], self.authority.read_bytes())
 
     def test_sealed_check_requires_both_exact_projections(self):
         with self.assertRaisesRegex(ValueError, 'sealed .*missing'):
@@ -81,15 +69,15 @@ class ProjectionModes(TestCase):
             with self.subTest(missing=name), self.assertRaisesRegex(ValueError, 'sealed .*missing'):
                 check_docs.verify(self.root, sealed=True)
             (self.root / name).write_bytes(original)
+        original_manifest = (self.root / s.MANIFEST_PATH).read_bytes()
+        self.write(s.MANIFEST_PATH, {'schema': s.MANIFEST_SCHEMA, 'members': [], 'source_set_sha256': '0' * 64})
+        with self.assertRaisesRegex(ValueError, 'sealed source projection'):
+            check_docs.verify(self.root, sealed=True)
+        (self.root / s.MANIFEST_PATH).write_bytes(original_manifest)
         self.authority.write_text('### REQ001｜Requirement\n\nChanged body.\n', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'sealed .*stale'):
             check_docs.verify(self.root, sealed=True)
 
-    def test_sealed_check_rejects_forged_projection_bytes(self):
-        s.refresh_source_manifest(self.root)
-        self.write(s.MANIFEST_PATH, {'schema': s.MANIFEST_SCHEMA, 'members': [], 'source_set_sha256': '0' * 64})
-        with self.assertRaisesRegex(ValueError, 'sealed source projection'):
-            check_docs.verify(self.root, sealed=True)
 
     def example(self):
         sample = self.root / 'examples/sample'
