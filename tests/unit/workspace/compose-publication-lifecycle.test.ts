@@ -1,4 +1,4 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,8 +19,7 @@ function deferred() {
 // Native integration: these tests deliberately retain actual Prettier, retained
 // readers and physical publishers. They require the repository Bun/host profile.
 test('formatter joins every started publication before reporting a peer failure', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-format-join-'));
-  await settleWorkspaceCallback(async () => {
+  await withTempWorkspace(async root => {
     const release = deferred(), second = deferred();
     const failure = new Error('publication fence failed');
     let calls = 0, settled = false;
@@ -43,39 +42,35 @@ test('formatter joins every started publication before reporting a peer failure'
       assert.equal(readFileSync(path.join(root, 'a.json'), 'utf8'), '{"a":1}');
       assert.equal(readFileSync(path.join(root, 'b.json'), 'utf8'), '{"b":2}');
     } finally { release.resolve(); await outcome; }
-  }, async () => { rmSync(root, { recursive: true, force: true }); });
+  }, 'sec-format-join-');
 }, 30_000);
 
 test('formatter refuses to overwrite a changed preimage at its publication fence', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-format-preimage-'));
-  const file = path.join(root, 'a.json');
-  try {
+  await withTempWorkspace(async root => {
+    const file = path.join(root, 'a.json');
     writeFileSync(file, '{"a":1}');
     await assert.rejects(formatOutputFiles(root, ['a.json'], async () => { writeFileSync(file, '{"user":true}'); }), /preimage/);
     assert.equal(readFileSync(file, 'utf8'), '{"user":true}');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, 'sec-format-preimage-');
 }, 30_000);
 
 test('real parent cancellation at the formatter fence prevents publication', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-format-abort-'));
-  const file = path.join(root, 'a.json'), controller = new AbortController();
-  const reason = new Error('cancelled');
-  try {
+  await withTempWorkspace(async root => {
+    const file = path.join(root, 'a.json'), controller = new AbortController();
+    const reason = new Error('cancelled');
     writeFileSync(file, '{"a":1}');
     await assert.rejects(formatOutputFiles(root, ['a.json'], async () => controller.abort(reason), controller.signal), error => error === reason);
     assert.equal(readFileSync(file, 'utf8'), '{"a":1}');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, 'sec-format-abort-');
 }, 30_000);
 
 test('cancelled scaffold admission performs neither source rendering nor writes', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-scaffold-abort-'));
-  const controller = new AbortController(), reason = new Error('cancelled'); controller.abort(reason);
-  const lock = { get resolvedBlocks() { assert.fail('features read after cancellation'); throw new Error('unreachable'); } } as unknown as LockFile;
-  try {
+  await withTempWorkspace(async root => {
+    const controller = new AbortController(), reason = new Error('cancelled'); controller.abort(reason);
+    const lock = { get resolvedBlocks() { assert.fail('features read after cancellation'); throw new Error('unreachable'); } } as unknown as LockFile;
     await assert.rejects(generateRuntimeLibraryScaffold(root, lock, undefined, controller.signal), error => error === reason);
     assert.deepEqual(readdirSync(root), []);
-  }
-  finally { rmSync(root, { recursive: true, force: true }); }
+  }, 'sec-scaffold-abort-');
 }, 30_000);
 
 // Isolate the timing wrapper in a child: each stage still performs its real

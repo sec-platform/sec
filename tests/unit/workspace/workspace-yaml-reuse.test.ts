@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 import path from 'node:path';
 import { YamlInputLimitError, YamlSyntaxError } from '../../../src/adapters/formats/yaml.ts';
 import { PhysicalNoFollowError } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -10,9 +10,7 @@ import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../../sr
 // Real YAML and ordinary filesystem semantics are required. No JSON-parser,
 // serializer or physical-write substitutes may establish these results.
 async function using(run: (root: string, file: string) => Promise<void>) {
-  const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-workspace-yaml-'));
-  try { await run(root, path.join(root, 'value.yaml')); }
-  finally { await fs.rm(root, { recursive: true, force: true }); }
+  await withTempWorkspace(root => run(root, path.join(root, 'value.yaml')), 'sec-workspace-yaml-');
 }
 
 test('ordinary YAML collections, aliases and empty documents retain their decoded meaning', () => using(async (_root, file) => {

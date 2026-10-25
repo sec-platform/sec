@@ -1,17 +1,17 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 import { readWorkspaceSemanticQueryInput } from '../../../src/adapters/workspace/semantic-query-input.ts';
 
 const validInput = JSON.stringify({ engineeringIRInput: { entities: [], facts: [] } });
 
 test('semantic query input is confined to one workspace-relative member', async () => {
-  const parent = await fs.mkdtemp(path.join(tmpdir(), 'sec-semantic-query-input-'));
-  const workspace = path.join(parent, 'workspace');
-  const outside = path.join(parent, 'outside.json');
-  try {
+  await withTempWorkspace(async parent => {
+    const workspace = path.join(parent, 'workspace');
+    const outside = path.join(parent, 'outside.json');
     await fs.mkdir(path.join(workspace, 'inputs'), { recursive: true });
     await fs.writeFile(path.join(workspace, 'inputs', 'query.json'), validInput);
     await fs.writeFile(outside, validInput);
@@ -22,20 +22,15 @@ test('semantic query input is confined to one workspace-relative member', async 
       .toThrow('workspace-relative path');
     expect(() => readWorkspaceSemanticQueryInput(workspace, outside))
       .toThrow('workspace-relative path');
-  } finally {
-    await fs.rm(parent, { recursive: true, force: true });
-  }
+  }, 'sec-semantic-query-input-');
 });
 
 test('semantic query JSON rejects unsupported top-level fields rather than ignoring them', async () => {
-  const workspace = await fs.mkdtemp(path.join(tmpdir(), 'sec-semantic-query-input-'));
-  try {
+  await withTempWorkspace(async workspace => {
     await fs.writeFile(path.join(workspace, 'query.json'), JSON.stringify({
       engineeringIRInput: { entities: [], facts: [] }, generatorDeclarations: []
     }));
     expect(() => readWorkspaceSemanticQueryInput(workspace, 'query.json'))
       .toThrow('only its own engineeringIRInput field');
-  } finally {
-    await fs.rm(workspace, { recursive: true, force: true });
-  }
+  }, 'sec-semantic-query-input-');
 });

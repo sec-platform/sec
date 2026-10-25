@@ -1,4 +1,4 @@
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleResources, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,8 +33,15 @@ function fixture() {
   }
 }
 
+function withFixture<T>(callback: (f: ReturnType<typeof fixture>) => T | PromiseLike<T>): Promise<T> {
+  return withAcquiredResource({
+    operationLabel: 'manifest resolution test', resourceLabel: 'manifest resolution fixture',
+    acquire: fixture, use: callback, release: f => f.cleanup()
+  });
+}
+
 test('real resolver coalesces repeated capabilities while preserving provider order and global install step IDs', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base', 'cap/base']); f.plan.blocks = [{ id: 'block/app' }, { id: 'block/base' }];
     const incompatible = f.manifest('block/a', [], ['cap/base']);
     writeFileSync(path.join(incompatible.folder, 'block.manifest.yaml'), JSON.stringify({
@@ -49,63 +56,65 @@ test('real resolver coalesces repeated capabilities while preserving provider or
     assert.deepEqual(lock.resolvedBlocks.map(block => block.registrySourceId), ['local', 'local']);
     assert.equal(lock.resolvedBlocks[0]!.manifestPath, 'registry/block.base/block.manifest.yaml');
     assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
-  } finally { f.cleanup(); }
+  });
 });
 
 test('relative root and plan choices are captured before asynchronous catalog observation', async () => {
-  const f = fixture(), cwd = process.cwd(); try {
-    f.manifest('block/app'); f.plan.blocks = [{ id: 'block/app' }]; process.chdir(f.root);
-    const pending = resolveGraph('.', f.plan);
-    process.chdir(tmpdir());
-    f.plan.app.name = 'replaced'; f.plan.registry.sources[0]!.path = 'missing-registry';
-    f.plan.blocks.length = 0;
-    const lock = await pending;
-    assert.equal(lock.app.name, 'original');
-    assert.equal(lock.resolvedBlocks.length, 1);
-    assert.equal(lock.resolvedBlocks[0]!.manifestPath, 'registry/block.app/block.manifest.yaml');
-  } finally { process.chdir(cwd); f.cleanup(); }
+  await withFixture(async f => {
+    const cwd = process.cwd(); try {
+      f.manifest('block/app'); f.plan.blocks = [{ id: 'block/app' }]; process.chdir(f.root);
+      const pending = resolveGraph('.', f.plan);
+      process.chdir(tmpdir());
+      f.plan.app.name = 'replaced'; f.plan.registry.sources[0]!.path = 'missing-registry';
+      f.plan.blocks.length = 0;
+      const lock = await pending;
+      assert.equal(lock.app.name, 'original');
+      assert.equal(lock.resolvedBlocks.length, 1);
+      assert.equal(lock.resolvedBlocks[0]!.manifestPath, 'registry/block.app/block.manifest.yaml');
+    } finally { process.chdir(cwd); }
+  });
 });
 
 test('a pinned version missing a required capability cannot borrow it from its root manifest', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     f.manifest('block/app', ['cap/new']); const runtime = f.manifest('block/runtime', [], ['cap/old', 'cap/new'], '2.0.0');
     const old = path.join(runtime.folder, 'versions', '1.0.0'); mkdirSync(old, { recursive: true });
     writeFileSync(path.join(old, 'block.manifest.yaml'), JSON.stringify({ ...runtime.source, version: '1.0.0', provides: ['cap/old'] }));
     f.plan.blocks = [{ id: 'block/app' }, { id: 'block/runtime', version: '1.0.0' }];
     await assert.rejects(resolveGraph(f.root, f.plan), /does not provide required capability/);
-  } finally { f.cleanup(); }
+  });
 });
 
 test('two explicit versions are rejected instead of silently keeping only the last one', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     const runtime = f.manifest('block/runtime', [], ['cap/runtime'], '2.0.0');
     const old = path.join(runtime.folder, 'versions', '1.0.0'); mkdirSync(old, { recursive: true });
     writeFileSync(path.join(old, 'block.manifest.yaml'), JSON.stringify({ ...runtime.source, version: '1.0.0' }));
     f.plan.blocks = [{ id: 'block/runtime', version: '1.0.0' }, { id: 'block/runtime', version: '2.0.0' }];
     await assert.rejects(resolveGraph(f.root, f.plan), /Conflicting explicit/);
-  } finally { f.cleanup(); }
+  });
 });
 
 test('real local private provider requires explicit selection before install resource observation', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base']);
     f.plan.blocks = [{ id: 'block/app' }];
     await assert.rejects(resolveGraph(f.root, f.plan),
       error => (error as { code?: string }).code === 'RESOLVE-AUTHORITY-007');
     assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
-  } finally { f.cleanup(); }
+  });
 });
 
 test('install ownership conflict still rejects a resolve result', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     f.manifest('block/a', [], ['cap/a'], '1.0.0', 'src/shared.ts'); f.manifest('block/b', [], ['cap/b'], '1.0.0', 'src/shared.ts');
     f.plan.blocks = [{ id: 'block/a' }, { id: 'block/b' }];
     await assert.rejects(resolveGraph(f.root, f.plan), e => (e as {code?: string}).code === 'RESOLVE-CONFLICT-006');
-  } finally { f.cleanup(); }
+  });
 });
 
 test('an exclusively incompatible catalog reports missing before resource lookup', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     f.manifest('block/app', ['cap/base']);
     const provider = f.manifest('block/base', [], ['cap/base']);
     writeFileSync(path.join(provider.folder, 'block.manifest.yaml'), JSON.stringify({
@@ -123,11 +132,11 @@ test('an exclusively incompatible catalog reports missing before resource lookup
       return true;
     });
     assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
-  } finally { f.cleanup(); }
+  });
 });
 
 test('an explicit incompatible choice retains ALIGN rejection before closure and resources', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     const provider = f.manifest('block/base', ['cap/absent']);
     writeFileSync(path.join(provider.folder, 'block.manifest.yaml'), JSON.stringify({
       ...provider.source, stackProfiles: ['other-stack'],
@@ -139,11 +148,11 @@ test('an explicit incompatible choice retains ALIGN rejection before closure and
       return true;
     });
     assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
-  } finally { f.cleanup(); }
+  });
 });
 
 test('multiple compatible automatic providers still reject as ambiguous before resources', async () => {
-  const f = fixture(); try {
+  await withFixture(async f => {
     f.manifest('block/app', ['cap/base']);
     for (const id of ['block/a', 'block/z']) {
       const provider = f.manifest(id, [], ['cap/base']);
@@ -158,7 +167,7 @@ test('multiple compatible automatic providers still reject as ambiguous before r
       return true;
     });
     assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
-  } finally { f.cleanup(); }
+  });
 });
 
 test('prepare rejects conflicting unselected definitions before stack filtering', () => {
@@ -186,7 +195,7 @@ test('prepare rejects conflicting unselected definitions before stack filtering'
 
 for (const conflicting of [false, true]) {
   test(`catalog shadows retain captured definition consistency (conflicting=${conflicting})`, async () => {
-    const f = fixture(); try {
+    await withFixture(async f => {
       const selected = f.manifest('block/a');
       mkdirSync(path.join(f.root, 'shadow'));
       f.plan.registry.sources.push({ id: 'shadow', kind: 'private', location: 'workspace', path: 'shadow' });
@@ -214,6 +223,6 @@ for (const conflicting of [false, true]) {
         assert.equal(lock.installPlan[0]!.registrySourceId, 'local');
         assert.equal(lock.installPlan[0]!.sourceRoot, 'block.a');
       }
-    } finally { f.cleanup(); }
+    });
   });
 }

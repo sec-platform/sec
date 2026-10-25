@@ -1,4 +1,4 @@
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleResources, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -80,22 +80,28 @@ function fixture(consumer: 'plan' | 'manifest' | 'override' | 'all') {
   }
 }
 
-test('Plan loader admits ordinary YAML aliases and preserves existing defaults', () => {
-  const f = fixture('plan'); try {
+function withFixture<T>(consumer: Parameters<typeof fixture>[0], callback: (f: ReturnType<typeof fixture>) => T | PromiseLike<T>): Promise<T> {
+  return withAcquiredResource({
+    operationLabel: 'YAML consumer test', resourceLabel: 'YAML consumer fixture',
+    acquire: () => fixture(consumer), use: callback, release: f => f.cleanup()
+  });
+}
+
+test('Plan loader admits ordinary YAML aliases and preserves existing defaults', async () => {
+  await withFixture('plan', async f => {
     writeFileSync(f.planPath, `app:\n  id: &id app\n  name: *id\n  stack: ${JSON.stringify(SUPPORTED_STACK)}\nregistry:\n  sources: []\n`);
     const plan = loadPlan(f.planPath);
     assert.deepEqual(plan.app, { id: 'app', name: 'app', stack: SUPPORTED_STACK, packageManager: 'pnpm', mode: 'single-tenant' });
     assert.deepEqual(plan.blocks, []); assert.deepEqual(plan.acceptance, []);
-  } finally { f.cleanup(); }
+  });
 });
 
-test('Plan syntax rejection keeps its domain error and original library cause', () => {
-  const f = fixture('plan'); try { writeFileSync(f.planPath, 'app: {}\napp: {}\n'); assert.throws(() => loadPlan(f.planPath), typedYamlFailure('PLAN-VALIDATION-022')); }
-  finally { f.cleanup(); }
+test('Plan syntax rejection keeps its domain error and original library cause', async () => {
+  await withFixture('plan', async f => { writeFileSync(f.planPath, 'app: {}\napp: {}\n'); assert.throws(() => loadPlan(f.planPath), typedYamlFailure('PLAN-VALIDATION-022')); });
 });
 
-test('Manifest root and version overlay preserve resolved values without cache pollution', () => {
-  const f = fixture('manifest'); try {
+test('Manifest root and version overlay preserve resolved values without cache pollution', async () => {
+  await withFixture('manifest', async f => {
     writeFileSync(f.manifestPath, JSON.stringify(f.manifest));
     const base = loadManifestById('block/example', f.options); assert.equal(base.manifest.version, '1.0.0');
     const overlay = path.join(path.dirname(f.manifestPath), 'versions', '2.0.0'); mkdirSync(overlay, { recursive: true });
@@ -107,51 +113,50 @@ test('Manifest root and version overlay preserve resolved values without cache p
     const reloaded = loadManifestById('block/example', { ...f.options, version: '2.0.0' });
     assert.equal(reloaded.manifest.version, '2.0.0'); assert.deepEqual(reloaded.manifest.provides, ['new']);
     assert.equal(base.manifest.version, '1.0.0');
-  } finally { f.cleanup(); }
+  });
 });
 
-test('Manifest syntax rejection is a typed boundary failure', () => {
-  const f = fixture('manifest'); try { writeFileSync(f.manifestPath, 'id: block/example\nid: block/other\n'); assert.throws(() => loadManifestById('block/example', f.options), typedYamlFailure('MANIFEST-SCHEMA-001')); }
-  finally { f.cleanup(); }
+test('Manifest syntax rejection is a typed boundary failure', async () => {
+  await withFixture('manifest', async f => { writeFileSync(f.manifestPath, 'id: block/example\nid: block/other\n'); assert.throws(() => loadManifestById('block/example', f.options), typedYamlFailure('MANIFEST-SCHEMA-001')); });
 });
 
 test('Override file and direct structural contract preserve defaults and reject duplicate YAML keys', async () => {
-  const f = fixture('override'); try {
+  await withFixture('override', async f => {
     writeFileSync(f.overridePath, 'overrides:\n  - id: change\n    entry: patches/change.ts\n    target: src/change.ts\n    reason: "  justified  "\n');
     assert.deepEqual((await loadOverrideManifest(f.root)).overrides[0], { id: 'change', entry: 'patches/change.ts', target: 'src/change.ts', reason: 'justified', source: 'manual', conflictsWith: [] });
     writeFileSync(f.overridePath, 'overrides: []\noverrides: []\n');
     await assert.rejects(loadOverrideManifest(f.root), typedYamlFailure('OVERRIDE-SCHEMA-001'));
     writeFileSync(f.overridePath, ''); assert.deepEqual(await loadOverrideManifest(f.root), { overrides: [] });
-  } finally { f.cleanup(); }
+  });
 });
 
 test('each loader enforces its own explicit parser byte policy before syntax recovery or schema', async () => {
-  const f = fixture('all'); try {
+  await withFixture('all', async f => {
     writeFileSync(f.planPath, ' '.repeat(PLAN_YAML_MAX_INPUT_BYTES + 1));
     assert.throws(() => loadPlan(f.planPath), typedYamlFailure('PLAN-VALIDATION-022'));
     writeFileSync(f.manifestPath, ' '.repeat(MANIFEST_YAML_MAX_INPUT_BYTES + 1));
     assert.throws(() => loadManifestById('block/example', f.options), typedYamlFailure('MANIFEST-SCHEMA-001'));
     writeFileSync(f.overridePath, ' '.repeat(OVERRIDE_YAML_MAX_INPUT_BYTES + 1));
     await assert.rejects(loadOverrideManifest(f.root), typedYamlFailure('OVERRIDE-SCHEMA-001'));
-  } finally { f.cleanup(); }
+  });
 });
 
 
-test('Plan UTF-8 BOM handling retains the existing decoded-input contract', () => {
-  const f = fixture('plan'); try {
+test('Plan UTF-8 BOM handling retains the existing decoded-input contract', async () => {
+  await withFixture('plan', async f => {
     const source = JSON.stringify({ app: { id: 'app', name: 'App', stack: SUPPORTED_STACK } });
     writeFileSync(f.planPath, source); const ordinary = loadPlan(f.planPath);
     writeFileSync(f.planPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(source)]));
     assert.deepEqual(loadPlan(f.planPath), ordinary);
-  } finally { f.cleanup(); }
+  });
 });
 
-test('invalid Plan UTF-8 remains a decoding failure with its original cause, not a YAML default', () => {
-  const f = fixture('plan'); try {
+test('invalid Plan UTF-8 remains a decoding failure with its original cause, not a YAML default', async () => {
+  await withFixture('plan', async f => {
     writeFileSync(f.planPath, Buffer.from([0xff]));
     assert.throws(() => loadPlan(f.planPath), error => {
       const value = error as { code?: unknown; cause?: unknown };
       return value.code === 'PLAN-VALIDATION-023' && value.cause instanceof Error;
     });
-  } finally { f.cleanup(); }
+  });
 });
