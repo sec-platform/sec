@@ -25,8 +25,8 @@ function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlan
   });
 }
 
-function input(): OperationReadPlanInput {
-  return agentReadPlanInput(capsule(agentPlanningContext({
+// The Capsule is immutable planning content, not a live activation or read-plan result.
+const baselineCapsule = capsule(agentPlanningContext({
     operationId: 'issue-346-read-plan',
     trustedRevision: '6b7f1a3f54b0b4bdd8eef4c065e1e83607f6bbcb',
     targetCandidate: 'ef922744393d451a037349197fe4dd57d6ae8497',
@@ -55,7 +55,10 @@ function input(): OperationReadPlanInput {
     verificationObligations: [
       { id: 'focused-contracts', revision: 'v1', reasonCode: 'public-contract-change' }
     ]
-  })), {
+  }));
+
+function input(): OperationReadPlanInput {
+  return agentReadPlanInput(baselineCapsule, {
     requiredRefs: [
       {
         id: 'authority',
@@ -125,7 +128,7 @@ test('Read Plan compiles deterministically while referencing rather than redefin
     forbiddenSources: [...source.forbiddenSources].reverse()
   });
   expect(second).toEqual(first);
-  expect(first.taskCapsule).toEqual(input().taskCapsule);
+  expect(first.taskCapsule).toEqual(source.taskCapsule);
   expect(first.preApplicabilitySkillBodiesRead).toBe(0);
   expect(first.maxSkillBodies).toBe(1);
   expect(first.maintainerMutationPolicy).toBe('current-physical-state-authoritative-v1');

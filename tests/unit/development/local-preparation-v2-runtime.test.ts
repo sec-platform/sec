@@ -33,8 +33,11 @@ function facts() {
 }
 function preparation() { return prepareLocalVerificationIntent(facts()); }
 
+// Saved source-bound data is immutable; native roots and every changed planning input stay private.
+const savedPreparation = preparation();
+
 test('actual V2 planning owner freezes requirements without constructing health, Session or Action authority', () => {
-  const prepared = preparation();
+  const prepared = savedPreparation;
   expect(prepared).toEqual(preparation());
   expect(prepared.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
   expect(prepared.request.qualificationRequirements.trustedRevision).toBe(BASE);
@@ -45,7 +48,7 @@ test('actual V2 planning owner freezes requirements without constructing health,
 });
 
 test('source facts, actor, plan profile and dependency closure cannot drift under a saved V2 request', () => {
-  const saved = preparation();
+  const saved = savedPreparation;
   const original = facts();
   const changedActor = prepareLocalVerificationIntent({ ...original, producerPrincipalNodeId: 'OTHER' });
   expect(() => assertVerificationSessionLocalPreparationV2Current(saved, changedActor)).toThrow();
@@ -66,7 +69,7 @@ function stateFixture(operation: (input: { root: string; state: string; cache: s
     mkdirSync(root);
     process.env.SEC_STATE_HOME = state; process.env.SEC_CACHE_HOME = cache;
     const layout = resolveSecRuntimeStateForRepository({ repositoryRoot: root, repository: 'sec-platform/sec' });
-    const prepared = preparation();
+    const prepared = savedPreparation;
     operation({ root, state, cache, prepared, records: path.join(layout.repositoryStateRoot, 'trusted-runtime',
       'local-preparation-v2', prepared.request.requestOperationId.slice(7)) });
   }, () => {
@@ -100,7 +103,7 @@ test('copied preparation input alone never revives live qualification or creates
 
 test('V2 repository mismatch is rejected before execution provider discovery', async () => {
   await expect(verifyWithTrustedRuntime({ repositoryRoot: '/does-not-exist',
-    repository: 'other/repo', request: preparation() })).rejects.toThrow('another repository');
+    repository: 'other/repo', request: savedPreparation })).rejects.toThrow('another repository');
 });
 
 test('V2 attempt-only residue cannot be adopted by recreating a missing preparation input', () => {
@@ -115,7 +118,7 @@ test('V2 attempt-only residue cannot be adopted by recreating a missing preparat
 test('public local decoder uses bounded exact JSON before version-specific decoding', () => {
   expect(() => parseVerificationSessionLocalPreparationRequest('雪'.repeat(400_000)))
     .toThrow('bounded UTF-8 input size');
-  const v2 = JSON.stringify(preparation());
+  const v2 = JSON.stringify(savedPreparation);
   expect(() => parseVerificationSessionLocalPreparationRequest(v2.replace('{', '{"schema":"duplicate",')))
     .toThrow('duplicate');
 });

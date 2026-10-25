@@ -62,6 +62,9 @@ function authorization(overrides: Partial<IntegrationAuthorizationInput> = {}) {
   return createIntegrationAuthorization(input(overrides));
 }
 
+// Immutable receipt data only; every live-use state and changed issuer stays independent.
+const baselineAuthorization = authorization();
+
 function live(current: ReturnType<typeof authorization>): IntegrationAuthorizationLiveState {
   return {
     now: current.expiresAt,
@@ -89,7 +92,7 @@ function live(current: ReturnType<typeof authorization>): IntegrationAuthorizati
 }
 
 test('IntegrationAuthorization round-trips and rejects expired, drifted or consumed live use', () => {
-  const current = authorization();
+  const current = baselineAuthorization;
   expect(parseIntegrationAuthorization(JSON.stringify(current))).toEqual(current);
   expect(() => assertIntegrationAuthorizationUsable(current, live(current))).not.toThrow();
   expect(() => assertIntegrationAuthorizationUsable(current, {
@@ -132,7 +135,7 @@ test('IntegrationAuthorization round-trips and rejects expired, drifted or consu
 });
 
 test('authorization identity binds stable decisions but excludes receipt-only provenance', () => {
-  const current = authorization();
+  const current = baselineAuthorization;
   const cases: readonly [string, IntegrationAuthorizationInput][] = [
     ['operation', input({ consumptionOperationId: 'merge-pr-12' })],
     ['repository', input({ repository: 'sec-platform/other' })],
@@ -196,7 +199,7 @@ test('IntegrationAuthorization rejects invalid issuer provenance and time bounds
 });
 
 test('IntegrationAuthorization parser rejects schema, unknown fields, issuer shape, and tampering', () => {
-  const current = authorization();
+  const current = baselineAuthorization;
   const invalid = [
     { ...current, schema: 'unknown' },
     { ...current, extra: true },

@@ -39,7 +39,8 @@ function body(): VerificationSessionLocalPreparationRequestV2Body {
   };
 }
 
-function envelope() { return createVerificationSessionLocalPreparationRequestV2(body()); }
+// The unchanged saved data is deeply frozen; current and mutation inputs remain fresh.
+const savedEnvelope = createVerificationSessionLocalPreparationRequestV2(body());
 function parse(value: unknown) { return parseVerificationSessionLocalPreparationRequestV2(JSON.stringify(value)); }
 
 test('V2 source preparation round-trips into an immutable detached input, including unresolved native content', () => {
@@ -101,7 +102,7 @@ const changedBodyCases: readonly (readonly [string, (value: VerificationSessionL
 
 for (const [field, change] of changedBodyCases) {
   test(`V2 saved pin comparison rejects current ${field} drift even with recomputed valid digests`, () => {
-    const saved = envelope();
+    const saved = savedEnvelope;
     const current = createVerificationSessionLocalPreparationRequestV2(change(body()));
     expect(current.request.requestDigest).not.toBe(saved.request.requestDigest);
     expect(current.request.requestOperationId).not.toBe(saved.request.requestOperationId);
@@ -113,7 +114,7 @@ for (const [field, change] of changedBodyCases) {
 }
 
 test('V2 fixed producer, trust, purpose, schema, and placement requirements cannot be changed', () => {
-  const value = envelope();
+  const value = savedEnvelope;
   for (const invalid of [
     { ...value, schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA },
     { ...value, executionPlacement: 'hosted' }, { ...value, authorityStage: 'qualified' }
@@ -133,7 +134,7 @@ test('V2 fixed producer, trust, purpose, schema, and placement requirements cann
 });
 
 test('V2 digest and operation tampering fail independently, on both sides of saved/current comparison', () => {
-  const value = envelope();
+  const value = savedEnvelope;
   for (const field of ['requestDigest', 'requestOperationId'] as const) {
     const tampered = { ...value, request: { ...value.request, [field]: DIGEST_B } };
     expect(() => parse(tampered)).toThrow(`${field} mismatch`);
@@ -143,7 +144,7 @@ test('V2 digest and operation tampering fail independently, on both sides of sav
 });
 
 test('V2 rejects every missing or unknown field rather than silently discarding identity inputs', () => {
-  const value = envelope();
+  const value = savedEnvelope;
   for (const [record, wrap] of [
     [value, (record: unknown) => record],
     [value.request, (record: unknown) => ({ ...value, request: record })],
@@ -166,14 +167,14 @@ test('V2 rejects every missing or unknown field rather than silently discarding 
 });
 
 test('V2 wire decoding rejects duplicate JSON keys before identity validation', () => {
-  const source = JSON.stringify(envelope());
+  const source = JSON.stringify(savedEnvelope);
   expect(() => parseVerificationSessionLocalPreparationRequestV2(
     source.replace('"purpose":', '"purpo\\u0073e":"verification-only","purpose":')
   )).toThrow('duplicate key');
 });
 
 test('V2 rejects malformed scalar pins, unsupported fast profile, and unbounded identity text', () => {
-  const value = envelope();
+  const value = savedEnvelope;
   for (const change of [
     { repository: '../sec' }, { repository: 'owner/repo/extra' }, { repository: 'owner/repo ' }, { repository: 'owner/repo\n' },
     { repository: 'https://github.com/owner/repo' }, { prNumber: 0 }, { prNumber: -1 },
@@ -196,7 +197,7 @@ test('V2 rejects malformed scalar pins, unsupported fast profile, and unbounded 
 });
 
 test('V2 rejects traversal, noncanonical spelling, unsorted paths and duplicate scope entries', () => {
-  const value = envelope();
+  const value = savedEnvelope;
   for (const invalidPath of ['../escape', 'src/../escape', './src/a.ts', '/absolute', 'src//a.ts',
     'src\\a.ts', 'C:/src/a.ts', 'src/', '', 'src/\u0000a.ts', 'src/e\u0301.ts']) {
     expect(() => parse({ ...value, request: { ...value.request, manifestPath: invalidPath } })).toThrow('manifestPath');
@@ -211,7 +212,7 @@ test('V2 decoding has byte and container-depth bounds before accepting any reque
   expect(() => parseVerificationSessionLocalPreparationRequestV2('é'.repeat(524289))).toThrow('bounded UTF-8 input size');
   expect(() => parseVerificationSessionLocalPreparationRequestV2('{"request":{"extra":{"nested":{"deeper":{}}}}}'))
     .toThrow('maximum container depth');
-  expect(() => parseVerificationSessionLocalPreparationRequestV2(`${JSON.stringify(envelope())} trailing`)).toThrow();
+  expect(() => parseVerificationSessionLocalPreparationRequestV2(`${JSON.stringify(savedEnvelope)} trailing`)).toThrow();
 });
 
 test('hosted legacy input uses bounded exact JSON before checking placement', () => {
@@ -240,7 +241,7 @@ test('hosted parser rejects both local versions while preserving exact legacy ho
     schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
     executionPlacement: 'local', authorityStage: 'preparation-only', request: hosted
   };
-  for (const local of [legacy, envelope()]) {
+  for (const local of [legacy, savedEnvelope]) {
     expect(() => parseVerificationSessionHostedRequest(JSON.stringify(local))).toThrow('cannot be consumed by a hosted operation');
   }
 });

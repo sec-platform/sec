@@ -57,16 +57,19 @@ function snapshot(
   const value = {
     paginationComplete: true as const,
     reviewedHeadSha: SHA_A,
-    reviewPageDigests: [D_A] as readonly typeof D_A[],
-    threadPageDigests: [D_B] as readonly typeof D_B[],
+    reviewPageDigests: Object.freeze([D_A]),
+    threadPageDigests: Object.freeze([D_B]),
     reviewCount: 1,
     threadCount: 0,
     unresolvedBlockingThreadCount: 0 as const,
-    requestChangesPrincipalIds: [] as readonly [],
+    requestChangesPrincipalIds: Object.freeze([]) as readonly [],
     ...overrides
   };
   return Object.freeze({ ...value, snapshotDigest: createReviewSnapshotDigest(value) });
 }
+
+// Reuse only the immutable default snapshot; changed snapshots still compute their own digest.
+const baselineSnapshot = snapshot();
 
 function input(
   overrides: Partial<ReviewStabilityReceiptInput> = {}
@@ -102,7 +105,7 @@ function input(
       sourceRef: 'pull/11',
       sourceDigest: D_A
     },
-    snapshot: snapshot(),
+    snapshot: baselineSnapshot,
     reviewedAt: '2026-08-09T00:00:00.000Z',
     expiresAt: '2026-08-09T01:00:00.000Z',
     ...overrides
@@ -113,7 +116,10 @@ function receipt(overrides: Partial<ReviewStabilityReceiptInput> = {}) {
   return createReviewStabilityReceipt(input(overrides));
 }
 
-function live(current = receipt()) {
+// Receipt construction is pure data normalization, not live observer enrollment.
+const baselineReceipt = receipt();
+
+function live(current = baselineReceipt) {
   return {
     stage: current.stage,
     sessionRevision: current.sessionRevision,
@@ -129,7 +135,7 @@ function live(current = receipt()) {
 }
 
 test('registered stable App receipt round-trips and exact expiry boundary remains current', () => {
-  const current = receipt();
+  const current = baselineReceipt;
   expect(current.policy.trustedApps).toEqual([TRUSTED_APP]);
   expect(current.principal).toEqual({ kind: 'github-app', ...TRUSTED_APP, reviewState: 'COMMENTED' });
   expect(parseReviewStabilityReceipt(JSON.stringify(current))).toEqual(current);
@@ -237,7 +243,7 @@ test('Review receipt rejects missing, wrong, case-drifted, type-drifted, or extr
 });
 
 test('every live result-changing Review binding drifts fail closed', () => {
-  const current = receipt();
+  const current = baselineReceipt;
   const cases: readonly [string, Record<string, unknown>][] = [
     ['stage', { stage: 'pre-expensive' }],
     ['sessionRevision', { sessionRevision: D_C }],
@@ -258,7 +264,7 @@ test('every live result-changing Review binding drifts fail closed', () => {
 });
 
 test('Review semantic revision changes for every decision field', () => {
-  const current = receipt();
+  const current = baselineReceipt;
   const alternatePolicy = createReviewStabilityPolicy({
     policyId: 'alternate-policy',
     trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
@@ -286,7 +292,7 @@ test('Review semantic revision changes for every decision field', () => {
 });
 
 test('Review receipt provenance changes receipt digest but not semantic revision', () => {
-  const current = receipt();
+  const current = baselineReceipt;
   const cases: readonly [string, Partial<ReviewStabilityReceiptInput>][] = [
     ['scope receipt', { scopeAuthorizationReceiptDigest: D_A }],
     ['source transport', { producer: { ...input().producer, sourceTransport: 'github-rest' } }],
@@ -334,7 +340,7 @@ test('Review rejects duplicate pagination observations and incomplete/blocking s
     ['snapshot digest', { snapshotDigest: D_C }, 'snapshot digest mismatch']
   ];
   for (const [label, override, rejection] of invalidSnapshots) {
-    const current = snapshot() as unknown as Record<string, unknown>;
+    const current = baselineSnapshot as unknown as Record<string, unknown>;
     expect(() => receipt({ snapshot: { ...current, ...override } as never }), label).toThrow(rejection);
   }
 });
@@ -356,7 +362,7 @@ test('Review rejects non-independent principals and invalid producer provenance'
 });
 
 test('Review parsers reject schema drift, extra fields, and digest tampering', () => {
-  const current = receipt();
+  const current = baselineReceipt;
   const invalidReceipts: readonly [string, Record<string, unknown>][] = [
     ['schema drift', { ...current, schema: 'unknown' }],
     ['extra receipt field', { ...current, extra: true }],
@@ -379,7 +385,7 @@ test('Review constructor rejects equal issue/expiry times', () => {
 });
 
 test('an Independent-* trailer derives only from a validated receipt', () => {
-  const current = receipt();
+  const current = baselineReceipt;
   const canonical = renderIndependentReviewTrailer(current);
   expect(canonical).toMatch(
     /^Independent-Exact-Head-Review: receipt=sha256:[0-9a-f]{64} revision=sha256:[0-9a-f]{64} threads=[0-9]+ unresolved=0$/u
