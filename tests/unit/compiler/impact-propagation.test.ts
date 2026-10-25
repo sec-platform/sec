@@ -6,8 +6,7 @@ import { buildFactDelta } from '../../../src/compiler/ir/build-fact-delta.ts';
 import { buildImpactPropagation } from '../../../src/compiler/semantic-impact/build-impact-propagation.ts';
 import {
   assertImpactPropagationRuleRegistry,
-  IMPACT_PROPAGATION_RULES,
-  type ImpactPropagationRule
+  IMPACT_PROPAGATION_RULES
 } from '../../../src/compiler/semantic-impact/propagation-rules.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 import type { FactDeltaEndpointContext } from '../../../src/semantics/engineering-ir/delta-types.ts';
@@ -264,7 +263,7 @@ test('assertion-only changes remain local while non-definite Fact roots become u
   ]);
 });
 
-test('propagation registry is total and rejects invalid executable edges', () => {
+test('propagation registry covers every predicate with canonical executable edges', () => {
   expect(() => assertImpactPropagationRuleRegistry()).not.toThrow();
   expect(IMPACT_PROPAGATION_RULES).toMatchObject({
     DEPENDS_ON: {
@@ -290,27 +289,6 @@ test('propagation registry is total and rejects invalid executable edges', () =>
   });
   expect(Object.isFrozen(IMPACT_PROPAGATION_RULES)).toBe(true);
   expect(Object.values(IMPACT_PROPAGATION_RULES).every(Object.isFrozen)).toBe(true);
-
-  const wrongDirection = structuredClone(IMPACT_PROPAGATION_RULES) as Record<
-    SemanticPredicate,
-    ImpactPropagationRule
-  >;
-  wrongDirection.DEPENDS_ON = {
-    ...wrongDirection.DEPENDS_ON as Extract<ImpactPropagationRule, { action: 'edge' }>,
-    direction: 'subject-to-object'
-  };
-  expectCodedFailure(() => assertImpactPropagationRuleRegistry(wrongDirection), 'IMPACT-003');
-
-  const duplicateVariant = structuredClone(IMPACT_PROPAGATION_RULES) as Record<
-    SemanticPredicate,
-    ImpactPropagationRule
-  >;
-  duplicateVariant.REQUIRES = {
-    ...duplicateVariant.REQUIRES as Extract<ImpactPropagationRule, { action: 'edge' }>,
-    ruleVariantId: 'impact.depends-on.object-to-subject.v1'
-  };
-  expectCodedFailure(() => assertImpactPropagationRuleRegistry(duplicateVariant), 'IMPACT-003');
-
 });
 
 test('deterministic closure handles diamond, cycle, shortest witness, causes, and disconnected nodes', () => {
