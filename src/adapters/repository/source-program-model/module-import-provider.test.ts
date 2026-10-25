@@ -144,7 +144,7 @@ test('lexical resolution retains ordered candidates, exact first targets and mis
     ...precedence.flatMap((target, index) => precedence.slice(index + 1).map(later => [target, later]))];
   for (const admitted of selections) {
     const expected = admitted.slice(0, 1);
-    for (const ordered of [admitted, [...admitted].reverse()]) {
+    for (const ordered of admitted.length < 2 ? [admitted] : [admitted, [...admitted].reverse()]) {
       const graph = assemble({ files: ['src/a.ts', ...ordered], imports: [reference] });
       assert.deepEqual(graph.directDependencies('src/a.ts'), expected, `admitted=${admitted.join(",")}`);
       assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), expected, `admitted=${admitted.join(",")}`);
