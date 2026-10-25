@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
+import { agentPlanningContext, agentReadPlanInput } from '../../helpers/agent-planning-input.ts';
 
 import {
   compileOperationReadPlan,
-  OPERATION_READ_PLAN_INPUT_SCHEMA,
   parseOperationReadPlan,
   projectSkillApplicabilityEnvelopeFromOperationReadPlan,
   resolveMaintainerMutation,
@@ -26,46 +26,36 @@ function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlan
 }
 
 function input(): OperationReadPlanInput {
-  return {
-    schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
-    taskCapsule: capsule({
-      operationId: 'issue-346-read-plan',
-      role: 'worker',
-      operationKind: 'implement',
-      goalDigest: digest('b'),
-      trustedRevision: '6b7f1a3f54b0b4bdd8eef4c065e1e83607f6bbcb',
-      targetCandidate: 'ef922744393d451a037349197fe4dd57d6ae8497',
-      workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
-      workPackageProposalDigest: digest('c'),
-      workPackageProjectionId: digest('e'),
-      scopeGrantId: null,
-      ownerFacts: [
-        {
-          id: 'work-package',
-          ref: 'config/repository/work-packages/task-capsule-compiler-v1.md',
-          owner: 'development-governance-owner',
-          revision: digest('c')
-        },
-        {
-          id: 'authority-registry',
-          ref: '.documentation/documents.json',
-          owner: 'documentation-authority-owner',
-          revision: 'blob-authority-v1'
-        }
-      ],
-      scopeProposal: {
-        readPaths: ['.documentation/', 'config/repository/work-packages/', 'docs/', 'src/adapters/self-hosting/control/agent/'],
-        writePaths: ['src/adapters/self-hosting/control/agent/'],
-        forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
-        authorizedResources: ['github:issue/346/comments'],
-        authorizedGates: [],
-        changedPaths: ['src/adapters/self-hosting/control/agent/read-plan.ts']
+  return agentReadPlanInput(capsule(agentPlanningContext({
+    operationId: 'issue-346-read-plan',
+    trustedRevision: '6b7f1a3f54b0b4bdd8eef4c065e1e83607f6bbcb',
+    targetCandidate: 'ef922744393d451a037349197fe4dd57d6ae8497',
+    ownerFacts: [
+      {
+        id: 'work-package',
+        ref: 'config/repository/work-packages/task-capsule-compiler-v1.md',
+        owner: 'development-governance-owner',
+        revision: digest('c')
       },
-      verificationObligations: [
-        { id: 'focused-contracts', revision: 'v1', reasonCode: 'public-contract-change' }
-      ],
-      skillCandidateIds: ['worker-development']
-    }),
+      {
+        id: 'authority-registry',
+        ref: '.documentation/documents.json',
+        owner: 'documentation-authority-owner',
+        revision: 'blob-authority-v1'
+      }
+    ],
+    scopeProposal: {
+      readPaths: ['.documentation/', 'config/repository/work-packages/', 'docs/', 'src/adapters/self-hosting/control/agent/'],
+      writePaths: ['src/adapters/self-hosting/control/agent/'],
+      forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
+      authorizedResources: ['github:issue/346/comments'],
+      authorizedGates: [],
+      changedPaths: ['src/adapters/self-hosting/control/agent/read-plan.ts']
+    },
+    verificationObligations: [
+      { id: 'focused-contracts', revision: 'v1', reasonCode: 'public-contract-change' }
+    ]
+  })), {
     requiredRefs: [
       {
         id: 'authority',
@@ -95,15 +85,6 @@ function input(): OperationReadPlanInput {
         frontierId: 'missing-acceptance-detail'
       }
     ],
-    forbiddenSources: [
-      'assistant-memory',
-      'chat-history',
-      'full-issue-census',
-      'full-skill-corpus',
-      'historical-pr-comments',
-      'unrelated-issue-census'
-    ],
-    maxSkillBodies: 1,
     unresolvedFrontier: [
       {
         id: 'missing-acceptance-detail',
@@ -121,7 +102,7 @@ function input(): OperationReadPlanInput {
       }
     ],
     invalidationInputs: [{ id: 'toolchain-profile', revision: 'bun-1.3.14' }]
-  };
+  });
 }
 
 test('Read Plan compiles deterministically while referencing rather than redefining Task Capsule', () => {

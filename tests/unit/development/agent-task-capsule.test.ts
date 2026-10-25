@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { agentPlanningContext } from '../../helpers/agent-planning-input.ts';
 
 import {
   compileTaskCapsule,
@@ -14,17 +15,13 @@ import {
 const digest = (character: string): AgentContentDigest => `sha256:${character.repeat(64)}`;
 
 function planningContext(): TaskCapsulePlanningContext {
-  return {
+  return agentPlanningContext({
     operationId: 'work-package-task-capsule-compiler-v1',
-    role: 'worker',
-    operationKind: 'implement',
     goalDigest: digest('a'),
     trustedRevision: '8ba2bf1fb39351124187130d60fa971e4802155a',
     targetCandidate: '375a3f95c4a949dcd418823e61b9488e4b4c4786',
-    workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
     workPackageProposalDigest: digest('b'),
     workPackageProjectionId: digest('c'),
-    scopeGrantId: null,
     ownerFacts: [
       {
         id: 'task-capsule-owner',
@@ -54,9 +51,8 @@ function planningContext(): TaskCapsulePlanningContext {
       id: 'task-capsule-focused',
       revision: 'v1',
       reasonCode: 'public-contract-change'
-    }],
-    skillCandidateIds: ['worker-development']
-  };
+    }]
+  });
 }
 
 function input(overrides: Partial<TaskCapsuleInput> = {}): TaskCapsuleInput {
