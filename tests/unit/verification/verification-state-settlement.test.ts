@@ -1,21 +1,18 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLockFile, saveLock } from '../../../src/adapters/workspace/lock.ts';
 import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 // Isolate the engine, policy observation and final publication in a child.
 // Actual request, lease and failed-snapshot construction retain their owners.
 for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runtime', false]] as const) {
   test(`${lane} verification preserves integrity failure when snapshot rejection=${rejectPublication}`, async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'sec-verify-settlement-'));
     const repo = fileURLToPath(new URL('../../../', import.meta.url));
-    return settleWorkspaceCallback(async () => {
+    return withRetainedBunTestWorkspace('sec-verify-settlement-', async (root, run) => {
       await initWorkspace(root);
       const lock = readLockFile(root);
       Object.assign(lock.passStatus, { parse: 'succeeded', align: 'succeeded', resolve: 'succeeded', compose: 'succeeded' });
@@ -59,9 +56,9 @@ for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runt
         if (executions !== 1 || publications !== ${lane === 'runtime' ? 0 : 1}) throw new Error('work was omitted or repeated');
         console.log('verification and settlement boundaries retained');
       `);
-      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
+      const { code, stdout, stderr } = await run([script], { cwd: process.cwd() });
       expect(code, stderr).toBe(0);
       expect(stdout.trim()).toBe('verification and settlement boundaries retained');
-    }, () => rm(root, { recursive: true, force: true }));
+    });
   });
 }

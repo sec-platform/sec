@@ -1,10 +1,8 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../src/adapters/providers/linux-verification/contract.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../src/adapters/runtime-state/workspace-state/paths.ts';
@@ -78,11 +76,10 @@ const receiptFields = { schema: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.tru
   producerSourceDigest: evidence.producer.sourceDigest };
 
 async function runPendingStatus(saved: unknown, receiptOverrides: Record<string, unknown> = {}) {
-  const parent = mkdtempSync(path.join(tmpdir(), 'sec-local-pending-'));
-  const root = path.join(parent, 'workspace');
-  const state = path.join(parent, 'state');
-  const cache = path.join(parent, 'cache');
-  return settleWorkspaceCallback(async () => {
+  return withRetainedBunTestWorkspace('sec-local-pending-', async (parent, run) => {
+    const root = path.join(parent, 'workspace');
+    const state = path.join(parent, 'state');
+    const cache = path.join(parent, 'cache');
     mkdirSync(root);
     const receiptInput = { ...receiptFields, ...receiptOverrides };
     const receipt = parseTrustedRuntimeContainerReceipt({ ...receiptInput, receiptDigest: digest(receiptInput) });
@@ -94,10 +91,10 @@ async function runPendingStatus(saved: unknown, receiptOverrides: Record<string,
     writeFileSync(path.join(records, 'verification-pending-qualification.json'), bytes({ ...record, pendingDigest: digest(record) }));
     const requestPath = path.join(root, 'request.json');
     writeFileSync(requestPath, JSON.stringify(saved));
-    return await runRetainedBunTestCommand([path.resolve("src/bootstrap/development/closeout/verification-session-cli.ts"),
+    return await run([path.resolve("src/bootstrap/development/closeout/verification-session-cli.ts"),
       'status', '--request', requestPath], { cwd: root, env: { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache },
       envMode: 'replace', timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
-  }, async () => { rmSync(parent, { recursive: true, force: true }); });
+  });
 }
 
 test('unmocked pending status reports matching historical evidence and unestablished request bindings', async () => {

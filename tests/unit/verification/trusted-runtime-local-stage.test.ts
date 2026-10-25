@@ -1,10 +1,9 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { VerificationSessionHostedRequest } from "../../../src/execution/verification/hosted.ts";
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
+import type { RetainedCommandResult } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
 
 import { resolveSecRuntimeStateForRepository } from '../../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { runTrustedRuntimeOperatorCli, verifyWithTrustedRuntime } from '../../../src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts';
@@ -29,21 +28,21 @@ const LOCAL = createVerificationSessionLocalPreparationRequest(REQUEST);
 const SESSION_CLI = path.resolve("src/bootstrap/development/closeout/verification-session-cli.ts");
 const OPERATOR_CLI = path.resolve('src/bootstrap/engineering/trusted-runtime-closeout.ts');
 
-async function fixture(operation: (input: { root: string; requestPath: string; state: string; cache: string }) => Promise<void>) {
-  const parent = mkdtempSync(path.join(tmpdir(), 'sec-local-stage-'));
-  const root = path.join(parent, 'workspace');
-  await settleWorkspaceCallback(async () => {
+type RunCli = (cli: string, args: string[]) => Promise<RetainedCommandResult>;
+
+async function fixture(operation: (input: { root: string; requestPath: string; state: string; cache: string; runCli: RunCli }) => Promise<void>) {
+  await withRetainedBunTestWorkspace('sec-local-stage-', async (parent, run) => {
+    const root = path.join(parent, 'workspace');
+    const state = path.join(parent, 'state');
+    const cache = path.join(parent, 'cache');
     mkdirSync(root);
     const requestPath = path.join(root, 'request.json');
     writeFileSync(requestPath, JSON.stringify(LOCAL));
-    await operation({ root, requestPath, state: path.join(parent, 'state'), cache: path.join(parent, 'cache') });
-  }, async () => { rmSync(parent, { recursive: true, force: true }); });
-}
-
-function runCli(cli: string, args: string[], root: string, state: string, cache: string) {
-  return runRetainedBunTestCommand([cli, ...args], {
-    cwd: root, timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024,
-    env: { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache }, envMode: 'replace'
+    const runCli: RunCli = (cli, args) => run([cli, ...args], {
+      cwd: root, timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024,
+      env: { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache }, envMode: 'replace'
+    });
+    await operation({ root, requestPath, state, cache, runCli });
   });
 }
 
@@ -73,9 +72,9 @@ test('local re-preparation rejects every changed saved identity before execution
 });
 
 test('local status and resume observe saved inputs without creating runtime state or executing work', async () => {
-  await fixture(async ({ root, requestPath, state, cache }) => {
+  await fixture(async ({ requestPath, state, cache, runCli }) => {
     for (const command of ['status', 'resume']) {
-      const result = await runCli(SESSION_CLI, [command, '--request', requestPath], root, state, cache);
+      const result = await runCli(SESSION_CLI, [command, '--request', requestPath]);
       expect(result.code).toBe(0);
       const projection = JSON.parse(result.stdout);
       expect(projection).toMatchObject({ status: 'LOCAL_REQUEST_OBSERVED', execution: 'local',
@@ -95,10 +94,10 @@ test('local status and resume observe saved inputs without creating runtime stat
 });
 
 test('local readers reject a hosted request before observing runtime state', async () => {
-  await fixture(async ({ root, requestPath, state, cache }) => {
+  await fixture(async ({ requestPath, state, cache, runCli }) => {
     writeFileSync(requestPath, JSON.stringify(REQUEST));
     for (const command of ['status', 'resume']) {
-      const result = await runCli(SESSION_CLI, [command, '--request', requestPath], root, state, cache);
+      const result = await runCli(SESSION_CLI, [command, '--request', requestPath]);
       expect(result.code).toBe(1);
       expect(result.stderr).toContain('exact local preparation-only envelope');
       expect(existsSync(state)).toBe(false);
@@ -108,21 +107,21 @@ test('local readers reject a hosted request before observing runtime state', asy
 });
 
 test('local status rejects unsafe or malformed durable records without repairing them', async () => {
-  await fixture(async ({ root, requestPath, state, cache }) => {
+  await fixture(async ({ root, requestPath, state, cache, runCli }) => {
     const layout = resolveSecRuntimeStateForRepository({ repositoryRoot: root, repository: 'sec-platform/sec',
       environment: { SEC_STATE_HOME: state, SEC_CACHE_HOME: cache } });
     const records = path.join(layout.repositoryStateRoot, 'trusted-runtime', 'v1', REQUEST.expectedSessionRevision.slice(7));
     mkdirSync(records, { recursive: true });
     const action = path.join(records, 'verification-action.json');
     writeFileSync(action, '{}');
-    const result = await runCli(SESSION_CLI, ['status', '--request', requestPath], root, state, cache);
+    const result = await runCli(SESSION_CLI, ['status', '--request', requestPath]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('Action bundle shape is invalid');
     expect(readFileSync(action, 'utf8')).toBe('{}');
     expect(existsSync(cache)).toBe(false);
     rmSync(action);
     symlinkSync(requestPath, action);
-    const unsafe = await runCli(SESSION_CLI, ['status', '--request', requestPath], root, state, cache);
+    const unsafe = await runCli(SESSION_CLI, ['status', '--request', requestPath]);
     expect(unsafe.code).toBe(1);
     expect(existsSync(cache)).toBe(false);
   });
@@ -143,9 +142,9 @@ test('verification-only operator requires the saved local envelope and rejects i
 });
 
 test('real verification-only bootstrap rejects hosted input before runtime or provider effects', async () => {
-  await fixture(async ({ root, requestPath, state, cache }) => {
+  await fixture(async ({ requestPath, state, cache, runCli }) => {
     writeFileSync(requestPath, JSON.stringify(REQUEST));
-    const result = await runCli(OPERATOR_CLI, ['--verification-only', '--request', requestPath], root, state, cache);
+    const result = await runCli(OPERATOR_CLI, ['--verification-only', '--request', requestPath]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('exact local preparation-only envelope');
     expect(existsSync(state)).toBe(false);
@@ -165,8 +164,8 @@ interface CompositionObservation {
 }
 async function compositionScenario(scenario: string): Promise<CompositionObservation> {
   let observed: CompositionObservation | undefined;
-  await fixture(async ({ root, state, cache }) => {
-    const result = await runCli(COMPOSITION_FIXTURE, [scenario, root], root, state, cache);
+  await fixture(async ({ root, runCli }) => {
+    const result = await runCli(COMPOSITION_FIXTURE, [scenario, root]);
     expect(result.code).toBe(0);
     observed = JSON.parse(result.stdout);
   });

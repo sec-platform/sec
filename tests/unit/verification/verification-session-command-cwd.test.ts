@@ -1,20 +1,17 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const commandModule = JSON.stringify(path.join(repositoryRoot, 'src/adapters/verification/platform/ci/runtime/session-command.ts'));
 const physicalModule = JSON.stringify(path.join(repositoryRoot, 'src/adapters/runtime-state/physical/runtime/physical-no-follow.ts'));
 
 async function isolatedCase(body: string): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-session-command-cwd-'));
-  return settleWorkspaceCallback(async () => {
+  return withRetainedBunTestWorkspace('sec-session-command-cwd-', async (root, run) => {
     const script = path.join(root, 'case.ts');
     await writeFile(script, `
       import assert from 'node:assert/strict';
@@ -24,11 +21,11 @@ async function isolatedCase(body: string): Promise<void> {
       const root = ${JSON.stringify(root)};
       ${body}
     `);
-    const result = await runRetainedBunTestCommand([script], {
+    const result = await run([script], {
       cwd: repositoryRoot, env: process.env, timeoutMs: DEFAULT_TEST_TIMEOUT_MS
     });
     expect(result.code, result.stderr).toBe(0);
-  }, () => rm(root, { recursive: true, force: true }));
+  });
 }
 
 test.skipIf(process.platform !== 'win32')('session command pins the actual Windows cwd chain against ancestor replacement', async () => {
