@@ -72,11 +72,15 @@ test('a parent data slot cannot be replaced by iteration or accessor evaluation'
 });
 
 test('complete scratch delta capture detaches every addition before any consumer awaits', () => {
-  const input = { additions: [{ path: 'a.ts', bytes: Uint8Array.of(1) }, { path: 'b.ts', bytes: Uint8Array.of(2) }], removals: ['old.ts'] };
+  const bytes = Uint8Array.of(0, 1, 2).subarray(1);
+  const input = { additions: [{ path: 'a.ts', bytes }, { path: 'b.ts', bytes: Uint8Array.of(2) }], removals: ['old.ts'] };
+  input.additions[Symbol.iterator] = () => { throw new Error('custom array iterator'); };
   const captured = captureGitScratchIndexDelta(input, 'sha1', 1000);
+  bytes.fill(9); input.additions[0]!.path = 'changed';
   input.additions[1]!.path = 'later.ts'; input.additions[1]!.bytes.fill(9); input.removals[0] = 'later.ts';
-  assert.deepEqual(captured.additions.map(value => [value.path, [...value.bytes]]), [['a.ts', [1]], ['b.ts', [2]]]);
-  assert.deepEqual(captured.removals, ['old.ts']); assert.ok(Object.isFrozen(captured.additions));
+  assert.deepEqual(captured.additions.map(value => [value.path, [...value.bytes]]), [['a.ts', [1, 2]], ['b.ts', [2]]]);
+  assert.deepEqual(captured.removals, ['old.ts']);
+  assert.ok(Object.isFrozen(captured)); assert.ok(Object.isFrozen(captured.additions));
 });
 
 test('scratch stdin admission counts object content plus exact UTF-8 index records and removal terminators', () => {

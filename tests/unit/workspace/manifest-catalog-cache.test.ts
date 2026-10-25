@@ -52,37 +52,36 @@ test('effective version overlays participate in collision checks after merging r
   assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
 }));
 
-test('a repeated catalog read reuses parsed validation but keeps independent mutable results', () => using(async (f, parses) => {
-  const written = f.write(); const first = await loadAllManifests(f.options); const before = parses();
+test('cold catalog and logical reads share parsed validation without sharing mutable catalog results', () => using(async (f, parses) => {
+  const written = f.write();
+  const first = await loadAllManifests(f.options);
+  const catalogParseCount = parses();
+  assert.ok(catalogParseCount > 0);
+  const logical = loadManifestById('block/a', f.options);
   const next = await loadAllManifests(f.options);
-  assert.equal(parses(), before); assert.deepEqual(next, first);
-  assert.equal(next[0]!.manifest.id, 'block/a');
-  assert.equal(next[0]!.manifest.version, '1.0.0');
+  assert.equal(parses(), catalogParseCount);
+  assert.deepEqual(first, [logical]); assert.deepEqual(next, first);
+  assert.equal(logical.manifest.id, 'block/a'); assert.equal(logical.manifest.version, '1.0.0');
   first[0]!.manifest.provides.push('caller-only'); first[0]!.resourceRoots.push('/caller');
+  assert.deepEqual(logical.manifest.provides, ['block/a']);
   assert.deepEqual(next[0]!.manifest.provides, ['block/a']);
   assert.deepEqual(next[0]!.resourceRoots, [written.folder]);
   assert.deepEqual((await loadAllManifests(f.options))[0], next[0]);
-}));
+  assert.equal(parses(), catalogParseCount);
 
-test('explicit unversioned lookup and catalog lookup share one parse record', () => using(async (f, parses) => {
-  f.write(); const first = loadManifestById('block/a', f.options); const before = parses();
+  // Reset both cache indexes, not the retained source. The opposite priming
+  // direction must begin cold rather than inherit the catalog-created record.
+  manifestCache.clear();
+  assert.equal(manifestCache.size, 0);
+  const addressed = loadManifestById('block/a', f.options);
+  const logicalParseCount = parses();
+  assert.ok(logicalParseCount > catalogParseCount);
   const catalog = await loadAllManifests(f.options);
-  assert.equal(parses(), before); assert.deepEqual(catalog[0], first);
-  assert.equal(catalog[0]!.manifest.id, 'block/a');
-  assert.equal(catalog[0]!.manifest.version, '1.0.0');
+  assert.equal(parses(), logicalParseCount); assert.deepEqual(catalog, [addressed]);
+  assert.equal(addressed.manifest.id, 'block/a'); assert.equal(addressed.manifest.version, '1.0.0');
   catalog[0]!.manifest.provides.push('caller-only');
-  assert.deepEqual(first.manifest.provides, ['block/a']);
+  assert.deepEqual(addressed.manifest.provides, ['block/a']);
   assert.equal(manifestCache.size, 1);
-}));
-
-test('catalog parsing also primes later logical lookup without exposing its mutable view', () => using(async (f, parses) => {
-  f.write(); const catalog = await loadAllManifests(f.options); const before = parses();
-  const logical = loadManifestById('block/a', f.options);
-  assert.equal(parses(), before); assert.deepEqual(catalog[0], logical);
-  assert.equal(logical.manifest.id, 'block/a');
-  assert.equal(logical.manifest.version, '1.0.0');
-  catalog[0]!.manifest.provides.push('caller-only');
-  assert.deepEqual(logical.manifest.provides, ['block/a']);
 }));
 
 test('changed current bytes invalidate addressed and catalog caches before returning a new version', () => using(async (f, parses) => {

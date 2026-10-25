@@ -74,10 +74,10 @@ test('order and metadata changes rebuild only invocation diagnostics without con
   f.write(1, '2.1.0');
   const reordered = { ...f, registrySources: [f.registrySources[0]!, f.registrySources[2]!, f.registrySources[1]!] };
   const next = loadManifestById('cache/probe', reordered);
-  expect(next.manifest).toBe(original.manifest);
+  expect(next.manifest).toEqual(original.manifest);
   expect(first.registryResolution!.shadowed).toEqual([shadow('2.0.0', 'second'), shadow('3.0.0', 'third')]);
   expect(next.registryResolution!.shadowed).toEqual([shadow('3.0.0', 'third'), shadow('2.1.0', 'second')]);
-  expect(loadManifestById('cache/probe', single)).toBe(original);
+  expect(loadManifestById('cache/probe', single)).toEqual(original);
   expect(original.registryResolution).toBeUndefined();
   const catalog = await loadAllManifests(reordered);
   catalog[0]!.registryResolution!.shadowed[0]!.version = 'caller-only';

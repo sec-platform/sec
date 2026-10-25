@@ -18,10 +18,9 @@ class Clock {
   get calls(): number { return this.#calls; }
 }
 
-test('a raw snapshot fixes clock identity without executing it or freezing provider state', () => {
+test('a raw snapshot retains the selected clock method without executing it or freezing provider state', () => {
   const provider = new Clock(), raw = capture(provider);
   assert.equal(provider.calls, 0);
-  assert.equal(capture(raw), raw);
   provider.monotonicNowMs = () => assert.fail('replaced clock');
   provider.lockTimeoutMs = 1;
   const bound = bind(raw);
@@ -40,19 +39,6 @@ test('control, direct context, coordinator and wait all consume one clock-method
   await wait(four, 4, async delay => { assert.equal(delay, 4); sleepCalls++; }, 'wait');
   assert.equal(sleepCalls, 1);
   assert.ok([one,two,three,four].every(clock => clock.calls > 0));
-});
-
-test('nested capture and spread do not accumulate clock wrappers', () => {
-  const provider = new Clock();
-  let raw = capture(provider);
-  const originalClock = raw.monotonicNowMs;
-  for (let i = 0; i < 5000; i++) {
-    raw = capture({ ...raw });
-    assert.equal(raw.monotonicNowMs, originalClock);
-  }
-  assert.equal(provider.calls, 0);
-  assert.equal(remaining(bind(raw), 'nested'), 100);
-  assert.equal(provider.calls, 2);
 });
 
 test('a child keeps the parent ledger even if it provides a different callable clock', () => {

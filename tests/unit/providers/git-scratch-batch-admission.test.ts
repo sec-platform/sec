@@ -61,13 +61,3 @@ test('invalid trailing metadata is rejected before reading blob bytes', () => {
   assert.throws(() => captureGitScratchIndexDelta({ additions: [unreadBlob('ok')], removals: ['../bad'] }, 'sha1', 4096), TypeError);
   assert.equal(reads, 0);
 });
-
-test('accepted blob data and lists remain detached without reading custom array iteration', () => {
-  const bytes = Uint8Array.of(0, 1, 2).subarray(1), input = { additions: [addition('a', bytes)], removals: ['b'] };
-  input.additions[Symbol.iterator] = () => { throw new Error('custom array iterator'); };
-  const result = captureGitScratchIndexDelta(input, 'sha1', 4096);
-  bytes.fill(9); input.removals[0] = 'changed'; input.additions[0]!.path = 'changed';
-  assert.deepEqual([...result.additions[0]!.bytes], [1, 2]);
-  assert.equal(result.additions[0]!.path, 'a'); assert.deepEqual(result.removals, ['b']);
-  assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.additions));
-});
