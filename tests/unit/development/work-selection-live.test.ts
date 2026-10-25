@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
+import { promoteRollingPlan } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import { createMainHealthRepairWorkPackagePath } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
 import type { CurrentWorkLifecycle } from '../../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
@@ -991,6 +992,10 @@ describe('work-selection live contract', () => {
     expect(parseWorkRollingMachineProjection(machine!)).toEqual(projection);
     expect(rendered.match(/^### active-v1$/gmu)).toHaveLength(1);
     expect(rendered.match(/^### [1-9][0-9]*\. candidate-/gmu)).toHaveLength(2);
+    expect(() => promoteRollingPlan({
+      source: rendered,
+      packageId: 'candidate-two-v1'
+    })).toThrow('require the canonical WorkDecision or transition renderer');
     expect(() => parseWorkRollingMachineProjection(machine!.replace(
       /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
       `"projectionDigest": "sha256:${'0'.repeat(64)}"`

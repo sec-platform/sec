@@ -12,7 +12,6 @@ import {
   parseRollingMachineProjection,
   parseRollingPlan,
   projectStatusContinuation,
-  promoteRollingPlan,
   renderActivePointer,
   requiresCommittedCandidateProjectionRefresh,
   assertInitiallyAbsentEntryTransition,
@@ -362,33 +361,6 @@ test('MainHealth topology is compiled and rendered atomically instead of slicing
     `### 1. ${candidates[0]}`,
     '### 1. drifted-candidate-v1'
   ))).toThrow('headings do not equal the digest-bound machine projection');
-});
-
-test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
-  const projection = compileWorkRollingTransitionProjection({
-    exactMain,
-    exactMainTree,
-    authority: {
-      kind: 'committed-candidate-replan',
-      sourceHead: 'c'.repeat(40),
-      sourceTree: 'd'.repeat(40),
-      sourceManifestDigest: rawSha256('source-manifest'),
-      sourcePointerRevision: rawSha256('source-pointer'),
-      sourceRollingRevision: rawSha256('source-rolling')
-    },
-    active: {
-      packageId: activePackageId,
-      tracking: 'issue-1',
-      manifestPath: `config/repository/work-packages/${activePackageId}.md`,
-      manifestDigest: rawSha256('active-manifest')
-    },
-    candidates
-  });
-  const source = renderWorkRollingTransitionPlan({ projection, reviewedOn: '2026-08-21' });
-  expect(() => promoteRollingPlan({
-    source,
-    packageId: candidates[0]
-  })).toThrow('require the canonical WorkDecision or transition renderer');
 });
 
 test('prior freeze validation derives a machine successor without legacy Markdown promotion', () => {
