@@ -1,3 +1,4 @@
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -462,8 +463,10 @@ test('retained child-process directory reads the authorized inode after lexical 
 
 test('sealed directory generation excludes membership and byte writers for its child lifetime', async () => {
   const root = fixtureRoot();
-  const repositoryRoot = fixtureRoot();
-  try {
+  let repositoryRoot: string | undefined;
+  let rootCleanupAllowed = true;
+  await settleWorkspaceCallback(async () => {
+    repositoryRoot = fixtureRoot();
     const generation = path.join(root, 'generation');
     mkdirSync(path.join(generation, 'src'), { recursive: true });
     writeFileSync(path.join(generation, 'src', 'value.ts'), 'export const value = 1;\n');
@@ -480,6 +483,7 @@ test('sealed directory generation excludes membership and byte writers for its c
       })).rejects.toMatchObject({ failure: 'unsupported-platform' });
       return;
     }
+    rootCleanupAllowed = false;
     const readOnlyAuthority = await sealExistingWindowsReadOnlyTreeAuthority(
       generation,
       inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
@@ -491,8 +495,14 @@ test('sealed directory generation excludes membership and byte writers for its c
       physical,
       inventory,
       readOnlyAuthority
-    );
-    try {
+    ).catch(async (error) => {
+      await settleResourcesAsync({
+        primary: { label: 'sealed generation admission', error },
+        cleanup: [{ label: 'untransferred authority', settle: () => readOnlyAuthority.release() }]
+      });
+      throw error;
+    });
+    await settleWorkspaceCallback(async () => {
       expect(() => renameSync(root, `${root}-moved`)).toThrow();
       expect(() => writeFileSync(path.join(generation, 'src', 'value.ts'), 'export const value = 2;\n'))
         .toThrow();
@@ -508,21 +518,30 @@ test('sealed directory generation excludes membership and byte writers for its c
       ], { encoding: 'utf8' });
       expect(child.status).toBe(0);
       expect(child.stdout).toBe('export const value = 1;\n');
-    } finally {
+    }, async () => {
       await capability.retire();
-    }
+      rootCleanupAllowed = true;
+    });
     writeFileSync(path.join(generation, 'src', 'extra.ts'), 'export {};\n');
     expect(readFileSync(path.join(generation, 'src', 'extra.ts'), 'utf8')).toBe('export {};\n');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  }, async () => {
+    settleResources({ cleanup: [
+      { label: 'sealed fixture root', settle: () => {
+        if (!rootCleanupAllowed) throw new Error(`Sealed fixture authority or handles remain unresolved; root retained: ${root}`);
+        rmSync(root, { recursive: true, force: true });
+      } },
+      { label: 'independent repository fixture', settle: () => {
+        if (repositoryRoot !== undefined) rmSync(repositoryRoot, { recursive: true, force: true });
+      } }
+    ] });
+  });
 });
 
 test.skipIf(process.platform !== 'win32')(
   'sealed repository-local generation excludes descendant writers without foreign ACL ownership',
   async () => {
     const root = fixtureRoot();
+    let rootCleanupAllowed = true;
     await settleWorkspaceCallback(async () => {
       const generation = path.join(root, 'dependency-generation');
       mkdirSync(path.join(generation, 'package'), { recursive: true });
@@ -533,6 +552,7 @@ test.skipIf(process.platform !== 'win32')(
         maximumEntries: 8,
         maximumBytes: 1024
       });
+      rootCleanupAllowed = false;
       const authority = await sealExistingWindowsReadOnlyTreeAuthority(
         generation,
         inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
@@ -549,8 +569,14 @@ test.skipIf(process.platform !== 'win32')(
         inventory,
         authority,
         'repository-local dependency generation'
-      );
-      try {
+      ).catch(async (error) => {
+        await settleResourcesAsync({
+          primary: { label: 'sealed dependency admission', error },
+          cleanup: [{ label: 'untransferred authority', settle: () => authority.release() }]
+        });
+        throw error;
+      });
+      await settleWorkspaceCallback(async () => {
         expect(() => writeFileSync(
           path.join(generation, 'package', 'index.js'),
           'module.exports = 2;\n'
@@ -560,11 +586,13 @@ test.skipIf(process.platform !== 'win32')(
           'module.exports = 3;\n'
         )).toThrow();
         capability.assertCurrent();
-      } finally {
+      }, async () => {
         await capability.retire();
-      }
+        rootCleanupAllowed = true;
+      });
       writeFileSync(path.join(generation, 'package', 'extra.js'), 'module.exports = 4;\n');
     }, async () => {
+      if (!rootCleanupAllowed) throw new Error(`Sealed dependency authority or handles remain unresolved; root retained: ${root}`);
       rmSync(root, { recursive: true, force: true });
     });
   }

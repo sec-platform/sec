@@ -1,4 +1,5 @@
-import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
+import { isResourceCompositeSettlementError, settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -13,7 +14,8 @@ import {
   retainNoFollowSealedDirectoryGeneration,
   scanNoFollowDirectoryTreeInventory,
   type PhysicalDirectoryIdentity,
-  type RetainedNoFollowProvenDirectoryGeneration
+  type RetainedNoFollowProvenDirectoryGeneration,
+  type RetainedNoFollowSealedDirectoryGeneration
 } from './physical-no-follow.ts';
 import {
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
@@ -460,6 +462,12 @@ test.skipIf(process.platform !== 'win32')(
   'sealed generation admission rejects a pre-existing writer handle',
   async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), 'sec-sealed-existing-writer-'));
+    let writer: Awaited<ReturnType<typeof open>> | undefined;
+    let membershipAuthority: Awaited<ReturnType<typeof sealExistingWindowsReadOnlyTreeAuthority>> | undefined;
+    let unexpectedGeneration: RetainedNoFollowSealedDirectoryGeneration | undefined;
+    let admissionCleanupFailed = false;
+    let authorityAdmissionUnresolved = false;
+    await settleWorkspaceCallback(async () => {
     const sourcePath = path.join(rootPath, 'value.ts');
     await writeFile(sourcePath, 'exact\n');
     const root = inspectNoFollowDirectoryChain(rootPath, 'existing writer root').target;
@@ -468,24 +476,39 @@ test.skipIf(process.platform !== 'win32')(
       maximumBytes: 1_024,
       maximumEntries: 2
     });
-    const writer = await open(sourcePath, 'r+');
-    try {
-      const membershipAuthority = await sealExistingWindowsReadOnlyTreeAuthority(root.path, [], {
+    writer = await open(sourcePath, 'r+');
+      authorityAdmissionUnresolved = true;
+      membershipAuthority = await sealExistingWindowsReadOnlyTreeAuthority(root.path, [], {
         deadlineAtMs: Date.now() + 30_000,
         ownerRootPath: path.dirname(rootPath),
         repositoryRootPath: process.cwd()
       });
+      authorityAdmissionUnresolved = false;
       await expect(retainNoFollowSealedDirectoryGeneration(
         root,
         inventory,
         membershipAuthority,
         'existing writer generation'
-      )).rejects.toThrow();
+      ).then(generation => {
+        unexpectedGeneration = generation;
+        return generation;
+      }, error => {
+        admissionCleanupFailed = isResourceCompositeSettlementError(error);
+        throw error;
+      })).rejects.toThrow();
       expect(await readFile(sourcePath, 'utf8')).toBe('exact\n');
-    } finally {
-      await writer.close();
+    }, async () => {
+      await settleResourcesAsync({ cleanup: [
+        { label: 'unexpected admitted generation', settle: () => unexpectedGeneration?.dispose() },
+        { label: 'pre-existing writer', settle: async () => { await writer?.close(); } }
+      ] });
+      // Do not restore authority or remove its root after an unresolved handle close.
+      await membershipAuthority?.release();
+      if (authorityAdmissionUnresolved || admissionCleanupFailed) {
+        throw new Error(`Sealed admission authority or handle cleanup remains unresolved; root retained: ${rootPath}`);
+      }
       await rm(rootPath, { recursive: true, force: true });
-    }
+    });
   },
   60_000
 );
