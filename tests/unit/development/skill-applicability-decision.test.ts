@@ -59,15 +59,30 @@ test('exactly one surviving candidate resolves applicable and selects it', () =>
   ]);
 });
 
-test('goal, role, operation and capsule binding changes invalidate the prior decision as stale', () => {
+test('decision projects its binding and marks goal, role, operation and capsule changes stale', () => {
+  const workPackageProposalRef = 'config/repository/work-packages/skill-applicability-gate-v1.md';
   const prior = evaluateSkillApplicability(envelope({
+    workPackageProposalRef,
     candidates: ['worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
     taskCapsuleRevision: TASK_CAPSULE_REVISION
   }));
   expect(prior.status).toBe('applicable');
+  expect(prior.selectedSkillId).toBe('worker-development');
+  expect('scopeConflicts' in prior).toBeFalse();
+  expect(prior.goalDigest).toBe('test-goal');
+  expect(prior.trustedRevision).toBe(TRUSTED_REVISION);
+  expect(prior.targetCandidate).toBe('feat/skill-applicability-gate-v1');
+  expect(prior.workPackageProposalRef).toBe(
+    'config/repository/work-packages/skill-applicability-gate-v1.md'
+  );
+  expect(prior.taskCapsuleRef).toBe('capsule-1');
+  expect(prior.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);
+  expect(prior.taskCapsuleRevision).toBe(TASK_CAPSULE_REVISION);
+  expect(prior.candidateSkillIds).toEqual(['worker-development']);
   const stale = evaluateSkillApplicability(envelope({
+    workPackageProposalRef,
     candidates: ['worker-development'],
     goalDigest: 'changed-goal',
     priorDecision: prior
@@ -78,6 +93,7 @@ test('goal, role, operation and capsule binding changes invalidate the prior dec
   expect(stale.reasonCodes).toEqual(['stale']);
 
   const roleStale = evaluateSkillApplicability(envelope({
+    workPackageProposalRef,
     role: 'a0',
     operationKind: 'design',
     candidates: ['architecture-evolution'],
@@ -89,6 +105,7 @@ test('goal, role, operation and capsule binding changes invalidate the prior dec
   );
 
   const capsuleStale = evaluateSkillApplicability(envelope({
+    workPackageProposalRef,
     candidates: ['worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'b'.repeat(64)}`,
@@ -142,29 +159,6 @@ test('quarantined Skill guidance retains the metadata-selected decision', () => 
   expect(withSkillProse.reasonCodes).toEqual(
     expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
   );
-});
-
-test('decision binds the operation and trusted guidance identity', () => {
-  const decision = evaluateSkillApplicability(envelope({
-    candidates: ['worker-development'],
-    workPackageProposalRef: 'config/repository/work-packages/skill-applicability-gate-v1.md',
-    taskCapsuleRef: 'capsule-1',
-    taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: TASK_CAPSULE_REVISION
-  }));
-  expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('worker-development');
-  expect('scopeConflicts' in decision).toBeFalse();
-  expect(decision.goalDigest).toBe('test-goal');
-  expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
-  expect(decision.targetCandidate).toBe('feat/skill-applicability-gate-v1');
-  expect(decision.workPackageProposalRef).toBe(
-    'config/repository/work-packages/skill-applicability-gate-v1.md'
-  );
-  expect(decision.taskCapsuleRef).toBe('capsule-1');
-  expect(decision.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);
-  expect(decision.taskCapsuleRevision).toBe(TASK_CAPSULE_REVISION);
-  expect(decision.candidateSkillIds).toEqual(['worker-development']);
 });
 
 test('unknown candidate IDs are ignored without breaking the decision', () => {
