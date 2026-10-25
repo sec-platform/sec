@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { projectCiArtifactManifest } from '../../../src/application/ci-artifact-manifest-inspect.ts';
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactManifest } from '../../../src/assurance/verification/ci-artifacts/contract/types.ts';
@@ -43,6 +44,7 @@ test('artifact manifest inspection routes retained manifest through application 
     expect(stdout).toMatch(/\bartifacts=0(?=$|[\s;,()])/u);
     expect(stdout).toMatch(/\bmissing=0(?=$|[\s;,()])/u);
     expect(stdout).toMatch(/\bupload groups=0(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/^Missing reasons:\s*none\s*$/mu);
     // A successful empty manifest cannot detect a reader that accidentally
     // drops all nonempty groups or missing diagnostics. Use independently
     // authored counts and files, not the projection under test as the oracle.
@@ -51,23 +53,32 @@ test('artifact manifest inspection routes retained manifest through application 
       summary: {
         ...manifest.summary,
         artifactStatus: 'attention',
-        artifactCount: 2, governanceCount: 1, testCount: 1,
-        uploadGroupCount: 2, missingCount: 1, missingReasonTypeCount: 1,
+        artifactCount: 4, governanceCount: 1, testCount: 2, contractCount: 1,
+        uploadGroupCount: 3, missingCount: 2, missingReasonTypeCount: 2,
         missingReasonCounts: {
-          ...manifest.summary.missingReasonCounts, 'fixed-governance-missing': 1
+          'fixed-governance-missing': Number.MAX_SAFE_INTEGER,
+          'declared-generated-missing': 2 ** 40,
+          'stale-semantic-projection': 0
         }
       },
       artifacts: [
         { path: CI_ARTIFACT_FILES.reviewSummary, kind: 'governance', uploadName: 'review', exists: true },
-        { path: '.sec/artifacts/test-results/unit.xml', kind: 'test', uploadName: 'unit', exists: true }
+        { path: '.sec/artifacts/test-results/unit.xml', kind: 'test', uploadName: 'unit', exists: true },
+        { path: '.sec/artifacts/test-results/acceptance.xml', kind: 'test', uploadName: 'acceptance', exists: true },
+        { path: '.sec/artifacts/generated/runtime-contract.json', kind: 'contract', uploadName: 'runtime', exists: true }
       ],
       uploadGroups: [
         { kind: 'governance', count: 1, paths: [CI_ARTIFACT_FILES.reviewSummary] },
-        { kind: 'test', count: 1, paths: ['.sec/artifacts/test-results/unit.xml'] }
+        { kind: 'test', count: 2, paths: ['.sec/artifacts/test-results/unit.xml', '.sec/artifacts/test-results/acceptance.xml'] },
+        { kind: 'contract', count: 1, paths: ['.sec/artifacts/generated/runtime-contract.json'] }
       ],
       missing: [{
         path: CI_ARTIFACT_FILES.graphLock,
         reason: 'fixed-governance-missing',
+        declaredBy: 'artifact-manifest'
+      }, {
+        path: '.sec/artifacts/generated/missing-contract.json',
+        reason: 'declared-generated-missing',
         declaredBy: 'artifact-manifest'
       }]
     };
@@ -76,13 +87,39 @@ test('artifact manifest inspection routes retained manifest through application 
     const output = populated.stdout;
     for (const field of [
       /Artifact manifest\s+attention(?=$|[\s;,()])/u,
-      /\bartifacts=2(?=$|[\s;,()])/u,
-      /\bmissing=1(?=$|[\s;,()])/u,
-      /\bupload groups=2(?=$|[\s;,()])/u,
-      /\bgovernance=1(?=$|[\s;,()])/u,
-      /\btest=1(?=$|[\s;,()])/u,
-      /\bfixed-governance-missing=1(?=$|[\s;,()])/u
+      /\bartifacts=4(?=$|[\s;,()])/u,
+      /\bmissing=2(?=$|[\s;,()])/u,
+      /\bupload groups=3(?=$|[\s;,()])/u
     ]) expect(output).toMatch(field);
+    expect(output).toMatch(/^Kinds:\s*governance=1,\s*test=2,\s*contract=1\s*$/mu);
+    expect(output).toMatch(/^Missing reasons:\s*declared-generated-missing=1099511627776,\s*fixed-governance-missing=9007199254740991\s*$/mu);
+    expect(output).not.toContain('stale-semantic-projection');
+    expect(output).toMatch(/^Upload groups:\s*governance=1,\s*test=2,\s*contract=1\s*$/mu);
     expect(await expectCliJson(workspaceRoot, ['artifacts', 'manifest', '--json'])).toEqual(nonempty);
   });
+});
+
+function source(counts: Readonly<Record<string, number>>) {
+  return {
+    summary: {
+      artifactStatus: 'attention',
+      artifactCount: 4,
+      missingCount: 2,
+      uploadGroupCount: 2,
+      governanceCount: 1,
+      testCount: 2,
+      contractCount: 1,
+      missingReasonCounts: counts
+    },
+    uploadGroups: [
+      { kind: 'governance', count: 1 },
+      { kind: 'test', count: 2 }
+    ]
+  };
+}
+
+test('invalid aggregate counts fail explicitly', () => {
+  for (const count of [-1, 0.5, Infinity, NaN]) {
+    expect(() => projectCiArtifactManifest(source({ invalid: count }))).toThrow(RangeError);
+  }
 });

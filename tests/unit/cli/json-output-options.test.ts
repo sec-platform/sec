@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
 import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progress.ts';
-import { addJsonFlags, jsonOpts } from '../../../src/entry/cli/command-options.ts';
+import { addJsonFlags, commandFromRoot, jsonOpts } from '../../../src/entry/cli/command-options.ts';
 import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../../src/entry/cli/json-output-options.ts';
 
 const reject = (issue: JsonOutputIssue): never => { throw issue; };
@@ -47,7 +47,9 @@ test('defaults and dependency descriptions cannot be changed after registration'
 
 test('generic compact dependency retains the real command path in its usage error', async () => {
   const program = new Command().name('renamed').exitOverride();
-  addJsonFlags(program.command('parent').command('inspect')).action(() => assert.fail('not admitted'));
+  const leaf = addJsonFlags(program.command('parent').command('inspect'));
+  leaf.action(() => assert.fail('not admitted'));
+  assert.equal(commandFromRoot(leaf, 'verify'), 'renamed verify');
   await assert.rejects(program.parseAsync(['parent', 'inspect', '--compact'], { from: 'user' }),
     (error: unknown) => {
       assert.equal((error as { code: string }).code, 'CLI-USAGE-001');
