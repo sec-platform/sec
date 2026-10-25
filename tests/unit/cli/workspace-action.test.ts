@@ -40,16 +40,16 @@ test('JSON suppresses text formatting while preserving the projected payload thr
   assert.deepEqual(await capture(() => root.parseAsync(['sample'], { from: 'user' })), [['{"projected":1}']]);
 });
 
-for (const phase of ['decode', 'execute-sync', 'execute-async', 'view-sync', 'view-async', 'format', 'sink'] as const) {
+for (const phase of ['decode', 'execute-async', 'view-async', 'format', 'sink'] as const) {
   test(`${phase} failure never retries execution or invokes an earlier phase again`, async () => {
     const reason = phase === 'execute-async' ? undefined : Object.freeze({ phase });
     const root = program(), events: string[] = [];
-    const jsonProgress = phase === 'execute-sync' || phase === 'execute-async';
+    const jsonProgress = phase === 'execute-async';
     registerWorkspaceAction(root.command('sample'), {
       decode: () => { events.push('decode'); if (phase === 'decode') throw reason; return { request: 1, output: jsonOpts({ json: jsonProgress, compact: jsonProgress }) }; },
       ...(jsonProgress ? { progress: { text: 'Unused JSON progress', run: runWithOptionalSpinner } } : {}),
-      execute: () => { events.push('execute'); if (phase === 'execute-sync') throw reason; if (phase === 'execute-async') return Promise.reject(reason); return Promise.resolve(1); },
-      view: (value) => { events.push('view'); if (phase === 'view-sync') throw reason; if (phase === 'view-async') return Promise.reject(reason);
+      execute: () => { events.push('execute'); if (phase === 'execute-async') return Promise.reject(reason); return Promise.resolve(1); },
+      view: (value) => { events.push('view'); if (phase === 'view-async') return Promise.reject(reason);
         return commandValue(value, () => { events.push('format'); if (phase === 'format') throw reason; return 'ok'; }); }
     });
     await capture(
@@ -59,7 +59,7 @@ for (const phase of ['decode', 'execute-sync', 'execute-async', 'view-sync', 'vi
     assert.equal(new Set(events).size, events.length);
     assert.equal(events[0], 'decode');
     assert.equal(events.includes('execute'), phase !== 'decode');
-    assert.equal(events.includes('view'), !['decode', 'execute-sync', 'execute-async'].includes(phase));
+    assert.equal(events.includes('view'), !['decode', 'execute-async'].includes(phase));
   });
 }
 

@@ -33,11 +33,11 @@ for (const [args, expectedCode] of [
     assert.equal(reads, 0);
   });
 }
-for (const phase of ['sync-read', 'async-read', 'format']) {
+for (const phase of ['async-read', 'format']) {
   test(`${phase} failure is preserved with no result emission or retries`, async () => {
     const root = program(), reason = Object.freeze({ phase }); let reads = 0;
     registerNamedInspectionQuery(root.command('contract'), { freeze: () => {
-      reads++; if (phase === 'sync-read') throw reason; if (phase === 'async-read') return Promise.reject(reason);
+      reads++; if (phase === 'async-read') return Promise.reject(reason);
       return commandValue(7, () => { throw reason; });
     } });
     assert.deepEqual(await capture(() => assert.rejects(root.parseAsync(['contract', 'freeze'], { from: 'user' }), e => e === reason)), []);

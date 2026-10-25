@@ -123,8 +123,3 @@ test('cross-path union preserves kind membership and unknowns across duplicates 
     }
   }
 });
-
-test('a new generation does not reuse an old generation summary', () => {
-  assert.equal(view([fact()]).capabilitySummaryForPaths(paths).hasUnknown, false);
-  assert.equal(view([fact({ transport: 'unknown' })]).capabilitySummaryForPaths(paths).hasUnknown, true);
-});

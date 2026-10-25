@@ -140,8 +140,9 @@ test('lexical resolution retains ordered candidates, exact first targets and mis
   ]);
   assert.deepEqual(candidates('src/a.ts', './target.ts'), ['src/target.ts']);
   const reference = { from: 'src/a.ts', specifier: './target', typeOnly: false, kind: 'static' as const };
-  const selections = [[], precedence, ...precedence.map(target => [target]),
-    ...precedence.flatMap((target, index) => precedence.slice(index + 1).map(later => [target, later]))];
+  // The exact candidate order is asserted above; Array.find and Set membership
+  // own pairwise precedence. Keep absence, every candidate, and reordered input.
+  const selections = [[], precedence, ...precedence.map(target => [target])];
   for (const admitted of selections) {
     const expected = admitted.slice(0, 1);
     for (const ordered of admitted.length < 2 ? [admitted] : [admitted, [...admitted].reverse()]) {

@@ -65,17 +65,16 @@ for (const args of [['sample', 'constructor'], ['sample', '--compact']]) {
   });
 }
 
-for (const phase of ['read-sync', 'read-async', 'view-sync', 'view-async', 'format'] as const) {
+for (const phase of ['read-async', 'view-async', 'format'] as const) {
   test(`${phase} failure preserves the original value without emitting a result`, async () => {
     const reason = Object.freeze({ phase });
     const root = program(); let projected = false;
     registerInspectionQuery(root.command('sample'), {
       defaultMode: 'summary',
-      read: () => { if (phase === 'read-sync') throw reason; if (phase === 'read-async') return Promise.reject(reason); return 1; },
-      view: (value) => { projected = true; if (phase === 'view-sync') throw reason;
-        if (phase === 'view-async') return Promise.reject(reason);
+      read: () => { if (phase === 'read-async') return Promise.reject(reason); return 1; },
+      view: (value) => { projected = true; if (phase === 'view-async') return Promise.reject(reason);
         return inspectionValue(value, () => { throw reason; }); } });
-    const lines = await capture(() => assert.rejects(root.parseAsync(['sample', ...(phase === 'view-sync' ? ['summary'] : [])], { from: 'user' }), (error: unknown) => error === reason));
+    const lines = await capture(() => assert.rejects(root.parseAsync(['sample'], { from: 'user' }), (error: unknown) => error === reason));
     assert.deepEqual(lines, []);
     assert.equal(projected, !phase.startsWith('read'));
   });

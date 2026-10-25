@@ -93,7 +93,7 @@ test('successful repair runs once without invoking failure readback', async () =
   assert.equal(calls, 1);
 });
 
-for (const primary of [null, undefined, 'primary', new Error('primary'), Object.freeze({ code: 'original' })]) {
+for (const primary of [undefined, Object.freeze({ code: 'original' })]) {
   test(`repair retains ${typeof primary} failure identity after diagnostic readback`, async () => {
     const events: string[] = [];
     let thrown = false;

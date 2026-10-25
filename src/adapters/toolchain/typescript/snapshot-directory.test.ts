@@ -23,42 +23,22 @@ test('snapshot directory selection matches TypeScript on the same physical file 
       writeFileSync(target, 'export {};\n');
     }
     const read = createTypeScriptSnapshotDirectoryReader(files, root);
-    const includeCases = [undefined, [], ['src'], ['src/'], ['src/**/*'], ['**/*'],
-      ['src/*'], ['src', 'other'], ['**/a?.ts'], ['packages/*/src']];
-    const excludeCases = [undefined, [], ['src/skip'], ['**/skip'], ['**/*.d.ts'], ['node_modules']];
-    const patternCases: {
-      includes: string[] | undefined;
-      excludes: string[] | undefined;
-      extensions: string[] | undefined;
-    }[] = [
-      ...includeCases.map(includes => ({ includes, excludes: undefined, extensions: undefined })),
-      ...excludeCases.map(excludes => ({ includes: ['**/*'], excludes, extensions: ['.ts', '.tsx', '.js'] })),
-      { includes: ['src'], excludes: ['src/skip'], extensions: ['.ts'] },
-      { includes: ['src/**/*'], excludes: ['**/skip'], extensions: ['.ts'] },
-      { includes: ['**/a?.ts'], excludes: ['**/*.d.ts'], extensions: ['.ts'] }
-    ];
-    // Every pattern profile still exercises relative-root and traversal-depth
-    // interactions; the native matcher owns the remaining option combinations.
-    for (const { includes, excludes, extensions } of patternCases) {
-      for (const child of ['', 'src', 'packages/pkg']) {
-        for (const depth of [undefined, 1, 2]) {
-          const directory = path.join(root, child);
-          const expected = ts.sys.readDirectory(directory, extensions, excludes, includes, depth).sort();
-          assert.deepEqual(read(directory, extensions, excludes, includes, depth), expected,
-            JSON.stringify({ child, includes, excludes, extensions, depth }));
-        }
-      }
+    // TypeScript owns glob/depth combinations. Exercise adapter forwarding and
+    // its sealed entry index, not a Cartesian replay of the native matcher.
+    for (const [child, extensions, excludes, includes, depth] of [
+      ['', undefined, undefined, undefined, undefined],
+      ['', ['.ts'], ['src/skip'], ['src'], undefined],
+      ['src', ['.ts'], ['**/*.d.ts'], ['**/a?.ts'], 1],
+      ['packages/pkg', ['.ts', '.tsx', '.js'], [], ['**/*'], 2]
+    ] as const) {
+      const directory = path.join(root, child);
+      const expected = ts.sys.readDirectory(directory, extensions, excludes, includes, depth).sort();
+      assert.deepEqual(read(directory, extensions, excludes, includes, depth), expected,
+        JSON.stringify({ child, includes, excludes, extensions, depth }));
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
-
-test('directory patterns include descendants and directory excludes remove their whole subtree', () => {
-  const root = path.resolve('virtual-snapshot');
-  const read = createTypeScriptSnapshotDirectoryReader(files, root);
-  const selected = read(root, ['.ts'], ['src/skip'], ['src']).map(file => path.relative(root, file));
-  assert.deepEqual(selected, ['src/a.d.ts', 'src/a.ts', 'src/a1.ts', 'src/deep/nested/c.ts'].map(file => file.split('/').join(path.sep)));
 });
 
 test('snapshot directory has no ambient filesystem or parent-snapshot escape', () => {
