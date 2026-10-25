@@ -133,7 +133,16 @@ test('repository sources route by semantic kind and module identity', () => {
     '.codex/agents/worker.toml': 'name = "worker"\n',
     'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
     'src/adapters/self-hosting/control/agent/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
-    'tests/unit/agent-fixture.test.ts': "import { role } from '../../src/adapters/self-hosting/control/agent/skill.ts'; void role;"
+    'tests/unit/agent-fixture.test.ts': "import { role } from '../../src/adapters/self-hosting/control/agent/skill.ts'; void role;",
+    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run dev -- workspace-transition post-merge "$@"\n',
+    'src/adapters/self-hosting/development/hooks/install.ts': 'export const installHooks = true;',
+    'src/adapters/self-hosting/development/hooks/module.json': JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: ['src/adapters/self-hosting/development/hooks/install.ts'],
+      capabilityProviders: [],
+      preDependencyBootstrap: false
+    }),
+    'tests/unit/install-hooks-fixture.test.ts': "import { installHooks } from '../../src/adapters/self-hosting/development/hooks/install.ts'; void installHooks;"
   });
   expect(resolveTestOwnership([compilerFixturePath], provider)).toEqual([{
     source: compilerFixturePath,
@@ -147,20 +156,6 @@ test('repository sources route by semantic kind and module identity', () => {
   }]);
   expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
     .toEqual(['tests/unit/agent-fixture.test.ts']);
-});
-
-test('observed git-hook entrypoints route through development hooks ownership', () => {
-  const provider = sourceProvider({
-    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run dev -- workspace-transition post-merge "$@"\n',
-    'src/adapters/self-hosting/development/hooks/install.ts': 'export const installHooks = true;',
-    'src/adapters/self-hosting/development/hooks/module.json': JSON.stringify({
-      importGraph: 'runtime',
-      externalEntrypoints: ['src/adapters/self-hosting/development/hooks/install.ts'],
-      capabilityProviders: [],
-      preDependencyBootstrap: false
-    }),
-    'tests/unit/install-hooks-fixture.test.ts': "import { installHooks } from '../../src/adapters/self-hosting/development/hooks/install.ts'; void installHooks;"
-  });
 
   expect(resolveTestOwnership(['.githooks/post-merge'], provider)).toEqual([{
     source: '.githooks/post-merge',
