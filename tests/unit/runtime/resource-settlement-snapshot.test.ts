@@ -4,18 +4,33 @@ import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlement
 
 for (const asynchronous of [false, true]) {
   const execute = asynchronous ? settlePhysicalResourcesAsync : settlePhysicalResources;
-  test(`${asynchronous ? 'async' : 'sync'} cleanup cannot remove, append, replace or rename later actions`, async () => {
+  test(`${asynchronous ? 'async' : 'sync'} cleanup captures membership and actions before metadata or effects`, async () => {
     const events: string[] = [], failure = new Error('second');
     const second = { label: 'second', settle() { events.push('second'); throw failure; } };
-    const cleanup = [{ label: 'first', settle() {
+    const cleanup = [{ get label() {
+      cleanup.length = 0;
+      cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
+      return 'first';
+    }, settle() {
       cleanup.length = 0; cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
       second.label = 'renamed'; second.settle = () => assert.fail('replaced'); events.push('first');
     } }, second];
     await assert.rejects(async () => execute({ cleanup }), error => {
       assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
-      assert.deepEqual(error.failures, [{ label: 'second', error: failure }]); return true;
+      assert.deepEqual(error.failures, [{ label: 'second', error: failure }]);
+      return true;
     });
     assert.deepEqual(events, ['first', 'second']);
+  });
+
+  test(`${asynchronous ? 'async' : 'sync'} class-private cleanup keeps its receiver without consulting a caller iterator`, async () => {
+    class Resource { #closed = false; label = 'class'; settle() { this.#closed = true; } get closed() { return this.#closed; } }
+    const resource = new Resource(), cleanup = [resource];
+    Object.defineProperty(cleanup, Symbol.iterator, { get() {
+      assert.fail('cleanup membership must not execute a caller iterator');
+    } });
+    await execute({ cleanup });
+    assert.equal(resource.closed, true);
   });
 
   test(`${asynchronous ? 'async' : 'sync'} primary error is captured even when its source is later mutated`, async () => {
@@ -28,10 +43,6 @@ for (const asynchronous of [false, true]) {
     } }] }), error => error === null);
   });
 
-  test(`${asynchronous ? 'async' : 'sync'} class-private cleanup state keeps the real provider receiver`, async () => {
-    class Resource { #closed = false; label = 'class'; settle() { this.#closed = true; } get closed() { return this.#closed; } }
-    const resource = new Resource(); await execute({ cleanup: [resource] }); assert.equal(resource.closed, true);
-  });
 }
 
 test('async capture happens before suspension, while actual cleanup order stays sequential', async () => {
@@ -86,28 +97,6 @@ test('async settlement preserves primary, capture and cleanup failures while att
 for (const asynchronous of [false, true]) {
   const execute = asynchronous ? settlePhysicalResourcesAsync : settlePhysicalResources;
   const mode = asynchronous ? 'async' : 'sync';
-
-  test(`${mode} captures cleanup membership before reading any action metadata`, async () => {
-    const events: string[] = [];
-    const later = { label: 'later', settle() { events.push('later'); } };
-    const cleanup = [{ get label() {
-      cleanup.length = 0;
-      cleanup.push({ label: 'injected', settle() { assert.fail('unadmitted cleanup'); } });
-      return 'first';
-    }, settle() { events.push('first'); } }, later];
-    await execute({ cleanup });
-    assert.deepEqual(events, ['first', 'later']);
-  });
-
-  test(`${mode} cleanup selection ignores an overridden array iterator`, async () => {
-    const events: string[] = [];
-    const cleanup = [{ label: 'owned', settle() { events.push('owned'); } }];
-    Object.defineProperty(cleanup, Symbol.iterator, { get() {
-      assert.fail('cleanup membership must not execute a caller iterator');
-    } });
-    await execute({ cleanup });
-    assert.deepEqual(events, ['owned']);
-  });
 
   for (const variant of ['hole', 'accessor', 'inherited'] as const) {
     test(`${mode} reports a ${variant} slot without abandoning captured peers or the primary`, async () => {
