@@ -4,16 +4,8 @@ import type { FactAssertion, SemanticFact, SemanticPredicate, SemanticValue } fr
 import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
 
-export function entity(id: string, kind: SemanticEntityKind, label = id): SemanticEntity {
-  return { id, kind, label, attributes: [] };
-}
-
-function assertion(id = 'assertion:0', confidence = 0.75): FactAssertion {
-  return {
-    id, authority: 'authoritative', confidence,
-    provenance: [{ kind: 'contract', sourceId: 'fixture' }],
-    evidence: [{ kind: 'source', ref: 'fixture' }], validFromRevision: 'semantic:fixture'
-  };
+export function entity(id: string, kind: SemanticEntityKind): SemanticEntity {
+  return { id, kind, label: id, attributes: [] };
 }
 
 export function emptyIR(): EngineeringIR {
@@ -29,7 +21,11 @@ export function addFact(
   target: string | { value: SemanticValue }
 ): SemanticFact {
   const id = `fact:${String(ir.facts.length).padStart(8, '0')}`;
-  const claim = assertion(`assertion:${id}`);
+  const claim: FactAssertion = {
+    id: `assertion:${id}`, authority: 'authoritative', confidence: 0.75,
+    provenance: [{ kind: 'contract', sourceId: 'fixture' }],
+    evidence: [{ kind: 'source', ref: 'fixture' }], validFromRevision: 'semantic:fixture'
+  };
   if (ir.facts.length % 3 === 0) { claim.authority = 'inferred'; claim.confidence = 0.5; }
   const fact: SemanticFact = {
     id, subject, predicate, assertions: [claim],
@@ -64,6 +60,6 @@ export function viewIR(groups = 1): EngineeringIR {
 }
 
 /** Synthetic data for pure read projections, not a validator-issued authority. */
-export function projectionSnapshot(ir: EngineeringIR, frozen = true): ValidatedEngineeringIRSnapshot {
-  return (frozen ? Object.freeze({ ir: deepFreeze(ir) }) : { ir }) as ValidatedEngineeringIRSnapshot;
+export function projectionSnapshot(ir: EngineeringIR): ValidatedEngineeringIRSnapshot {
+  return Object.freeze({ ir: deepFreeze(ir) }) as ValidatedEngineeringIRSnapshot;
 }
