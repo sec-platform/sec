@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -465,7 +466,7 @@ test.skipIf(process.platform !== 'win32')(
   'sealed repository-local generation excludes descendant writers without foreign ACL ownership',
   async () => {
     const root = fixtureRoot();
-    try {
+    await settleWorkspaceCallback(async () => {
       const generation = path.join(root, 'dependency-generation');
       mkdirSync(path.join(generation, 'package'), { recursive: true });
       writeFileSync(path.join(generation, 'package', 'index.js'), 'module.exports = 1;\n');
@@ -506,9 +507,9 @@ test.skipIf(process.platform !== 'win32')(
         await capability.retire();
       }
       writeFileSync(path.join(generation, 'package', 'extra.js'), 'module.exports = 4;\n');
-    } finally {
+    }, async () => {
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   }
 );
 
@@ -813,7 +814,7 @@ test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact re
 
 test.skipIf(process.platform !== 'linux')('Linux bulk copy preserves contained relative links and resolves ancestor-link chains', async () => {
   const root = fixtureRoot();
-  try {
+  await settleWorkspaceCallback(async () => {
     const sourcePath = path.join(root, 'source');
     mkdirSync(path.join(sourcePath, 'real', 'nested'), { recursive: true });
     writeFileSync(path.join(sourcePath, 'real', 'nested', 'value'), Buffer.from([0, 127, 255]));
@@ -829,14 +830,14 @@ test.skipIf(process.platform !== 'linux')('Linux bulk copy preserves contained r
     expect(readlinkSync(path.join(target, 'value-link'))).toBe('./through/value');
     expect(readFileSync(path.join(target, 'value-link'))).toEqual(Buffer.from([0, 127, 255]));
     expect(lstatSync(path.join(target, 'value-link')).isSymbolicLink()).toBe(true);
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or projected-away link closures before creating the target', async () => {
   const root = fixtureRoot();
-  try {
+  await settleWorkspaceCallback(async () => {
     const sourcePath = path.join(root, 'source');
     const target = path.join(root, 'target');
     mkdirSync(path.join(sourcePath, 'real'), { recursive: true });
@@ -869,9 +870,9 @@ test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or pro
         for (const name of links.reverse()) unlinkSync(name);
       }
     }
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('permission-mode inventory is opt-in and Windows projects an explicit unavailable value', () => {
@@ -1470,7 +1471,7 @@ test('durable canonical replacement uses retained-parent publication and exact f
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('cooperative durable replacement rejects same-inode byte drift and accepts the exact preimage under held leases', async () => {
   const root = fixtureRoot();
-  try {
+  await settleWorkspaceCallback(async () => {
     const repository = path.join(root, 'repository');
     const commonGit = path.join(root, 'common-git');
     const parentPath = path.join(root, 'recovery');
@@ -1507,7 +1508,9 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('coope
         expect(readdirSync(parentPath)).toEqual(['journal.json']);
       })
     ));
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows durable identity and byte-preimage replacement recover every persisted interruption state', () => {
@@ -1560,7 +1563,7 @@ test.skipIf(process.platform !== 'win32')('Windows durable identity and byte-pre
 
 test.skipIf(process.platform !== 'win32')('Windows byte-preimage recovery binds requested identity before adopting a completed transaction', async () => {
   const root = fixtureRoot();
-  try {
+  await settleWorkspaceCallback(async () => {
     const repository = path.join(root, 'repository');
     const parentPath = path.join(root, 'recovery');
     mkdirSync(repository); mkdirSync(parentPath);
@@ -1601,12 +1604,14 @@ test.skipIf(process.platform !== 'win32')('Windows byte-preimage recovery binds 
       expect(readFileSync(target, 'utf8')).toBe('new\n');
       expect(readdirSync(parentPath)).toEqual(['journal.json']);
     });
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage recovery preserves a tampered quarantined inode', async () => {
   const root = fixtureRoot();
-  try {
+  await settleWorkspaceCallback(async () => {
     const repository = path.join(root, 'repository');
     const parentPath = path.join(root, 'recovery');
     mkdirSync(repository); mkdirSync(parentPath);
@@ -1635,7 +1640,9 @@ test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage rec
       expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
       expect(readdirSync(parentPath).sort()).toEqual(names);
     });
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
@@ -1858,7 +1865,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
   'bulk copy admits an embedded destination only inside an excluded source subtree',
   async () => {
     const root = fixtureRoot();
-    try {
+    await settleWorkspaceCallback(async () => {
       const sourcePath = path.join(root, 'source');
       const keepPath = path.join(sourcePath, 'keep');
       const scratchPath = path.join(sourcePath, '.scratch');
@@ -1886,9 +1893,9 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
       expect(readFileSync(path.join(target, 'keep', 'value.txt'), 'utf8')).toBe('kept\n');
       expect(lstatSync(path.join(target, '.scratch'), { throwIfNoEntry: false })).toBeUndefined();
       expect(readFileSync(path.join(scratchPath, 'private.txt'), 'utf8')).toBe('excluded\n');
-    } finally {
+    }, async () => {
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   }
 );
 

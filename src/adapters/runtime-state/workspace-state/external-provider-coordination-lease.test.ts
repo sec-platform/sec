@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -184,7 +185,7 @@ test.skipIf(process.platform !== 'win32')(
   'external-provider coordination rejects expired and structurally forged capabilities',
   async () => {
     const rootPath = mkdtempSync(path.join(tmpdir(), 'sec-provider-invalid-'));
-    try {
+    await settleWorkspaceCallback(async () => {
       const root = inspectNoFollowDirectoryChain(rootPath, 'test invalid coordination owner');
       await expect(withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
         coordination: coordination(providerOperation({ deadlineAtUnixMs: Date.now() - 1 })),
@@ -227,8 +228,8 @@ test.skipIf(process.platform !== 'win32')(
         localAppData: rootPath,
         repositoryRoot: process.cwd()
       }))).toBe(false);
-    } finally {
+    }, async () => {
       rmSync(rootPath, { recursive: true, force: true });
-    }
+    });
   }
 );

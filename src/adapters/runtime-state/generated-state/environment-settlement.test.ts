@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../tests/testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,7 +41,7 @@ test.skipIf(process.platform !== 'win32')(
   'workspace settlement observes exact Git status through the production authority session',
   async () => {
     const root = createRepository();
-    try {
+    await settleWorkspaceCallback(async () => {
       const clean = await settleWorkspaceEnvironment({ repositoryRoot: root, workspaceRoot: root });
       expect(clean.workingState).toMatchObject({ status: 'resolved', records: [] });
       expect(clean.workingStateDigest).toStartWith('sha256:');
@@ -52,15 +53,15 @@ test.skipIf(process.platform !== 'win32')(
         expect(dirty.workingState.records).toEqual([' M tracked.txt']);
       }
       expect(dirty.blockers).toContain('git: M tracked.txt');
-    } finally {
+    }, async () => {
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   }
 );
 
 test('an exhausted parent deadline blocks cleanup before Git child admission', async () => {
   const root = createRepository();
-  try {
+  await settleWorkspaceCallback(async () => {
     const result = await settleWorkspaceEnvironment({
       repositoryRoot: root,
       workspaceRoot: root,
@@ -73,7 +74,7 @@ test('an exhausted parent deadline blocks cleanup before Git child admission', a
     });
     expect(result.cleanupDigest).toBeNull();
     expect(result.blockers).toContain('git-working-state-unresolved');
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });

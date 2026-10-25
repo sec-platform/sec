@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,7 @@ import {
 
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction transfers a cross-parent file and retires its exact successor', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(path.join(root, 'source'));
     mkdirSync(path.join(root, 'destination'));
     const sourcePath = path.join(root, 'source', 'next');
@@ -60,9 +61,9 @@ test.skipIf(process.platform !== 'win32')('Windows retained file transaction tra
     expect(durability).toEqual([
       'renamed', 'namespace-hook', 'file-flushed', 'parent-barrier'
     ]);
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test('retained file transaction exposes its retained root identity and current fence', () => {
@@ -84,7 +85,7 @@ test('retained file transaction exposes its retained root identity and current f
 
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction revalidates bytes after an awaited pre-effect actor', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(path.join(root, 'source'));
     mkdirSync(path.join(root, 'destination'));
     const sourcePath = path.join(root, 'source', 'next');
@@ -109,14 +110,14 @@ test.skipIf(process.platform !== 'win32')('Windows retained file transaction rev
     } finally {
       transaction.dispose();
     }
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows retained file transaction cannot report a parent barrier before its real pre-barrier seam succeeds', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(path.join(root, 'source'));
     mkdirSync(path.join(root, 'destination'));
     writeFileSync(path.join(root, 'source', 'next'), 'barrier bytes\n', 'utf8');
@@ -147,9 +148,9 @@ test.skipIf(process.platform !== 'win32')('Windows retained file transaction can
     } finally {
       transaction.dispose();
     }
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('Windows no-follow directory creation reports only real create and parent-barrier phases', () => {
@@ -307,7 +308,7 @@ test.skipIf(process.platform !== 'win32')('Windows ordinary-file inspection clas
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction atomically replaces the exact name without changing its permission surface', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-rewrite-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(path.join(root, 'work'));
     const target = path.join(root, 'work', 'value.txt');
     writeFileSync(target, 'before\\n', 'utf8');
@@ -331,14 +332,14 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
     } finally {
       transaction.dispose();
     }
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction refuses to rewrite a hard-linked inode', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-hardlink-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     mkdirSync(path.join(root, 'work'));
     const target = path.join(root, 'work', 'value.txt');
     const alias = path.join(root, 'alias.txt');
@@ -355,7 +356,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
     } finally {
       transaction.dispose();
     }
-  } finally {
+  }, async () => {
     rmSync(root, { recursive: true, force: true });
-  }
+  });
 });

@@ -51,7 +51,7 @@ test.skipIf(process.platform !== 'win32')('Windows host namespace proof is FileI
 
 test('runtime-state directory is created beneath and retained from its owner-issued root', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-state-root-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const root = inspectNoFollowDirectoryChain(rootPath, 'test runtime-state root');
     expect(() => openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 63,
@@ -74,14 +74,14 @@ test('runtime-state directory is created beneath and retained from its owner-iss
     expect(receipt.state).toBe('closed');
     expect(retained.close()).toEqual(receipt);
     expect(() => retained.assertCurrent()).toThrow(RetainedRuntimeStateDirectoryError);
-  } finally {
+  }, async () => {
     await rm(rootPath, { recursive: true, force: true });
-  }
+  });
 });
 
 test('runtime-state open-existing reports an absent child as a typed open failure', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-state-root-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const root = inspectNoFollowDirectoryChain(rootPath, 'test runtime-state root');
     try {
       openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
@@ -96,7 +96,7 @@ test('runtime-state open-existing reports an absent child as a typed open failur
       expect((error as RetainedRuntimeStateDirectoryError).code)
         .toBe('RETAINED_RUNTIME_STATE_DIRECTORY_OPEN_FAILED');
     }
-  } finally {
+  }, async () => {
     await rm(rootPath, { recursive: true, force: true });
-  }
+  });
 });

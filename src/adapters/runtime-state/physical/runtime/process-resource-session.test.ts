@@ -273,7 +273,7 @@ test('process sessions require one process Effect and complete bound resource ce
     operation,
     requirementBindingContext: requirementBindingContext(operation)
   });
-  try {
+  await settleWorkspaceCallback(async () => {
     const firstArgs = [
       '--no-env-file',
       '--eval',
@@ -440,9 +440,9 @@ test('process sessions require one process Effect and complete bound resource ce
       maxStderrBytes: 0,
       maxStdoutBytes: 0
     })).rejects.toThrow(/session is closed/u);
-  } finally {
+  }, async () => {
     retained.dispose();
-  }
+  });
 });
 
 test('process admission rejects context transplants omitted resources and widened ceilings', () => {
@@ -594,7 +594,7 @@ test('child timeout settles its physical process tree and retains bounded failur
     operation,
     requirementBindingContext: requirementBindingContext(operation)
   });
-  try {
+  await settleWorkspaceCallback(async () => {
     let failure: unknown;
     let settledAtMonotonicMs = Number.POSITIVE_INFINITY;
     try {
@@ -655,9 +655,9 @@ test('child timeout settles its physical process tree and retains bounded failur
       .toEqual(new Uint8Array([101, 114, 114, 58, 255, 0]));
     expect(JSON.stringify(diagnostic)).not.toContain('err:');
     expect(JSON.stringify(transportFailure)).not.toContain('err:');
-  } finally {
+  }, async () => {
     retained.dispose();
-  }
+  });
 });
 
 test('native process resource ledger irreversibly accounts roots workers helpers and failed admission', () => {
@@ -732,7 +732,7 @@ test('failed command settlement retains its full output reservation in the termi
     operation,
     requirementBindingContext: requirementBindingContext(operation)
   });
-  try {
+  await settleWorkspaceCallback(async () => {
     let failure: unknown;
     try { await session.run(retained.boundary, [
       '--no-env-file',
@@ -760,9 +760,9 @@ test('failed command settlement retains its full output reservation in the termi
       failedNativeAdmissionCount: 0,
       outputBytes: 2
     });
-  } finally {
+  }, async () => {
     retained.dispose();
-  }
+  });
 });
 
 test('process session rejects operation, attempt, and provider breakaway token transplants before spawn', async () => {
@@ -809,11 +809,11 @@ test('process session rejects operation, attempt, and provider breakaway token t
       boundary: foreignRetained.boundary,
       operation: sessionOperation,
     });
-    try {
+    await settleWorkspaceCallback(async () => {
       await expect(runWith(providerTransplant)).rejects.toThrow('retained provider transplant');
-    } finally {
+    }, async () => {
       foreignRetained.dispose();
-    }
+    });
     expect(session.processCount).toBe(0);
   } finally {
     session.close();
@@ -893,7 +893,7 @@ test.skipIf(process.platform !== 'linux')(
   async () => {
     const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-non-executable-'));
     const executablePath = path.join(temporaryRoot, 'tool');
-    try {
+    await settleWorkspaceCallback(async () => {
       await writeFile(executablePath, '#!/bin/sh\nexit 0');
       await chmod(executablePath, 0o644);
       expect(() => retainNoFollowOrdinaryFile(
@@ -904,9 +904,9 @@ test.skipIf(process.platform !== 'linux')(
         RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
         'executable'
       )).toThrow(/not an executable ordinary file/u);
-    } finally {
+    }, async () => {
       await rm(temporaryRoot, { recursive: true, force: true });
-    }
+    });
   }
 );
 

@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -285,7 +286,7 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
     ['after-candidate-publication', 'new\n', 'completed']
   ] as const) {
     const { root, parent } = fixture();
-    try {
+    await settleWorkspaceCallback(async () => {
       const finalPath = path.join(parent.path, 'owner.json');
       writeFileSync(finalPath, 'old\n');
       const scriptPath = path.join(root, 'cas-child.ts');
@@ -310,9 +311,9 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
       expect(recoverDurableCanonicalFileReplacement({ parent, name: 'owner.json' }).status).toBe(status);
       expect(readFileSync(finalPath, 'utf8')).toBe(expected);
       expect(readdirSync(parent.path)).toEqual(['owner.json']);
-    } finally {
+    }, async () => {
       rmSync(root, { recursive: true, force: true });
-    }
+    });
   }
 }, 65_000);
 
@@ -344,7 +345,7 @@ test('terminal journal resources do not exhaust the original physical census aft
   const directory = path.join(parent.path, 'journals');
   mkdirSync(directory);
   const fs = createRuntimeStateJournalFileSystem(parent);
-  try {
+  await settleWorkspaceCallback(async () => {
     await withWorkspaceWriteLease(parent.path, undefined, async token => {
       for (let index = 0; index < 129; index += 1) {
         const file = path.join(directory, `${index.toString(16).padStart(64, '0')}.json`);
@@ -365,7 +366,9 @@ test('terminal journal resources do not exhaust the original physical census aft
         expect(() => retire.run(() => undefined)).toThrow('closed');
       }
     });
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 }, DEFAULT_TEST_TIMEOUT_MS);
 
 for (const point of ['after-retirement-fence', 'after-payload-removal', 'after-record-removal', 'after-anchor-removal'] as const) {
@@ -390,7 +393,7 @@ for (const point of ['after-retirement-fence', 'after-payload-removal', 'after-r
       });
       throw new Error('Native retirement interruption was not reached');
     `);
-    try {
+    await settleWorkspaceCallback(async () => {
       const child = Bun.spawnSync([process.execPath, '--no-env-file', script], {
         cwd: root, stdout: 'pipe', stderr: 'pipe'
       });
@@ -407,7 +410,9 @@ for (const point of ['after-retirement-fence', 'after-payload-removal', 'after-r
       }
       if (point === 'after-anchor-removal') expect(names).toEqual([]);
       else expect(() => prepareRuntimeStateJournalMutation(createRuntimeStateJournalFileSystem(parent), file)).toThrow();
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    }, async () => {
+      rmSync(root, { recursive: true, force: true });
+    });
   }, 20000);
 }
 
@@ -419,7 +424,7 @@ test('retired journal generation cannot be reopened by captured resource or writ
   const lock = runtimeStateJournalMutationLeaseName(parent.path, file);
   let oldResource: ReturnType<typeof readPhysicalJournalMutationResource>;
   let oldToken: Parameters<typeof assertWorkspaceWriteLease>[1];
-  try {
+  await settleWorkspaceCallback(async () => {
     await withWorkspaceWriteLease(parent.path, undefined, async token => {
       oldToken = token;
       fs.createExclusiveFsync(file, 'old terminal');
@@ -435,7 +440,9 @@ test('retired journal generation cannot be reopened by captured resource or writ
     });
     expect(() => acquirePhysicalMutationLease(parent, lock, { journalResource: oldResource! })).toThrow();
     expect(fs.readText(file)).toBe('new generation');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }, async () => {
+    rmSync(root, { recursive: true, force: true });
+  });
 });
 
 test('cancelling an original unentered first creation retires its control and permits exact retry', () => {

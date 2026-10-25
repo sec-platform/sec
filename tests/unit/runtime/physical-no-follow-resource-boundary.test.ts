@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, spyOn, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -345,10 +346,12 @@ test('transaction creation snapshots caller bytes before an awaited create actor
     const bytes = Buffer.from('captured bytes');
     const transaction = retainNoFollowFileTransaction(f.source, 'creation input fixture',
       createRetainedNoFollowFileTransactionTestActorForTests({ beforeCreate: async () => { bytes.fill(0); } }));
-    try {
+    await settleWorkspaceCallback(async () => {
       await transaction.createExclusive('created', bytes, 'captured create');
       expect(readFileSync(path.join(f.source, 'created'), 'utf8')).toBe('captured bytes');
-    } finally { transaction.dispose(); }
+    }, async () => {
+      transaction.dispose();
+    });
   } finally { f.cleanup(); }
 });
 
@@ -361,12 +364,14 @@ test.skipIf(process.platform !== 'linux')('retained rewrite rejects a changed pe
     writeFileSync(target, 'original');
     chmodSync(target, 0o640);
     const transaction = retainNoFollowFileTransaction(f.source, 'rewrite permission fixture');
-    try {
+    await settleWorkspaceCallback(async () => {
       const observed = transaction.observe('value', 'permission preimage')!;
       chmodSync(target, 0o600);
       await expect(transaction.rewriteExact('value', observed, Buffer.from('mutated'), 'rewrite permission fence'))
         .rejects.toThrow('permission mode changed');
       expect(readFileSync(target, 'utf8')).toBe('original');
-    } finally { transaction.dispose(); }
+    }, async () => {
+      transaction.dispose();
+    });
   } finally { f.cleanup(); }
 });

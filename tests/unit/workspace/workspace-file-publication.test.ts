@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -9,7 +10,7 @@ import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 
 test('exclusive workspace publication is idempotent for exact bytes and rejects conflicting bytes', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-workspace-publish-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const targetPath = path.join(workspaceRoot, 'src', 'custom', 'demo.ts');
     const first = await publishExclusiveCanonicalWorkspaceFile({
       workspaceRoot,
@@ -34,14 +35,14 @@ test('exclusive workspace publication is idempotent for exact bytes and rejects 
       label: 'test exclusive publication'
     })).rejects.toThrow();
     expect(await fs.readFile(targetPath, 'utf8')).toBe('export const value = 1;\n');
-  } finally {
+  }, async () => {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
-  }
+  });
 });
 
 test('expected workspace publication rejects a changed preimage without overwriting it', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-workspace-preimage-publish-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const targetPath = path.join(workspaceRoot, 'src', 'demo.ts');
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, 'version: one\n');
@@ -63,14 +64,14 @@ test('expected workspace publication rejects a changed preimage without overwrit
       label: 'test expected publication'
     })).rejects.toThrow(/preimage changed/);
     expect(await fs.readFile(targetPath, 'utf8')).toBe('version: two\n');
-  } finally {
+  }, async () => {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
-  }
+  });
 });
 
 test('override publication plans the complete preimage and rejects final-fence drift', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-override-publish-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     const overrideRoot = getWorkspacePaths(workspaceRoot).overridesRoot;
     const overridePath = path.join(overrideRoot, 'patches', 'demo.ts');
     const targetPath = path.join(workspaceRoot, 'src', 'demo.ts');
@@ -156,7 +157,7 @@ test('override publication plans the complete preimage and rejects final-fence d
       .rejects.toThrow('forward publication authorization revoked');
     await expect(fs.access(targetPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await fs.readFile(secondTargetPath, 'utf8')).toBe('export const value = "second-preimage";\n');
-  } finally {
+  }, async () => {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
-  }
+  });
 });
