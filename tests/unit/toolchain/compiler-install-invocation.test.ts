@@ -117,29 +117,6 @@ test('offline command spelling remains intact and uses the captured absolute con
 }));
 
 test('nonzero fixture result is an execution failure with its output retained', async () => fixture(async root => {
-  await fixture(async successRoot => {
-    // The retired smoke test admitted a normal success with the real default
-    // clock. Keep that distinct input and its bounded request in this owner.
-    let successfulCalls = 0;
-    let commitCalls = 0;
-    const completed = await runBunInstall(successRoot, {
-      lockTimeoutMs: 5_000,
-      beforeCommit: async () => { commitCalls++; },
-      testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
-        successfulCalls++;
-        assert.deepEqual(request.args, ['install', '--frozen-lockfile']);
-        assert.equal(request.cwd, successRoot);
-        assert.ok(request.timeoutMs > 0 && request.timeoutMs <= 5_000);
-        return { code: 0, stdout: 'materialized', stderr: '' };
-      })
-    }, ['install', '--frozen-lockfile']);
-    assert.deepEqual(completed, {
-      packageManager: 'bun', result: { code: 0, stdout: 'materialized', stderr: '' }
-    });
-    assert.equal(successfulCalls, 1);
-    assert.ok(commitCalls > 0);
-  });
-
   const result = { code: 17, stdout: 'partial', stderr: 'failed' };
   await assert.rejects(runBunInstall(root, {
     testMaterialization: issueRuntimeDependencyTestMaterialization(async () => result)

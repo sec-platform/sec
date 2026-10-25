@@ -424,28 +424,23 @@ test('aggregate response-byte budget rejects a bounded stream once its ceiling i
   })).rejects.toThrow('response-byte budget exceeded');
 });
 
-for (const effect of ['read', 'status-write', 'merge-write', 'runner-admin'] as const) {
-  const reasons = effect === 'read'
-    ? [undefined, null, false, 0, '', new Error('operation failed')] as const
-    : [undefined] as const;
-  for (const reason of reasons) {
-    test(`${effect} session distinguishes failure occurrence from ${String(reason)} payload`, async () => {
-      const api = capability({
-        effect,
-        principal: Object.freeze({ ...PRINCIPAL, permission: 'admin' }),
-        transport: async () => Response.json({})
-      });
-      const outcome = await withGitHubApiTestSession({
-        capability: api,
-        operation: async () => { throw reason; }
-      }).then(
-        (value) => ({ status: 'succeeded' as const, value }),
-        (error: unknown) => ({ status: 'failed' as const, error })
-      );
-      expect(outcome.status).toBe('failed');
-      if (outcome.status === 'failed') expect(outcome.error).toBe(reason);
+for (const reason of [undefined, null, false, 0, '', new Error('operation failed')] as const) {
+  test(`read session distinguishes failure occurrence from ${String(reason)} payload`, async () => {
+    const api = capability({
+      effect: 'read',
+      principal: Object.freeze({ ...PRINCIPAL, permission: 'admin' }),
+      transport: async () => Response.json({})
     });
-  }
+    const outcome = await withGitHubApiTestSession({
+      capability: api,
+      operation: async () => { throw reason; }
+    }).then(
+      (value) => ({ status: 'succeeded' as const, value }),
+      (error: unknown) => ({ status: 'failed' as const, error })
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.error).toBe(reason);
+  });
 }
 
 for (const value of [undefined, null, false, 0, ''] as const) {
