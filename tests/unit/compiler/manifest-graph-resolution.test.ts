@@ -22,8 +22,8 @@ test('empty input has no synthetic blocks or capabilities', () => {
   assert.deepEqual(resolve([]), { entries: [], capabilities: [] });
 });
 
-test('unique transitive providers are selected once and unrelated catalog entries stay out', () => {
-  const a = entry('block/a', ['cap/b']), b = builtin(entry('block/b', ['cap/c'], ['cap/b'])), c = builtin(entry('block/c', [], ['cap/c']));
+test('transitive closure deduplicates declarations, ignores self-edges and excludes unrelated catalog entries', () => {
+  const a = entry('block/a', ['cap/b', 'cap/b', 'block/a']), b = builtin(entry('block/b', ['cap/c'], ['cap/b', 'cap/b'])), c = builtin(entry('block/c', [], ['cap/c']));
   const before = structuredClone([a, b, c]);
   const result = resolve([a], [a, b, c, entry('block/unused')]);
   assert.deepEqual(ids(result.entries), ['block/c', 'block/b', 'block/a']);
@@ -50,11 +50,6 @@ test('equal catalog mirrors and different versions do not replace the captured e
   assert.deepEqual(resolve([selected], [mirror]).entries[0], selected);
   const newer = structuredClone(mirror); newer.manifest.version = '2.0.0'; newer.manifest.provides = ['new/service'];
   assert.deepEqual(resolve([selected], [newer]).entries[0], selected);
-});
-
-test('one provider repeating a declaration is not two ambiguous implementations', () => {
-  const a = entry('block/a', ['service', 'service']), b = builtin(entry('block/b', [], ['service', 'service']));
-  assert.deepEqual(ids(resolve([a], [a, b]).entries), ['block/b', 'block/a']);
 });
 
 test('a unique private or community provider cannot gain authority from catalog discovery', () => {
@@ -87,10 +82,6 @@ test('both ID and capability conflicts remain enforced', () => {
   assert.throws(() => resolve([a, b]), e => (e as {code?: string}).code === 'RESOLVE-CONFLICT-002');
   a.manifest.conflicts = ['service'];
   assert.throws(() => resolve([a, b]), e => (e as {code?: string}).code === 'RESOLVE-CONFLICT-003');
-});
-
-test('self-provided requirements do not introduce a self-cycle', () => {
-  const a = entry('block/a', ['self'], ['self']); assert.deepEqual(ids(resolve([a]).entries), ['block/a']);
 });
 
 test('every explicitly selected provider precedes a consumer as in the existing ordering contract', () => {
