@@ -6,7 +6,7 @@ import path from 'node:path';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { assertRuntimeDependencySourceGenerationIssued, runtimeDependencySourceGeneration } from '../../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import { generatedStateDigest } from "../../../src/execution/generated-state/contract.ts";
-import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleResources, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 
 // In repository execution these retain the real source compiler and physical
 // owner. The standalone local replay substitutes only the declared physical,
@@ -23,10 +23,19 @@ function fixture() {
     throw error;
   }
 }
+function usingFixture(use: (f: ReturnType<typeof fixture>) => Promise<void>): Promise<void> {
+  return withAcquiredResource({
+    operationLabel: 'source-generation-observation',
+    resourceLabel: 'source-generation-fixture-root',
+    acquire: fixture,
+    use,
+    release: f => rmSync(f.root, { recursive: true, force: true })
+  });
+}
 function input(f: ReturnType<typeof fixture>) { return { ownerRoot: f.root, sourcePath: path.join(f.root,'a'), binding: { selected:'a' }, options:f.options }; }
 
 test('read-only observation captures one input for its physical scan and same-context in-flight join', async () => {
-  const f=fixture(); try {
+  return usingFixture(async f => {
     const options=new Proxy({...f.options,get generatedStateLifecycle(){assert.fail('unused lifecycle'); throw new Error('unreachable');},get beforeCommit(){assert.fail('write fence'); throw new Error('unreachable');}},
       {ownKeys(){assert.fail('options enumerated');}});
     const values={...input(f),options};
@@ -50,18 +59,18 @@ test('read-only observation captures one input for its physical scan and same-co
     const [a,b]=await Promise.all([first,second]);
     assert.equal(a,b); assert.equal(a.ownerRoot,f.root); assert.equal(a.sourcePath,same.sourcePath); assert.equal(a.bindingDigest,expectedDigest);
     assertRuntimeDependencySourceGenerationIssued(a);
-  } finally {rmSync(f.root,{recursive:true,force:true});}
+  });
 });
 
 test('clock callbacks cannot retarget the already-selected source or binding', async () => {
-  const f=fixture(); try {
+  return usingFixture(async f => {
     const request={...input(f), options: {lockTimeoutMs:20_000, monotonicNowMs:()=>{
       request.ownerRoot=path.join(f.root,'b'); request.sourcePath=path.join(f.root,'b'); request.binding.selected='b'; return performance.now();
     }}};
     const expectedDigest=generatedStateDigest(request.binding);
     const result=await runtimeDependencySourceGeneration(request);
     assert.equal(result.ownerRoot,f.root); assert.equal(result.sourcePath,path.join(f.root,'a')); assert.equal(result.bindingDigest,expectedDigest);
-  }finally{rmSync(f.root,{recursive:true,force:true});}
+  });
 });
 
 test.serial('relative paths bind before callbacks or the deferred scan can change cwd', async () => {
@@ -83,7 +92,7 @@ for(const requested of [null, false, {maximumBytes:null},{maximumEntries:null},{
 }
 
 test('the same source with different bounds cannot join a wider in-flight observation', async () => {
-  const f=fixture();try{
+  return usingFixture(async f => {
     const request=input(f);const first=runtimeDependencySourceGeneration(request,{maximumEntries:10});
     const capacity=assert.rejects(runtimeDependencySourceGeneration(request,{maximumEntries:1}),
       {code:'RUNTIME-DEPS-003',message:/in-flight/});
@@ -92,13 +101,13 @@ test('the same source with different bounds cannot join a wider in-flight observ
       {code:'RUNTIME-DEPS-003',message:/in-flight/});
     const result=await first;await Promise.all([capacity,deadline]);
     assert.equal(result.sourcePath,request.sourcePath);
-  }finally{rmSync(f.root,{recursive:true,force:true});}
+  });
 });
 
 test('failed observation is retired and can be recomputed after source recovery', async () => {
-  const f=fixture();try{
+  return usingFixture(async f => {
     const request={...input(f),sourcePath:path.join(f.root,'later')};
     await assert.rejects(runtimeDependencySourceGeneration(request));mkdirSync(request.sourcePath);
     const result=await runtimeDependencySourceGeneration(request);assert.equal(result.sourcePath,request.sourcePath);
-  }finally{rmSync(f.root,{recursive:true,force:true});}
+  });
 });
