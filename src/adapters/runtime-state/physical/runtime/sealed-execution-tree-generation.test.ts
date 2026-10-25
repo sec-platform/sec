@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   inspectNoFollowDirectoryChain,
   materializeRetainedNoFollowProvenDirectoryGeneration,
+  PhysicalNoFollowError,
   retainCurrentProcessExecutable,
   retainNoFollowSealedDirectoryGeneration,
   scanNoFollowDirectoryTreeInventory,
@@ -621,7 +622,9 @@ test('setup residue without a returned recovery capability is owner-reconciliati
   const returned: { generation?: RetainedSealedPhysicalExecutionTreeGeneration } = {};
   let stopActor = async (): Promise<void> => {};
   let actorExecutable: ReturnType<typeof retainCurrentProcessExecutable> | undefined;
-  try {
+  let materialization: Promise<unknown> | undefined;
+  let materializationMayBeRetired = false;
+  await settleWorkspaceCallback(async () => {
     // Publication uses synchronous filesystem operations. A timer on this same
     // event loop cannot race them; start an independent actor and await readiness.
     actorExecutable = retainCurrentProcessExecutable(3, 'setup-residue actor');
@@ -644,44 +647,95 @@ test('setup residue without a returned recovery capability is owner-reconciliati
       }
       throw new Error('Setup-residue actor did not observe the bounded generation');
     `, fixture.generationParent.path], { stdio: ['ignore', 'pipe', 'pipe', actorExecutable.stdioSourceDescriptor ?? 'ignore'] });
-    const stderr = new Response(actor.stderr).text();
-    const guard = setTimeout(() => actor.kill(), 5_000);
+    let output: Promise<string> | undefined;
+    let stderr: Promise<string> | undefined;
+    let guard: ReturnType<typeof setTimeout> | undefined;
     stopActor = async () => {
-      clearTimeout(guard);
-      if (actor.exitCode === null) actor.kill();
-      await actor.exited;
-      await stderr;
+      // This exact actor runs only synchronous fs/Atomics and creates no child.
+      // Kill is an attempt, not exit evidence; every started observer is joined.
+      await settleResourcesAsync({ cleanup: [
+        { label: 'residue actor stop', settle: () => {
+          clearTimeout(guard);
+          if (actor.exitCode === null) actor.kill();
+        } },
+        { label: 'residue actor exit', settle: async () => { await actor.exited; } },
+        { label: 'residue actor stdout', settle: async () => {
+          if (output === undefined) throw new Error('Residue actor stdout was not acquired');
+          await output;
+        } },
+        { label: 'residue actor stderr', settle: async () => {
+          if (stderr === undefined) throw new Error('Residue actor stderr was not acquired');
+          await stderr;
+        } }
+      ] });
     };
-    const reader = actor.stdout.getReader();
-    const decoder = new TextDecoder();
-    let ready = '';
-    while (!ready.includes('\n')) {
-      const chunk = await reader.read();
-      if (chunk.done) throw new Error(`Residue actor exited before readiness: ${await stderr}`);
-      ready += decoder.decode(chunk.value, { stream: true });
-    }
-    expect(ready).toBe('ready\n');
-    const remainder = (async () => {
-      let output = '';
+    stderr = new Response(actor.stderr).text();
+    guard = setTimeout(() => actor.kill(), 5_000);
+    let signalReady!: (value: string) => void;
+    const readiness = new Promise<string>(resolve => { signalReady = resolve; });
+    output = (async () => {
+      const reader = actor.stdout.getReader();
+      const decoder = new TextDecoder();
+      let text = '';
+      let ready = false;
       try {
         for (;;) {
           const chunk = await reader.read();
-          if (chunk.done) return output + decoder.decode();
-          output += decoder.decode(chunk.value, { stream: true });
+          if (chunk.done) return text + decoder.decode();
+          text += decoder.decode(chunk.value, { stream: true });
+          if (!ready && text.includes('\n')) {
+            ready = true;
+            signalReady(text);
+          }
         }
       } finally { reader.releaseLock(); }
     })();
-    const materialization = materializeRetainedSealedPhysicalExecutionTreeGeneration({
+    // Attach both read observers before the first suspension, including failure.
+    const actorSettlement = Promise.allSettled([output, actor.exited, stderr]);
+    const ready = await Promise.race([readiness, actorSettlement.then(() => {
+      throw new Error('Residue actor exited before readiness');
+    })]);
+    expect(ready).toBe('ready\n');
+    materialization = materializeRetainedSealedPhysicalExecutionTreeGeneration({
       deadlineAtUnixMs: Date.now() + 30_000,
       directoryNamePrefix: 'setup-residue-', files,
       generationParent: fixture.generationParent,
       links: [{ path: 'node_modules', source: fixture.dependency }], maximumEntries: 256
-    }).then((generation) => { returned.generation = generation; return null; }, (error: unknown) => error);
-    const [error, output, exitCode, diagnostic] = await Promise.all([
-      materialization, remainder, actor.exited, stderr
-    ]);
+    }).then((generation) => {
+      returned.generation = generation;
+      materializationMayBeRetired = true;
+      return null;
+    }, (error: unknown) => {
+      // Only this known pre-authority inventory overflow permits fixture cleanup.
+      // A generic residue/not-issued flag does not prove failed ACL/handle setup
+      // was unwound. Both scans must report their original bound error, not a
+      // replacement close failure; all other rejections preserve the dependency.
+      materializationMayBeRetired = error instanceof SealedPhysicalExecutionTreeResidueError
+        && error.residue.treeSettlements.authority === 'not-issued'
+        && error.residue.treeSettlements.tree === 'not-started'
+        && error.residue.inventory.state === 'unknown'
+        && error.cause instanceof AggregateError && error.cause.errors.length === 2
+        && error.cause.errors.every((failure: unknown) => failure instanceof PhysicalNoFollowError
+          && failure.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
+          && ['No-follow inventory byte bound exceeded.',
+            'No-follow inventory entry bound exceeded.',
+            'No-follow metadata inventory entry bound exceeded.'].includes(failure.message));
+      return error;
+    });
+    const [error, actorOutcomes] = await Promise.all([materialization, actorSettlement]);
+    await settleResourcesAsync({ cleanup: actorOutcomes.map((outcome, index) => ({
+      label: `residue actor observation ${index}`,
+      settle() { if (outcome.status === 'rejected') throw outcome.reason; }
+    })) });
+    const [outputResult, exitResult, diagnosticResult] = actorOutcomes;
+    if (outputResult.status !== 'fulfilled' || exitResult.status !== 'fulfilled'
+        || diagnosticResult.status !== 'fulfilled') {
+      throw new Error('Residue actor observations did not complete');
+    }
+    const exitCode = exitResult.value;
+    const diagnostic = diagnosticResult.value;
     expect(exitCode, diagnostic).toBe(0);
-    injectedPath = (JSON.parse(output) as { path: string }).path;
+    injectedPath = (JSON.parse(outputResult.value.slice(ready.length)) as { path: string }).path;
     expect(error).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
     const residue = error as SealedPhysicalExecutionTreeResidueError;
     expect(residue.residue.retryability).toBe('owner-reconciliation-required');
@@ -689,15 +743,23 @@ test('setup residue without a returned recovery capability is owner-reconciliati
     expect(injectedPath).not.toBeNull();
     fixture.dependency.assertCurrent();
     await fixture.dependency.assertAuthorityCurrent();
-  } finally {
-    await stopActor();
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'residue actor termination', settle: stopActor },
+      { label: 'sealed materialization join', settle: async () => {
+        const error = await materialization;
+        if (materialization !== undefined && !materializationMayBeRetired) {
+          throw new Error(`Sealed materialization settlement is unproven; fixture is preserved: ${fixture.rootPath}`, { cause: error });
+        }
+      } }
+    ] });
     actorExecutable?.dispose();
     if (injectedPath !== null) await rm(injectedPath, { force: true });
     // A late actor must fail the assertion without leaking a returned capability.
     await returned.generation?.retire();
     await fixture.dependency.retire();
     await rm(fixture.rootPath, { recursive: true, force: true });
-  }
+  });
 }, 60_000);
 
 test('TypeScript wrapper preserves structured physical residue and retries after reconciliation', async () => {
