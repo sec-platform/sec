@@ -247,7 +247,11 @@ test('owner terminal resolution references only an exact owner-issued join recei
         resolutionKind: 'owner-terminal-reference',
         resolutionReferenceDigest: join.joinReceiptDigest
       });
-    expect(value.store.read(durableExecutionJournalIdentity(operation))?.state).toBe('settled');
+    expect(value.store.read(durableExecutionJournalIdentity(operation))).toMatchObject({
+      state: 'settled', activeAttempt: null
+    });
+    expect(() => value.store.appendInitialAttemptStart(boundOperation('post-terminal run'), digest('93')))
+      .toThrow('owner-terminal');
     expect(() => value.store.appendOwnerTerminalResolution(recovery, {
       ...join,
       ownerTerminalReferenceDigest: digest('997')
@@ -299,7 +303,9 @@ test('lost handle requires recovered readback and consumed owner admission befor
       physicalDisposition: 'unknown',
       providerSettlementReferenceDigest: digest('62')
     });
-    value.store.appendLostHandle(first, providerReceipt);
+    expect(value.store.appendLostHandle(first, providerReceipt).state).toBe('lost-handle');
+    expect(() => value.store.appendInitialAttemptStart(boundOperation('premature retry run'), digest('60')))
+      .toThrow('active');
     const recoveredReadback = issueRecoveredDomainReadbackReceipt(recovery, {
       predecessor: durableExecutionPredecessorAttemptReference(started),
       durableObservationDigest: digest('63'),
@@ -322,6 +328,8 @@ test('lost handle requires recovered readback and consumed owner admission befor
       recoveredReadback.currentPhysicalEpochDigest
     );
     expect(admitted.latestResolution?.resolutionKind).toBe('retry-admission-reference');
+    expect(admitted.state).toBe('running');
+    expect(admitted.activeAttempt?.start.runIdDigest).toBe(successor.plan.attempt.runIdDigest);
     expect(admitted.activeAttempt?.start.attemptNonceDigest)
       .toBe(successor.plan.attempt.attemptNonceDigest);
     expect(() => value.store.appendRecoveredRetryAttemptStart(
