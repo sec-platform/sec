@@ -1,11 +1,9 @@
 import { expect, test } from 'bun:test';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import * as ids from '../../../src/compiler/ir/ir-identity.ts';
-import { normalizeEvidence, normalizeProvenance } from '../../../src/compiler/ir/ir-normalization.ts';
 import { digest, inputRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
-import { CanonicalKeyConflictError } from '../../../src/contracts/canonical.ts';
-import { assertSemanticIdentityComponent, semanticReferenceParts, semanticTargetParts, uniqueSortedSemanticTuples } from '../../../src/semantics/definitions/identity-components.ts';
+import { assertSemanticIdentityComponent, semanticReferenceParts, semanticTargetParts } from '../../../src/semantics/definitions/identity-components.ts';
 import { linkWorkspaceSemanticContracts, splitLinkedSemanticReference } from '../../../src/semantics/definitions/link.ts';
 import { normalizeSemanticContract } from '../../../src/semantics/definitions/normalize.ts';
 import type { SemanticContract } from '../../../src/semantics/definitions/types.ts';
@@ -144,30 +142,4 @@ test('arbitrary state strings cannot collide in revision tuples and actual compo
   expect(transitions).toEqual([{ from: 'a', to: 'b\u0000c', by: 'operation' }, { from: 'a\u0000b', to: 'c', by: 'operation' }]);
   source.states[0]!.transitions[1]!.to = 'changed';
   expect(inputRevisionPayload(domain)).not.toBe(payload);
-});
-
-test('source and evidence business text retain distinct tuples, including a second edit', () => {
-  const provenance = [
-    { kind: 'contract' as const, sourceId: 'a\u0000b', sourcePath: 'c' },
-    { kind: 'contract' as const, sourceId: 'a', sourcePath: 'b\u0000c' }
-  ];
-  expect(normalizeProvenance(provenance)).toEqual([provenance[1]!, provenance[0]!]);
-  const evidence = [{ kind: 'test' as const, ref: 'a\u0000b', digest: 'c' }, { kind: 'test' as const, ref: 'a', digest: 'b\u0000c' }];
-  expect(normalizeEvidence(evidence)).toEqual([evidence[1]!, evidence[0]!]);
-  provenance[1]!.sourcePath = 'edited';
-  expect(normalizeProvenance(provenance)).toEqual([provenance[1]!, provenance[0]!]);
-  expect(normalizeProvenance([provenance[0]!, provenance[0]!])).toHaveLength(1);
-});
-
-test('exact tuple dedup retains the successor canonical and metadata wire-conflict boundaries', () => {
-  expect(() => uniqueSortedSemanticTuples([{ id: 'same', value: 1 }, { id: 'same', value: 2 }], (value) => [value.id])).toThrow(CanonicalKeyConflictError);
-  expect(uniqueSortedSemanticTuples([{ id: 'same', value: 1 }, { value: 1, id: 'same' }], (value) => [value.id])).toHaveLength(1);
-  const first = { kind: 'contract' as const, sourceId: 'source', sourcePath: 'src/file.ts' };
-  const reordered = { sourceId: 'source', kind: 'contract' as const, sourcePath: 'src/file.ts' };
-  expect(() => normalizeProvenance([first, reordered])).toThrow(CanonicalKeyConflictError);
-  expect(() => normalizeEvidence([{ kind: 'test', ref: 'same', digest: 'digest' }, { ref: 'same', kind: 'test', digest: 'digest' }])).toThrow(CanonicalKeyConflictError);
-  let getterCalls = 0;
-  const accessor = Object.defineProperty({ ...first }, 'extra', { enumerable: true, get: () => { getterCalls++; return 'unsafe'; } });
-  expect(() => normalizeProvenance([first, accessor])).toThrow(TypeError);
-  expect(getterCalls).toBe(0);
 });

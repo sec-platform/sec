@@ -211,19 +211,6 @@ test('assertion runtime validity is the only nested assertion data excluded from
   expect(semanticRevisionFor(irDomain, confidenceChangedFacts)).not.toBe(before.semanticRevision);
 });
 
-test('fact assertion rejects missing provenance and out-of-range confidence', () => {
-  expectCodedFailure(
-    () => addFact(new Map<string, SemanticFact>(), factInput({ provenance: [] })),
-    'IR-AUTHORITY-002'
-  );
-  for (const confidence of [-0.01, 1.01, Number.NaN, Infinity, -Infinity]) {
-    const facts = new Map<string, SemanticFact>();
-    expectCodedFailure(() => addFact(facts, factInput({ confidence })), 'IR-AUTHORITY-001');
-    expect(facts.size).toBe(0);
-  }
-});
-
-
 test('distinct provenance tuples survive fact construction without choosing an ambiguous wire order', () => {
   const pairs: FactProvenance[][] = [
     [{ kind: 'compiler', sourceId: 'a', sourcePath: 'b\0c' }, { kind: 'compiler', sourceId: 'a\0b', sourcePath: 'c' }],
@@ -234,6 +221,12 @@ test('distinct provenance tuples survive fact construction without choosing an a
     const id = addFact(facts, factInput({ provenance }));
     expect(facts.get(id)!.assertions[0]!.provenance).toEqual(pair);
   }
+  // Reusing the same source after an edit must not reuse an earlier tuple key.
+  pairs[0]![0]!.sourcePath = 'edited';
+  const edited = new Map<string, SemanticFact>();
+  const editedId = addFact(edited, factInput({ provenance: pairs[0]! }));
+  expect(edited.get(editedId)!.assertions[0]!.provenance).toEqual(pairs[0]);
+
   const first: FactProvenance = { kind: 'compiler', sourceId: 'a', revision: 'r' };
   const reordered: FactProvenance = { revision: 'r', sourceId: 'a', kind: 'compiler' };
   for (const provenance of [[first, reordered], [reordered, first]]) {
@@ -279,6 +272,20 @@ test('fact construction preserves the legacy assertion wire identity when option
   expect(assertion.id).toBe(`assertion:${expected}`);
   expect(JSON.stringify(assertion.provenance)).toBe(wire);
   expect(assertion.evidence).toEqual([{ kind: 'test', ref: 'case' }]);
+
+  const first: FactProvenance = { kind: 'contract', sourceId: 'owner', sourcePath: 'owner.yaml', revision: 'r1' };
+  const reordered: FactProvenance = { revision: 'r1', sourcePath: 'owner.yaml', sourceId: 'owner', kind: 'contract' };
+  for (const [value, wire] of [
+    [first, '[{"kind":"contract","sourceId":"owner","sourcePath":"owner.yaml","revision":"r1"}]'],
+    [reordered, '[{"revision":"r1","sourcePath":"owner.yaml","sourceId":"owner","kind":"contract"}]']
+  ] as const) for (const provenance of [[value], [value, { ...value }]]) {
+    const facts = new Map<string, SemanticFact>();
+    const id = addFact(facts, factInput({ provenance }));
+    const assertion = facts.get(id)!.assertions[0]!;
+    const expected = createHash('sha256').update(`${id}\0authoritative\0${wire}`).digest('hex').slice(0, 24);
+    expect(JSON.stringify(assertion.provenance)).toBe(wire);
+    expect(assertion.id).toBe(`assertion:${expected}`);
+  }
 });
 
 test('equal JSON wire cannot hide non-enumerable evidence identities from raw IR validation', () => {

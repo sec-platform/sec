@@ -163,8 +163,13 @@ test('distinct NUL-bearing state transitions survive compilation and a second tr
 
 test('semantic contract becomes authoritative entities, facts, transitions, and scenario steps', () => {
   const semanticContract = contract();
+  semanticContract.contract.operations[0]!.inputs = ['number', 'string', 'number'];
+  expect(normalizeSemanticContract(semanticContract.contract).operations[0]!.inputs)
+    .toEqual(['number', 'string', 'number']);
   const input = { ...baseInput(), semanticContracts: [semanticContract] };
   const ir = buildEngineeringIR(input);
+  expect(ir.entities.find((entity) => entity.id === 'operation:item:closeItem')?.attributes)
+    .toContainEqual({ key: 'inputs', value: ['number', 'string', 'number'] });
 
   expect(ir.entities.find((entity) => entity.id === 'responsibility:item:ItemStateMachine')?.kind).toBe('responsibility');
   expect(ir.entities.find((entity) => entity.id === 'responsibility:item:ItemStateMachine')?.attributes)
@@ -221,21 +226,6 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
     ...input,
     semanticContracts: [semanticContract, semanticContract]
   })).toEqual(ir);
-});
-
-test('semantic operation input sequence survives normalization and Engineering IR attributes', () => {
-  const semanticContract = contract();
-  semanticContract.contract.operations[0]!.inputs = ['number', 'string', 'number'];
-  semanticContract.contract = normalizeSemanticContract(semanticContract.contract);
-  expect(semanticContract.contract.operations[0]!.inputs).toEqual(['number', 'string', 'number']);
-
-  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [semanticContract] });
-  const operation = ir.entities.find((entity) => entity.id === 'operation:item:closeItem');
-
-  expect(operation?.attributes).toContainEqual({
-    key: 'inputs',
-    value: ['number', 'string', 'number']
-  });
 });
 
 test('distinct semantic contracts cannot implicitly merge through a shared namespace', () => {
