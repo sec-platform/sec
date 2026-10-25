@@ -36,8 +36,6 @@ import {
 import { acquireBranchRecoveryStore } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import type { ClosedSupersessionEvidence } from '../../../src/adapters/self-hosting/control/branch-lifecycle/closed-supersession-review.ts';
 
-const HEAD = '2'.repeat(40);
-
 function git(cwd: string, args: readonly string[], input?: string) {
   const result = spawnSync('git', [...args], {
     cwd,
@@ -215,6 +213,23 @@ async function withEffectFixture<T>(
   return settleWorkspaceCallback(() => operation(fixture), async () => {
     fixture.dispose();
   });
+}
+
+function writeDuplicateRecoveryBundle(fixture: ReturnType<typeof createEffectFixture>) {
+  const authorizationName = readdirSync(fixture.recoveryRoot)
+    .find((name) => name.endsWith('.authorization.json'))!;
+  const authorization = JSON.parse(
+    readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
+  ) as { entries: Array<{ recovery: { path: string } }> };
+  const original = readFileSync(authorization.entries[0]!.recovery.path);
+  const name = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
+  writeFileSync(path.join(fixture.recoveryRoot, name), original);
+  const digest = createHash('sha256').update(original).digest('hex');
+  writeFileSync(
+    path.join(fixture.recoveryRoot, `${name}.sha256`),
+    `${digest}  ${name}\n`
+  );
+  return { name, digest };
 }
 
 function completedDuplicateOperationReceipt(input: Readonly<{
@@ -1044,19 +1059,9 @@ test(`terminal settlement resumes duplicate family retirement after ${cut}`, asy
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
         afterAuthorization: () => {
-          const authorizationName = readdirSync(fixture.recoveryRoot)
-            .find((name) => name.endsWith('.authorization.json'))!;
-          const authorization = JSON.parse(
-            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
-          ) as { entries: Array<{ recovery: { path: string } }> };
-          const original = readFileSync(authorization.entries[0]!.recovery.path);
-          duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
-          writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
-          const digest = createHash('sha256').update(original).digest('hex');
-          writeFileSync(
-            path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
-            `${digest}  ${duplicateName}\n`
-          );
+          const duplicate = writeDuplicateRecoveryBundle(fixture);
+          duplicateName = duplicate.name;
+          const { digest } = duplicate;
           const operationReceipt = completedDuplicateOperationReceipt({
             repositoryRoot: fixture.repositoryRoot,
             headSha: fixture.headSha,
@@ -1157,19 +1162,9 @@ test('completed duplicate attempt cannot retire a newer pending operation in the
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
         afterAuthorization: () => {
-          const authorizationName = readdirSync(fixture.recoveryRoot)
-            .find((name) => name.endsWith('.authorization.json'))!;
-          const authorization = JSON.parse(
-            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
-          ) as { entries: Array<{ recovery: { path: string } }> };
-          const original = readFileSync(authorization.entries[0]!.recovery.path);
-          duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
-          writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
-          const digest = createHash('sha256').update(original).digest('hex');
-          writeFileSync(
-            path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
-            `${digest}  ${duplicateName}\n`
-          );
+          const duplicate = writeDuplicateRecoveryBundle(fixture);
+          duplicateName = duplicate.name;
+          const { digest } = duplicate;
           const completed = completedDuplicateOperationReceipt({
             repositoryRoot: fixture.repositoryRoot,
             headSha: fixture.headSha,
@@ -1230,19 +1225,7 @@ test('pure duplicate bundle and checksum retire without lifecycle evidence', asy
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
         afterAuthorization: () => {
-          const authorizationName = readdirSync(fixture.recoveryRoot)
-            .find((name) => name.endsWith('.authorization.json'))!;
-          const authorization = JSON.parse(
-            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
-          ) as { entries: Array<{ recovery: { path: string } }> };
-          const original = readFileSync(authorization.entries[0]!.recovery.path);
-          duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
-          writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
-          const digest = createHash('sha256').update(original).digest('hex');
-          writeFileSync(
-            path.join(fixture.recoveryRoot, `${duplicateName}.sha256`),
-            `${digest}  ${duplicateName}\n`
-          );
+          duplicateName = writeDuplicateRecoveryBundle(fixture).name;
           throw new Error('fault:bundle-only-duplicate-ready');
         }
       }
@@ -1271,19 +1254,9 @@ test('malformed duplicate terminal filenames cannot authorize recovery retiremen
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
         afterAuthorization: () => {
-          const authorizationName = readdirSync(fixture.recoveryRoot)
-            .find((name) => name.endsWith('.authorization.json'))!;
-          const authorization = JSON.parse(
-            readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
-          ) as { entries: Array<{ recovery: { path: string } }> };
-          const original = readFileSync(authorization.entries[0]!.recovery.path);
-          duplicateBundle = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
-          writeFileSync(path.join(fixture.recoveryRoot, duplicateBundle), original);
-          const digest = createHash('sha256').update(original).digest('hex');
-          writeFileSync(
-            path.join(fixture.recoveryRoot, `${duplicateBundle}.sha256`),
-            `${digest}  ${duplicateBundle}\n`
-          );
+          const duplicate = writeDuplicateRecoveryBundle(fixture);
+          duplicateBundle = duplicate.name;
+          const { digest } = duplicate;
           const operationReceipt = completedDuplicateOperationReceipt({
             repositoryRoot: fixture.repositoryRoot,
             headSha: fixture.headSha,
