@@ -87,7 +87,6 @@ function serviceDescriptor(
     includeEffect?: boolean;
     includeTerminal?: boolean;
     includeReadback?: boolean;
-    includeRecovery?: boolean;
     includeRetirement?: boolean;
   }> = {}
 ): DescriptorFixture {
@@ -112,12 +111,6 @@ function serviceDescriptor(
   if (options.includeReadback) relations.push({
     subject: 'example.service',
     relation: 'reads-back',
-    symbol: { path: symbolPath, name: symbolName },
-    operation: null
-  });
-  if (options.includeRecovery) relations.push({
-    subject: 'example.service',
-    relation: 'recovers',
     symbol: { path: symbolPath, name: symbolName },
     operation: null
   });

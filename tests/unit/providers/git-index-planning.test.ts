@@ -18,7 +18,6 @@ function indexBytes(input: Readonly<{
     remove?: readonly number[];
     flags?: number;
     extended?: number;
-    mode?: number;
     oid?: string;
   }>[];
   extension?: string;
@@ -32,7 +31,7 @@ function indexBytes(input: Readonly<{
   const chunks: Buffer[] = [header];
   for (const entry of input.entries) {
     const fixed = Buffer.alloc(40 + oidLength + 2 + (entry.extended === undefined ? 0 : 2));
-    fixed.writeUInt32BE(entry.mode ?? 0o100644, 24);
+    fixed.writeUInt32BE(0o100644, 24);
     Buffer.from(entry.oid ?? '11'.repeat(oidLength), 'hex').copy(fixed, 40);
     fixed.writeUInt16BE(entry.flags ?? (Buffer.byteLength(entry.path) | (entry.extended === undefined ? 0 : 0x4000)), 40 + oidLength);
     if (entry.extended !== undefined) fixed.writeUInt16BE(entry.extended, 42 + oidLength);
