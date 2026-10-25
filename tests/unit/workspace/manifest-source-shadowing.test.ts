@@ -1,3 +1,4 @@
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { Command } from 'commander';
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -18,7 +19,9 @@ import { buildReviewLock } from '../../helpers/review-fixtures.ts';
 const roots: string[] = [];
 afterEach(() => {
   manifestCache.clear();
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  settleResources({ cleanup: roots.splice(0).map(root => ({
+    label: root, settle: () => rmSync(root, { recursive: true, force: true })
+  })) });
 });
 
 function fixture() {

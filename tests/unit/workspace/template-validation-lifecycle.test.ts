@@ -1,3 +1,5 @@
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -24,20 +26,25 @@ async function using(run: (root: string, allocations: string[]) => Promise<void>
   const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-template-scope-'));
   const original = fs.mkdtemp, environment = process.env[ISOLATED_VERIFICATION_ENV_KEY];
   const allocations: string[] = [];
-  delete process.env[ISOLATED_VERIFICATION_ENV_KEY];
-  fs.mkdtemp = (async (...args: Parameters<typeof fs.mkdtemp>) => {
-    const value = await original(...args);
-    if (String(args[0]).includes('.engineering-compiler-template-')) allocations.push(String(value));
-    return value;
-  }) as typeof fs.mkdtemp;
-  try { await run(root, allocations); }
-  finally {
-    fs.mkdtemp = original;
-    if (environment === undefined) delete process.env[ISOLATED_VERIFICATION_ENV_KEY];
-    else process.env[ISOLATED_VERIFICATION_ENV_KEY] = environment;
-    for (const allocated of allocations) await fs.rm(allocated, { recursive: true, force: true });
-    await fs.rm(root, { recursive: true, force: true });
-  }
+  await settleWorkspaceCallback(async () => {
+    delete process.env[ISOLATED_VERIFICATION_ENV_KEY];
+    fs.mkdtemp = (async (...args: Parameters<typeof fs.mkdtemp>) => {
+      const value = await original(...args);
+      if (String(args[0]).includes('.engineering-compiler-template-')) allocations.push(String(value));
+      return value;
+    }) as typeof fs.mkdtemp;
+    await run(root, allocations);
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'mkdtemp capability', settle: () => { fs.mkdtemp = original; } },
+      { label: 'verification environment', settle: () => {
+        if (environment === undefined) delete process.env[ISOLATED_VERIFICATION_ENV_KEY];
+        else process.env[ISOLATED_VERIFICATION_ENV_KEY] = environment;
+      } },
+      ...[...allocations, root].map(directory => ({ label: directory,
+        settle: () => fs.rm(directory, { recursive: true, force: true }) }))
+    ] });
+  });
 }
 function lock(registryPath?: string): LockFile {
   return { resolvedBlocks: registryPath === undefined ? [] : [{ registryLocation: 'workspace', registryPath }] } as unknown as LockFile;

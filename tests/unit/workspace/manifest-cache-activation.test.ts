@@ -1,3 +1,4 @@
+import { settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
 import { afterEach, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -14,7 +15,7 @@ const temporaryRoots: string[] = [];
 
 afterEach(async () => {
   manifestCache.clear();
-  await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
+  await settleWorkspaceCleanups(temporaryRoots.splice(0).map(root => () => fs.rm(root, { recursive: true, force: true })));
 });
 
 function manifestSource(id: string, version: string): string {
