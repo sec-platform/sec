@@ -1017,44 +1017,6 @@ test.serial('direct fast execution rejects unavailable inventory reobservation b
 });
 
 // 这些测试使用全局 mock，必须串行执行以避免并发干扰
-test.serial('targeted fast tests preserve ordinary sequential semantics', async () => {
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (message?: unknown) => { errors.push(String(message)); };
-  try {
-    const code = await runFastTests(['tests/unit/workspace/path-containment.test.ts']);
-
-    expect(code).toBe(0);
-    expect(fastDependencyBootstrapCalls).toBe(1);
-    expect(devCommandEnvironments).toHaveLength(1);
-    expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
-    expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
-    expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
-    expect(devCommandEnvironments[0]?.SEC_STATE_HOME).toMatch(
-      /[\\/]invocation-runtime[\\/]parallel-001$/u
-    );
-    expect(devCommandEnvironments[0]?.SEC_CACHE_HOME).toMatch(
-      /[\\/]invocation-runtime[\\/]parallel-001$/u
-    );
-    expect(devCommandCalls).toEqual([
-      {
-        command: 'bun',
-        args: [
-          'test',
-          './tests/unit/workspace/path-containment.test.ts',
-          ...DEFAULT_MANAGED_INNER_ARGS,
-          '--timeout',
-          String(DEFAULT_TEST_TIMEOUT_MS)
-        ]
-      }
-    ]);
-    expect(errors.some((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
-      .toBe(false);
-  } finally {
-    console.error = originalError;
-  }
-});
-
 test.serial('fast tests preserve options across process shards and isolated invocations', async () => {
   const code = await runFastTests(['--timeout', '30000']);
   const defaultFastTestFiles = getFastTestFilesSync().filter(isDefaultFastTestFile);
@@ -1560,27 +1522,42 @@ test.serial('settled test failure preserves its exit while independent later cla
   }
 });
 
-test.serial('explicit fast test files bootstrap once and settle their invocation runtime', async () => {
-  const code = await runTests(['tests/unit/workspace/path-containment.test.ts', '--timeout', '10000']);
+test.serial('explicit fast test files bootstrap once, preserve their environment and settle their invocation runtime', async () => {
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => { errors.push(String(message)); };
+  try {
+    const code = await runTests(['tests/unit/workspace/path-containment.test.ts', '--timeout', '10000']);
 
-  expect(code).toBe(0);
-  expect(fastDependencyBootstrapCalls).toBe(1);
-  expect(devCommandCalls).toEqual([{
-    command: 'bun',
-    args: [
-      'test',
-      './tests/unit/workspace/path-containment.test.ts',
-      ...DEFAULT_MANAGED_INNER_ARGS,
-      '--timeout',
-      '10000'
-    ]
-  }]);
-  const environment = devCommandEnvironments[0]!;
-  expect(path.basename(environment.SEC_STATE_HOME!)).toBe('parallel-001');
-  expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('parallel-001');
-  const runtimeRoots = fastInvocationRunRoots(environment);
-  await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-  await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(code).toBe(0);
+    expect(fastDependencyBootstrapCalls).toBe(1);
+    expect(devCommandCalls).toEqual([{
+      command: 'bun',
+      args: [
+        'test',
+        './tests/unit/workspace/path-containment.test.ts',
+        ...DEFAULT_MANAGED_INNER_ARGS,
+        '--timeout',
+        '10000'
+      ]
+    }]);
+    expect(devCommandEnvironments).toHaveLength(1);
+    const environment = devCommandEnvironments[0]!;
+    expect(environment.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
+    expect(environment.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
+    expect(environment.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
+    expect(environment.SEC_STATE_HOME).toMatch(/[\\/]invocation-runtime[\\/]parallel-001$/u);
+    expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]invocation-runtime[\\/]parallel-001$/u);
+    expect(path.basename(environment.SEC_STATE_HOME!)).toBe('parallel-001');
+    expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('parallel-001');
+    const runtimeRoots = fastInvocationRunRoots(environment);
+    await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(errors.some((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
+      .toBe(false);
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test.serial('composite check reuses one materialized compiler capability without a second bootstrap', async () => {
@@ -1590,6 +1567,11 @@ test.serial('composite check reuses one materialized compiler capability without
 
   expect(code).toBe(0);
   expect(fastDependencyBootstrapCalls).toBe(0);
+  expect(devCommandCalls).toEqual([{
+    command: 'bun',
+    args: ['test', './tests/unit/workspace/path-containment.test.ts',
+      ...DEFAULT_MANAGED_INNER_ARGS, '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
+  }]);
 });
 
 test.serial('option-only full selection retains excluded fast owners and canonical slow dispatch', async () => {

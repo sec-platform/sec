@@ -35,30 +35,33 @@ test('slow-suite lookup uses the same spelling key as test recognition', () => {
   assert.deepEqual(slowTestSuiteIdsForFile('tests/unit/unregistered.test.ts'), []);
 });
 
-test('budget projection emits canonical fast and slow suite membership from issued snapshot paths', () => {
-  const result = compileTestBudgetProjection(source([
-    'tests/unit/plain.test.ts', 'tests/e2e/verification/graph.test.ts', 'tests/testkit/helper.ts'
-  ]));
-  assert.deepEqual(result.testFiles, ['tests/e2e/verification/graph.test.ts', 'tests/unit/plain.test.ts']);
-  assert.deepEqual(result.fastTestFiles, ['tests/unit/plain.test.ts']);
-  assert.deepEqual(result.slowTestFiles, ['tests/e2e/verification/graph.test.ts']);
-  assert.equal(result.slowSuites[0]!.id, 'e2e-graph');
-  assert.deepEqual(result.slowSuites[0]!.files, ['tests/e2e/verification/graph.test.ts']);
-});
-
-test('test inventory follows runnable snapshot paths without treating TypeScript project membership as runtime authority', () => {
+test('issued snapshot inventory and budget preserve canonical fast/slow membership without compiler or fixture authority', () => {
   const inventory = source([
+    'tests/unit/plain.test.ts',
     'tests/unit/tsconfig-excluded.test.ts',
     'src/colocated.test.ts',
+    'tests/e2e/verification/graph.test.ts',
     'tests/fixtures/runtime-fixture.test.ts',
     'tests/testkit/helper.ts',
     'tests/unit/compile-only.typecheck.ts',
     'tsconfig.json'
   ]);
-  assert.deepEqual(inventory.testFiles, [
+  const expectedFiles = [
     'src/colocated.test.ts',
+    'tests/e2e/verification/graph.test.ts',
+    'tests/unit/plain.test.ts',
     'tests/unit/tsconfig-excluded.test.ts'
+  ];
+  // Observe the issued inventory before the budget's own admission/filtering.
+  assert.deepEqual(inventory.testFiles, expectedFiles);
+  const result = compileTestBudgetProjection(inventory);
+  assert.deepEqual(result.testFiles, expectedFiles);
+  assert.deepEqual(result.fastTestFiles, [
+    'src/colocated.test.ts', 'tests/unit/plain.test.ts', 'tests/unit/tsconfig-excluded.test.ts'
   ]);
+  assert.deepEqual(result.slowTestFiles, ['tests/e2e/verification/graph.test.ts']);
+  assert.equal(result.slowSuites[0]!.id, 'e2e-graph');
+  assert.deepEqual(result.slowSuites[0]!.files, ['tests/e2e/verification/graph.test.ts']);
 });
 
 test('test budget rejects caller-authored inventory and an unissued workspace snapshot', () => {

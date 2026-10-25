@@ -20,6 +20,13 @@ test('one pure capped budget covers every admitted allocation and excess CPU bou
     Number.MAX_SAFE_INTEGER
   ];
 
+  const singleSlotClassLimits = new Map([
+    [1, { independent: 1, shared: 1 }],
+    [2, { independent: 2, shared: 2 }],
+    [3, { independent: 3, shared: 2 }],
+    [16, { independent: 8, shared: 2 }]
+  ]);
+
   for (const availableCpuCount of cpuCounts) {
     const budget = resolveFastTestConcurrencyBudget(availableCpuCount);
     expect(budget.availableCpuCount).toBe(availableCpuCount);
@@ -40,6 +47,16 @@ test('one pure capped budget covers every admitted allocation and excess CPU bou
     for (let explicit = 1; explicit <= budget.globalBudget; explicit += 1) {
       const explicitManaged = resolveManagedFastTestConcurrency(budget, explicit);
       expect(explicitManaged.innerConcurrency).toBe(explicit);
+      const expected = explicit === 1 ? singleSlotClassLimits.get(availableCpuCount) : undefined;
+      if (expected !== undefined) {
+        expect(explicitManaged.outerProcessConcurrency).toBe(availableCpuCount);
+        expect(explicitManaged.resourceClassLimits).toEqual({
+          'independent-process': expected.independent,
+          'shared-host-runtime': expected.shared,
+          'repository-worktree': 1,
+          'host-profile': 1
+        });
+      }
       expect(explicitManaged.outerProcessConcurrency).toBeGreaterThan(0);
       expect(explicitManaged.outerProcessConcurrency * explicit)
         .toBeLessThanOrEqual(budget.globalBudget);
@@ -151,29 +168,6 @@ test('managed explicit concurrency adapts the outer allocation and rejects impos
   expect(() => resolveManagedFastTestConcurrency(budget, 13)).toThrow(
     'exceeds the managed fast-test global budget 12'
   );
-});
-
-test('resource-class limits derive deterministically across outer limits 1, 2, 3, and above 4', () => {
-  const cases = [
-    { cpu: 1, independent: 1, shared: 1 },
-    { cpu: 2, independent: 2, shared: 2 },
-    { cpu: 3, independent: 3, shared: 2 },
-    { cpu: 16, independent: 8, shared: 2 }
-  ];
-
-  for (const expected of cases) {
-    const managed = resolveManagedFastTestConcurrency(
-      resolveFastTestConcurrencyBudget(expected.cpu),
-      1
-    );
-    expect(managed.outerProcessConcurrency).toBe(expected.cpu);
-    expect(managed.resourceClassLimits).toEqual({
-      'independent-process': expected.independent,
-      'shared-host-runtime': expected.shared,
-      'repository-worktree': 1,
-      'host-profile': 1
-    });
-  }
 });
 
 test('managed max-concurrency rejects invalid and duplicate declarations', () => {
