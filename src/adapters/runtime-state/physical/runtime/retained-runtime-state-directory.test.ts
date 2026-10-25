@@ -1,5 +1,4 @@
 import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
-import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -42,15 +41,14 @@ test.skipIf(process.platform !== 'win32')('Windows host namespace proof is FileI
     retainedProof = undefined;
     expect(() => assertRetainedWindowsHostNamespaceDirectory(proof)).toThrow('live host namespace');
   }, async () => {
-    await settleResourcesAsync({ cleanup: [
-      { label: 'host namespace proof', settle: () => retainedProof?.dispose() },
-      { label: 'host namespace root', settle: () => rm(container, { recursive: true, force: true }) }
-    ] });
+    retainedProof?.dispose();
+    await rm(container, { recursive: true, force: true });
   });
 });
 
 test('runtime-state directory is created beneath and retained from its owner-issued root', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-state-root-'));
+  let acquired: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | undefined;
   await settleWorkspaceCallback(async () => {
     const root = inspectNoFollowDirectoryChain(rootPath, 'test runtime-state root');
     expect(() => openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
@@ -59,7 +57,7 @@ test('runtime-state directory is created beneath and retained from its owner-iss
       root,
       segments: ['..']
     })).toThrow('segment is invalid');
-    const retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
+    const retained = acquired = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 63,
       mode: 'create-or-open',
       root,
@@ -75,6 +73,7 @@ test('runtime-state directory is created beneath and retained from its owner-iss
     expect(retained.close()).toEqual(receipt);
     expect(() => retained.assertCurrent()).toThrow(RetainedRuntimeStateDirectoryError);
   }, async () => {
+    acquired?.close();
     await rm(rootPath, { recursive: true, force: true });
   });
 });

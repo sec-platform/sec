@@ -146,9 +146,8 @@ test.skipIf(process.platform !== 'linux')(
   'retained command preserves owner-advertised auxiliary descriptor slots',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-aux-slots-'));
-    const cleanup: { label: string; settle(): void }[] = [
-      { label: 'auxiliary root', settle: () => rmSync(root, { recursive: true, force: true }) }
-    ];
+    let commandSettled = true;
+    const cleanup: { label: string; settle(): void }[] = [];
     await settleWorkspaceCallback(async () => {
     const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'aux-slot executable');
     cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
@@ -184,6 +183,7 @@ test.skipIf(process.platform !== 'linux')(
           { capability: second, kind: 'directory' }
         ]
       });
+      commandSettled = false;
       const result = await runRetainedCommand(boundary, [
         '--no-env-file',
         '--eval',
@@ -192,15 +192,24 @@ test.skipIf(process.platform !== 'linux')(
           'process.stdout.write(fs.readFileSync("/proc/self/fd/15/value.txt", "utf8"));',
           'process.stdout.write(fs.readFileSync("/proc/self/fd/16/value.txt", "utf8"));'
         ].join('\n')
-      ], RETAINED_TEST_COMMAND_BUDGET);
+      ], RETAINED_TEST_COMMAND_BUDGET).catch(error => {
+        commandSettled = retainedCommandFailureTreeClosed(error) === true;
+        throw error;
+      });
+      commandSettled = true;
       expect(result).toEqual({ code: 0, stdout: 'first\nsecond\n', stderr: '', terminal: { exitCode: 0, signal: null } });
-    }, async () => { settleResources({ cleanup }); });
+    }, async () => {
+      if (!commandSettled) throw new Error(`Auxiliary child settlement is unknown; retained fixture root: ${root}`);
+      settleResources({ cleanup });
+      rmSync(root, { recursive: true, force: true });
+    });
   }
 );
 
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
   'retained byte transport executes and revalidates one immutable executable image',
   async () => {
+  let commandSettled = true;
   const cleanup: { label: string; settle(): void }[] = [];
   await settleWorkspaceCallback(async () => {
   const retained = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'test executable');
@@ -215,6 +224,7 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
     executable: retained,
     workingDirectory: retainedWorkingDirectory
   });
+    commandSettled = false;
     const bytes = await runRetainedCommandBytes(boundary, [
       '--no-env-file',
       '--eval',
@@ -223,11 +233,15 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
       ...RETAINED_TEST_COMMAND_BUDGET,
       input: new Uint8Array([0, 1, 255]),
       maxStdinBytes: 3
+    }).catch(error => {
+      commandSettled = retainedCommandFailureTreeClosed(error) === true;
+      throw error;
     });
+    commandSettled = true;
     expect(bytes).toEqual({ code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '', terminal: { exitCode: 0, signal: null } });
     retained.assertCurrent();
     retainedWorkingDirectory.assertCurrent();
-  }, async () => { settleResources({ cleanup }); });
+  }, async () => { if (commandSettled) settleResources({ cleanup }); });
   }
 );
 
@@ -260,6 +274,7 @@ test.skipIf(process.platform !== 'win32')(
   'retained command timeout returns only after process-tree and stream settlement',
   async () => {
   let failure: unknown;
+  let commandSettled = true;
   const cleanup: { label: string; settle(): void }[] = [];
   await settleWorkspaceCallback(async () => {
   const executablePath = path.resolve(process.execPath);
@@ -282,6 +297,7 @@ test.skipIf(process.platform !== 'win32')(
     executable: retained,
     workingDirectory: retainedWorkingDirectory
   });
+  commandSettled = false;
   try {
     await runRetainedCommand(boundary, [
       '--no-env-file',
@@ -298,11 +314,11 @@ test.skipIf(process.platform !== 'win32')(
       terminationGraceMs: 250,
       timeoutMs: 100
     });
+    commandSettled = true;
   } catch (error) {
     failure = error;
+    commandSettled = retainedCommandFailureTreeClosed(error) === true;
   }
-  }, async () => { settleResources({ cleanup }); });
-
   expect(failure).toBeInstanceOf(RetainedCommandTransportError);
   const typed = failure as RetainedCommandTransportError;
   expect(retainedCommandFailureTreeClosed(typed)).toBe(true);
@@ -320,6 +336,7 @@ test.skipIf(process.platform !== 'win32')(
   });
   Object.defineProperty(typed, 'outcome', { value: { termination: { treeClosed: false } } });
   expect(retainedCommandFailureTreeClosed(typed)).toBe(true);
+  }, async () => { if (commandSettled) settleResources({ cleanup }); });
   }
 );
 

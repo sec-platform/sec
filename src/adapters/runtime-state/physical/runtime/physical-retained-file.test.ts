@@ -12,7 +12,7 @@ import {
   retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
 } from './physical-no-follow.ts';
-import { issueRetainedCommandBoundary, runRetainedCommand } from './process.ts';
+import { issueRetainedCommandBoundary, retainedCommandFailureTreeClosed, runRetainedCommand } from './process.ts';
 
 const runtimeRoot = import.meta.dir;
 const compilerIdentityModule = path.resolve(runtimeRoot,
@@ -22,9 +22,10 @@ const nestedScript = `
   import { retainCurrentLinuxSealedExecutable, retainedExecutableSourcePath,
     retainNoFollowDirectoryForChildProcess, inspectNoFollowDirectoryChain }
     from ${JSON.stringify(path.join(runtimeRoot, 'physical-no-follow.ts'))};
-  import { issueRetainedCommandBoundary, runRetainedCommand }
+  import { issueRetainedCommandBoundary, retainedCommandFailureTreeClosed, runRetainedCommand }
     from ${JSON.stringify(path.join(runtimeRoot, 'process.ts'))};
   import { currentRuntimeExecutableIdentity } from ${JSON.stringify(compilerIdentityModule)};
+  import { settleResources } from ${JSON.stringify(path.resolve(runtimeRoot, '../../../../execution/resource-settlement.ts'))};
   const identity = await currentRuntimeExecutableIdentity();
   const fs = await import('node:fs');
   const os = await import('node:os');
@@ -49,32 +50,56 @@ const nestedScript = `
     fs.rmSync(maliciousRoot, {recursive: true, force: true});
   }
   const executable = retainCurrentLinuxSealedExecutable();
-  const directory = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(process.cwd()), 4);
+  let directory;
+  let primary;
+  let commandsSettled = true;
   try {
+    directory = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(process.cwd()), 4);
     delete process.env[sourceKey];
     let admissionFailure;
     try {
-      await runRetainedCommand(issueRetainedCommandBoundary({executable, workingDirectory: directory}),
+      const boundary = issueRetainedCommandBoundary({executable, workingDirectory: directory});
+      commandsSettled = false;
+      await runRetainedCommand(boundary,
         ['--eval', "process.stdout.write('must-not-run')"],
         {timeoutMs: 10000, maxStdoutBytes: 1000, maxStderrBytes: 1000});
-    } catch (error) { admissionFailure = error; }
+      commandsSettled = true;
+    } catch (error) {
+      admissionFailure = error;
+      if (!commandsSettled) commandsSettled = retainedCommandFailureTreeClosed(error) === true;
+    }
     finally { process.env[sourceKey] = originalSource; }
     if (!admissionFailure?.message.includes('canonical source locator')
         || admissionFailure.outcome.started !== false)
       throw new Error('Missing source admission lost its cause or started a child');
+    if (!commandsSettled) throw admissionFailure;
     let rejected = false;
     try { retainedExecutableSourcePath(executable, ${JSON.stringify(import.meta.path)}); } catch { rejected = true; }
     if (!rejected) throw new Error('Unproven source provenance was admitted');
-    const result = await runRetainedCommand(issueRetainedCommandBoundary({executable, workingDirectory: directory}),
+    const boundary = issueRetainedCommandBoundary({executable, workingDirectory: directory});
+    commandsSettled = false;
+    const result = await runRetainedCommand(boundary,
       ['--no-env-file', '--eval', ${JSON.stringify(`
         import { currentRuntimeExecutableIdentity } from ${JSON.stringify(compilerIdentityModule)};
         process.stdout.write(JSON.stringify(await currentRuntimeExecutableIdentity()));
-      `)}], {timeoutMs: 10000, maxStdoutBytes: 10000, maxStderrBytes: 10000});
+      `)}], {timeoutMs: 10000, maxStdoutBytes: 10000, maxStderrBytes: 10000}).catch(error => {
+        commandsSettled = retainedCommandFailureTreeClosed(error) === true;
+        throw error;
+      });
+    commandsSettled = true;
     if (result.code !== 0) throw new Error(result.stderr);
     if (JSON.stringify(JSON.parse(result.stdout)) !== JSON.stringify(identity))
       throw new Error('Grandchild runtime identity changed');
     process.stdout.write(result.stdout);
-  } finally { directory.dispose(); executable.dispose(); }
+  } catch (error) {
+    primary = { label: 'nested retained executable fixture', error };
+    throw error;
+  } finally {
+    if (commandsSettled) settleResources({ primary, cleanup: [
+      { label: 'nested working directory', settle: () => directory?.dispose() },
+      { label: 'nested executable', settle: () => executable.dispose() }
+    ] });
+  }
   let disposedRejected = false;
   try { executable.assertCurrent(); } catch { disposedRejected = true; }
   if (!disposedRejected) throw new Error('Disposed executable remained usable');
@@ -84,20 +109,27 @@ test.skipIf(process.platform !== 'linux')(
   'sealed executable provenance survives child and grandchild with physical source revalidation',
   async () => {
     const expected = await currentRuntimeExecutableIdentity();
+    let commandsSettled = true;
     const cleanup: { label: string; settle(): void }[] = [];
     await settleWorkspaceCallback(async () => {
     const executable = retainCurrentProcessExecutable(3, 'runtime provenance test');
     cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
     const directory = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(process.cwd()), 4);
     cleanup.unshift({ label: 'working directory', settle: () => directory.dispose() });
-      const result = await runRetainedCommand(issueRetainedCommandBoundary({executable, workingDirectory: directory}),
+      const boundary = issueRetainedCommandBoundary({executable, workingDirectory: directory});
+      commandsSettled = false;
+      const result = await runRetainedCommand(boundary,
         ['--no-env-file', '--eval', nestedScript],
-        {timeoutMs: 15000, maxStdoutBytes: 10000, maxStderrBytes: 10000});
+        {timeoutMs: 15000, maxStdoutBytes: 10000, maxStderrBytes: 10000}).catch(error => {
+          commandsSettled = retainedCommandFailureTreeClosed(error) === true;
+          throw error;
+        });
+      commandsSettled = true;
       expect(result.code, result.stderr).toBe(0);
       expect(result.terminal).toEqual({ exitCode: 0, signal: null });
       expect(result.stderr).toBe('');
       expect(JSON.parse(result.stdout)).toEqual(expected);
-    }, async () => { settleResources({ cleanup }); });
+    }, async () => { if (commandsSettled) settleResources({ cleanup }); });
   }
 );
 
@@ -118,9 +150,8 @@ test.skipIf(process.platform !== 'linux')(
   'separate retained Bun test processes preserve independent PIDs and isolated globals',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-test-isolation-'));
-    const cleanup: { label: string; settle(): void }[] = [
-      { label: 'isolated roots', settle: () => rmSync(root, { recursive: true, force: true }) }
-    ];
+    let commandsSettled = true;
+    const cleanup: { label: string; settle(): void }[] = [];
     await settleWorkspaceCallback(async () => {
     const executable = retainCurrentProcessExecutable(3, 'isolated test executable');
     cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
@@ -136,9 +167,12 @@ test.skipIf(process.platform !== 'linux')(
         });
       `);
       const boundary = issueRetainedCommandBoundary({executable, workingDirectory: directory});
+      commandsSettled = false;
       const settled = await Promise.allSettled(files.map((file) => runRetainedCommand(boundary,
         ['--no-env-file', 'test', './' + file, '--no-orphans'],
         {timeoutMs: 10000, maxStdoutBytes: 10000, maxStderrBytes: 10000})));
+      commandsSettled = settled.every(result => result.status === 'fulfilled'
+        || retainedCommandFailureTreeClosed(result.reason) === true);
       settleResources({ cleanup: settled.map((result, index) => ({
         label: `isolated child ${index}`,
         settle() { if (result.status === 'rejected') throw result.reason; }
@@ -155,6 +189,10 @@ test.skipIf(process.platform !== 'linux')(
       });
       expect(new Set(childPids).size).toBe(files.length);
       expect(childPids).not.toContain(process.pid);
-    }, async () => { settleResources({ cleanup }); });
+    }, async () => {
+      if (!commandsSettled) throw new Error(`Isolated child settlement is unknown; retained fixture root: ${root}`);
+      settleResources({ cleanup });
+      rmSync(root, { recursive: true, force: true });
+    });
   }
 );

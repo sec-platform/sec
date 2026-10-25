@@ -89,9 +89,9 @@ test('bounded generation census reports physical presence without inferring prov
   }, async () => {
     await settleResourcesAsync({ cleanup: [
       { label: 'generation census', settle: () => { census?.close(); } },
-      { label: 'census owner', settle: () => { owner?.close(); } },
-      { label: 'census fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
+      { label: 'census owner', settle: () => { owner?.close(); } }
     ] });
+    await rm(rootPath, { recursive: true, force: true });
   });
 });
 
@@ -119,9 +119,9 @@ test.skipIf(process.platform !== 'win32')('generation census preserves the owner
   }, async () => {
     await settleResourcesAsync({ cleanup: [
       { label: 'generation census', settle: () => { census?.close(); } },
-      { label: 'census owner', settle: () => { owner?.close(); } },
-      { label: 'census fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
+      { label: 'census owner', settle: () => { owner?.close(); } }
     ] });
+    await rm(rootPath, { recursive: true, force: true });
   });
 });
 
@@ -173,9 +173,7 @@ test('presentation text alone cannot issue a runtime endpoint residue receipt', 
     expect(probes).toBe(0);
     expect(outsideReceipt).toBeNull();
   }, async () => {
-    await settleResourcesAsync({ cleanup: [
-      { label: 'retained root', settle: () => { retained?.close(); } },
-      { label: 'residue fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
-    ] });
+    retained?.close();
+    await rm(rootPath, { recursive: true, force: true });
   });
 });

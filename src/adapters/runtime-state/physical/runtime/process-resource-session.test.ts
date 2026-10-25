@@ -188,9 +188,9 @@ test('independent provider identity binds retained auxiliary provider inputs', a
   }, async () => {
     await settleResourcesAsync({ cleanup: [
       { label: 'second boundary', settle: () => second?.dispose() },
-      { label: 'first boundary', settle: () => first?.dispose() },
-      { label: 'provider fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+      { label: 'first boundary', settle: () => first?.dispose() }
     ] });
+    await rm(root, { recursive: true, force: true });
   });
 });
 
@@ -273,6 +273,7 @@ test('process sessions require one process Effect and complete bound resource ce
     operation,
     requirementBindingContext: requirementBindingContext(operation)
   });
+  let foreignSession: ReturnType<typeof openProcessResourceSession> | undefined;
   await settleWorkspaceCallback(async () => {
     const firstArgs = [
       '--no-env-file',
@@ -375,7 +376,7 @@ test('process sessions require one process Effect and complete bound resource ce
     )).toThrow(/owner-issued exact result/u);
 
     const foreignOperation = boundOperation({ label: 'foreign-run-result-session' });
-    const foreignSession = openProcessResourceSession({
+    foreignSession = openProcessResourceSession({
       operation: foreignOperation,
       requirementBindingContext: requirementBindingContext(foreignOperation)
     });
@@ -447,6 +448,10 @@ test('process sessions require one process Effect and complete bound resource ce
       maxStdoutBytes: 0
     })).rejects.toThrow(/session is closed/u);
   }, async () => {
+    settleResources({ cleanup: [
+      { label: 'original session', settle: () => { session.close(); } },
+      { label: 'foreign session', settle: () => { foreignSession?.close(); } }
+    ] });
     retained.dispose();
   });
 });
@@ -662,6 +667,7 @@ test('child timeout settles its physical process tree and retains bounded failur
     expect(JSON.stringify(diagnostic)).not.toContain('err:');
     expect(JSON.stringify(transportFailure)).not.toContain('err:');
   }, async () => {
+    session.close();
     retained.dispose();
   });
 });
@@ -767,6 +773,7 @@ test('failed command settlement retains its full output reservation in the termi
       outputBytes: 2
     });
   }, async () => {
+    session.close();
     retained.dispose();
   });
 });
@@ -831,9 +838,8 @@ test.skipIf(process.platform !== 'linux')(
   'Linux retained executable uses one sealed descriptor image and rejects lexical ABA',
   async () => {
     const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-retained-executable-'));
-    const cleanup: { label: string; settle(): void | Promise<void> }[] = [
-      { label: 'executable root', settle: () => rm(temporaryRoot, { recursive: true, force: true }) }
-    ];
+    let retireSession: (() => void) | undefined;
+    const cleanup: { label: string; settle(): void | Promise<void> }[] = [];
     await settleWorkspaceCallback(async () => {
     const executablePath = path.join(temporaryRoot, 'tool');
     const displacedPath = path.join(temporaryRoot, 'tool.displaced');
@@ -871,8 +877,7 @@ test.skipIf(process.platform !== 'linux')(
       operation,
       requirementBindingContext: requirementBindingContext(operation)
     });
-    const retireSession = { label: 'session', settle: () => { session.close(); } };
-    cleanup.unshift(retireSession);
+    retireSession = () => { session.close(); };
       const executed = await session.run(boundary, [], {
         maxStderrBytes: 0,
         maxStdoutBytes: 6
@@ -889,8 +894,14 @@ test.skipIf(process.platform !== 'linux')(
         maxStdoutBytes: 1
       })).rejects.toThrow(/lexical executable edge changed/u);
       session.close();
-      cleanup.splice(cleanup.indexOf(retireSession), 1);
-    }, async () => { await settleResourcesAsync({ cleanup }); });
+      retireSession = undefined;
+    }, async () => {
+      // Session close owns the native-ledger terminal proof. An unknown child
+      // must retain its executable, cwd and root, not just its session token.
+      retireSession?.();
+      await settleResourcesAsync({ cleanup });
+      await rm(temporaryRoot, { recursive: true, force: true });
+    });
   }
 );
 
