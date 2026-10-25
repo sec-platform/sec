@@ -1,4 +1,4 @@
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { withRetainedBunTestCommands } from '../../testkit/process-resource.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -22,7 +22,7 @@ function git(cwd: string, args: readonly string[]): string {
 test('hosted local ref consumer admits the native Git delete transaction', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-local-ref-'));
   const repositoryRoot = path.join(root, 'repository');
-  await settleWorkspaceCallback(async () => {
+  await withRetainedBunTestCommands(root, async (run) => {
     mkdirSync(repositoryRoot);
     git(repositoryRoot, ['init', '-b', 'main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
@@ -51,11 +51,11 @@ test('hosted local ref consumer admits the native Git delete transaction', async
     const attempts: BranchCloseoutAttempt[] = [];
     const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as OperationDigest;
     const rejected = await observeLocalRefCasWithAdmissionDouble({ preparation, operationId,
-      revokeAtFinalCheck: true });
+      revokeAtFinalCheck: true }, run);
     expect(rejected.realForgedAdmissionRejected).toBe(true);
     expect(rejected.result.status).toBe('failed');
     expect(git(repositoryRoot, ['rev-parse', 'refs/heads/feat/example'])).toBe(headSha);
-    const observed = await observeLocalRefCasWithAdmissionDouble({ preparation, operationId });
+    const observed = await observeLocalRefCasWithAdmissionDouble({ preparation, operationId }, run);
     const result = observed.result;
     attempts.push(...observed.attempts);
     expect(observed.realForgedAdmissionRejected).toBe(true);

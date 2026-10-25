@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { materializeTrustedBootstrapCheckerProgram } from '../../../src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-program.ts';
 import { compilerRoot } from '../../../src/adapters/workspace-context.ts';
-import { runRetainedBunTestCommand } from '../../testkit/process-resource.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 export const TRUSTED_CHECKER_NATIVE = 'src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-native.ts';
 
@@ -76,9 +76,8 @@ export async function observeBundledCheckerIdentityFixture(): Promise<Readonly<{
   artifactPath: string; sourcePath: string; bundleBytes: Uint8Array;
   observedPath: unknown; observedDigest: unknown;
 }>> {
-  let root = await mkdtemp(path.join(tmpdir(), 'sec-checker-identity-'));
-  try {
-    root = await realpath(root);
+  return withRetainedBunTestWorkspace('sec-checker-identity-', async (temporaryRoot, run) => {
+    const root = await realpath(temporaryRoot);
     const sourcePath = path.join(root, 'native.ts');
     const entry = path.join(root, 'entry.ts');
     const artifactPath = path.join(root, 'checker.mjs');
@@ -98,7 +97,7 @@ process.stdout.write(JSON.stringify(observe()));
     if (!build.success || build.outputs.length !== 1) throw new Error('Checker identity fixture did not bundle.');
     const bundleBytes = new Uint8Array(await build.outputs[0]!.arrayBuffer());
     await writeFile(artifactPath, bundleBytes, { flag: 'wx' });
-    const result = await runRetainedBunTestCommand(['--no-env-file', artifactPath], {
+    const result = await run(['--no-env-file', artifactPath], {
       cwd: root, timeoutMs: 5_000,
       envMode: 'replace', env: { PATH: process.env.PATH }
     });
@@ -108,9 +107,7 @@ process.stdout.write(JSON.stringify(observe()));
     const observed: { path?: unknown; digest?: unknown } = JSON.parse(result.stdout);
     return Object.freeze({ artifactPath, sourcePath, bundleBytes,
       observedPath: observed.path, observedDigest: observed.digest });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  });
 }
 
 /** Build only: fixture Git establishes real clean source identities. No checker

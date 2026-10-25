@@ -19,6 +19,7 @@ import {
 import { observeCloseoutFixtureWork } from '../../helpers/closeout-cli/work-observation.ts';
 import { observeLocalRefCasWithAdmissionDouble } from '../../helpers/main-health-admission-double.ts';
 import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
+import { withRetainedBunTestCommands } from '../../testkit/process-resource.ts';
 
 // This qualifies the real consumer's setup using synthetic Git and Work
 // providers. It does not issue a Session, invoke remote closeout, or test the live Work resolver. Local CAS uses synthetic Git.
@@ -27,8 +28,7 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
   const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
     { label: 'closeout fixture root', settle: () => rmSync(root, { recursive: true, force: true }) }
   ];
-  let scopeFailure: ResourceSettlementFailure | undefined;
-  try {
+  await withRetainedBunTestCommands(root, async run => {
     const runtime = createRawTestExecutableFixture();
     cleanup.push({ label: 'raw executable fixture', settle: () => runtime.dispose() });
     const shimRoot = compileCloseoutCliProviderShims(root, runtime.command);
@@ -69,7 +69,7 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
       expect(readCloseoutCliHarnessState(prepared.statePath).localDeleteCount).toBe(0);
       const observed = await observeLocalRefCasWithAdmissionDouble({
         preparation: prepared.rehydratedPrepared.preparation,
-        operationId: `sha256:${'c'.repeat(64)}` as OperationDigest });
+        operationId: `sha256:${'c'.repeat(64)}` as OperationDigest }, run);
       const result = observed.result;
       expect(observed.admissionChecks).toBe(2);
       expect(observed.realForgedAdmissionRejected).toBe(true);
@@ -134,12 +134,7 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
       ] });
     }
 
-  } catch (error) {
-    scopeFailure = { label: 'fixture assertions', error };
-    throw error;
-  } finally {
-    settleResources({ primary: scopeFailure, cleanup });
-  }
+  }, async () => { settleResources({ cleanup }); });
 }, 30_000);
 
 // Exact bounded fixture values, without the hosted TestImpact source graph.
