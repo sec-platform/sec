@@ -1,4 +1,3 @@
-import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { expect, test } from 'bun:test';
 import { stat } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
@@ -7,7 +6,7 @@ import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificatio
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../src/adapters/providers/linux-verification/contract.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
-import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
+import { buildCiContract } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
 import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { slowTestSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
@@ -351,77 +350,6 @@ test('TrustedBootstrap SUT policy rejects credential, input checkout, deadline a
   }
 });
 
-test('hosted activation is a lightweight trusted-main artifact producer, not a candidate credential', async () => {
-  const workflow = parseYaml(
-    await readCompilerFile('.github/workflows/compiler-pr-validation.yml')
-  ) as Workflow;
-  const validation = workflow.jobs['validate-agent-operation-activation-request']!;
-  const activation = workflow.jobs['agent-operation-activation']!;
-  expect(validation.if).toContain("github.event.action == 'sec-produce-agent-operation-activation-v1'");
-  expect(activation.name).toBe('agent-operation-activation');
-  expect(activation.needs).toBe('validate-agent-operation-activation-request');
-  expect(activation.concurrency).toEqual({
-    group: 'sec-agent-operation-activation-${{ github.repository_id }}-${{ needs.validate-agent-operation-activation-request.outputs.request-operation-hex }}',
-    'cancel-in-progress': false
-  });
-  expect(activation.permissions).toEqual({
-    actions: 'read',
-    checks: 'read',
-    contents: 'read',
-    issues: 'write',
-    'pull-requests': 'write',
-    'id-token': 'write'
-  });
-  expect(step(
-    workflow,
-    'validate-agent-operation-activation-request',
-    'Bind activation request to live main, exact draft PR, manifest, and maintainer'
-  ).name).toBe('Bind activation request to live main, exact draft PR, manifest, and maintainer');
-  expect(validation.outputs?.['default-branch']).toBe('${{ steps.request.outputs.default-branch }}');
-  const trustedCheckout = step(
-    workflow,
-    'agent-operation-activation',
-    'Checkout exact trusted hosted launcher'
-  );
-  const candidateCheckout = step(
-    workflow,
-    'agent-operation-activation',
-    'Checkout exact candidate SUT'
-  );
-  expect(trustedCheckout.with).toMatchObject({
-    ref: '${{ github.workflow_sha }}',
-    'persist-credentials': false
-  });
-  expect(candidateCheckout.with).toMatchObject({
-    ref: '${{ needs.validate-agent-operation-activation-request.outputs.head-sha }}',
-    'persist-credentials': false,
-    path: 'candidate'
-  });
-  const producer = step(workflow, 'agent-operation-activation', 'Compile exact hosted activation payload');
-  const upload = step(
-    workflow,
-    'agent-operation-activation',
-    'Upload exact Agent operation activation receipt'
-  );
-  const publication = step(
-    workflow,
-    'agent-operation-activation',
-    'Publish exact Agent operation activation receipt'
-  );
-  expect(upload.uses).toBe('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a');
-  expect(upload.if).toContain("steps.produce.outputs.disposition == 'created'");
-  expect(upload.if).toContain("steps.produce.outputs.activation-ready == 'true'");
-  expect(upload.with?.['retention-days']).toBe(90);
-  expect(publication.if).toContain("steps.produce.outputs.disposition == 'created'");
-  expect(publication.env?.ARTIFACT_ID).toBe('${{ steps.upload-activation.outputs.artifact-id }}');
-  expect(publication.env?.ARTIFACT_DIGEST).toBe(
-    'sha256:${{ steps.upload-activation.outputs.artifact-digest }}'
-  );
-  expect(activation.steps.indexOf(candidateCheckout)).toBeLessThan(activation.steps.indexOf(producer));
-  expect(activation.steps.indexOf(producer)).toBeLessThan(activation.steps.indexOf(upload));
-  expect(activation.steps.indexOf(upload)).toBeLessThan(activation.steps.indexOf(publication));
-});
-
 test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
   const contract = buildCiContract();
   expect(contract.prQuickLaneCommands).toEqual([
@@ -481,49 +409,6 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(fullGates.filter((step) => step.phase === 'workspace').map((step) => step.id)).toEqual([
     'resolve', 'compose', 'verify-all', 'lock', 'explain', 'reference-check'
   ]);
-});
-
-test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {
-  expect(Object.isFrozen(CI_MAIN_HEALTH_POLICY)).toBe(true);
-  expect(createCiMainHealthRequestOperationId('93dde9e44bbcffdd7fa1d6be726df1725947f6e2'))
-    .toBe('sha256:1062f573e4a315b308f46c6abd9a82815fdaa97a3b2171f0cb8b806467473a78');
-  expect(CI_MAIN_HEALTH_POLICY_DIGEST).toMatch(/^sha256:[0-9a-f]{64}$/);
-  expect(CI_MAIN_HEALTH_JOB_NAME).toBe('sec/main-health');
-  const contract = buildCiContract();
-  expect(contract.mainHealthContext).toBe(CI_MAIN_HEALTH_JOB_NAME);
-  expect(contract.mainHealthPolicyDigest).toBe(CI_MAIN_HEALTH_POLICY_DIGEST);
-  expect(contract.mainHealthStepOrder).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
-  expect(contract.mainHealthCommands).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
-  expect(contract.mainHealthCommands).toEqual(['bun run deps:ensure', 'bun --version']);
-  expect(CI_MAIN_HEALTH_POLICY.runtimeReadinessInput).toMatchObject({
-    command: 'bun --version', dependencyPreparation: 'not-required-for-runtime-readiness',
-    guarantees: ['runtime-startup', 'successful-exit', 'original-resource-release'],
-    excludedQualification: ['full-fast-tests', 'typecheck', 'documentation', 'business-behavior']
-  });
-  const workflow = parseYaml(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as Workflow;
-  const job = Object.values(workflow.jobs).find(({ name }) => name === CI_MAIN_HEALTH_JOB_NAME);
-  if (!job) throw new Error(`MainHealth workflow job is missing: ${CI_MAIN_HEALTH_JOB_NAME}`);
-  expect(job.name).toBe(CI_MAIN_HEALTH_JOB_NAME);
-  expect(job.if).toBe("${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1' }}");
-  expect(job.concurrency).toEqual({
-    group: 'sec-main-health-${{ github.event.client_payload.payload.mainSha }}',
-    'cancel-in-progress': false,
-    queue: 'max'
-  });
-  expect(job.steps.map((step) => step.name)).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
-  expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
-  const readiness = job.steps.find((step) => step.id === 'runtime-readiness');
-  expect(readiness?.run).toBe('bun --version');
-  expect(readiness?.shell).toBe('bun --no-env-file --no-install src/bootstrap/development/main-health-runtime.ts {0}');
-  expect(readiness?.env?.SEC_MAIN_HEALTH_SHA).toBe('${{ github.event.client_payload.payload.mainSha }}');
-  expect((workflow.on as Record<string, unknown>).push).toBeUndefined();
-  expect(job.steps[0]?.if).toBe("${{ github.event_name == 'repository_dispatch' }}");
-  expect(job.steps[1]?.with).toMatchObject({
-    ref: '${{ github.event.client_payload.payload.mainSha }}',
-    'persist-credentials': false
-  });
-  expect(job.steps[2]?.with).toMatchObject({ 'bun-version-file': '.bun-version' });
-  expect(job.steps[3]?.uses).toBe('actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9');
 });
 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {

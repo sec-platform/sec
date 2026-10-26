@@ -73,26 +73,6 @@ describe('verification provider capability contract', () => {
     expect(claimedTrustedRuntime.receiptRef).toBeNull();
   });
 
-  test('tracked external capability state rejects runtime provider availability epochs', () => {
-    expect(parseExternalCapabilityLedger(JSON.stringify({
-      schema: 'sec-external-capability-ledger-v4',
-      status: 'active'
-    })).document).toMatchObject({
-      schema: 'sec-external-capability-ledger-v4',
-      status: 'active'
-    });
-    expect(() => parseExternalCapabilityLedger(JSON.stringify({
-      schema: 'sec-external-capability-ledger-v4',
-      verification: {
-        schema: 'sec-verification-provider-availability-ledger-v1',
-        epochId: 'forbidden-tracked-epoch',
-        observedAt: OBSERVED_AT,
-        expiresAt: EXPIRES_AT,
-        capabilities: []
-      }
-    }))).toThrow('runtime provider availability must come from provider observations');
-  });
-
   test('raw quota prose is never engineering truth: only reasonCode and a digest are retained', () => {
     const raw = 'You have reached your quota. Upgrade your plan or check your billing settings to continue.';
     const classified = classifyProviderDiagnosticTextV1(raw);

@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy, hostedSessionCoordinationBudget } from '../../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
-import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
+import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
+import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
 import { CI_VERIFICATION_EXECUTION_MODEL } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { readCompilerFile } from '../../helpers/compiler-fixtures.ts';
@@ -69,6 +70,30 @@ test('current compiler and merge workflows have the complete authored policy cen
     expect(Object.keys(workflow.jobs).sort()).toEqual(Object.keys(roles).sort());
 
     if (path === COMPILER) {
+      const activation = workflow.jobs['agent-operation-activation']!;
+      expect(activation.permissions).toEqual({
+        actions: 'read', checks: 'read', contents: 'read', issues: 'write',
+        'pull-requests': 'write', 'id-token': 'write'
+      });
+      expect(step(activation, 'Checkout exact trusted hosted launcher').with).toMatchObject({
+        ref: '${{ github.workflow_sha }}', 'persist-credentials': false
+      });
+      expect(step(activation, 'Checkout exact candidate SUT').with).toMatchObject({
+        ref: '${{ needs.validate-agent-operation-activation-request.outputs.head-sha }}',
+        'persist-credentials': false, path: 'candidate'
+      });
+      const upload = step(activation, 'Upload exact Agent operation activation receipt');
+      const publication = step(activation, 'Publish exact Agent operation activation receipt');
+      expect(upload.if).toContain("steps.produce.outputs.disposition == 'created'");
+      expect(upload.if).toContain("steps.produce.outputs.activation-ready == 'true'");
+      expect(publication.if).toContain("steps.produce.outputs.disposition == 'created'");
+      expect(publication.env?.ARTIFACT_ID).toBe('${{ steps.upload-activation.outputs.artifact-id }}');
+      expect(publication.env?.ARTIFACT_DIGEST).toBe(
+        'sha256:${{ steps.upload-activation.outputs.artifact-digest }}'
+      );
+      expect(workflow.jobs['main-health']!.steps[1]!.with).toMatchObject({
+        ref: '${{ github.event.client_payload.payload.mainSha }}', 'persist-credentials': false
+      });
       expect(workflow.permissions).toEqual({ actions: 'read', contents: 'read', 'pull-requests': 'read' });
       expect(workflow.jobs['coordinate-verification-session']!.permissions).toEqual({
         actions: 'read', checks: 'read', contents: 'write', issues: 'write',
@@ -87,6 +112,21 @@ test('current compiler and merge workflows have the complete authored policy cen
         expect(workflow.jobs[id]!.permissions).toEqual({ actions: 'read', contents: 'read', 'id-token': 'write' });
       }
       const contract = buildCiContract();
+      expect(Object.isFrozen(CI_MAIN_HEALTH_POLICY)).toBe(true);
+      expect(createCiMainHealthRequestOperationId('93dde9e44bbcffdd7fa1d6be726df1725947f6e2'))
+        .toBe('sha256:1062f573e4a315b308f46c6abd9a82815fdaa97a3b2171f0cb8b806467473a78');
+      expect(CI_MAIN_HEALTH_POLICY_DIGEST).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(CI_MAIN_HEALTH_JOB_NAME).toBe('sec/main-health');
+      expect(contract.mainHealthContext).toBe(CI_MAIN_HEALTH_JOB_NAME);
+      expect(contract.mainHealthPolicyDigest).toBe(CI_MAIN_HEALTH_POLICY_DIGEST);
+      expect(contract.mainHealthStepOrder).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
+      expect(contract.mainHealthCommands).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
+      expect(contract.mainHealthCommands).toEqual(['bun run deps:ensure', 'bun --version']);
+      expect(CI_MAIN_HEALTH_POLICY.runtimeReadinessInput).toMatchObject({
+        command: 'bun --version', dependencyPreparation: 'not-required-for-runtime-readiness',
+        guarantees: ['runtime-startup', 'successful-exit', 'original-resource-release'],
+        excludedQualification: ['full-fast-tests', 'typecheck', 'documentation', 'business-behavior']
+      });
       expect(contract.executionModel).toBe(CI_VERIFICATION_EXECUTION_MODEL);
       expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
       expect(contract.prDispatchType).toBe(CI_VERIFICATION_SESSION_DISPATCH_TYPE);
