@@ -20,8 +20,10 @@ function fixture() {
     { path: DOCUMENTATION_BASELINE, bytes: baseline.byteLength, sha256: digest(baseline) },
     { path: 'docs/main.md', bytes: 0, sha256: digest('') }
   ];
+  // Protocol vector: 479 baseline bytes plus an empty document, serialized as
+  // compact UTF-8 [{bytes,path,sha256}, ...] without a trailing newline.
   const manifest = { schema: 'sec.documentation-source-manifest/2', members,
-    source_set_sha256: documentationSourceDigest(members) };
+    source_set_sha256: '87cdccbc94318e71557e8f5af9699eccbe6a5da9ac40cb3ebcdf13ad421ee70f' };
   return { baseline, manifest };
 }
 const bytes = (value: unknown) => Buffer.from(JSON.stringify(value));

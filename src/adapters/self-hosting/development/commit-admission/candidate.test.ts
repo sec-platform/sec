@@ -25,8 +25,8 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-async function withCandidateRepository(prefix: string, operation: (root: string) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), prefix));
+test('development commit candidate rejects empty trees, binds the retained index and rejects drift', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-candidate-test-'));
   await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.name', 'SEC Tests']);
@@ -34,20 +34,23 @@ async function withCandidateRepository(prefix: string, operation: (root: string)
     await writeFile(path.join(root, 'base.txt'), 'base\n');
     git(root, ['add', '.']);
     git(root, ['commit', '--quiet', '-m', 'base']);
-    await operation(root);
-  }, async () => { await rm(root, { recursive: true, force: true }); });
-}
-
-test('development commit candidate binds the retained index and rejects drift', async () => {
-  await withCandidateRepository('sec-development-commit-candidate-test-', async (root) => {
-    await writeFile(path.join(root, 'next.txt'), 'next\n');
-    git(root, ['add', 'next.txt']);
     const request: DevelopmentCommitRequest = Object.freeze({
       repositoryRoot: path.resolve(root),
       message: 'candidate\n',
       author: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' }),
       committer: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' })
     });
+    await withAuthorityGitReadSession(
+      { cwd: request.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
+      async (session) => {
+        await expect(freezeDevelopmentCommitCandidate({ request, session }))
+          .rejects.toThrow('has no staged tree delta');
+      }
+    );
+    expect(git(root, ['rev-list', '--count', 'HEAD'])).toBe('1');
+
+    await writeFile(path.join(root, 'next.txt'), 'next\n');
+    git(root, ['add', 'next.txt']);
     await withAuthorityGitReadSession(
       { cwd: request.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
       async (session) => {
@@ -61,24 +64,5 @@ test('development commit candidate binds the retained index and rejects drift', 
           .rejects.toThrow('changed before Effect admission');
       }
     );
-  });
-});
-
-test('development commit candidate rejects an empty staged tree before commit object creation', async () => {
-  await withCandidateRepository('sec-development-commit-empty-candidate-test-', async (root) => {
-    const request: DevelopmentCommitRequest = Object.freeze({
-      repositoryRoot: path.resolve(root),
-      message: 'must-not-exist\n',
-      author: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' }),
-      committer: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' })
-    });
-    await withAuthorityGitReadSession(
-      { cwd: request.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
-      async (session) => {
-        await expect(freezeDevelopmentCommitCandidate({ request, session }))
-          .rejects.toThrow('has no staged tree delta');
-      }
-    );
-    expect(git(root, ['rev-list', '--count', 'HEAD'])).toBe('1');
-  });
+  }, async () => { await rm(root, { recursive: true, force: true }); });
 });

@@ -32,10 +32,13 @@ test('hook installer audits default hooks and preserves a non-sample authority',
 
 test('hook installer requires the tracked managed hook before configuring authority', async () => {
   await withRepository(async (repoRoot) => {
+    // Keep the ordinary executable source present so missing index authority
+    // cannot be masked by the earlier worktree inventory check.
     git(repoRoot, ['rm', '--cached', '--quiet', '.githooks/pre-commit']);
-    await rm(path.join(repoRoot, '.githooks', 'pre-commit'));
-
     await expect(installGitHooks({ repoRoot })).rejects.toThrow('index-identical managed hooks are unavailable');
+
+    git(repoRoot, ['add', '--chmod=+x', '.githooks/pre-commit']);
+    await rm(path.join(repoRoot, '.githooks', 'pre-commit'));
     expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({ status: 'conflict' });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });

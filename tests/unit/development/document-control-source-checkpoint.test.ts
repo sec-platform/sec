@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import { withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import type { DevelopmentCommitAdmission } from '../../../src/adapters/self-hosting/development/commit-admission/operation.ts';
 import { runDevelopmentCommit } from '../../../src/adapters/self-hosting/development/commit/operation.ts';
 
@@ -19,7 +20,7 @@ function git(root: string, args: string[]): string {
   return result.stdout.trim();
 }
 
-async function fixture(root: string) {
+async function prepareRepository(root: string): Promise<void> {
   git(root, ['init', '--quiet', '--initial-branch=main']);
   git(root, ['config', 'user.name', 'SEC Tests']);
   git(root, ['config', 'user.email', 'tests@example.com']);
@@ -38,10 +39,33 @@ stableFacts: {}
   await writeFile(path.join(root, 'other.txt'), 'other\n');
   git(root, ['add', '.']);
   git(root, ['commit', '--quiet', '-m', 'base']);
-  const base = git(root, ['rev-parse', 'HEAD']);
   git(root, ['checkout', '--quiet', '-b', 'source-checkpoint']);
+}
+
+let preparedRepository: Promise<string> | undefined;
+async function fixture(root: string) {
+  preparedRepository ??= (async () => {
+    const template = await mkdtemp(path.join(tmpdir(), 'sec-source-checkpoint-base-'));
+    try {
+      await prepareRepository(template);
+      return template;
+    } catch (primary) {
+      return settleWorkspaceCallback(async () => { throw primary; },
+        () => rm(template, { recursive: true, force: true }));
+    }
+  })();
+  await cp(await preparedRepository, root, { recursive: true });
+  const base = git(root, ['rev-parse', 'HEAD']);
   return { root, base, request: { base, expectedHead: base, ownedPaths: ['owned.txt'] } };
 }
+
+afterAll(async () => {
+  if (preparedRepository === undefined) return;
+  const [settled] = await Promise.allSettled([preparedRepository]);
+  if (settled!.status === 'fulfilled') {
+    await rm(settled!.value, { recursive: true, force: true });
+  }
+});
 
 async function withFixture(run: (value: Awaited<ReturnType<typeof fixture>>) => Promise<void>): Promise<void> {
   await withAcquiredResource({
