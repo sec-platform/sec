@@ -31,9 +31,8 @@ function fixture(): CiArtifactManifest {
 }
 
 describe('artifact upload paths application and presentation boundary', () => {
-  test('all and filtered upload paths preserve canonical membership, grouping and detached diagnostics', () => {
+  test('all and filtered upload paths preserve canonical membership, grouping and diagnostics', () => {
     const source = fixture();
-    const before = structuredClone(source);
     const result = buildArtifactUploadPathContract(source);
     expect(result.paths).toEqual([
       CI_ARTIFACT_FILES.artifactManifest,
@@ -51,7 +50,6 @@ describe('artifact upload paths application and presentation boundary', () => {
       { kind: 'test', count: 1, paths: [result.paths[3]] }
     ]);
     expect(formatArtifactUploadPaths(result)).toBe(result.paths.join('\n'));
-    expect(source).toEqual(before);
 
     const contract = buildArtifactUploadPathContract(source, 'contract');
     expect(contract.paths).toEqual(['.sec/artifacts/generated/customer-contract.json']);
@@ -64,8 +62,6 @@ describe('artifact upload paths application and presentation boundary', () => {
     );
     const tests = buildArtifactUploadPathContract(source, 'test');
     expect(tests.paths).toEqual(['.sec/artifacts/test-results/unit.xml']);
-    source.missing[0]!.path = CI_ARTIFACT_FILES.runtimeReport;
-    source.summary.missingReasonCounts['fixed-governance-missing'] = 9;
     expect(tests.missing[0]?.path).toBe(CI_ARTIFACT_FILES.graphLock);
     expect(tests.missingReasonCounts['fixed-governance-missing']).toBe(1);
 

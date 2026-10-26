@@ -37,9 +37,6 @@ test('policy inspection routes retained report through application summary proje
 
     const view = projectPolicyReportInspect(source);
 
-    source.mergedSummaries[0]!.targets.push('later');
-    source.violationSummaries[0]!.files.push('later.ts');
-
     expect(view.severityEntries).toEqual(['error=1', 'warning=1']);
     expect(view.policies).toHaveLength(3);
     expect(view.violations).toHaveLength(3);

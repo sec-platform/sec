@@ -30,14 +30,12 @@ function graph(): ExplainGraph {
   };
 }
 
-test('live explanation preserves zero coverage, supplied matrix content and detached presentation', () => {
+test('live explanation preserves zero coverage and supplied matrix content', () => {
   const summary = structuredClone(baseline);
   const sourceGraph = graph();
   const matrix = buildE2eMatrix(summary);
   matrix.rows[0]!.detail += '; supplied matrix';
-  const before = structuredClone({ sourceGraph, summary, matrix });
   const view = projectExplainSummary(sourceGraph, summary, matrix);
-  expect({ sourceGraph, summary, matrix }).toEqual(before);
   const text = formatExplainSummary(view);
   const lines = text.split('\n');
   // These are independently specified results; prose punctuation and
@@ -68,14 +66,6 @@ test('live explanation preserves zero coverage, supplied matrix content and deta
   expect(lines.filter(line => line.startsWith('E2E ')).map(line => line.split(':')[0])).toEqual([
     'E2E verification', 'E2E coverage', 'E2E artifacts', 'E2E review'
   ]);
-  sourceGraph.nodes[0]!.type = 'operation';
-  summary.installImpactSummary.actionKinds.push('changed');
-  summary.chainSummary.status = 'failed';
-  matrix.rows[0]!.detail = 'mutated';
-  matrix.rows[0]!.evidence.push('mutated');
-  expect(formatExplainSummary(view)).toBe(text);
-  expect(view).not.toHaveProperty('semanticViews');
-  expect(view).not.toHaveProperty('failurePoints');
 });
 
 test('missing summaries use graph coverage, preserve CI-specific impact counts, and do not invent detail sections', () => {

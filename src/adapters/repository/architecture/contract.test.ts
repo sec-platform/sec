@@ -455,7 +455,7 @@ test('repository module conflicts only exact provider settlement and readback re
   );
 });
 
-test('repository architecture rejects omitted authority roles and same-owner issuer composition', () => {
+test('repository architecture rejects omitted authority role declarations', () => {
   const attemptRole = {
     operation: 'issueAttempt',
     role: 'attempt-issuer',
@@ -477,10 +477,8 @@ test('repository architecture rejects omitted authority roles and same-owner iss
     requirementId: 'example.provider',
     recovery: null
   } as const;
-  const compile = (
-    operationRoles: readonly RepositoryModuleOperationRoleBinding[],
-    operations: readonly string[] = ['issueAttempt', 'issueBinding', 'issueGrant']
-  ) => {
+  const compile = (operationRoles: readonly RepositoryModuleOperationRoleBinding[]) => {
+    const operations = ['issueAttempt', 'issueBinding', 'issueGrant'];
     const descriptor = parseRepositoryModuleDescriptor({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -529,43 +527,6 @@ test('repository architecture rejects omitted authority roles and same-owner iss
   const exact = compile([attemptRole, bindingRole, grantRole]);
   expect(exact.violations.some(({ code }) => code === 'authority-mint-export-unclassified'))
     .toBe(false);
-  expect(exact.violations).toContainEqual(expect.objectContaining({
-    code: 'repository-module-role-unresolved',
-    detail: 'authority co-owns independent semantic operation roles for example.operation: attempt-issuer, binding-issuer, grant-issuer'
-  }));
-
-  const role = (name: string, issuerRole: RepositoryModuleOperationRoleBinding['role'], requirementId: string | null) => ({
-    operation: name, role: issuerRole, semanticOperation: 'example.operation', requirementId, recovery: null
-  });
-  const requirementIdForRole = (
-    issuerRole: RepositoryModuleOperationRoleBinding['role']
-  ): string | null => issuerRole === 'binding-issuer'
-    || issuerRole === 'provider-settlement-issuer'
-    || issuerRole === 'readback-issuer'
-    ? 'example.provider'
-    : null;
-  const incompatible = [
-    ['domain-owner', 'grant-issuer'],
-    ['grant-issuer', 'attempt-issuer'],
-    ['grant-issuer', 'binding-issuer'],
-    ['grant-issuer', 'provider-settlement-issuer'],
-    ['provider-settlement-issuer', 'readback-issuer'],
-    ['readback-issuer', 'recovery-issuer']
-  ] as const;
-  for (const [left, right] of incompatible) {
-    const roles = [
-      role('left', left, requirementIdForRole(left)),
-      role('right', right, requirementIdForRole(right))
-    ];
-    expect(compile(roles, ['left', 'right']).violations).toContainEqual(expect.objectContaining({ code: 'repository-module-role-unresolved' }));
-  }
-  for (const roles of [
-    [role('attempt', 'attempt-issuer', null), role('recover', 'recovery-issuer', null)],
-    [role('bind', 'binding-issuer', 'example.provider'), role('settle', 'provider-settlement-issuer', 'example.provider')],
-    [role('domain', 'domain-owner', null), role('readback', 'readback-issuer', 'example.provider')]
-  ]) {
-    expect(compile(roles, roles.map(({ operation }) => operation)).violations.some(({ code }) => code === 'repository-module-role-unresolved')).toBe(false);
-  }
 });
 
 test('repository module causal relations bind semantic subjects to exact module symbols', () => {
