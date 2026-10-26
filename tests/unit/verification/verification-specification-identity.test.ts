@@ -11,11 +11,10 @@ import { createVerificationTestResponsibility, parseVerificationTestResponsibili
 const D = (char: string) => `sha256:${char.repeat(64)}` as const;
 
 type ClaimInput = Parameters<typeof createVerificationClaim>[0];
-type ObligationInput = Parameters<typeof createProofObligation>[0];
 type SelectionInput = Parameters<typeof createVerificationMethodSelection>[0];
 
-function claimInput(overrides: Partial<ClaimInput> = {}): ClaimInput {
-  return {
+function claim(overrides: Partial<ClaimInput> = {}) {
+  return createVerificationClaim({
     claimRef: 'claim:compiler/type-soundness',
     claimRevision: 'claim-r1',
     source: {
@@ -32,18 +31,11 @@ function claimInput(overrides: Partial<ClaimInput> = {}): ClaimInput {
     requiredAssuranceDigest: D('4'),
     lifecycleAndInvalidationDigest: D('5'),
     ...overrides
-  };
+  });
 }
 
-function claim(overrides: Partial<ClaimInput> = {}) {
-  return createVerificationClaim(claimInput(overrides));
-}
-
-function obligationInput(
-  c = claim(),
-  overrides: Partial<ObligationInput> = {}
-): ObligationInput {
-  return {
+function obligation(c: ReturnType<typeof createVerificationClaim>) {
+  return createProofObligation({
     obligationRef: 'obligation:typecheck',
     obligationRevision: 'obligation-r2',
     claimRef: c.claimRef,
@@ -56,20 +48,15 @@ function obligationInput(
     admissibleMethodFamilies: ['static-analysis', 'typecheck'],
     environmentAndCapabilityConstraintsDigest: D('9'),
     coverageAndFailureSpaceDigest: D('a'),
-    lifecycleAndInvalidationDigest: D('b'),
-    ...overrides
-  };
+    lifecycleAndInvalidationDigest: D('b')
+  });
 }
 
-function obligation(c = claim(), overrides: Partial<ObligationInput> = {}) {
-  return createProofObligation(obligationInput(c, overrides));
-}
-
-function selectionInput(
-  o = obligation(),
+function selection(
+  o: ReturnType<typeof createProofObligation>,
   overrides: Partial<SelectionInput> = {}
-): SelectionInput {
-  return {
+) {
+  return createVerificationMethodSelection({
     selectionRef: 'selection:typecheck',
     selectionRevision: 'selection-r4',
     proofObligationRef: o.obligationRef,
@@ -84,11 +71,7 @@ function selectionInput(
     evidenceQualificationDigest: D('d'),
     lifecycleAndInvalidationDigest: D('e'),
     ...overrides
-  };
-}
-
-function selection(o = obligation(), overrides: Partial<SelectionInput> = {}) {
-  return createVerificationMethodSelection(selectionInput(o, overrides));
+  });
 }
 
 function responsibility() {

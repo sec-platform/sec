@@ -73,16 +73,18 @@ test('POST rejects untrusted PRE semantics and ambiguous bytes before authority 
 });
 
 test('application PRE then unavailable POST preserves independent causal and authority facts', async () => {
+  const expected = preSemantic();
+  const preBytes = wire(expected);
   const first = fixture(new Uint8Array());
   const before = await runTrustedBootstrapVerification({ ...identity, phase: 'pre' }, first.ports);
-  expect(before.receipt).toEqual(JSON.parse(wire(preSemantic()).toString()));
+  expect(before.receipt).toEqual(JSON.parse(preBytes.toString()));
   expect(first.calls.filter(call => call.startsWith('compile-'))).toEqual(['compile-checker', 'compile-candidate']);
-  const second = fixture(wire(preSemantic()));
+  const second = fixture(preBytes);
   const after = await runTrustedBootstrapVerification(identity, second.ports);
   for (const field of ['checkerActionKey', 'checkerActionResultDigest', 'checkerClosureDigest',
     'candidateActionKey', 'candidateActionResultDigest', 'candidateClosureDigest', 'candidateTrustRevision',
     'candidateModuleCount', 'authorityVerdict', 'authorityReason', 'baseUndecidablePaths']) {
-    expect(after.receipt[field]).toEqual(preSemantic()[field]);
+    expect(after.receipt[field]).toEqual(expected[field]);
   }
   expect(after.receipt.auxiliaryStatus).toBe('unavailable');
   expect(after.receipt.sutEvidenceDigest).toBe(null);

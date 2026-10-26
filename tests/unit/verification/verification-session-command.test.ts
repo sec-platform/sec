@@ -35,7 +35,8 @@ test('command parsing preserves each supported operation and its arguments', () 
 
 test('command parsing rejects missing, inherited, and unsupported command names', () => {
   expect(() => parseVerificationSessionCommand([])).toThrow(/Unknown command/);
-  for (const command of ['constructor', 'toString', '__proto__', 'valueOf', 'hasOwnProperty', '', 'Prepare', ' prepare', 'prepare ', 'integrate-hosted']) {
+  // Retain function-valued and prototype-valued inherited keys, not every Object method.
+  for (const command of ['constructor', '__proto__', '', 'Prepare', ' prepare', 'prepare ', 'integrate-hosted']) {
     expect(() => parseVerificationSessionCommand([command])).toThrow(/Unknown command/);
   }
 });

@@ -72,14 +72,14 @@ function readback(statuses: readonly VerificationActionProviderStatusObservation
   });
 }
 
-function startObservation(expired = false): VerificationActionProviderStartObservation {
+function startObservation(): VerificationActionProviderStartObservation {
   return Object.freeze({
     originId: '7001',
     artifactName: verificationActionProviderStartArtifactName(ACTION),
-    archiveDigest: expired ? null : START_ARCHIVE,
-    expired,
-    payload: expired ? null : marker,
-    referencedOrigin: expired ? null : origin
+    archiveDigest: START_ARCHIVE,
+    expired: false,
+    payload: marker,
+    referencedOrigin: origin
   });
 }
 
@@ -107,8 +107,7 @@ function terminalObservation(
 }
 
 function anchorObservation(
-  fact: VerificationActionProviderTerminalFact,
-  expired = false
+  fact: VerificationActionProviderTerminalFact
 ): VerificationActionProviderTerminalAnchorObservation {
   const anchor = createVerificationActionProviderTerminalAnchor({
     actionKey: ACTION,
@@ -129,10 +128,10 @@ function anchorObservation(
   return Object.freeze({
     originId: '7003',
     artifactName: verificationActionProviderTerminalAnchorName(ACTION),
-    archiveDigest: expired ? null : ANCHOR_ARCHIVE,
-    expired,
-    payload: expired ? null : anchor,
-    referencedOrigin: expired ? null : origin
+    archiveDigest: ANCHOR_ARCHIVE,
+    expired: false,
+    payload: anchor,
+    referencedOrigin: origin
   });
 }
 
