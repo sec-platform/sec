@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { SourceProgramCandidate } from '../../../src/adapters/repository/source-program-model/contract.ts';
 import {
   compileSourceProgramFindingDelta as compare,
+  summarizeSourceProgramFindingDelta as summarize,
   sourceProgramFindingDeltaIsUnresolved as unresolved
 } from '../../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import { sha256 } from '../../../src/contracts/canonical.ts';
@@ -11,6 +12,7 @@ import { captureRepositoryAnalysisPolicy } from '../../../src/adapters/repositor
 
 type Snapshot = Parameters<typeof compare>[0];
 type Candidate = SourceProgramCandidate;
+const reviewed = 'src/example/a.ts::function-declaration:run::spawn#1';
 const digest = (value: string) => sha256(value) as `sha256:${string}`;
 function finding(subject = 'subject', paths: readonly string[] = ['src/a.ts'], reason = 'original'): Candidate {
   return { code: 'production-declaration-without-consumer', subject, paths, reason, observationClass: 'derived' };
@@ -29,16 +31,18 @@ function snapshot(candidates: readonly Candidate[] = [], paths = ['src/a.ts']): 
     } } as unknown as Snapshot;
 }
 
-test('stable, changed and introduced findings preserve rule and subject identity', () => {
+test('stable, changed and introduced findings preserve identity when review policy changes', () => {
   const before = snapshot([finding('stable'), finding('changed')]);
-  const after = snapshot([finding('stable'), finding('changed', ['src/a.ts'], 'new reason'), finding('new')],
-    ['src/a.ts', 'src/clean-a.ts', 'src/clean-b.ts']);
+  const after = { ...snapshot([finding('stable'), finding('changed', ['src/a.ts'], 'new reason'), finding('new')],
+    ['src/a.ts', 'src/clean-a.ts', 'src/clean-b.ts']), analysisPolicy: captureRepositoryAnalysisPolicy([reviewed]) };
   const delta = compare(before, after);
   assert.deepEqual(Object.fromEntries(delta.entries.map(entry => [entry.subject, entry.status])), {
     changed: 'changed', new: 'introduced', stable: 'persistent'
   });
   assert.equal(delta.counts.persistent, 1);
   assert.equal(delta.counts.absent, 0); assert.equal(unresolved(delta), false);
+  assert.equal(delta.contextComparable, false);
+  assert.deepEqual(delta.changedContextFields, ['analysisPolicyDigest']);
   const stable = delta.entries.find(entry => entry.subject === 'stable')!;
   assert.throws(() => (delta.entries as unknown[]).pop(), TypeError);
   assert.throws(() => (stable.afterPaths as string[]).push('other'), TypeError);
@@ -51,8 +55,9 @@ test('a moved observation stays changed rather than being counted as a fixed old
   assert.deepEqual(delta.scope.removedPaths, ['src/a.ts']); assert.equal(delta.counts.absent, 0);
 });
 
-test('removing a path from the selected snapshot is out-of-scope, not a resolved finding', () => {
-  const delta = compare(snapshot([finding()]), snapshot([], []));
+test('removing a path remains out-of-scope when review policy changes, not a resolved finding', () => {
+  const removed = { ...snapshot([], []), analysisPolicy: captureRepositoryAnalysisPolicy([reviewed]) };
+  const delta = compare(snapshot([finding()]), removed);
   assert.equal(delta.entries[0]!.status, 'out-of-scope'); assert.equal(delta.counts.absent, 0);
   // Actual retirement remains the enclosing owner's separate responsibility.
   assert.equal(unresolved(delta), false);
@@ -101,10 +106,34 @@ test('source edits are not incorrectly treated as tool changes', () => {
   assert.equal(delta.contextComparable, true); assert.equal(delta.entries[0]!.status, 'absent');
 });
 
-test('configuration change alone is disclosed, not invented into a product defect', () => {
+test('configuration changes and incomplete legacy policy remain distinct from product defects', () => {
   const after = snapshot();
   const delta = compare(snapshot(), { ...after, projectGeneration: { ...after.projectGeneration, environmentDigest: digest('new') } });
   assert.equal(delta.contextComparable, false); assert.deepEqual(delta.entries, []); assert.equal(unresolved(delta), false);
+
+  const { analysisPolicy: _beforePolicy, ...legacyBefore } = snapshot([finding()]);
+  const { analysisPolicy: _afterPolicy, ...legacyAfter } = after;
+  const legacy = compare(legacyBefore, legacyAfter);
+  assert.equal(legacy.contextComparable, false);
+  assert.deepEqual(legacy.before.incompleteContextFields, ['analysisPolicyDigest']);
+  assert.deepEqual(legacy.after.incompleteContextFields, ['analysisPolicyDigest']);
+  assert.equal(legacy.entries[0]!.status, 'unobserved'); assert.equal(unresolved(legacy), true);
+
+  for (const analysisPolicy of [undefined, null, {}, { ...captureRepositoryAnalysisPolicy([]), policyDigest: digest('wrong') }]) {
+    const corrupt = compare(after, { ...after, analysisPolicy } as never);
+    assert.equal(corrupt.contextComparable, false);
+    assert.equal(corrupt.entries.length, 0);
+    assert.deepEqual(corrupt.after.incompleteContextFields, ['analysisPolicyDigest']);
+    assert.equal(unresolved(corrupt), true);
+  }
+
+  const oneSided = compare(legacyBefore, after);
+  const compact = summarize(oneSided);
+  assert.deepEqual(compact.before.incompleteContextFields, ['analysisPolicyDigest']);
+  assert.deepEqual(compact.after.incompleteContextFields, []);
+  assert.equal(compact.contextComparable, oneSided.contextComparable);
+  assert.equal(compact.deltaDigest, oneSided.deltaDigest);
+  assert.deepEqual(compact.counts, oneSided.counts);
 });
 
 test('findings without a path, or with partially lost scope, cannot be certified absent', () => {

@@ -2,7 +2,10 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { compileRepositoryModuleMembershipSnapshot } from '../../../src/adapters/repository/architecture/contract.ts';
-import { compileSourceProgramFindingDelta } from '../../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
+import {
+  compileSourceProgramFindingDelta,
+  sourceProgramFindingDeltaIsUnresolved
+} from '../../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import {
   assertRepositorySourceProgramCompilationReceipt,
   compileVirtualRepositorySourceProgramCompilation as compile
@@ -49,9 +52,14 @@ test('actual source-path finding suppression remains distinguishable from a sour
     && candidate.subject === 'src/example/target.ts'));
   assert.equal(after.model.candidates.some(candidate => candidate.code === 'production-mirrors-source-path'
     && candidate.subject === 'src/example/target.ts'), false);
-  const finding = compileSourceProgramFindingDelta(before, after).entries.find(candidate =>
+  const delta = compileSourceProgramFindingDelta(before, after);
+  const finding = delta.entries.find(candidate =>
     candidate.code === 'production-mirrors-source-path' && candidate.subject === 'src/example/target.ts');
   assert.equal(finding?.status, 'unobserved');
+  assert.equal(delta.contextComparable, false);
+  assert.deepEqual(delta.changedContextFields, ['analysisPolicyDigest']);
+  assert.equal(delta.counts.absent, 0);
+  assert.equal(sourceProgramFindingDeltaIsUnresolved(delta), true);
   assert.equal(before.projectGeneration.generationDigest, after.projectGeneration.generationDigest);
   assert.notEqual(before.analysisPolicy.policyDigest, after.analysisPolicy.policyDigest);
   assert.notEqual(before.receiptDigest, after.receiptDigest);
