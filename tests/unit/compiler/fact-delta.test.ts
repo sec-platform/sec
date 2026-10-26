@@ -1,10 +1,14 @@
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildFactDelta } from '../../../src/compiler/ir/build-fact-delta.ts';
 import { factAssertionId } from '../../../src/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
+import type { LockFile } from '../../../src/compiler/contract.ts';
+import type { FactAssertion, SemanticFact } from '../../../src/semantics/engineering-ir/fact-types.ts';
+import type { SemanticViewSet } from '../../../src/semantics/projection/types.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 import type { FactDeltaEndpointContext } from '../../../src/semantics/engineering-ir/delta-types.ts';
 import type { EngineeringIR } from '../../../src/semantics/engineering-ir/root-types.ts';
@@ -85,6 +89,43 @@ function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
   throw new Error(`Expected CodedFailure ${code}`);
 }
 
+function forgedSnapshot(ir: EngineeringIR): ValidatedEngineeringIRSnapshot {
+  return { ir } as unknown as ValidatedEngineeringIRSnapshot;
+}
+
+function sha256(payload: string): string {
+  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+function assertionWithoutValidity(
+  assertion: FactAssertion
+): Omit<FactAssertion, 'validFromRevision' | 'validToRevision'> {
+  const {
+    validFromRevision: _validFromRevision,
+    validToRevision: _validToRevision,
+    ...canonical
+  } = assertion;
+  return canonical;
+}
+
+function factWithoutValidity(fact: SemanticFact): object {
+  return {
+    ...fact,
+    assertions: fact.assertions.map(assertionWithoutValidity)
+  };
+}
+
+function expectedFactSetDigest(snapshot: ValidatedEngineeringIRSnapshot): string {
+  const { ir } = snapshot;
+  return sha256(JSON.stringify({
+    domain: 'engineering-ir-fact-set-v1',
+    formatVersion: ir.formatVersion,
+    graphId: ir.graphId,
+    appId: ir.appId,
+    facts: ir.facts.map(factWithoutValidity)
+  }));
+}
+
 function expectDeepFrozen(value: unknown): void {
   if (value === null || typeof value !== 'object') return;
   expect(Object.isFrozen(value)).toBe(true);
@@ -108,6 +149,34 @@ test('Fact add/remove preserves direction and object changes are remove plus add
   expect(forward.removed).toEqual([]);
   expect(reverse.added).toEqual([]);
   expect(reverse.removed.map((fact) => fact.id)).toEqual(forward.added.map((fact) => fact.id));
+
+  const expectedFromFactSetDigest = expectedFactSetDigest(before);
+  const expectedToFactSetDigest = expectedFactSetDigest(after);
+  expect(forward.fromFactSetDigest).toBe(expectedFromFactSetDigest);
+  expect(forward.toFactSetDigest).toBe(expectedToFactSetDigest);
+
+  const expectedDeltaRevision = sha256(JSON.stringify({
+    domain: 'engineering-ir-fact-delta-v1',
+    contractVersion: '1',
+    scope: 'fact-set',
+    formatVersion: before.ir.formatVersion,
+    graphId: before.ir.graphId,
+    appId: before.ir.appId,
+    from: { semanticRevision: before.ir.semanticRevision },
+    to: { semanticRevision: after.ir.semanticRevision },
+    fromFactSetDigest: expectedFromFactSetDigest,
+    toFactSetDigest: expectedToFactSetDigest,
+    added: forward.added.map(factWithoutValidity),
+    removed: forward.removed.map(factWithoutValidity),
+    changed: forward.changed.map((change) => ({
+      factId: change.factId,
+      addedAssertions: change.addedAssertions.map(assertionWithoutValidity),
+      removedAssertions: change.removedAssertions.map(assertionWithoutValidity),
+      updatedAssertions: change.updatedAssertions
+    }))
+  }));
+  expect(forward.deltaRevision).toBe(expectedDeltaRevision);
+  expect(reverse.deltaRevision).not.toBe(forward.deltaRevision);
 
   const twoBlocks = input('delta-app', 'Delta App', ['alpha/basic', 'beta/basic']);
   const twoBlockIR = buildEngineeringIR(twoBlocks);
@@ -192,6 +261,67 @@ test('assertion deltas distinguish identity set changes from confidence and evid
 
 test('validFrom rebinding and entity-only changes do not create Fact churn', () => {
   const before = buildValidatedEngineeringIR(input('delta-app', 'Before Label'));
+  const beforeJson = JSON.stringify(before);
+  const noop = buildFactDelta(context(before, 'tx:before'), context(before, 'tx:before'));
+
+  expect(Object.keys(noop)).toEqual([
+    'contractVersion',
+    'scope',
+    'formatVersion',
+    'graphId',
+    'appId',
+    'from',
+    'to',
+    'fromFactSetDigest',
+    'toFactSetDigest',
+    'added',
+    'removed',
+    'changed',
+    'deltaRevision'
+  ]);
+  expect(Object.keys(noop.from)).toEqual(['transactionId', 'inputRevision', 'semanticRevision']);
+  expect(noop.contractVersion).toBe('1');
+  expect(noop.scope).toBe('fact-set');
+  expect(noop).toMatchObject({ graphId: before.ir.graphId, appId: before.ir.appId, added: [], removed: [], changed: [] });
+  expect(noop.fromFactSetDigest).toBe(noop.toFactSetDigest);
+  expect(Object.isFrozen(noop)).toBe(true);
+  // The exact schema above contains only scalar fields, the two scalar-only
+  // endpoints, and the three empty change arrays in this no-change result.
+  for (const value of Object.values(noop)) {
+    if (value !== null && typeof value === 'object') expect(Object.isFrozen(value)).toBe(true);
+  }
+  expect(JSON.stringify(before)).toBe(beforeJson);
+  expect(noop.fromFactSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  expect(noop.deltaRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
+  expect(JSON.stringify(buildFactDelta(context(before, 'tx:before'), context(before, 'tx:before')))).toBe(JSON.stringify(noop));
+
+  if (false) {
+    const raw = buildEngineeringIR(input());
+    const lock = {} as LockFile;
+    const views = {} as SemanticViewSet;
+    // @ts-expect-error Raw EngineeringIR cannot cross the validated Fact Delta boundary.
+    buildFactDelta({ ...context(before, 'tx:before'), snapshot: raw }, context(before, 'tx:before'));
+    // @ts-expect-error Lock state cannot cross the validated Fact Delta boundary.
+    buildFactDelta({ ...context(before, 'tx:before'), snapshot: lock }, context(before, 'tx:before'));
+    // @ts-expect-error Projection state cannot cross the validated Fact Delta boundary.
+    buildFactDelta({ ...context(before, 'tx:before'), snapshot: views }, context(before, 'tx:before'));
+  }
+
+  const alteredAuditIR = structuredClone(before.ir);
+  alteredAuditIR.inputRevision = 'sha256:alternate-non-semantic-input';
+  const alteredAudit = forgedSnapshot(alteredAuditIR);
+  const alteredNoop = buildFactDelta(
+    {
+      ...context(alteredAudit, 'tx:before'),
+      transactionId: 'tx:alternate-before'
+    },
+    {
+      ...context(alteredAudit, 'tx:before'),
+      transactionId: 'tx:alternate-after'
+    }
+  );
+  expect(alteredNoop.deltaRevision).toBe(noop.deltaRevision);
+
   const after = buildValidatedEngineeringIR(input('delta-app', 'After Label'));
   const delta = buildFactDelta(context(before, 'tx:before'), context(after, 'tx:after'));
 
@@ -223,4 +353,30 @@ test('endpoint, lineage, and unsupported validity failures use stable diagnostic
   expectCodedFailure(() => resign(source, before.ir, (ir) => {
     ir.facts[0]!.assertions[0]!.validToRevision = 'sha256:closed';
   }), 'IR-VALIDATION-009');
+
+  const revisionCollisionIR = structuredClone(before.ir);
+  revisionCollisionIR.entities[0]!.label = 'Forged collision';
+  const revisionCollision = forgedSnapshot(revisionCollisionIR);
+  expectCodedFailure(
+    () => buildFactDelta(context(before, 'tx:before'), context(revisionCollision, 'tx:after')),
+    'FACT-DELTA-003'
+  );
+
+  const factCollisionIR = structuredClone(before.ir);
+  factCollisionIR.semanticRevision = 'sha256:forged-fact-collision';
+  factCollisionIR.facts[0]!.object = { kind: 'entity', entityId: factCollisionIR.appId };
+  const factCollision = forgedSnapshot(factCollisionIR);
+  expectCodedFailure(
+    () => buildFactDelta(context(before, 'tx:before'), context(factCollision, 'tx:after')),
+    'FACT-DELTA-004'
+  );
+
+  const assertionCollisionIR = structuredClone(before.ir);
+  assertionCollisionIR.semanticRevision = 'sha256:forged-assertion-collision';
+  assertionCollisionIR.facts[0]!.assertions[0]!.authority = 'observed';
+  const assertionCollision = forgedSnapshot(assertionCollisionIR);
+  expectCodedFailure(
+    () => buildFactDelta(context(before, 'tx:before'), context(assertionCollision, 'tx:after')),
+    'FACT-DELTA-005'
+  );
 });

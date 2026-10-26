@@ -7,6 +7,7 @@ import { factAssertionId } from '../../../src/compiler/ir/ir-fact-store.ts';
 import { factIdentity } from '../../../src/compiler/ir/ir-identity.ts';
 import { digest, semanticRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
+import { CanonicalKeyConflictError } from '../../../src/contracts/canonical.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
 function input(): BuildEngineeringIRInput {
@@ -215,11 +216,21 @@ test('raw validator checks bounded evidence identities without letting JSON hook
 
 test('a non-equivalent duplicated entity attribute cannot obtain a validated identity', () => {
   const source = input();
-  const forged = clone(buildEngineeringIR(source));
-  const owner = forged.entities.find((entity) => entity.attributes.length > 0)!;
-  const first = owner.attributes[0]!;
-  owner.attributes.push({ ...first, value: 'conflicting-value' });
-  expect(() => validateEngineeringIR(forged, source)).toThrow();
+  const base = buildEngineeringIR(source);
+  const first = { key: 'private-key', value: 'private-first' };
+  const second = { key: 'private-key', value: 'private-second' };
+  for (const attributes of [[first, second], [second, first], [first, first, second]]) {
+    const forged = clone(base);
+    forged.entities[0]!.attributes = attributes;
+    assert.throws(() => validateEngineeringIR(forged, source), error => {
+      assert.ok(error instanceof CanonicalKeyConflictError);
+      assert.equal(error.code, 'CANONICAL-KEY-CONFLICT');
+      for (const privateData of ['private-key', 'private-first', 'private-second']) {
+        assert.equal(error.message.includes(privateData), false);
+      }
+      return true;
+    });
+  }
 });
 
 test('validator reports stable diagnostics for forged runtime enum values', () => {

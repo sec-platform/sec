@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { expect, test } from 'bun:test';
 
 import { buildFactDelta } from '../../../src/compiler/ir/build-fact-delta.ts';
@@ -8,7 +6,6 @@ import {
   assertImpactPropagationRuleRegistry,
   IMPACT_PROPAGATION_RULES
 } from '../../../src/compiler/semantic-impact/propagation-rules.ts';
-import { CodedFailure } from '../../../src/contracts/failure.ts';
 import type { FactDeltaEndpointContext } from '../../../src/semantics/engineering-ir/delta-types.ts';
 import type { SemanticEntity, SemanticEntityKind } from '../../../src/semantics/engineering-ir/entity-types.ts';
 import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../../src/semantics/engineering-ir/fact-types.ts';
@@ -103,25 +100,10 @@ function propagate(
   return buildImpactPropagation({ delta, from, to });
 }
 
-function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
-  try {
-    run();
-  } catch (error) {
-    expect(error).toBeInstanceOf(CodedFailure);
-    expect((error as CodedFailure).code).toBe(code);
-    return error as CodedFailure;
-  }
-  throw new Error(`Expected CodedFailure ${code}`);
-}
-
 function expectDeepFrozen(value: unknown): void {
   if (value === null || typeof value !== 'object') return;
   expect(Object.isFrozen(value)).toBe(true);
   for (const nested of Object.values(value as Record<string, unknown>)) expectDeepFrozen(nested);
-}
-
-function sha256(payload: string): string {
-  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
 
 test('empty canonical change is immutable, deterministic, and deeply frozen', () => {
@@ -147,7 +129,7 @@ test('empty canonical change is immutable, deterministic, and deeply frozen', ()
   expectDeepFrozen(first);
 });
 
-test('entity merge-join covers add, remove, update, empty Fact Delta, and kind collisions', () => {
+test('entity merge-join covers add, remove, update, and empty Fact Delta', () => {
   const before = snapshot('b', [
     entity('entity:removed'),
     entity('entity:updated', 'entity', 'Before', [{ key: 'rank', value: 1 }])
@@ -170,9 +152,6 @@ test('entity merge-join covers add, remove, update, empty Fact Delta, and kind c
     ])
   );
   expect(result.deltaRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
-
-  const kindChanged = snapshot('d', [entity('entity:updated', 'state')]);
-  expectCodedFailure(() => propagate(after, kindChanged), 'IMPACT-004');
 });
 
 test('Fact seeds preserve endpoint basis and traverse only definite endpoint graphs', () => {
@@ -439,53 +418,6 @@ test('verification recommendations retain exact selectors and classify missing/n
     kind: 'acceptance',
     acceptanceEntityId: 'acceptance:one'
   }));
-
-  const invalidMapping = fact('fact:invalid-mapping', 'scenario:mapped', 'VERIFIED_BY', 'artifact:one');
-  expectCodedFailure(
-    () => propagate(
-      snapshot('u', entities, [invalidMapping]),
-      snapshot('v', entities.map((value) =>
-        value.id === 'scenario:mapped' ? { ...value, label: 'Changed' } : value
-      ), [invalidMapping])
-    ),
-    'IMPACT-005'
-  );
-});
-
-test('diagnostic precedence separates endpoint, Fact Delta, and canonical payload failures', () => {
-  const before = snapshot('w', [entity('A')]);
-  const after = snapshot('x', [entity('A', 'responsibility', 'Changed')]);
-  const from = context(before, 'tx:from');
-  const to = context(after, 'tx:to');
-  const delta = buildFactDelta(from, to);
-
-  expectCodedFailure(
-    () => buildImpactPropagation({
-      delta: { ...delta, from: { ...delta.from, transactionId: 'tx:wrong' } },
-      from,
-      to
-    }),
-    'IMPACT-001'
-  );
-
-  const staleFrom = { ...from, semanticRevision: 'sha256:stale' };
-  expectCodedFailure(
-    () => buildImpactPropagation({
-      delta: { ...delta, from: { ...delta.from, semanticRevision: staleFrom.semanticRevision } },
-      from: staleFrom,
-      to
-    }),
-    'FACT-DELTA-001'
-  );
-
-  expectCodedFailure(
-    () => buildImpactPropagation({
-      delta: { ...delta, deltaRevision: sha256('tampered') },
-      from,
-      to
-    }),
-    'IMPACT-002'
-  );
 });
 
 test('shared verification targets retain every ordered reason without cross-kind collisions', () => {

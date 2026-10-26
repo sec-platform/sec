@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { expect, test } from "bun:test";
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
-import { deriveScenarioDefinitions } from "../../../src/compiler/ir/scenario-facts.ts";
+import { addFact } from '../../../src/compiler/ir/ir-fact-store.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectScenarioView } from '../../../src/compiler/projection/project-scenario-view.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
@@ -184,6 +184,29 @@ test("Scenario canonical identity and provenance survive validated reconstructio
   };
   expect(() => validateEngineeringIR(tampered, input)).toThrow();
 
+  // Raw cached IR must reject both cross-scenario directions and competing
+  // handlers after canonical identity and predicate admission, not on a fake ID.
+  const outside = 'scenario:flow:outside#step:foreign';
+  const entities = [...ir.entities, {
+    id: outside, kind: 'scenario-step' as const, label: 'Foreign step', attributes: []
+  }].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  const provenance = ir.facts.find(fact => fact.predicate === 'HANDLES')!.assertions[0]!.provenance;
+  for (const [subject, target, predicate, code] of [
+    [outside, startId, 'PRECEDES', 'IR-SCENARIO-004'],
+    [finishId, outside, 'PRECEDES', 'IR-SCENARIO-004'],
+    [startId, finishId, 'HANDLES', 'IR-SCENARIO-006']
+  ] as const) {
+    const facts = new Map(ir.facts.map(fact => [fact.id, fact]));
+    const id = addFact(facts, {
+      subject, predicate, object: { kind: 'entity', entityId: target },
+      authority: 'authoritative', provenance
+    });
+    for (const assertion of facts.get(id)!.assertions) assertion.validFromRevision = ir.semanticRevision;
+    const rejected = { ...ir, entities,
+      facts: [...facts.values()].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0) };
+    expectCodedFailure(() => validateEngineeringIR(rejected, input), code);
+  }
+
   const precedes = canonicalView.edges.find(
     (edge) => edge.relation === "PRECEDES",
   );
@@ -266,42 +289,4 @@ test("invalid Scenario step references and retry schemas fail deterministically"
       buildEngineeringIR({ ...baseInput(), semanticContracts: [invalidRetry] }),
     "IR-SCENARIO-002",
   );
-});
-
-test('Scenario indexes preserve unordered input, duplicate occurrences and all owned Facts', () => {
-  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
-  const scenarioId = 'scenario:flow:run-flow';
-  const precedes = ir.facts.find((fact) => fact.predicate === 'PRECEDES')!;
-  const facts = [...ir.facts, precedes];
-  const expected = deriveScenarioDefinitions(ir.entities, facts);
-  expect(expected[0]!.steps.find((step) => step.id.endsWith('#step:finish'))!.afterStepIds)
-    .toEqual([`${scenarioId}#step:start`, `${scenarioId}#step:start`]);
-  expect(expected[0]!.factIds.filter((id) => id === precedes.id)).toHaveLength(2);
-  expect(deriveScenarioDefinitions([...ir.entities].reverse(), facts.reverse())).toEqual(expected);
-  expect(ir.facts).toHaveLength(facts.length - 1);
-});
-
-test('Scenario boundary checks keep the first input error, not the first indexed step', () => {
-  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
-  const scenarioId = 'scenario:flow:run-flow';
-  const precedes = ir.facts.find((fact) => fact.predicate === 'PRECEDES')!;
-  const first = { ...precedes, id: 'incoming-first', subject: 'outside',
-    object: { kind: 'entity' as const, entityId: `${scenarioId}#step:start` } };
-  const second = { ...precedes, id: 'outgoing-second', subject: `${scenarioId}#step:finish`,
-    object: { kind: 'entity' as const, entityId: 'outside' } };
-  for (const additions of [[first, second], [second, first], [first, second, first]]) {
-    expect(() => deriveScenarioDefinitions(ir.entities, [...ir.facts, ...additions]))
-      .toThrow(`Scenario relation Fact "${additions[0]!.id}" crosses the contained step boundary`);
-  }
-});
-
-test('Scenario indexes still reject value relations and multiple contained error handlers', () => {
-  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
-  const scenarioId = 'scenario:flow:run-flow';
-  const precedes = ir.facts.find((fact) => fact.predicate === 'PRECEDES')!;
-  const invalid = { ...precedes, object: { kind: 'value' as const, value: null } };
-  expectCodedFailure(() => deriveScenarioDefinitions(ir.entities, [...ir.facts, invalid]), 'IR-SCENARIO-004');
-  const handles = ir.facts.find((fact) => fact.predicate === 'HANDLES')!;
-  const duplicate = { ...handles, id: 'second-handler', subject: `${scenarioId}#step:start` };
-  expectCodedFailure(() => deriveScenarioDefinitions(ir.entities, [...ir.facts, duplicate]), 'IR-SCENARIO-006');
 });
