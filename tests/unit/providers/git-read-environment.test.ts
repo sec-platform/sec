@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { devNull, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -13,8 +13,7 @@ import {
   createHostGitReadSessionForTests,
   isProductionGitReadSession,
   isTestGitReadSession,
-  isolatedGitChildEnvironment,
-  isolatedGitReadEnvironment
+  isolatedGitChildEnvironment
 } from '../../../src/adapters/providers/git-read/test/session.ts';
 import { openProcessResourceSession } from '../../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -100,63 +99,6 @@ function issueTestGitReadOperation(input: Readonly<{
     providerIdentityDigest: TEST_GIT_READ_PROVIDER_DIGEST
   })]);
 }
-
-/**
- * Mirror of the implementation's empty config sink: Windows cannot open
- * `os.devNull` (`\\.\nul`) as a Git configuration file, so it binds the `NUL`
- * device name; POSIX uses `/dev/null`.
- */
-const GIT_NULL_CONFIG_GLOBAL_SINK = process.platform === 'win32' ? 'NUL' : devNull;
-
-function environmentKeys(env: NodeJS.ProcessEnv, key: string): string[] {
-  const canonicalKey = key.toUpperCase();
-  return Object.keys(env).filter((name) => name.toUpperCase() === canonicalKey);
-}
-
-test('Git child environment is the same mechanical isolation owner', () => {
-  // The environment owner tests the complete policy; this adapter owns source routing.
-  const env = isolatedGitChildEnvironment({ PATH: '/bin', HOME: '/home/test', GIT_DIR: '/ambient' });
-  expect(env.PATH).toBe('/bin');
-  expect(env.HOME).toBe('/home/test');
-  expect(env.GIT_DIR).toBeUndefined();
-});
-
-test('Git read environment permits subject/locale overrides but cannot weaken mandatory isolation', () => {
-  const env = isolatedGitReadEnvironment({
-    GIT_DIR: '/tmp/explicit.git',
-    GIT_CONFIG_GLOBAL: '/tmp/attempted-global',
-    GIT_CONFIG_NOSYSTEM: '0',
-    GIT_TERMINAL_PROMPT: '1',
-    GIT_NO_REPLACE_OBJECTS: '0',
-    GIT_ASKPASS: '/tmp/attempted-askpass',
-    git_config_global: '/tmp/lowercase-global',
-    Git_Config_NoSystem: '0',
-    git_terminal_prompt: '1',
-    Git_No_Replace_Objects: '0',
-    git_askpass: '/tmp/lowercase-askpass',
-    ssh_askpass: '/tmp/lowercase-ssh-askpass',
-    LANG: 'C',
-    LC_ALL: 'C'
-  }, {
-    PATH: '/bin',
-    GIT_DIR: '/tmp/ambient.git'
-  });
-
-  expect(env.GIT_DIR).toBe('/tmp/explicit.git');
-  expect(env.LANG).toBe('C');
-  expect(env.LC_ALL).toBe('C');
-  expect(env.GIT_CONFIG_GLOBAL).toBe(GIT_NULL_CONFIG_GLOBAL_SINK);
-  expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
-  expect(env.GIT_TERMINAL_PROMPT).toBe('0');
-  expect(env.GIT_NO_REPLACE_OBJECTS).toBe('1');
-  expect(env.GIT_ASKPASS).toBeUndefined();
-  expect(environmentKeys(env, 'GIT_CONFIG_GLOBAL')).toEqual(['GIT_CONFIG_GLOBAL']);
-  expect(environmentKeys(env, 'GIT_CONFIG_NOSYSTEM')).toEqual(['GIT_CONFIG_NOSYSTEM']);
-  expect(environmentKeys(env, 'GIT_TERMINAL_PROMPT')).toEqual(['GIT_TERMINAL_PROMPT']);
-  expect(environmentKeys(env, 'GIT_NO_REPLACE_OBJECTS')).toEqual(['GIT_NO_REPLACE_OBJECTS']);
-  expect(environmentKeys(env, 'GIT_ASKPASS')).toEqual([]);
-  expect(environmentKeys(env, 'SSH_ASKPASS')).toEqual([]);
-});
 
 test('the explicit host test route rejects aggregate argument overflow before starting Git', async () => {
   await withHostGitSession({

@@ -103,9 +103,12 @@ test('environment records and native names reject malformed values before child-
     const values = Object.defineProperty({}, name, { enumerable: true, get() { read = true; return 'x'; } });
     assert.throws(() => canonicalGitChildEnvironment(values, {}), TypeError); assert.equal(read, false);
   }
-  for (const value of ['a\0b', '\ud800', '\udc00']) {
+  let conversions = 0;
+  const hostile = { toString() { conversions++; return 'coerced'; } };
+  for (const value of [0, hostile, 'a\0b', '\ud800', '\udc00']) {
     assert.throws(() => canonicalGitChildEnvironment({ CUSTOM: value as never }, {}), TypeError);
   }
+  assert.equal(conversions, 0);
 });
 
 test('ordinary Unicode, spaces and empty values are retained exactly without normalization', () => {
@@ -125,4 +128,8 @@ test('only own named data is selected and accepted getters are evaluated once', 
   assert.equal(reads, 1); assert.equal(env.ONCE, 'captured'); assert.equal(env.HIDDEN, undefined);
   assert.equal(Object.getPrototypeOf(env), null); assert.ok(Object.isFrozen(env));
   assert.equal(gitEnvironmentValue(Object.create({ PATH: '/prototype' }), 'PATH'), undefined);
+  const lookup = Object.defineProperty({ PATH: 'chosen' }, 'unrelated', { enumerable: true,
+    get() { assert.fail('unrelated getter'); } });
+  assert.equal(gitEnvironmentValue(lookup, 'PATH'), 'chosen');
+  assert.equal(gitEnvironmentValue(lookup, 'path'), process.platform === 'win32' ? 'chosen' : undefined);
 });

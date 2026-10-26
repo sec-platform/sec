@@ -90,13 +90,18 @@ for (const mutation of ['none', 'poll', 'signal'] as const) {
     let monotonic = 0;
     Date.now = () => wall;
     try {
-      const first = normalize({ deadlineAtUnixMs: 1100, lockTimeoutMs: 100, monotonicNowMs: () => monotonic });
+      const first = normalize({ deadlineAtUnixMs: mutation === 'none' ? 601000 : 1100,
+        lockTimeoutMs: 100, monotonicNowMs: () => monotonic });
+      assert.equal(contextOf(first).initialBudgetMs, 100);
+      assert.equal(contextOf(first).deadlineAtUnixMs, 1100);
+      assert.equal(first.deadlineAtUnixMs, 1100);
       wall = 5000;
       monotonic = 10;
       const changes = mutation === 'poll' ? { pollIntervalMs: 2 }
         : mutation === 'signal' ? { signal: new AbortController().signal } : {};
       const second = normalize({ ...first, ...changes });
       assert.equal(contextOf(second).deadlineAtMonotonicMs, 100);
+      assert.equal(second.deadlineAtUnixMs, 1100);
       assert.equal(remaining(second, 'captured'), 90);
     } finally { Date.now = original; }
   });
