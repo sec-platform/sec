@@ -11,10 +11,10 @@ import { settleResources, withAcquiredResource } from '../../../src/execution/re
 // In repository execution these retain the real source compiler and physical
 // owner. The standalone local replay substitutes only the declared physical,
 // generation-digest and transition-identity boundaries; it is not native IO evidence.
-function fixture() {
+function fixture(sourceNames: readonly string[] = ['a', 'b']) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-source-invocation-'));
   try {
-    for (const name of ['a','b']) { mkdirSync(path.join(root, name)); writeFileSync(path.join(root,name,'value'), name); }
+    for (const name of sourceNames) { mkdirSync(path.join(root, name)); writeFileSync(path.join(root,name,'value'), name); }
     return { root, options: runtimeDependencyOperationControls({ lockTimeoutMs: 20_000 }) };
   } catch (error) {
     settleResources({ primary: { label: 'source-generation-fixture-construction', error },
@@ -23,11 +23,11 @@ function fixture() {
     throw error;
   }
 }
-function usingFixture(use: (f: ReturnType<typeof fixture>) => Promise<void>): Promise<void> {
+function usingFixture(use: (f: ReturnType<typeof fixture>) => Promise<void>, sourceNames?: readonly string[]): Promise<void> {
   return withAcquiredResource({
     operationLabel: 'source-generation-observation',
     resourceLabel: 'source-generation-fixture-root',
-    acquire: fixture,
+    acquire: () => fixture(sourceNames),
     use,
     release: f => rmSync(f.root, { recursive: true, force: true })
   });
@@ -74,7 +74,7 @@ test('clock callbacks cannot retarget the already-selected source or binding', a
 });
 
 test.serial('relative paths bind before callbacks or the deferred scan can change cwd', async () => {
-  const f=fixture(), original=process.cwd(); try {
+  const f=fixture(['a']), original=process.cwd(); try {
     process.chdir(f.root);
     const pending=runtimeDependencySourceGeneration({...input(f),ownerRoot:'.',sourcePath:'a'});
     process.chdir(tmpdir());
@@ -101,7 +101,7 @@ test('the same source with different bounds cannot join a wider in-flight observ
       {code:'RUNTIME-DEPS-003',message:/in-flight/});
     const result=await first;await Promise.all([capacity,deadline]);
     assert.equal(result.sourcePath,request.sourcePath);
-  });
+  }, ['a']);
 });
 
 test('failed observation is retired and can be recomputed after source recovery', async () => {
@@ -109,5 +109,5 @@ test('failed observation is retired and can be recomputed after source recovery'
     const request={...input(f),sourcePath:path.join(f.root,'later')};
     await assert.rejects(runtimeDependencySourceGeneration(request));mkdirSync(request.sourcePath);
     const result=await runtimeDependencySourceGeneration(request);assert.equal(result.sourcePath,request.sourcePath);
-  });
+  }, []);
 });
