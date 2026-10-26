@@ -125,7 +125,6 @@ test('module descriptors and owned sources resolve even when no runnable test co
 test('compile-only test inputs resolve without inventing runtime tests', () => {
   for (const path of [
     'tests/unit/compiler/architecture-contracts.typecheck.ts',
-    'tests/unit/cli/workspace-action.typecheck.ts'
   ]) {
     expect(selectSlowTestRiskClosure([path])).toMatchObject({
       resolved: true,

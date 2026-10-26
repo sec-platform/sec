@@ -162,7 +162,8 @@ test('descriptor worker executes its exact sealed closure without repository or 
 function input(
   currentCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
   baselineCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
-  includeMechanismReview = true
+  includeMechanismReview = true,
+  startupEffect = false
 ): CompileWholeSourceProgramAuditOperationInput {
   const sourceRevision = digest('source');
   const modelDigest = digest('model');
@@ -174,7 +175,7 @@ function input(
   // Parent-normalized fixture identity, not owner-issued baseline Evidence.
   const baselineEvidenceDigest = digest('baseline-evidence-fixture');
   const sourcePath = 'src/domain.ts';
-  const source = 'export const domain = true;\n';
+  const source = startupEffect ? 'work()' : 'export const domain = true;\n';
   const contentDigest = rawSha256(source);
   const model: SourceProgramModel = Object.freeze({
     sourceRevision,
@@ -195,7 +196,13 @@ function input(
     entrypointClosures: Object.freeze([]),
     packages: Object.freeze([]),
     dependencies: Object.freeze([]),
-    capabilities: Object.freeze([]),
+    capabilities: Object.freeze(startupEffect ? [{
+      observationId: digest('call'), path: sourcePath, moduleId: 'domain',
+      surface: 'production' as const, capability: 'filesystem' as const, operation: 'readFile', subject: null,
+      transport: 'native-runtime' as const, moduleSpecifier: 'node:fs/promises', providerCapability: null,
+      providerModuleId: null, owningDeclarationObservationId: null, observationClass: 'observed' as const,
+      span: { start: 0, end: 4, startLine: 0, endLine: 0, startColumn: 0, endColumn: 4 }
+    }] : []),
     candidates: Object.freeze([...currentCandidates]),
     unknowns: Object.freeze([]),
     modelDigest
@@ -694,7 +701,7 @@ describe('Source Program audit domain operation', () => {
   });
 
   test('enforcement fails closed when the canonical finding comparison is absent', () => {
-    const facts = input();
+    const facts = input([], [], true, true);
     const { findingDelta: omittedFindingDelta, ...reconciliation } = facts.reconciliation;
     assert.ok(omittedFindingDelta !== undefined);
     const request = compileSourceProgramAuditOperationInput({ ...facts, reconciliation });
@@ -938,7 +945,11 @@ describe('Source Program audit domain operation', () => {
 
 
   test('full and compact reports carry the same finding comparison through the actual wire chain', () => {
-    const facts = input();
+    const facts = input([], [], true, true);
+    const review = facts.sourceProgram.mechanismReview!;
+    assert.equal(review.counts['module-initialization-effect'], 1);
+    assert.equal(review.sourceRevision, facts.sourceProgram.sourceRevision);
+    assert.equal(review.findings[0]!.sites[0]!.contentDigest, rawSha256('work()'));
     type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
     const make = (which: 'before' | 'after'): Snapshot => ({
       analysisPolicy: captureRepositoryAnalysisPolicy([]),
@@ -968,6 +979,20 @@ describe('Source Program audit domain operation', () => {
       assert.equal(observed.contextComparable, true); assert.equal(observed.deltaDigest, findingDelta.deltaDigest);
       assert.deepEqual(observed.scope, findingDelta.scope);
       assert.equal('entries' in observed, full); assert.equal(result.exitCode, 0);
+      assert.deepEqual(request.blockingReasons, []);
+      const mechanisms = result.projection.mechanisms as Record<string, unknown>;
+      assert.deepEqual(decoded.projection.mechanisms, request.projection.mechanisms);
+      assert.deepEqual(mechanisms, request.projection.mechanisms);
+      assert.equal(mechanisms.reviewDigest, review.reviewDigest);
+      assert.equal(Object.hasOwn(mechanisms, 'findings'), full);
+      if (full) assert.deepEqual(mechanisms.findings, review.findings);
+    }
+    for (const field of ['sourceRevision', 'modelDigest', 'coverage'] as const) {
+      const altered = field === 'coverage' ? { ...review, coverage: { ...review.coverage, files: 99 } }
+        : { ...review, [field]: digest('foreign') };
+      assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+        sourceProgram: { ...facts.sourceProgram, mechanismReview: altered }
+      }), /Mechanism review is not bound/);
     }
   });
 
@@ -1198,6 +1223,7 @@ describe('test-obligations scoped audit facts', () => {
     const { mechanismReview, ...requiredSourceFacts } = fullFacts.sourceProgram;
     assert.ok(mechanismReview !== undefined);
     assert.deepEqual(leanFacts.sourceProgram, requiredSourceFacts);
+    assert.equal(Object.hasOwn(compileSourceProgramAuditOperationInput(leanFacts).projection, 'mechanisms'), false);
     const full = compileSourceProgramAuditOperationInput(scopedTestFacts(fullFacts));
     const lean = compileSourceProgramAuditOperationInput(scopedTestFacts(leanFacts));
     const { mechanisms, ...requiredProjection } = full.projection;
