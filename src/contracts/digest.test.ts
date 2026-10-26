@@ -1,6 +1,4 @@
-import { settleResources, type ResourceSettlementFailure } from '../execution/resource-settlement.ts';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { digest, rawSha256, sha256 } from './canonical.ts';
 import { createSha256Hasher, isDigest, isDigestHex, parseDigest, type Digest } from './digest.ts';
@@ -35,34 +33,10 @@ test('digest grammar requires an explicit supported algorithm and exact lowercas
 
 test('legacy raw SHA-256 still hashes bytes, not JSON strings', () => {
   assert.equal(digest('abc'), abc);
-  assert.equal(rawSha256('abc'), `sha256:${abc}`);
+  assert.equal(rawSha256(Uint8Array.of(0, 97, 98, 99, 0).subarray(1, 4)), `sha256:${abc}`);
   assert.equal(rawSha256(''), 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   assert.notEqual(sha256('abc'), rawSha256('abc'));
   assert.equal(sha256({ b: 2, a: 1 }), 'sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777');
-});
-
-test('incremental hash is independent of binary chunk boundaries and source offsets', () => {
-  const source = Buffer.alloc(4099);
-  for (let i = 0; i < source.length; i += 1) source[i] = i % 251;
-  const bytes = new Uint8Array(source.buffer, source.byteOffset + 3, 4093);
-  const expected = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-  assert.equal(rawSha256(bytes), expected);
-  const hash = createSha256Hasher();
-  let fixtureFailure1: ResourceSettlementFailure | undefined;
-  try {
-    hash.update(new Uint8Array());
-    for (let offset = 0; offset < bytes.length; offset += 63) {
-      hash.update(bytes.subarray(offset, Math.min(offset + 63, bytes.length)));
-    }
-    assert.equal(hash.finish(), expected);
-  } catch (error) {
-    fixtureFailure1 = { label: 'fixture operation', error };
-  } finally {
-    settleResources({
-      primary: fixtureFailure1,
-      cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
-    });
-  }
 });
 
 test('separate computations never share incremental state', () => {

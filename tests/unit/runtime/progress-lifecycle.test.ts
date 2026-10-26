@@ -64,6 +64,19 @@ test('the cleanup opportunity follows an action that suspends; not its initial P
 
 test('parallel invocations never share observer handles or results', async () => {
   const first: string[] = [], second: string[] = [];
-  assert.deepEqual(await Promise.all([withProgressLifecycle('one', () => observer(first), async () => 1), withProgressLifecycle('two', () => observer(second), async () => 2)]), [1, 2]);
-  assert.deepEqual(first, ['start:one', 'succeed:one', 'stop']); assert.deepEqual(second, ['start:two', 'succeed:two', 'stop']);
+  const firstObserver = observer(first), secondObserver = observer(second);
+  firstObserver.start = (text) => { first.push(`start:${text}`); return Promise.reject('display'); };
+  firstObserver.stop = () => { first.push('stop'); return new Promise<void>(() => {}); };
+  secondObserver.start = (text) => {
+    second.push(`start:${text}`);
+    return { then() { throw new Error('thenable'); } };
+  };
+  assert.deepEqual(await Promise.all([
+    withProgressLifecycle('one', () => firstObserver, async () => 1),
+    withProgressLifecycle('two', () => secondObserver, async () => 2)
+  ]), [1, 2]);
+  assert.deepEqual(first, ['start:one', 'succeed:one', 'stop']);
+  assert.deepEqual(second, ['start:two', 'succeed:two', 'stop']);
+  // Let rejected presentation promises surface if their consumer missed them.
+  await new Promise<void>(resolve => setImmediate(resolve));
 });
