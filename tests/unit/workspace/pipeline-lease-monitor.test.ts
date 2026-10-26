@@ -24,15 +24,6 @@ for (const reason of [undefined]) {
   });
 }
 
-test('admission and final validation bracket one execution and preserve its identity', async () => {
-  const order: string[] = [];
-  const value = Object.freeze({ result: 7 });
-  const result = await withLeaseObservationMonitor(async () => { order.push('assert'); }, async (signal) => {
-    assert.equal(signal.aborted, false); order.push('execute'); return value;
-  });
-  assert.equal(result, value); assert.deepEqual(order, ['assert', 'execute', 'assert']);
-});
-
 test('a slow initial assertion cannot overlap with periodic observation', async () => {
   const held = deferred(); let calls = 0, executed = false;
   const run = withLeaseObservationMonitor(async () => { calls++; if (calls === 1) await held.promise; }, async () => { executed = true; });
@@ -134,8 +125,13 @@ test('final validation failure, including undefined, is never returned as callba
 
 test('independent monitor invocations never share signals or failure state', async () => {
   const signals: AbortSignal[] = [];
-  for (const value of [undefined, 7]) {
-    assert.equal(await withLeaseObservationMonitor(async () => {}, async (signal) => { signals.push(signal); return value; }), value);
+  for (const value of [undefined, Object.freeze({ result: 7 })]) {
+    const order: string[] = [];
+    assert.equal(await withLeaseObservationMonitor(async () => { order.push('assert'); }, async (signal) => {
+      assert.equal(signal.aborted, false);
+      signals.push(signal); order.push('execute'); return value;
+    }), value);
+    assert.deepEqual(order, ['assert', 'execute', 'assert']);
   }
   assert.equal(new Set(signals).size, signals.length);
   assert.ok(signals.every((signal) => !signal.aborted));

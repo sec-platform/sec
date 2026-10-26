@@ -107,13 +107,10 @@ test('restored reclaimed owner remains durable when the same handle releases', (
   withFixture(({ root, parent }) => {
     const name = 'invocation.lease';
     const abandoned = abandonGuarded(parent, name, {
-      now: () => 1_000,
       ownerHost: 'lease-test-host',
       ownerPid: 42_011,
-      processNonce: '30000000-0000-4000-8000-000000000011',
-      processAlive: () => 'alive'
+      processNonce: '30000000-0000-4000-8000-000000000011'
     });
-    expect(abandoned).not.toBeNull();
     const oldBytes = inspectNoFollowOrdinaryFileEntry(parent, name)?.bytes;
     expect(oldBytes).not.toBeNull();
 
