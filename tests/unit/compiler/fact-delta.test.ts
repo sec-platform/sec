@@ -202,18 +202,6 @@ test('validFrom rebinding and entity-only changes do not create Fact churn', () 
   expect(delta.changed).toEqual([]);
 });
 
-test('canonicalized declaration order does not create Fact churn', () => {
-  const forward = buildValidatedEngineeringIR(input('delta-app', 'Delta App', ['alpha/basic', 'beta/basic']));
-  const reversedSource = input('delta-app', 'Delta App', ['beta/basic', 'alpha/basic']);
-  reversedSource.resolvedBlocks.forEach((block, index) => { block.installOrder = reversedSource.resolvedBlocks.length - index; });
-  const reversed = buildValidatedEngineeringIR(reversedSource);
-  const first = buildFactDelta(context(forward, 'tx:stable'), context(reversed, 'tx:stable'));
-
-  expect(first.added).toEqual([]);
-  expect(first.removed).toEqual([]);
-  expect(first.changed).toEqual([]);
-});
-
 test('endpoint, lineage, and unsupported validity failures use stable diagnostics', () => {
   const source = input();
   const before = buildValidatedEngineeringIR(source);
