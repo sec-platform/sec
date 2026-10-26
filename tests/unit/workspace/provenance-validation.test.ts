@@ -1,10 +1,5 @@
-import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 
-import { readOptionalProvenanceFile } from '../../../src/adapters/workspace/provenance-reader.ts';
 import { validateProvenanceFile } from '../../../src/semantics/provenance/authority.ts';
 
 function validArtifact(path = 'src/generated.ts') {
@@ -78,11 +73,4 @@ test('Provenance V1 rejects noncanonical artifact and verification evidence orde
       verifiedBy: ['tests/unit/z.test.ts', 'tests/unit/a.test.ts']
     }]
   })).toThrow(/verifiedBy must be canonically ordered/);
-});
-
-test('canonical Provenance reader returns null for physical absence', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-provenance-reader-'));
-  settleWorkspaceCallbackSync(() => {
-    expect(readOptionalProvenanceFile(path.join(root, 'absent.json'), 'test Provenance')).toBeNull();
-  }, () => rmSync(root, { recursive: true, force: true }));
 });

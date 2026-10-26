@@ -12,14 +12,15 @@ async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   await settleWorkspaceCallback(() => run(root), () => rm(root, { recursive: true, force: true }));
 }
 
-for (const value of [null, false, 0, '', [], { value: 7 }]) {
-  test(`required JSON reads valid ${JSON.stringify(value)} without truthiness-based absence`, async () => {
-    await fixture(async root => {
-      const file = path.join(root, 'value.json'); await writeFile(file, JSON.stringify(value));
+test('required JSON reads valid null without truthiness-based absence', async () => {
+  await fixture(async root => {
+    const file = path.join(root, 'value.json');
+    for (const value of [null, false, 0, '', [], { value: 7 }]) {
+      await writeFile(file, JSON.stringify(value));
       assert.deepEqual(await readRequiredJson(file, 'missing fixture'), value);
-    });
+    }
   });
-}
+});
 
 test('only an actual absent file is translated to the selected missing diagnostic', async () => {
   await fixture(async root => {

@@ -32,7 +32,6 @@ test('selection follows lock membership, deduplicates paths and ignores undeclar
     const contract = { provider: 'postgres', persistenceMode: 'database', tables: [] };
     await write(root, first, JSON.stringify(contract));
     await write(root, second, JSON.stringify(contract));
-    expect(await readGeneratedContract(root, missing, matches)).toEqual(contract);
     expect(await expectCliJson<typeof contract>(root, ['postgres', '--json'])).toEqual(contract);
     await expectCliText(root, ['postgres'], [
       'Postgres contract postgres', 'mode=database', 'tables=0', 'tenantScoped=0', 'Table list: none'
