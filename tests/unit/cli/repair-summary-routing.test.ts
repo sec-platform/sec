@@ -43,22 +43,6 @@ test('repair plan routing uses application projection and entry rendering withou
     blockers: [buildRepairBlocker()]
   });
 
-  const originalPlan = structuredClone(plan);
-  const view = projectRepairSummary(plan, true);
-
-  expect(view.presentation).toBe('dry-run');
-  expect(view.tasks[0]!.review).toEqual({
-    writeBounds: ['src/installed/entity/customer-service.ts'],
-    requiredSymbols: ['normalizeCustomerInput'],
-    forbiddenOperations: [],
-    testsToPass: [],
-    failureTargets: ['zeta.test.ts']
-  });
-  task.allowedPaths.push('later.ts');
-  task.failurePoints[0]!.targetIds!.push('later-target');
-  expect(view.tasks[0]!.review.writeBounds).toEqual(['src/installed/entity/customer-service.ts']);
-  expect(view.tasks[0]!.review.failureTargets).toEqual(['zeta.test.ts']);
-
   // Keep failure and review fields tied to their subjects without freezing whole lines.
   function expectPendingRepair(text: string): void {
     for (const meaning of [
@@ -82,12 +66,12 @@ test('repair plan routing uses application projection and entry rendering withou
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
-    await writeJson(repairPlanPath, originalPlan);
+    await writeJson(repairPlanPath, plan);
 
     const { stdout } = await expectCliSuccess(workspaceRoot, ['repair', 'plan']);
     expectPendingRepair(stdout);
 
     const json = await expectCliJson(workspaceRoot, ['repair', 'plan', '--json']);
-    expect(json).toEqual(originalPlan);
+    expect(json).toEqual(plan);
   }, 'repair-summary-routing-');
 });

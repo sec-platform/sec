@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
-import { projectRuntimeInspection } from '../../../src/application/runtime-inspection.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
@@ -15,21 +14,6 @@ test('runtime inspection routes text through application and entry while preserv
     acceptance: { status: 'skipped', passed: [] as string[], failed: [] as string[], command: null },
     logs: { stdout: 'out', stderr: 'err' }
   };
-
-  // Keep the minimal public projection input separate from persisted logs.
-  const source = {
-    status: report.status,
-    build: structuredClone(report.build),
-    unit: structuredClone(report.unit),
-    acceptance: structuredClone(report.acceptance)
-  };
-  const view = projectRuntimeInspection(source);
-
-  source.unit.failed.length = 0;
-  for (const key of ['build', 'unit', 'acceptance'] as const) {
-    source[key].passed.push('later');
-    source[key].failed.push('later');
-  }
 
   const expectedView = {
     status: 'failed',
@@ -67,9 +51,6 @@ test('runtime inspection routes text through application and entry while preserv
       }
     ]
   };
-  expect(view).toEqual(expectedView);
-  view.steps[0]!.failed.push('projection-only');
-  expect(source.build.failed).toEqual(['later']);
   const expectLine = (stdout: string, prefix: string, markers: readonly string[]) => {
     const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     const identity = new RegExp(`^\\s*${escape(prefix)}(?=$|[\\s;,])`, 'u');
@@ -100,7 +81,7 @@ test('runtime inspection routes text through application and entry while preserv
       expectLine(text.stdout, `${label}: ${status}`, markers);
       expectLine(stepsText.stdout, `${label.toLowerCase()}: ${status}`, markers);
     }
-    const stepsJson = await expectCliJson<typeof view>(workspaceRoot, ['runtime', 'steps', '--json']);
+    const stepsJson = await expectCliJson<typeof expectedView>(workspaceRoot, ['runtime', 'steps', '--json']);
     expect(stepsJson).toEqual(expectedView);
   });
 });

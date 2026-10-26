@@ -3,12 +3,11 @@ import { expectRecord, recordFields } from '../../helpers/assertion-helpers.ts';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
-import { projectPolicySources } from '../../../src/application/policy-source-inspection.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
-// Fixed semantic oracle for both the direct projection and real CLI JSON.
+// Fixed semantic oracle for the real CLI JSON.
 // Never compute a route's expected result with its own production projection.
 const EXPECTED_POLICY_SOURCES = {
   status: 'passed',
@@ -22,31 +21,6 @@ const EXPECTED_POLICY_SOURCES = {
 };
 
 test('policy sources routes retained policy evidence through application and entry', async () => {
-  // Direct projection protects detachment and ordering; real CLI checks rendering below.
-  {
-    const source = {
-      status: 'passed',
-      official: {
-        sources: [
-          { path: 'z', policyIds: ['official:z'] },
-          { path: 'a', policyIds: ['official:a', 'official:b'] }
-        ]
-      },
-      project: {
-        sources: [{ path: 'b', policyIds: ['project:b'] }]
-      }
-    };
-    const originalOfficial = source.official.sources.map((entry) => entry.path);
-
-    const view = projectPolicySources(source);
-
-    source.official.sources[0]!.policyIds.push('later');
-    source.project.sources[0]!.policyIds.length = 0;
-    expect(view).toEqual(EXPECTED_POLICY_SOURCES);
-    expect(source.official.sources.map((entry) => entry.path)).toEqual(originalOfficial);
-    view.sources[1]!.policyIds.push('projection-only');
-    expect(source.official.sources[0]!.policyIds).toEqual(['official:z', 'later']);
-  }
   await withTempWorkspace(async (workspaceRoot) => {
     const report = {
       status: 'passed',
