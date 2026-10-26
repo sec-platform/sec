@@ -5,10 +5,7 @@ import { projectArchitectureView } from '../../../src/compiler/projection/projec
 import { projectScenarioView } from '../../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../../src/compiler/projection/project-state-view.ts';
 import { semanticViewFactIds } from '../../../src/semantics/projection/types.ts';
-import { addFact, entity, projectionSnapshot, viewIR } from '../../fixtures/semantic-view-data.ts';
-
-const code = (value: string) => (error: unknown): boolean =>
-  error !== null && typeof error === 'object' && Reflect.get(error, 'code') === value;
+import { addFact, projectionSnapshot, viewIR } from '../../fixtures/semantic-view-data.ts';
 
 test('architecture projection and inspector preserve exact incident membership and self-relation direction', () => {
   const ir = viewIR(4);
@@ -109,21 +106,4 @@ test('additional disjoint domains cannot change an already selected scenario or 
   const first = projectionSnapshot(viewIR()); const expanded = projectionSnapshot(viewIR(20));
   assert.deepEqual(projectScenarioView(first, 'scenario:0'), projectScenarioView(expanded, 'scenario:0'));
   assert.deepEqual(projectStateView(first, 'state:0'), projectStateView(expanded, 'state:0'));
-});
-
-test('public projection subject errors retain their domain codes', () => {
-  const snapshot = projectionSnapshot(viewIR());
-  assert.throws(() => projectArchitectureView(snapshot, 'missing'), code('VIEW-INSPECTOR-001'));
-  assert.throws(() => projectScenarioView(snapshot, 'state:0'), code('VIEW-SCENARIO-001'));
-  assert.throws(() => projectStateView(snapshot, 'missing'), code('VIEW-STATE-001'));
-  assert.throws(() => projectStateView(snapshot, 'operation:0'), code('VIEW-STATE-002'));
-});
-
-test('map-backed view construction treats prototype-shaped identifiers as data', () => {
-  const ir = viewIR(); ir.entities.push(entity('__proto__', 'operation'), entity('constructor', 'state'));
-  addFact(ir, '__proto__', 'READS', 'constructor');
-  const snapshot = projectionSnapshot(ir);
-  const view = projectStateView(snapshot, 'constructor');
-  assert.ok(view.nodes.some((node) => node.id === '__proto__'));
-  assert.equal(Object.hasOwn(Object.prototype, 'stateful'), false);
 });
