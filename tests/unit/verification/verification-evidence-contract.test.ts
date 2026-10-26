@@ -12,7 +12,7 @@ import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVe
 import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentPrepareVerificationEvidenceTarget, CodexDevelopmentWriteVerificationEvidenceV4Atomic } from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { buildCiQuickGatePlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../src/assurance/verification/contract/revision.ts';
-import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
+import type { VerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
 
 function withEvidenceRoot(prefix: string, use: (root: string) => void): void {
   const root = mkdtempSync(path.join(tmpdir(), prefix));
@@ -50,7 +50,8 @@ VerificationGateEvidence<VerificationGateResult> {
           : 'input-invalidated';
   return {
     action,
-    result: CodexDevelopmentBuildVerificationGateResult({
+    result: {
+      schema: 'sec-verification-gate-result-v1',
       gateId: action.operation.identity,
       gateRevision: action.operation.revision,
       owner: 'ci-verification-maintainer',
@@ -76,7 +77,7 @@ VerificationGateEvidence<VerificationGateResult> {
       evidenceRefs: [],
       invalidationRules: ['ActionKey changes'],
       diagnostic: status === 'passed' ? null : status
-    }),
+    },
     cleanup: { status: 'not-required', evidenceRefs: [], diagnostic: null }
   };
 }

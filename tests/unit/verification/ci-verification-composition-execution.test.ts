@@ -11,7 +11,7 @@ import { CodexDevelopmentVerificationDigest, parseSourceProgramTransitionAccepta
 import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { CodexDevelopmentExecuteCiActionClosure } from '../../../src/adapters/verification/platform/ci/verification.ts';
 import { assertSourceProgramTransitionQualification, assertTrustedRuntimeSourceProgramAction } from '../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
+import type { VerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
 
 const digest = (value: string): `sha256:${string}` => (
   `sha256:${createHash('sha256').update(value).digest('hex')}`
@@ -208,7 +208,8 @@ function historicalSourceActionFixture() {
   }));
   const plan = buildCiVerificationActionPlanClosure({ candidate: subject, gates: [gates[0]!, sourceGate] });
   const action = plan.actions[1]!.action;
-  const result = CodexDevelopmentBuildVerificationGateResult({
+  const result: VerificationGateResult = {
+    schema: 'sec-verification-gate-result-v1',
     gateId: 'source-program-transition-assessment', gateRevision: action.operation.revision,
     owner: 'ci-verification-maintainer', requirementKey: 'gate:source-program-transition-assessment',
     subjectRevision: subject.headSha, inputDigest: action.actionKey,
@@ -221,7 +222,7 @@ function historicalSourceActionFixture() {
       finishedAt: '2026-10-01T10:00:00.001Z', durationMs: 1, exitCode: 0,
       outputDigest: digest('exact-source-bytes'), failureFingerprint: null },
     evidenceRefs: [digest('exact-source-bytes')], invalidationRules: ['source or producer changes'], diagnostic: null
-  });
+  };
   const fields = {
     schema: 'source-program-qualified-action-v1' as const, authority: 'historical-evidence-only' as const,
     sessionRevision: digest('source-session'), observationDigest: digest('source-observation'),

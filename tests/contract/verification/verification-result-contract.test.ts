@@ -850,7 +850,8 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
   )).toThrow(/does not exactly match the canonical aggregate writer output/);
 
   const { overall, claims, gates } = canonicalAggregateFixture();
-  const extraGate = CodexDevelopmentBuildVerificationGateResult({
+  const extraGate: VerificationGateResult = {
+    schema: VERIFICATION_GATE_RESULT_SCHEMA,
     ...minimalValidInput(),
     gateId: 'extra-gate',
     status: 'unsupported',
@@ -860,8 +861,9 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     supportedClaims: ['extra-claim'],
     environment: null,
     execution: null
-  });
-  const supportOnlyExtraGate = CodexDevelopmentBuildVerificationGateResult({
+  };
+  const supportOnlyExtraGate: VerificationGateResult = {
+    schema: VERIFICATION_GATE_RESULT_SCHEMA,
     ...minimalValidInput(),
     gateId: 'support-only-extra-gate',
     status: 'unsupported',
@@ -871,9 +873,10 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     supportedClaims: ['optional-extra-claim'],
     environment: null,
     execution: null
-  });
+  };
 
-  const offPlanSelectedClaimGate = CodexDevelopmentBuildVerificationGateResult({
+  const offPlanSelectedClaimGate: VerificationGateResult = {
+    schema: VERIFICATION_GATE_RESULT_SCHEMA,
     ...minimalValidInput(),
     gateId: 'off-plan-selected-claim-gate',
     status: 'unsupported',
@@ -883,7 +886,7 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     supportedClaims: [],
     environment: null,
     execution: null
-  });
+  };
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
     overall,
     { claims, gateResults: [...gates, offPlanSelectedClaimGate] }

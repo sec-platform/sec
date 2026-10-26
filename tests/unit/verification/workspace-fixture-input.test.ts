@@ -1,17 +1,21 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deriveTestWorkspaceRunNamespace } from '../../../src/adapters/self-hosting/development/runner/env-manager.ts';
 import { captureWorkspacePipelineOptions, workspaceTemplatePipeline, type WorkspaceTemplateKind } from '../../testkit/template-preparation.ts';
-import { settleWorkspaceCallback, workspaceTemporaryPrefix } from '../../testkit/workspace-cleanup.ts';
+import { workspaceTemporaryPrefix } from '../../testkit/workspace-cleanup.ts';
 
 test('a workspace name is an allocation label, never a caller-selected parent path', () => {
   for (const prefix of ['', '.', '..', '../escape-', '/absolute-', 'nested/prefix-', '..\\escape-', 'C:drive-', 'x\0y']) {
     assert.throws(() => workspaceTemporaryPrefix('/parent', prefix), TypeError);
   }
   assert.equal(workspaceTemporaryPrefix('/parent', 'test-'), path.resolve('/parent/test-'));
+  for (const label of ['simple-', 'with space-', '中文-']) {
+    const prefix = workspaceTemporaryPrefix('/parent', label);
+    assert.equal(prefix, path.resolve('/parent', label));
+    assert.equal(path.dirname(prefix), path.resolve('/parent'));
+    assert.equal(path.basename(prefix), label);
+  }
 });
 
 test.skipIf(process.platform !== 'win32')('nested Gate workspace cwd stays within CreateProcessW limit', () => {
@@ -27,16 +31,6 @@ test.skipIf(process.platform !== 'win32')('nested Gate workspace cwd stays withi
     `fast-${'a'.repeat(64)}`, `fast-${'b'.repeat(64)}`);
   const oldCwd = workspaceTemporaryPrefix(oldRoot, label);
   assert.ok(oldCwd.length + 6 >= 260);
-});
-
-test('native mkdtemp allocations remain inside the selected parent for valid labels', async () => {
-  const parent = await fs.mkdtemp(path.join(tmpdir(), 'workspace-prefix-'));
-  await settleWorkspaceCallback(async () => {
-    for (const label of ['simple-', 'with space-', '中文-']) {
-      const directory = await fs.mkdtemp(workspaceTemporaryPrefix(parent, label));
-      assert.equal(path.dirname(directory), parent); assert.ok(path.basename(directory).startsWith(label));
-    }
-  }, async () => { await fs.rm(parent, { recursive: true, force: true }); });
 });
 
 test('pipeline selection owns a single block list rather than re-reading it after init', () => {

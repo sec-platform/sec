@@ -14,7 +14,7 @@ import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/ve
 import { createVerificationSessionLocalPreparationRequest } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import { parseTrustedRuntimeContainerReceipt, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID } from '../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../src/assurance/verification/contract/revision.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
+import type { VerificationGateResult } from '../../../src/assurance/verification/result/contract/result.ts';
 
 const D = (n: string) => `sha256:${n.repeat(64)}` as const;
 const bytes = (value: unknown) => `${encodeVerificationActionData(value)}\n`;
@@ -44,7 +44,7 @@ const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({
     runId: 'local-status-fixture', runAttempt: 1, actorNodeId: 'fixture' }),
   actionPlan, status: 'passed', startedAt: '2026-08-09T00:00:00.000Z', finishedAt: '2026-08-09T00:00:01.000Z',
   gates: actionPlan.actions.map(({ action }) => ({ action,
-    result: CodexDevelopmentBuildVerificationGateResult({ gateId: action.operation.identity,
+    result: { schema: 'sec-verification-gate-result-v1', gateId: action.operation.identity,
       gateRevision: action.operation.revision, owner: 'fixture', requirementKey: 'fixture',
       subjectRevision: candidate.headSha, inputDigest: action.actionKey, applicability: 'required',
       status: 'passed', disposition: 'executed', reasonCode: 'executed-success',
@@ -54,7 +54,7 @@ const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({
       execution: { argv: ['fixture'], startedAt: '2026-08-09T00:00:00.000Z',
         finishedAt: '2026-08-09T00:00:01.000Z', durationMs: 1000, exitCode: 0,
         outputDigest: D('d'), failureFingerprint: null },
-      evidenceRefs: [], invalidationRules: ['fixture changes'], diagnostic: null }),
+      evidenceRefs: [], invalidationRules: ['fixture changes'], diagnostic: null } satisfies VerificationGateResult,
     cleanup: { status: 'not-required', evidenceRefs: [], diagnostic: null }
   })), evidenceRefs: [], invalidationRules: ['fixture changes']
 });
