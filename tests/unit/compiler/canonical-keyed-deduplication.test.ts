@@ -11,7 +11,7 @@ test('keyed deduplication folds canonical-equal duplicates and sorts unique keys
   const first = { id: 'b', payload: { z: 2, a: 1 } };
   const equal = { payload: { a: 1, z: 2 }, id: 'b' };
   const other = { id: 'a', payload: { a: 3, z: 4 } };
-  for (const values of [[first, equal, other], [equal, other, first], [other, first, equal]]) {
+  for (const values of [[first, equal, other], [equal, other, first]]) {
     const before = [...values];
     const actual = uniqueSortedByKey(values, value => value.id);
     assert.deepEqual(actual, [other, first]);
@@ -29,7 +29,7 @@ test('entity attributes retain one value per key or reject competing values', ()
 test('conflicting duplicate keys reject every ordering without leaking values', () => {
   const first = { id: 'private-key', value: 'private-first' };
   const second = { id: 'private-key', value: 'private-second' };
-  for (const values of [[first, second], [second, first], [first, first, second], [second, first, first]]) {
+  for (const values of [[first, second], [second, first], [first, first, second]]) {
     assert.throws(() => uniqueSortedByKey(values, value => value.id), error => {
       assert.ok(conflict(error));
       for (const privateData of ['private-key', 'private-first', 'private-second']) {

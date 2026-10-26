@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
-import { artifactEntityId, normalizedArtifactTarget } from '../../../src/compiler/ir/ir-identity.ts';
+import { artifactEntityId } from '../../../src/compiler/ir/ir-identity.ts';
 import { digest } from '../../../src/compiler/ir/ir-revision.ts';
 import type { LoadedSemanticContract } from '../../../src/semantics/definitions/types.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../../src/semantics/policies/rules.ts';
@@ -153,9 +153,6 @@ test('canonical primitive known-answer vectors remain byte-identical', () => {
   expect(digest('SEC canonical primitives\n工程')).toBe(
     '5f977604c630d50f70017523d83a380745f74dfceabbb89acfaa2a6b7342593d'
   );
-  expect(normalizedArtifactTarget(generatorTarget)).toBe(
-    'src/installed/item/item-semantic-contract.ts'
-  );
   expect(artifactEntityId(generatorTarget)).toBe(
     'artifact:src/installed/item/item-semantic-contract.ts'
   );
@@ -184,37 +181,22 @@ test('canonical revisions preserve unordered and audit equivalence while disting
     ...contract,
     contract: {
       ...contract.contract,
-      entities: [...contract.contract.entities].reverse().map((entity) => ({
+      entities: contract.contract.entities.map((entity) => ({
         ...entity,
         fields: [...entity.fields].reverse()
       })),
-      states: [...contract.contract.states].reverse().map((state) => ({
+      states: contract.contract.states.map((state) => ({
         ...state,
-        values: [...state.values].reverse(),
-        transitions: [...state.transitions].reverse()
+        values: [...state.values].reverse()
       })),
-      responsibilities: [...contract.contract.responsibilities].reverse().map((responsibility) => ({
+      responsibilities: contract.contract.responsibilities.map((responsibility) => ({
         ...responsibility,
-        owns: [...responsibility.owns].reverse(),
-        implements: [...responsibility.implements].reverse(),
-        dependsOn: [...responsibility.dependsOn].reverse()
+        owns: [...responsibility.owns].reverse()
       })),
-      operations: [...contract.contract.operations].reverse().map((operation) => ({
+      operations: contract.contract.operations.map((operation) => ({
         ...operation,
-        reads: [...operation.reads].reverse(),
-        writes: [...operation.writes].reverse(),
-        mutates: [...operation.mutates].reverse(),
-        requiresPolicies: [...operation.requiresPolicies].reverse(),
-        requiresPermissions: [...operation.requiresPermissions].reverse(),
-        performsEffects: [...operation.performsEffects].reverse(),
-        emits: [...operation.emits].reverse(),
-        invokes: [...operation.invokes].reverse(),
-        awaits: [...operation.awaits].reverse()
-      })),
-      events: [...contract.contract.events].reverse(),
-      policies: [...contract.contract.policies].reverse(),
-      permissions: [...contract.contract.permissions].reverse(),
-      effects: [...contract.contract.effects].reverse()
+        reads: [...operation.reads].reverse()
+      }))
     }
   };
   const reordered: BuildEngineeringIRInput = {

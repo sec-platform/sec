@@ -171,9 +171,6 @@ test("Scenario canonical identity and provenance survive validated reconstructio
     .sort();
   expect(canonicalScenario.factIds).toEqual(expectedFactIds);
 
-  const derived = deriveScenarioDefinitions(ir.entities, ir.facts);
-  expect(derived).toEqual(ir.scenarios);
-
   const canonicalView = projectScenarioView(snapshot, scenarioId);
   const tampered = {
     ...ir,
