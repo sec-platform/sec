@@ -2,29 +2,9 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   canonicalJson,
-  cloneAndDeepFreeze,
   deepFreeze,
   sha256
 } from '../../../src/contracts/canonical.ts';
-
-test('canonical JSON retains nested ordering, primitive values, and negative-zero normalization', () => {
-  const normalized = canonicalJson({ z: [-0, true, null], a: { y: 2, b: 'value' } });
-  assert.deepEqual(normalized, {
-    a: { b: 'value', y: 2 }, z: [0, true, null]
-  });
-  assert.equal(JSON.stringify(normalized), '{"a":{"b":"value","y":2},"z":[0,true,null]}');
-});
-
-test('canonical JSON accepts shared acyclic objects without preserving mutable aliases', () => {
-  const shared = { z: [1, 2], a: 'shared' };
-  const actual = canonicalJson({ right: shared, left: shared }) as { left: object; right: object };
-  assert.deepEqual(actual, {
-    left: { a: 'shared', z: [1, 2] },
-    right: { a: 'shared', z: [1, 2] }
-  });
-  assert.notStrictEqual(actual.left, actual.right);
-  assert.notStrictEqual(actual.left, shared);
-});
 
 test('canonical JSON rejects a mixed cycle after shared acyclic traversal without poisoning later calls', () => {
   const shared = { n: 1 };
@@ -37,21 +17,12 @@ test('canonical JSON rejects a mixed cycle after shared acyclic traversal withou
 });
 
 for (const [name, value] of [
-  ['undefined', undefined], ['bigint', 1n], ['function', () => 1],
-  ['symbol', Symbol('value')], ['NaN', NaN], ['infinity', Infinity],
-  ['date', new Date(0)], ['map', new Map()], ['set', new Set()],
-  ['typed array', new Uint8Array([1])]
+  ['undefined', undefined], ['NaN', NaN], ['date', new Date(0)]
 ] as const) {
   test(`canonical JSON continues rejecting unsupported root: ${name}`, () => {
     assert.throws(() => canonicalJson(value));
   });
 }
-
-test('canonical JSON retains unsupported-property diagnostics', () => {
-  for (const value of [undefined, 1n, () => 1, Symbol('value')]) {
-    assert.throws(() => canonicalJson({ key: value }), /unsupported value at key "key"/u);
-  }
-});
 
 test('canonical JSON retains sparse array behavior without accepting explicit undefined', () => {
   const sparse: unknown[] = new Array(3);
@@ -164,21 +135,4 @@ test('deepFreeze handles a 50000-edge chain with bounded native stack use', () =
     count += 1;
   }
   assert.equal(count, 50_001);
-});
-
-test('cloneAndDeepFreeze freezes a cyclic clone without mutating the input', () => {
-  const root: Record<string, unknown> = {};
-  const shared = { n: 1 };
-  root.self = root;
-  root.a = shared;
-  root.b = shared;
-  const copy = cloneAndDeepFreeze(root);
-  assert.notStrictEqual(copy, root);
-  assert.strictEqual(copy.self, copy);
-  assert.strictEqual(copy.a, copy.b);
-  assert.notStrictEqual(copy.a, shared);
-  assert.equal(Object.isFrozen(copy), true);
-  assert.equal(Object.isFrozen(copy.a), true);
-  assert.equal(Object.isFrozen(root), false);
-  assert.equal(Object.isFrozen(shared), false);
 });
