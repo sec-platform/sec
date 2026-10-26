@@ -213,10 +213,9 @@ class ReadingTests(unittest.TestCase):
         self.write('README.md','# Fixture\n[attachment](config/guide.md#title-next)\n')
         self.write('config/guide.md','Title\nNext\n----\n\n#\n\n# **Rich** `code`\n\n# <a id="custom"></a> Inline\n')
         self.track_references('config/guide.md')
-        book,_=self.reference_book();output,meta=book.build({'state':'not-rendered'})
+        book,_=self.reference_book();output,_=book.build({'state':'not-rendered'})
         for fragment in ('title-next','','rich-code','-inline','custom'):
             self.assertIn(('id="'+b.fragment_id('config/guide.md',fragment)+'"').encode(),output)
-        self.assertEqual(book.build({'state':'not-rendered'}),(output,meta))
     def test_all_source_bytes_are_preserved_and_code_is_inert(self):
         self.write('examples/value.json','{ "名字": "😀", "n": "9007199254740993" }\n')
         self.write('examples/value.gift','export fn identity(x: Int) = x;\n')

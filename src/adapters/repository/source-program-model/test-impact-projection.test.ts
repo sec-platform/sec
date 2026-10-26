@@ -49,10 +49,9 @@ const projectionSources = {
     'if (!fixture) throw new Error();'
   ].join('\n')
 };
-let compactFixture: ReturnType<typeof fixture> | undefined;
 
-test('compact TestImpact projection retains exact bindings through its strict non-authoritative codec', () => {
-  const { repositoryCompilation, projection } = compactFixture ??= fixture(projectionSources);
+test('compact TestImpact projection retains exact bindings through its codec and distinguishes changed source bytes', () => {
+  const { repositoryCompilation, projection } = fixture(projectionSources);
   expect(() => assertIssuedTestImpactProjection(projection)).toThrow('owner-issued');
   expect(projection.purpose).toBe('test-impact-selection');
   expect(projection.subjectDigest).toBe(repositoryCompilation.subjectDigest);
@@ -78,6 +77,14 @@ test('compact TestImpact projection retains exact bindings through its strict no
   const unknown = JSON.parse(encoded) as Record<string, unknown>;
   unknown.unexpected = true;
   expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();
+
+  const changed = fixture({
+    ...projectionSources,
+    'src/compiler/projection-fixture.ts': 'export const fixture = 2;'
+  }).projection;
+  expect(changed.sourceRevision).not.toBe(projection.sourceRevision);
+  expect(changed.snapshotDigest).not.toBe(projection.snapshotDigest);
+  expect(changed.projectionDigest).not.toBe(projection.projectionDigest);
 });
 
 test('compact projection retains compiler-observed test consumers as canonical observation edges', () => {
@@ -115,15 +122,4 @@ test('compact projection retains compiler-observed test consumers as canonical o
   outsideSnapshot.projectionDigest = sha256(unsigned);
   expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
     .toThrow('within its snapshot');
-});
-
-test('changed exact source bytes produce a different TestImpact projection identity', () => {
-  const first = (compactFixture ??= fixture(projectionSources)).projection;
-  const second = fixture({
-    ...projectionSources,
-    'src/compiler/projection-fixture.ts': 'export const fixture = 2;'
-  }).projection;
-  expect(second.sourceRevision).not.toBe(first.sourceRevision);
-  expect(second.snapshotDigest).not.toBe(first.snapshotDigest);
-  expect(second.projectionDigest).not.toBe(first.projectionDigest);
 });

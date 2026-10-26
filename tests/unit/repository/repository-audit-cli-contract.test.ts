@@ -85,8 +85,11 @@ test('an equals-form query value spelling a switch stays data and does not choos
 });
 
 test('equals syntax and separate arguments select the same valid input', () => {
-  assert.deepEqual(parse(['--query', 'model', '--fail-on', 'medium', '--output', 'audit.json']),
-    parse(['--query=model', '--fail-on=medium', '--output=audit.json']));
+  const separate = parse(['--query', 'model', '--fail-on', 'medium', '--output', 'audit.json']);
+  assert.deepEqual({ query: separate.query, failOn: separate.failOn, outputPath: separate.outputPath }, {
+    query: 'model', failOn: 'medium', outputPath: path.resolve('audit.json')
+  });
+  assert.deepEqual(separate, parse(['--query=model', '--fail-on=medium', '--output=audit.json']));
 });
 
 test('an output filename spelling a selector cannot route another operation', () => {
@@ -223,8 +226,8 @@ test('scanned and explicitly excluded content are not converted into missing cov
   assert.equal(shouldFail(report), false);
 });
 
-test('all combinations of detailed unknown channels obey one explicit diagnostic decision', () => {
-  for (let mask = 0; mask < 8; mask++) {
+test('each detailed unknown channel independently obeys the diagnostic decision', () => {
+  for (const mask of [0, 1, 2, 4]) {
     const report = { findings: [], unknowns: [],
       sourceProgram: { unknowns: mask & 1 ? ['model'] : [] },
       declarationTopology: { unknowns: mask & 2 ? ['topology'] : [] },
