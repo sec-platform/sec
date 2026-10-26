@@ -303,9 +303,8 @@ function invalidateCoverage(candidate: MutableClaimSummaryArtifactSet): void {
   candidate.acceptanceCoverage.uncoveredBlocks = candidate.acceptanceCoverage.blocks.map((entry) => entry.id);
 }
 
-function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSet): void {
+function expectNonCanonical(candidate: SemanticMutationIsolatedVerificationArtifactSet): void {
   expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
 }
 
 test('canonical artifacts require coherent child exit and semantic evidence for their public outcomes', () => {
@@ -361,14 +360,14 @@ test('canonical artifacts require coherent child exit and semantic evidence for 
 test('current production artifacts cannot delete claimSummary and fall back to legacy PASS', () => {
   const candidate = mutablePassedArtifact() as any;
   delete candidate.verificationReport.summary.claimSummary;
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
 });
 
 test('claimSummary overall status must agree with the legacy summary projection', () => {
   const candidate = mutablePassedArtifact();
   candidate.verificationReport.summary.claimSummary.overall.overallStatus = 'invalidated';
   candidate.verificationReport.summary.claimSummary.overall.overallReasonCode = 'selection-unresolved';
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
 });
 
 test('missing artifact fields and unknown report fields remain fail-closed', () => {
@@ -376,11 +375,16 @@ test('missing artifact fields and unknown report fields remain fail-closed', () 
     verificationReport: { summary: { claimSummary: Record<string, unknown> } };
   };
   candidate.verificationReport.summary.claimSummary.forged = true;
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
+  // Otherwise-green ordinary data must still cross the canonical admission guard.
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
 
   const intact = mutablePassedArtifact();
-  expectBlocked({ ...intact, runtimeReport: undefined });
-  expectBlocked({ ...intact, runtimeReport: { ...intact.runtimeReport, forged: 'untrusted' } });
+  const missingRuntime = { ...intact, runtimeReport: undefined };
+  expectNonCanonical(missingRuntime);
+  // Snapshot failure is a separate wrapper path from canonical refusal.
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(missingRuntime)).toBe('blocked');
+  expectNonCanonical({ ...intact, runtimeReport: { ...intact.runtimeReport, forged: 'untrusted' } });
 });
 
 test('overall passed cannot conceal a failed claim result', () => {
@@ -389,7 +393,7 @@ test('overall passed cannot conceal a failed claim result', () => {
   claim.status = 'failed';
   claim.reasonCode = 'executed-failure';
   claim.coverageComplete = false;
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
 });
 
 test('complete current-writer gate and claim inventory is mandatory', () => {
@@ -402,7 +406,7 @@ test('complete current-writer gate and claim inventory is mandatory', () => {
     candidate.verificationReport.summary.claimSummary.overall.claimResults.filter(
       (claim) => claim.claimId !== PRODUCT_POLICY_CLAIM_ID
     );
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
 });
 
 test('passed required gates must explicitly support their claim', () => {
@@ -411,19 +415,19 @@ test('passed required gates must explicitly support their claim', () => {
     (gate) => gate.gateId === PRODUCT_FAST_GATE_ID
   )!;
   fastGate.supportedClaims = [];
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
 });
 
 test('contradictory lane observations and invalid policy status cannot retain a green artifact', () => {
   const wrongWinner = shadowedPolicyReport();
   wrongWinner.merged.policies[0]!.sourceScope = 'official';
   wrongWinner.merged.policies[0]!.sourcePath = 'catalog/policies/official/b.yaml';
-  expectBlocked(mutablePassedArtifact(wrongWinner));
+  expectNonCanonical(mutablePassedArtifact(wrongWinner));
 
   const foreignRoot = shadowedPolicyReport();
   foreignRoot.project.sources[0]!.path = 'project/policies/c.yaml';
   foreignRoot.merged.policies[0]!.sourcePath = 'project/policies/c.yaml';
-  expectBlocked(mutablePassedArtifact(foreignRoot));
+  expectNonCanonical(mutablePassedArtifact(foreignRoot));
 
   const advisory = mutablePassedArtifact(shadowedPolicyReport(['src/customer.ts'], 'source-structure'));
   expect(advisory.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
@@ -437,12 +441,12 @@ test('contradictory lane observations and invalid policy status cannot retain a 
   const acceptanceDrift = mutablePassedArtifact();
   acceptanceDrift.verificationReport.fast.acceptance.failed = ['tests/acceptance/failed.test.ts'];
   acceptanceDrift.verificationReport.acceptance.failed = ['tests/acceptance/failed.test.ts'];
-  expectBlocked(acceptanceDrift);
+  expectNonCanonical(acceptanceDrift);
 
   const fastDrift = mutablePassedArtifact();
   fastDrift.verificationReport.fast.build.status = 'skipped';
   fastDrift.verificationReport.build.status = 'skipped';
-  expectBlocked(fastDrift);
+  expectNonCanonical(fastDrift);
 
   const policyDrift = mutablePassedArtifact();
   const violation = blockingViolation();
@@ -452,14 +456,14 @@ test('contradictory lane observations and invalid policy status cannot retain a 
   policyDrift.verificationReport.fast.policyReport.official.violations = [violation];
   policyDrift.verificationReport.fast.policy.violations = [violation];
   policyDrift.verificationReport.policy.violations = [violation];
-  expectBlocked(policyDrift);
+  expectNonCanonical(policyDrift);
 
   const runtimeDrift = mutablePassedArtifact();
   const skipped: RuntimeStep = { status: 'skipped', passed: [], failed: [], command: null };
   runtimeDrift.verificationReport.runtime.acceptance = skipped;
   runtimeDrift.runtimeReport.acceptance = skipped;
   invalidateCoverage(runtimeDrift);
-  expectBlocked(runtimeDrift);
+  expectNonCanonical(runtimeDrift);
 });
 
 test('skipped policy cannot conceal declared inventory', () => {
@@ -468,30 +472,30 @@ test('skipped policy cannot conceal declared inventory', () => {
   candidate.verificationReport.fast.policyReport.status = 'skipped';
   candidate.verificationReport.fast.policy.status = 'skipped';
   candidate.verificationReport.policy.status = 'skipped';
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
 });
 
 test('full-runtime PASS requires a nonempty executed unit inventory and command', () => {
   const missingCommand = mutablePassedArtifact();
   missingCommand.verificationReport.runtime.unit.command = null;
   missingCommand.runtimeReport.unit.command = null;
-  expectBlocked(missingCommand);
+  expectNonCanonical(missingCommand);
 
   const emptyUnit = mutablePassedArtifact();
   emptyUnit.verificationReport.runtime.unit.passed = [];
   emptyUnit.runtimeReport.unit.passed = [];
-  expectBlocked(emptyUnit);
+  expectNonCanonical(emptyUnit);
 });
 
 test('green full-runtime coverage requires both passed observations and no uncovered blocks', () => {
   const missingCoverage = mutablePassedArtifact();
   invalidateCoverage(missingCoverage);
   missingCoverage.acceptanceCoverage.acceptancePassed = [ACCEPTANCE_ID];
-  expectBlocked(missingCoverage);
+  expectNonCanonical(missingCoverage);
 
   const forgedCoverage = mutablePassedArtifact();
   forgedCoverage.acceptanceCoverage.acceptancePassed = [];
-  expectBlocked(forgedCoverage);
+  expectNonCanonical(forgedCoverage);
 
 });
 
@@ -515,17 +519,17 @@ test('all-lane artifacts cannot replace full runtime proof with a service projec
     overall: expected.overall,
     gates: [...expected.gates]
   };
-  expectBlocked(candidate);
+  expectNonCanonical(candidate);
 });
 
 test('duplicate identities and forged contribution references remain fail-closed', () => {
   const duplicate = mutablePassedArtifact();
   duplicate.verificationReport.summary.claimSummary.gates[1]!.gateId =
     duplicate.verificationReport.summary.claimSummary.gates[0]!.gateId;
-  expectBlocked(duplicate);
+  expectNonCanonical(duplicate);
 
   const forged = mutablePassedArtifact();
   forged.verificationReport.summary.claimSummary.overall.claimResults[0]!
     .contributingGateIds.push('forged-gate');
-  expectBlocked(forged);
+  expectNonCanonical(forged);
 });
