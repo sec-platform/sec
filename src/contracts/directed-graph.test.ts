@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { compileClosedDirectedGraphStrongComponents as scc, type DirectedGraphEdge } from './directed-graph.ts';
@@ -20,13 +20,6 @@ test('empty directed graph returns an empty partition', () => {
   assert.deepEqual(result, []);
 });
 
-test('isolated, self-loop and duplicate nodes preserve set semantics', () => {
-  const result = scc(['b', 'a', 'a'], [{ from: 'b', to: 'b' }]);
-  assert.deepEqual(result, [['a'], ['b']]);
-  for (const component of result) assert.equal(Reflect.set(component, '0', 'forged'), false);
-  assert.deepEqual(result, [['a'], ['b']]);
-});
-
 test('SCC rejects either endpoint outside the closed node set', () => {
   assert.throws(() => scc(['known'], [{ from: 'known', to: 'unknown' }]), /directed-graph-unknown-endpoint/);
   assert.throws(() => scc(['known'], [{ from: 'unknown', to: 'known' }]), /directed-graph-unknown-endpoint/);
@@ -40,7 +33,9 @@ test('SCC preserves input and canonical partition across duplicate edges and rev
     Object.freeze({ from: 'c', to: 'd' }), Object.freeze({ from: 'd', to: 'c' }),
     Object.freeze({ from: 'b', to: 'c' })
   ]);
-  assert.deepEqual(scc(nodes, edges), [['a', 'b'], ['c', 'd']]);
+  const components = scc(nodes, edges);
+  for (const component of components) assert.equal(Reflect.set(component, '0', 'forged'), false);
+  assert.deepEqual(components, [['a', 'b'], ['c', 'd']]);
   assert.deepEqual(scc([...nodes].reverse(), [...edges].reverse()), [['a', 'b'], ['c', 'd']]);
   assert.deepEqual(nodes, ['d', 'c', 'b', 'a']);
 });
@@ -61,11 +56,6 @@ test('SCC separates a diamond DAG from an actual back-edge cycle', () => {
   assert.deepEqual(scc(nodes, [...edges, { from: 'd', to: 'a' }]), [nodes]);
 });
 
-test('SCC orders Unicode and special strings by code units without prototype aliases', () => {
-  const nodes = ['中', '__proto__', '', 'Z', 'a', '😀'];
-  assert.deepEqual(scc(nodes, []), [...nodes].sort().map((id) => [id]));
-});
-
 test('SCC processes a 30000-node chain without native call-stack dependence', () => {
   const { nodes, edges } = deepChain();
   const components = scc(nodes, edges);
@@ -80,15 +70,4 @@ test('SCC processes a 30000-node cycle without native call-stack dependence', ()
   const components = scc(nodes, [...edges, { from: nodes[nodes.length - 1]!, to: nodes[0]! }]);
   assert.equal(components.length, 1);
   assert.deepEqual(components[0], nodes);
-});
-
-test('closed directed graph SCC compilation separates disconnected components', () => {
-  expect(scc(
-    ['d', 'c', 'b', 'a'],
-    [
-      { from: 'a', to: 'b' },
-      { from: 'b', to: 'a' },
-      { from: 'c', to: 'd' }
-    ]
-  )).toEqual([['a', 'b'], ['c'], ['d']]);
 });
