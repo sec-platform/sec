@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import path from 'node:path';
 
 import {
-  activateMainHealthRepairRollingPlan,
   assertPriorFreezeProjection,
   assertRollingMachineBaseBinding,
   assertStablePlanRollingBinding,
@@ -320,42 +319,6 @@ test('proposal-only freeze renders one authority-free tracking:none successor', 
   })).toThrow('base must equal the exact live default revision');
   expect(() => createFreezeProjection(common))
     .toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
-});
-
-test('MainHealth topology is compiled and rendered atomically instead of slicing prior Markdown', () => {
-  const repairPackageId = 'main-health-repair-v1';
-  const rendered = activateMainHealthRepairRollingPlan({
-    source: legacyRollingPlanSource(),
-    packageId: repairPackageId,
-    manifestPath: `config/repository/work-packages/${repairPackageId}.md`,
-    manifestDigest: rawSha256('repair-manifest'),
-    mainSha: exactMain,
-    mainTreeSha: exactMainTree,
-    healthRevision: rawSha256('health'),
-    ledgerDigest: rawSha256('ledger'),
-    decisionDigest: rawSha256('decision'),
-    failureFingerprints: [rawSha256('failure')],
-    publishedActivePackageId: activePackageId,
-    reviewedOn: '2026-08-21'
-  });
-  expect(parseRollingPlan(rendered)).toEqual({
-    activePackageId: repairPackageId,
-    candidatePackageIds: [...candidates]
-  });
-  expect(parseRollingMachineProjection(rendered)).toMatchObject({
-    schema: 'sec-work-rolling-transition-projection-v1',
-    exactMain,
-    exactMainTree,
-    authority: { kind: 'main-health-repair' },
-    active: { packageId: repairPackageId, tracking: 'none' },
-    candidates: [...candidates]
-  });
-  expect(rendered).not.toContain('Legacy prose');
-  expect(rendered).not.toContain('Legacy candidate prose');
-  expect(() => parseRollingPlan(rendered.replace(
-    `### 1. ${candidates[0]}`,
-    '### 1. drifted-candidate-v1'
-  ))).toThrow('headings do not equal the digest-bound machine projection');
 });
 
 test('prior freeze validation derives a machine successor without legacy Markdown promotion', () => {

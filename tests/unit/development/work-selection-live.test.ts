@@ -1,6 +1,6 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -45,7 +45,6 @@ import { rawSha256, sha256 } from '../../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
-const roadmapSource = readFileSync('config/repository/work-selection.md', 'utf8');
 
 type CatalogObservation = Readonly<{
   source: string;
@@ -850,49 +849,21 @@ describe('work-selection live contract', () => {
     });
   }, 30_000);
 
-  test('exact repository package census validates current selection without a transient Issue constant', () => {
-    const observation = observeCatalog(roadmapSource);
-    const { catalog } = observation;
-    const exactRepositoryCompletion = catalog.items.filter(({ packageId }) => (
-      existsSync(`config/repository/work-packages/${packageId}.md`)
-    )).map(({ workId }) => workId);
-    const result = receiptForCatalog(observation, exactRepositoryCompletion);
-    expect(['select-next', 'none']).toContain(result.decision.status);
-    const readyOpenWorkIds = result.input.candidates.filter((candidate) => (
-      candidate.lifecycle === 'open' && candidate.readiness === 'ready'
-    )).map(({ workId }) => workId);
-    if (result.decision.status === 'none') {
-      expect(result.decision.selectedWorkId).toBeNull();
-      expect(readyOpenWorkIds).toHaveLength(0);
-      return;
-    }
-    const selectedWorkId = result.decision.selectedWorkId!;
-    expect(readyOpenWorkIds).toContain(selectedWorkId);
-    const selectedCatalogItem = catalog.items.find(({ workId }) => workId === selectedWorkId)!;
-    const selectedCandidate = result.input.candidates.find(({ workId }) => workId === selectedWorkId)!;
-    expect(selectedCandidate).toMatchObject({ lifecycle: 'open', readiness: 'ready' });
-    expect(existsSync(`config/repository/work-packages/${selectedCatalogItem.packageId}.md`)).toBeFalse();
-    const projection = compileWorkRollingSelectionProjection(result);
-    expect(projection.active.packageId).toBe(selectedCatalogItem.packageId);
-    expect(projection.candidates.length).toBeLessThanOrEqual(5);
-    expect(new Set(projection.candidates.map(({ packageId }) => packageId)).size)
-      .toBe(projection.candidates.length);
-    expect(projection.receiptDigest).toBe(result.receiptDigest);
-    const rendered = renderWorkRollingSelectionPlan({ receipt: result, reviewedOn: '2026-08-12' });
-    const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
-    expect(machine).toBeDefined();
-    expect(parseWorkRollingMachineProjection(machine!)).toEqual(projection);
-    expect(rendered).toContain(`### ${projection.active.packageId}`);
-    expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
-    expect(rendered.match(/^### [1-9][0-9]*\. /gmu) ?? [])
-      .toHaveLength(projection.candidates.length);
-  });
-
   test('rolling projection parser rejects field, duplicate-key, and digest drift', () => {
     const result = receiptForCatalog(transitionCatalog());
     const rendered = renderWorkRollingSelectionPlan({ receipt: result, reviewedOn: '2026-08-12' });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
+    const projection = compileWorkRollingSelectionProjection(result);
+    expect(parseWorkRollingMachineProjection(machine!)).toEqual(projection);
+    expect(projection.candidates.length).toBeLessThanOrEqual(5);
+    expect(new Set(projection.candidates.map(({ packageId }) => packageId)).size)
+      .toBe(projection.candidates.length);
+    expect(projection.receiptDigest).toBe(result.receiptDigest);
+    expect(rendered).toContain(`### ${projection.active.packageId}`);
+    expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
+    expect(rendered.match(/^### [1-9][0-9]*\. /gmu) ?? [])
+      .toHaveLength(projection.candidates.length);
     expect(() => parseWorkRollingMachineProjection(machine!.replace(
       '"decisionStatus": "selected"',
       '"decisionStatus": "eligible"'

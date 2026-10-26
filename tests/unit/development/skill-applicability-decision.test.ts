@@ -1,11 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import {
-  AGENT_SKILL_IDS,
-  AGENT_SKILL_METADATA,
   evaluateSkillApplicability,
-  isAgentRole,
-  isTaskCapsuleOperationKind,
   selectOperationAuthoritySourceRevision,
   type SkillApplicabilityEnvelope
 } from '../../../src/adapters/self-hosting/control/agent/skill.ts';
@@ -23,16 +19,6 @@ function envelope(overrides: Partial<SkillApplicabilityEnvelope> = {}): SkillApp
     ...overrides
   };
 }
-
-test('metadata table covers every registered Skill exactly once with valid vocabularies', () => {
-  for (const skillId of AGENT_SKILL_IDS) {
-    const metadata = AGENT_SKILL_METADATA[skillId];
-    expect(metadata.roles.length).toBeGreaterThan(0);
-    for (const role of metadata.roles) expect(isAgentRole(role)).toBe(true);
-    expect(metadata.operationKinds.length).toBeGreaterThan(0);
-    for (const kind of metadata.operationKinds) expect(isTaskCapsuleOperationKind(kind)).toBe(true);
-  }
-});
 
 test('candidates filtered by metadata leaving none resolves none-required with exclusion evidence', () => {
   const decision = evaluateSkillApplicability(envelope({

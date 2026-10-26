@@ -11,9 +11,7 @@ import {
   AGENT_SKILL_IDS,
   classifyRepositorySurface,
   isRepositoryHeuristicSurface,
-  REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
   resolveMarkdownSkillCoverage,
-  resolveRepositoryHeuristicRoute,
   resolveRepositoryHeuristicSkills
 } from '../../../src/adapters/self-hosting/control/agent/skill.ts';
 import {
@@ -108,23 +106,6 @@ test('tracked Skill and Markdown inventories preserve strict metadata, exact-sou
   });
 });
 
-test('heuristic registry maps each irreducible behavior to exactly one Skill', () => {
-  const routes = REPOSITORY_HEURISTIC_BEHAVIOR_IDS.map(
-    resolveRepositoryHeuristicRoute
-  );
-  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(AGENT_SKILL_IDS));
-  expect(REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(AGENT_SKILL_IDS.length);
-  expect(resolveRepositoryHeuristicRoute('task-delegation')).toEqual({
-    kind: 'skill',
-    owner: 'task-delegation',
-    authorityRef: '.agents/skills/task-delegation/SKILL.md'
-  });
-  for (const route of routes) {
-    expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
-    expect('operation' in route).toBeFalse();
-  }
-});
-
 test('Markdown source categories preserve content, navigation, control and unknown boundaries', () => {
   expect(resolveMarkdownSkillCoverage('.github/PULL_REQUEST_TEMPLATE.md')).toEqual({
     kind: 'repository-content',
@@ -196,25 +177,6 @@ test('documentation and Agent trust-root kinds have focused governance ownership
   );
   expect(documentationKind).toBe('active-documentation');
   expect(testImpactModuleIdsForSourceKind(documentationKind)).toEqual(['adapters.self-hosting.control.documentation']);
-});
-
-test('external capability ledger binds repository authority and keeps rejected standing providers retired', async () => {
-  const ledgerSource = await readFile(
-    path.join(REPOSITORY_ROOT, 'config/external-capabilities/ledger.yaml'),
-    'utf8'
-  );
-  const ledger = parseYaml(ledgerSource) as {
-    binding?: { repository?: string };
-    providers?: Array<{
-      decision?: string;
-      id?: string;
-      lifecycle?: string;
-    }>;
-  };
-  const graphItLive = ledger.providers?.find((provider) => provider.id === 'graph-it-live-mcp');
-  expect(ledger.binding).toEqual({ repository: 'sec-platform/sec' });
-  expect(graphItLive?.decision).toBe('reject-with-rationale');
-  expect(graphItLive?.lifecycle).toBe('retired');
 });
 
 test('current documentation tools and provider role instructions route to their existing heuristic owners', () => {

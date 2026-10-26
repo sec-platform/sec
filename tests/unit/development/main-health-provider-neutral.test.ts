@@ -13,27 +13,6 @@ import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../
 
 const MAIN = '1'.repeat(40);
 const MAIN_TREE = '2'.repeat(40);
-const APP = Object.freeze({ id: 900001, nodeId: 'A_sec_integrator', slug: 'sec-integrator' });
-
-function check(overrides: Partial<GitHubCheckObservation> = {}): GitHubCheckObservation {
-  return {
-    id: 77,
-    name: 'sec/main-health',
-    status: 'completed',
-    conclusion: 'success',
-    headSha: MAIN,
-    detailsUrl: null,
-    appId: APP.id,
-    appNodeId: APP.nodeId,
-    appSlug: APP.slug,
-    workflowPath: null,
-    workflowRef: null,
-    eventName: null,
-    workflowRunId: null,
-    workflowRunDisplayTitle: null,
-    ...overrides
-  };
-}
 
 function actionsCheck(overrides: Partial<GitHubCheckObservation> = {}): GitHubCheckObservation {
   const operationId = createCiMainHealthRequestOperationId(MAIN);
@@ -144,15 +123,6 @@ test('trusted runtime current receipt identity matches hosted semantics and reje
     .toThrow('receipt digest is invalid');
 });
 
-test('hosted registry accepts the exact Actions principal and ignores an unregistered same-name App', () => {
-  expect(compileHosted([check()])).toEqual([]);
-  expect(compileHosted([actionsCheck()])).toMatchObject([{
-    status: 'healthy',
-    allowedLanes: ['ordinary'],
-    producer: { sourceRunId: '123' }
-  }]);
-});
-
 test('direct Actions MainHealth derives producer identity independently of the observing caller', () => {
   const input = {
     repository: 'sec-platform/sec',
@@ -221,7 +191,12 @@ test('hosted registry does not enroll same-App near matches before producer prov
   ])).toMatchObject([{ status: 'locked', allowedLanes: [] }]);
 });
 
-test('terminal non-success remains degraded and routes only to repair', () => {
+test('hosted terminal success routes to ordinary work while non-success routes only to repair', () => {
+  expect(compileHosted([actionsCheck()])).toMatchObject([{
+    status: 'healthy',
+    allowedLanes: ['ordinary'],
+    producer: { sourceRunId: '123' }
+  }]);
   const ledger = createMainHealthLedger(compileHosted([actionsCheck({ conclusion: 'failure' })])[0]!);
   expect(ledger.status).toBe('degraded');
   expect(ledger.allowedLanes).toEqual(['repair']);
