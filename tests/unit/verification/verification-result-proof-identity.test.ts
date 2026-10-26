@@ -1,26 +1,26 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, type VerificationGateResult, type VerificationResultStatus } from '../../../src/assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentVerificationEnvironmentIdentity, type VerificationGateResult, type VerificationResultStatus } from '../../../src/assurance/verification/result/contract/result.ts';
 
 const CLAIM_ID = 'claim:product';
 const GATE_ID = 'gate:product';
 const DIGEST = `sha256:${'1'.repeat(64)}`;
 const OUTPUT_DIGEST = `sha256:${'2'.repeat(64)}`;
 
+// Independent ordinary wire fixtures; the aggregate/reader under test owns admission.
 function gate(input: {
   os: string;
   status: VerificationResultStatus;
   gateRevision?: string;
   invalidationRules?: string[];
-  requiredForClaims?: string[];
-  supportedClaims?: string[];
   reasonCode?: 'executed-failure' | 'selection-unresolved' | 'input-invalidated' | 'not-dispatched';
 }): VerificationGateResult {
   const passed = input.status === 'passed';
   const failed = input.status === 'failed';
   const invalidated = input.status === 'invalidated';
   const executed = passed || failed;
-  return CodexDevelopmentBuildVerificationGateResult({
+  return {
+    schema: 'sec-verification-gate-result-v1',
     gateId: GATE_ID,
     gateRevision: input.gateRevision ?? 'gate-v1',
     owner: 'verification-owner',
@@ -37,8 +37,8 @@ function gate(input: {
           ? 'executed-failure'
           : 'selection-unresolved'
     ),
-    requiredForClaims: input.requiredForClaims ?? [CLAIM_ID],
-    supportedClaims: input.supportedClaims ?? (passed ? [CLAIM_ID] : []),
+    requiredForClaims: [CLAIM_ID],
+    supportedClaims: passed ? [CLAIM_ID] : [],
     environment: executed ? {
       runtime: 'bun',
       os: input.os,
@@ -66,9 +66,9 @@ function gate(input: {
       failureFingerprint: failed ? 'failure' : null
     } : null,
     evidenceRefs: [],
-    invalidationRules: input.invalidationRules ?? [],
+    invalidationRules: [...(input.invalidationRules ?? [])],
     diagnostic: null
-  });
+  };
 }
 
 function aggregate(

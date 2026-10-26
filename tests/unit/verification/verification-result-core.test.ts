@@ -29,8 +29,10 @@ function execution(exitCode: number): VerificationGateExecution {
   };
 }
 
+// Independent ordinary wire fixtures; the aggregate/reader under test owns admission.
 function passedGate(gateId: string, claims: string[], env?: VerificationGateEnvironment): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return {
+    schema: 'sec-verification-gate-result-v1',
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -41,18 +43,19 @@ function passedGate(gateId: string, claims: string[], env?: VerificationGateEnvi
     status: 'passed',
     disposition: 'executed',
     reasonCode: 'executed-success',
-    requiredForClaims: claims,
-    supportedClaims: claims,
-    environment: env ?? environment('linux', 'x64', ['typescript']),
+    requiredForClaims: [...claims],
+    supportedClaims: [...claims],
+    environment: env === undefined ? environment('linux', 'x64', ['typescript']) : structuredClone(env),
     execution: execution(0),
     evidenceRefs: [],
     invalidationRules: [],
     diagnostic: null
-  });
+  };
 }
 
 function failedGate(gateId: string, claims: string[], reasonCode: 'executed-failure' | 'timeout' | 'cleanup-failed' | 'process-settlement-failed' = 'executed-failure'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return {
+    schema: 'sec-verification-gate-result-v1',
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -63,18 +66,19 @@ function failedGate(gateId: string, claims: string[], reasonCode: 'executed-fail
     status: 'failed',
     disposition: 'executed',
     reasonCode,
-    requiredForClaims: claims,
+    requiredForClaims: [...claims],
     supportedClaims: [],
     environment: environment('linux', 'x64', ['typescript']),
     execution: execution(1),
     evidenceRefs: [],
     invalidationRules: [],
     diagnostic: 'gate failed'
-  });
+  };
 }
 
 function notRunGate(gateId: string, claims: string[], reasonCode: 'not-applicable' | 'fail-fast-prerequisite-failed' | 'current-runner-not-owning-environment' | 'not-dispatched' | 'required-artifact-missing'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return {
+    schema: 'sec-verification-gate-result-v1',
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -85,18 +89,19 @@ function notRunGate(gateId: string, claims: string[], reasonCode: 'not-applicabl
     status: 'not-run',
     disposition: 'not-executed',
     reasonCode,
-    requiredForClaims: claims,
+    requiredForClaims: [...claims],
     supportedClaims: [],
     environment: null,
     execution: null,
     evidenceRefs: [],
     invalidationRules: [],
     diagnostic: null
-  });
+  };
 }
 
 function unsupportedGate(gateId: string, claims: string[], reasonCode: 'capability-unsupported' | 'platform-unsupported'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return {
+    schema: 'sec-verification-gate-result-v1',
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -107,18 +112,19 @@ function unsupportedGate(gateId: string, claims: string[], reasonCode: 'capabili
     status: 'unsupported',
     disposition: 'not-executed',
     reasonCode,
-    requiredForClaims: claims,
+    requiredForClaims: [...claims],
     supportedClaims: [],
     environment: null,
     execution: null,
     evidenceRefs: [],
     invalidationRules: [],
     diagnostic: 'capability not available'
-  });
+  };
 }
 
 function invalidatedGate(gateId: string, claims: string[], reasonCode: 'selection-unresolved' | 'input-invalidated' | 'evidence-stale' | 'superseded-revision' | 'cancelled'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return {
+    schema: 'sec-verification-gate-result-v1',
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -129,14 +135,14 @@ function invalidatedGate(gateId: string, claims: string[], reasonCode: 'selectio
     status: 'invalidated',
     disposition: 'not-executed',
     reasonCode,
-    requiredForClaims: claims,
+    requiredForClaims: [...claims],
     supportedClaims: [],
     environment: null,
     execution: null,
     evidenceRefs: [],
     invalidationRules: [],
     diagnostic: 'result invalidated'
-  });
+  };
 }
 
 function claim(claimId: string, gateIds: string[], owningEnvironments: string[] = ['linux-x64']): VerificationClaimDefinition {
