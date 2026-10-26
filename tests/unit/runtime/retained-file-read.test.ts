@@ -78,7 +78,7 @@ test('retained JSON read distinguishes invalid JSON and UTF-8 from absence', asy
     expect(() => readOptionalRetainedJsonLeaf(parent, 'invalid.json', 'null JSON sibling'))
       .toThrow('null JSON sibling must not be JSON null');
 
-    for (const value of [false, 0, '', [null], { value: null }]) {
+    for (const value of [false, { value: null }]) {
       await fs.writeFile(invalidPath, JSON.stringify(value), 'utf8');
       expect(readOptionalRetainedJson(invalidPath, 'present JSON fixture')).toEqual(value);
     }

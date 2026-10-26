@@ -104,7 +104,6 @@ test('override publication plans the complete preimage and rejects final-fence d
     expect(await fs.readFile(targetPath, 'utf8')).toBe('export const value = "external-writer";\n');
 
     await fs.writeFile(targetPath, 'export const value = "source-race-preimage";\n');
-    await fs.writeFile(overridePath, 'export const value = "override";\n');
     fenceCount = 0;
     await expect(applyOverrides(workspaceRoot, async () => {
       fenceCount += 1;

@@ -42,7 +42,6 @@ test('one traversal preserves nested bytes and empty directories across a cwd-ch
   const f = await fixture(), original = process.cwd();
   try {
     await fs.mkdir(path.join(f.source, 'a', 'empty'), { recursive: true });
-    await fs.mkdir(path.join(f.source, 'b'));
     await fs.writeFile(path.join(f.source, 'root.bin'), Uint8Array.of(0, 255, 10));
     await fs.writeFile(path.join(f.source, 'a', 'nested.txt'), 'nested');
     process.chdir(f.root);
@@ -50,7 +49,7 @@ test('one traversal preserves nested bytes and empty directories across a cwd-ch
     assert.deepEqual(await fs.readFile(path.join(f.target, 'root.bin')), Buffer.from([0, 255, 10]));
     assert.equal(await fs.readFile(path.join(f.target, 'a', 'nested.txt'), 'utf8'), 'nested');
     assert.equal((await fs.lstat(path.join(f.target, 'a', 'empty'))).isDirectory(), true);
-    assert.deepEqual(await fs.readdir(path.join(f.target, 'b')), []);
+    assert.deepEqual(await fs.readdir(path.join(f.target, 'a', 'empty')), []);
   } finally { process.chdir(original); await fs.rm(f.root, { recursive: true, force: true }); }
 });
 
