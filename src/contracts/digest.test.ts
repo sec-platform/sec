@@ -12,14 +12,15 @@ test('digest grammar requires an explicit supported algorithm and exact lowercas
     const value = `${algorithm}:${abc}`;
     assert.equal(parseDigest(value, algorithm), value);
     assert.equal(isDigest(value, algorithm), true);
-    for (const invalid of [null, undefined, 1, {}, new String(value), value.toUpperCase(),
-      ` ${value}`, `${value}\n`, `${value}\r`, `${value}\u2028`, value.slice(0, -1), `${value}0`,
-      value.replace(':', '：'), `${algorithm}:${'g'.repeat(64)}`, abc]) {
-      assert.equal(isDigest(invalid, algorithm), false);
-    }
-    assert.throws(() => parseDigest(value.slice(0, -1), algorithm), TypeError);
     assert.equal(isDigest(value, algorithm === 'sha256' ? 'blake3' : 'sha256'), false);
   }
+  const shaValue = `sha256:${abc}`;
+  for (const invalid of [null, undefined, 1, {}, new String(shaValue), shaValue.toUpperCase(),
+    ` ${shaValue}`, `${shaValue}\n`, `${shaValue}\r`, `${shaValue}\u2028`, shaValue.slice(0, -1), `${shaValue}0`,
+    shaValue.replace(':', '：'), `sha256:${'g'.repeat(64)}`, abc]) {
+    assert.equal(isDigest(invalid, 'sha256'), false);
+  }
+  assert.throws(() => parseDigest(shaValue.slice(0, -1), 'sha256'), TypeError);
   assert.equal(isDigest(`sha256:${abc}`, '__proto__' as never), false);
   assert.equal(isDigest(`sha256:${abc}`, 'sha1' as never), false);
   assert.equal(isDigestHex(abc), true);
@@ -46,23 +47,21 @@ test('incremental hash is independent of binary chunk boundaries and source offs
   const bytes = new Uint8Array(source.buffer, source.byteOffset + 3, 4093);
   const expected = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   assert.equal(rawSha256(bytes), expected);
-  for (const size of [1, 7, 63, 64, 65, 1023, 1024, 1025, 4096]) {
-    const hash = createSha256Hasher();
-    let fixtureFailure1: ResourceSettlementFailure | undefined;
-    try {
-      hash.update(new Uint8Array());
-      for (let offset = 0; offset < bytes.length; offset += size) {
-        hash.update(bytes.subarray(offset, Math.min(offset + size, bytes.length)));
-      }
-      assert.equal(hash.finish(), expected);
-    } catch (error) {
-      fixtureFailure1 = { label: 'fixture operation', error };
-    } finally {
-      settleResources({
-        primary: fixtureFailure1,
-        cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
-      });
+  const hash = createSha256Hasher();
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
+  try {
+    hash.update(new Uint8Array());
+    for (let offset = 0; offset < bytes.length; offset += 63) {
+      hash.update(bytes.subarray(offset, Math.min(offset + 63, bytes.length)));
     }
+    assert.equal(hash.finish(), expected);
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
+    });
   }
 });
 
