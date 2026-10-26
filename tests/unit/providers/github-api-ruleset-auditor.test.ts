@@ -189,7 +189,7 @@ test.serial('hosted auditor authenticates its real principal and live run before
         operation: async (capability) => {
           saved = capability;
           expect(inspectGitHubApiCapability(capability)).toMatchObject({ effect: 'ruleset-read', origin: 'production',
-            principal: { transport: 'github-rest-token', login: 'maintainer', userId: 900001, permission: role.expected } });
+            principal: { transport: 'github-rest-token', login: 'maintainer', nodeId: 'user-1', userId: 900001, permission: role.expected } });
           await executeGitHubApiOperation(capability, { kind: 'effective-branch-rules', branch: 'main', page: 1 });
         }
       });

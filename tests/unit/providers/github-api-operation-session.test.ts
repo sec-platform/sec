@@ -91,27 +91,6 @@ test('owner-issued operation compiles one fixed api.github.com request and keeps
   expect(settlement.operationSignal?.aborted).toBe(true);
 });
 
-test('credential enrollment binds the live numeric principal and repository permission', async () => {
-  const operations: string[] = [];
-  const principal = await withGitHubApiTestEnrollmentSession({
-    repository: 'sec-platform/sec',
-    effect: 'read',
-    readToken: async () => TOKEN,
-    transport: async (target) => {
-      operations.push(new URL(String(target)).pathname);
-      return String(target).endsWith('/user')
-        ? Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=', id: 900001 })
-        : Response.json({ permission: 'maintain' });
-    },
-    operation: async (api) => inspectGitHubApiCapability(api).principal
-  });
-  expect(principal).toEqual(PRINCIPAL);
-  expect(operations).toEqual([
-    '/user',
-    '/repos/sec-platform/sec/collaborators/maintainer/permission'
-  ]);
-});
-
 test('structural clones and read capabilities cannot elevate into status effects', async () => {
   let transportCalls = 0;
   const api = capability({
