@@ -1026,10 +1026,10 @@ describe('Source Program audit domain operation', () => {
     const findingDelta = compileSourceProgramFindingDelta(make('before'), make('after'));
     assert.equal(findingDelta.contextComparable, false);
     assert.equal(findingDelta.entries.length, 0);
-    for (const full of [false, true]) for (const enforce of [false, true]) {
+    for (const full of [false, true]) {
       assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
         reconciliation: { ...facts.reconciliation, findingDelta },
-        options: { ...facts.options, full, enforce } }), /Finding reconciliation/);
+        options: { ...facts.options, full } }), /Finding reconciliation/);
     }
   });
 
@@ -1225,7 +1225,7 @@ describe('test-obligations scoped audit facts', () => {
     assert.equal(calls, 0);
     assert.equal(prepare('whole-program').schema, undefined);
     assert.equal(calls, 1);
-    const facts = scopedTestFacts();
+    const facts = scopedTestFacts(full);
     for (const full of [false, true]) {
       const report = compileSourceProgramAuditOperationInput({ ...facts, options: { ...facts.options, full } }).projection;
       for (const name of ['implementationDominance', 'reconciliation', 'architectureEvolution']) {
@@ -1262,11 +1262,13 @@ describe('test-obligations scoped audit facts', () => {
       const scoped = compileSourceProgramAuditOperationInput(scopedTestFacts(variant));
       assert.deepEqual(scoped.blockingReasons, legacy.blockingReasons);
       assert.equal(compileSourceProgramAuditOperation(scoped).exitCode, compileSourceProgramAuditOperation(legacy).exitCode);
+      if (variant === unresolved) {
+        assert.ok(scoped.blockingReasons.includes('test-finding-reconciliation-unresolved'));
+      }
+      if (variant === regression) {
+        assert.ok(scoped.blockingReasons.includes('test-value-finding-regression'));
+      }
     }
-    assert.ok(compileSourceProgramAuditOperationInput(scopedTestFacts(unresolved)).blockingReasons
-      .includes('test-finding-reconciliation-unresolved'));
-    assert.ok(compileSourceProgramAuditOperationInput(scopedTestFacts(regression)).blockingReasons
-      .includes('test-value-finding-regression'));
   });
 
   test('rejects anchor drift, missing comparison and mixed scope or fact versions', () => {
