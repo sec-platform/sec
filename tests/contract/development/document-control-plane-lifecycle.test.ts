@@ -22,6 +22,7 @@ import {
   parseActivePointer,
   parseCurrentStateSpec,
   parseRollingPlan,
+  parseRollingMachineProjection,
   type DocumentControlRecoveryTargetKey,
 } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
@@ -954,6 +955,10 @@ tests:
       'candidate-two-v1',
       'candidate-three-v1'
     ]
+  });
+  expect(parseRollingMachineProjection(projection.rollingPlanSource)).toMatchObject({
+    authority: { kind: 'main-health-repair' },
+    active: { tracking: 'none' }
   });
   expect(projection.rollingPlanSource).not.toContain('- current-body: exact-current-bytes');
   expect(projection.rollingPlanSource).not.toContain('- target-body: exact-target-bytes');

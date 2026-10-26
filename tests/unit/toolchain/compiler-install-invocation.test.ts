@@ -24,7 +24,11 @@ test('the install entrypoint captures argv, cwd and capabilities before clock an
   const args = ['install', '--frozen-lockfile'];
   let count = 0;
   let commitCount = 0;
-  const options = {
+  const options = new Proxy({
+    get now() { assert.fail('unrelated wall clock'); throw new Error('unreachable'); },
+    get sharedDepsRoot() { assert.fail('unrelated shared root'); throw new Error('unreachable'); },
+    get generatedStateLifecycle() { assert.fail('unrelated capability'); throw new Error('unreachable'); },
+    get testCompilerRename() { assert.fail('unrelated test seam'); throw new Error('unreachable'); },
     monotonicNowMs: () => {
       args[0] = 'clock-replaced';
       options.beforeCommit = async () => assert.fail('clock-replaced fence ran');
@@ -41,7 +45,7 @@ test('the install entrypoint captures argv, cwd and capabilities before clock an
       assert.equal(request.cwd, root);
       assert.ok(Object.isFrozen(request.args)); return success;
     })
-  };
+  }, { ownKeys() { assert.fail('enumerated request'); } });
   try {
     process.chdir(root);
     const result = await runBunInstall('.', options, args, 'cache');
@@ -88,7 +92,7 @@ for (const place of ['commit', 'input'] as const) {
   }));
 }
 
-test('all invalid argv classes are refused before any fence', async () => {
+test('invalid invocation inputs are refused before clocks or fences', async () => {
   const root = path.resolve('compiler-install-admission');
   for (const [index, args] of ([[undefined], [7], ['nul\0arg'], new Array(1)] as unknown[]).entries()) {
     await assert.rejects(
@@ -100,6 +104,12 @@ test('all invalid argv classes are refused before any fence', async () => {
       `invalid argv case ${index}: ${JSON.stringify(args)}`
     );
   }
+  await assert.rejects(runBunInstall(root, {
+    installMode: 'prebound-only', monotonicNowMs: () => assert.fail('clock')
+  }, ['install']), /Prebound-only/);
+  await assert.rejects(runBunInstall(root, {
+    testMaterialization: {} as never, monotonicNowMs: () => assert.fail('clock')
+  }, ['install']), /owner-issued/);
 });
 
 test('an argument accessor is never invoked during input admission', async () => {

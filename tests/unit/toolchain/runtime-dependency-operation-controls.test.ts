@@ -53,20 +53,34 @@ test('bound controls contain no request, raw clock or effect capability', () => 
   assert.ok(Object.isFrozen(runtimeDependencyOperationContext(controls)));
 });
 
-test('each control getter is read once before executing the captured clock', () => {
+test('each control getter and clock receiver are captured before executing provider code', () => {
   const reads = new Map<string, number>();
   const controller = new AbortController();
+  class Input {
+    #now = 0;
+    #calls = 0;
+    sample() { this.#calls++; values.lockTimeoutMs = 1; values.pollIntervalMs = 99; return this.#now; }
+    advance(now: number) { this.#now = now; }
+    get calls() { return this.#calls; }
+  }
+  const input = new Input() as Input & RuntimeDependencyOperationControlInput;
   const values: Record<string, unknown> = { deadlineAtUnixMs: Date.now() + 100_000,
     lockTimeoutMs: 100, pollIntervalMs: 7, signal: controller.signal,
-    monotonicNowMs: () => { values.lockTimeoutMs = 1; values.pollIntervalMs = 99; return 0; } };
-  const input: RuntimeDependencyOperationControlInput = {};
+    monotonicNowMs: input.sample };
   for (const name of Object.keys(values)) Object.defineProperty(input, name, {
     enumerable: true, get() { reads.set(name, (reads.get(name) ?? 0) + 1); return values[name]; }
   });
-  const bound = runtimeDependencyOperationControls(input);
+  const snapshot = captureRuntimeDependencyControlInput(input);
+  assert.equal(input.calls, 0);
+  values.monotonicNowMs = () => assert.fail('replaced clock');
+  values.lockTimeoutMs = 1;
+  const bound = runtimeDependencyOperationControls(snapshot);
   assert.equal(bound.lockTimeoutMs, 100); assert.equal(bound.pollIntervalMs, 7);
   assert.equal(bound.signal, controller.signal);
   assert.deepEqual([...reads.values()], [1, 1, 1, 1, 1]);
+  input.advance(10);
+  assert.equal(runtimeDependencyOperationRemainingMs(bound, 'snapshot'), 90);
+  assert.equal(Object.isFrozen(input), false);
 });
 
 test('inherited and non-enumerable request controls stay outside the input boundary', () => {

@@ -167,10 +167,10 @@ test('dependency wait bounds delay by the original normalized parent budget', as
   assert.equal(after.deadlineAtMonotonicMs, 100);
 });
 
-test('dependency wait rejects an expired parent before starting sleep', async () => {
+test('dependency wait rejects a submillisecond parent remainder before starting sleep', async () => {
   let now = 0;
   const options = runtimeDependencyOperationOptions({ lockTimeoutMs: 100, monotonicNowMs: () => now });
-  now = 101;
+  now = 99.5;
   let started = false;
   assert.equal(deadlineFailure(await rejectionOf(waitForRuntimeDependencyOperation(options, 1,
     async () => { started = true; }, 'expired-parent'))), true);
