@@ -342,7 +342,8 @@ test('source program model finds capability producers, consumers, literals, and 
       'src/example/cli.ts',
       "import { Command } from 'commander';\n"
       + "import { spawnSync } from 'node:child_process';\n"
-      + "new Command().command('inspect').action(() => spawnSync('git', ['status']));\n"
+      + "function run(): void { spawnSync('git', ['status']); }\n"
+      + "new Command().command('inspect').action(run);\n"
     ]
   ]);
   const packageManifest = {
@@ -399,7 +400,7 @@ test('source program model finds capability producers, consumers, literals, and 
     files: orderedFiles,
     moduleMembership,
     typescriptModel: typeScriptModel,
-    reviewedProcessDispatchers: ['src/example/cli.ts::spawnSync:git']
+    reviewedProcessDispatchers: ['src/example/cli.ts::function-declaration:run::spawnSync#1']
   });
 
   const model = compile(files);

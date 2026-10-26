@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
-import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy } from '../../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy, hostedSessionCoordinationBudget } from '../../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
+import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
+import { CI_VERIFICATION_EXECUTION_MODEL } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { readCompilerFile } from '../../helpers/compiler-fixtures.ts';
 
 type Step = Record<string, unknown> & {
@@ -64,6 +67,63 @@ test('current compiler and merge workflows have the complete authored policy cen
     const members = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES.filter(policy => policy.workflowPath === path);
     expect(members.map<string>(policy => policy.jobId).sort()).toEqual(Object.keys(roles).sort());
     expect(Object.keys(workflow.jobs).sort()).toEqual(Object.keys(roles).sort());
+
+    if (path === COMPILER) {
+      expect(workflow.permissions).toEqual({ actions: 'read', contents: 'read', 'pull-requests': 'read' });
+      expect(workflow.jobs['coordinate-verification-session']!.permissions).toEqual({
+        actions: 'read', checks: 'read', contents: 'write', issues: 'write',
+        'pull-requests': 'write', statuses: 'read', 'id-token': 'write'
+      });
+      expect(workflow.jobs['resolve-verification-action']!.permissions).toEqual({
+        actions: 'read', checks: 'read', contents: 'read', issues: 'read',
+        'pull-requests': 'read', statuses: 'read', 'id-token': 'write'
+      });
+      for (const id of ['claim-verification-action', 'assemble-verification-action-terminal']) {
+        expect(workflow.jobs[id]!.permissions).toEqual({
+          actions: 'write', checks: 'read', contents: 'read', statuses: 'write', 'id-token': 'write'
+        });
+      }
+      for (const id of ['preflight-verification-action-sut', 'execute-verification-action-sut']) {
+        expect(workflow.jobs[id]!.permissions).toEqual({ actions: 'read', contents: 'read', 'id-token': 'write' });
+      }
+      const contract = buildCiContract();
+      expect(contract.executionModel).toBe(CI_VERIFICATION_EXECUTION_MODEL);
+      expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
+      expect(contract.prDispatchType).toBe(CI_VERIFICATION_SESSION_DISPATCH_TYPE);
+      const runtimeSteps = Object.entries(workflow.jobs)
+        .filter(([, job]) => job.steps.some(value => typeof value.run === 'string'))
+        .sort(([left], [right]) => left.localeCompare(right))
+        .flatMap(([, job]) => job.steps);
+      expect(CI_VERIFICATION_PR_STEP_ORDER).toEqual(runtimeSteps.map(value => value.name));
+      expect(contract.prWorkflowStepOrder).toEqual(runtimeSteps.map(value => value.name));
+      expect(contract.prWorkflowStepCount).toBe(runtimeSteps.length);
+      expect(contract.prWorkflowCommands).toEqual(runtimeSteps.flatMap(value => value.run ?? []));
+      expect(contract.prWorkflowCommandCount).toBe(contract.prWorkflowCommands.length);
+      const jobMinutes = ['resolve-verification-action', 'preflight-verification-action-sut',
+        'claim-verification-action', 'execute-verification-action-sut', 'assemble-verification-action-terminal']
+        .map(id => Number(workflow.jobs[id]!['timeout-minutes']));
+      expect(jobMinutes).toEqual([20, 10, 35, 75, 30]);
+      const budget = hostedSessionCoordinationBudget();
+      const completeActionMinutes = jobMinutes.reduce((sum, value) => sum + value, 0) + 5;
+      expect(budget.actionWindowMs).toBe(completeActionMinutes * 60_000);
+      expect(budget.reviewWindowMs).toBe(20 * 60_000);
+      expect(budget.actionOverheadMs).toBe(5 * 60_000);
+      expect(budget.coordinatorOverheadMs).toBe(10 * 60_000);
+      expect(budget.actionPollIntervalMs).toBe(15_000);
+      expect(budget.reviewPollIntervalMs).toBe(20_000);
+      expect(budget.actionMaximumAttempts).toBe(completeActionMinutes * 60 / 15 + 1);
+      expect(budget.reviewMaximumAttempts).toBe(20 * 60 / 20 + 1);
+      expect(workflow.jobs['coordinate-verification-session']!['timeout-minutes'])
+        .toBe(20 + completeActionMinutes + 10);
+      const hostedSutWallClockMinutes = Math.ceil(
+        CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds / 60
+      );
+      const hostedSutTerminalizationReserveMinutes = 15;
+      expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds).toBe(3_600);
+      expect(workflow.jobs['execute-verification-action-sut']!['timeout-minutes']).toBe(
+        hostedSutWallClockMinutes + hostedSutTerminalizationReserveMinutes
+      );
+    }
     for (const policy of members) {
       const authored = workflow.jobs[policy.jobId]!;
       expect<string>(policy.role).toBe((roles as Record<string, string>)[policy.jobId]!);

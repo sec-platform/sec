@@ -14,8 +14,6 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { compileRepositoryModuleMembershipSnapshot } from '../../../src/adapters/repository/architecture/contract.ts';
-import { compileRepositorySourceProgramModel } from '../../../src/adapters/repository/source-program-model/repository.ts';
 import {
   compileTcbClosureActionResult,
   trustedRuntimeClosure as compileTrustedRuntimeClosure,
@@ -543,6 +541,7 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
   const result = compileTcbClosureActionResult({ plan });
   expect(result.actionKey).toBe(plan.action.actionKey);
   expect(result.identity.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
+  expect('authority' in TCB_CLOSURE_LOCK).toBe(false);
   expect(result.resultDigest).toBe(result.identity.closureDigest);
   const identity = result.identity;
   expect(identity.moduleCount).toBe(identity.modules.length);
@@ -850,57 +849,6 @@ test('TCB closure keeps Linux endpoint native effects in the reviewed physical o
     .toThrow('outside the approved relative/external policy');
   expect(() => runtimeRelativeImportsFromSource(native, "import { dlopen } from 'bun:ffi';"))
     .not.toThrow();
-});
-
-test('reviewed dispatcher census remains non-authorizing source observation', () => {
-  const packageSource = JSON.stringify({
-    name: 'tcb-observation-fixture',
-    private: true,
-    scripts: { inspect: 'bun ./src/example/cli.ts' }
-  });
-  const descriptorSource = JSON.stringify({
-    importGraph: 'runtime',
-    externalEntrypoints: [],
-    capabilityProviders: []
-  });
-  const sources = [
-    ['package.json', packageSource],
-    ['src/example/module.json', descriptorSource],
-    [
-      'src/example/cli.ts',
-      "import { spawnSync } from 'node:child_process';\n"
-      + "export function run(): void { spawnSync('git', ['status']); }\n"
-    ]
-  ] as const;
-  const files = sources.map(([repositoryPath, source]) => ({
-    path: repositoryPath,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const sourceRevision = rawSha256(JSON.stringify(
-    files.map(({ contentDigest, path: repositoryPath }) => ({ path: repositoryPath, contentDigest }))
-  ));
-  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
-    descriptorSources: [{
-      descriptorPath: 'src/example/module.json',
-      source: descriptorSource
-    }]
-  });
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision,
-    files,
-    moduleMembership,
-    reviewedProcessDispatchers: [
-      'src/example/cli.ts::function-declaration:run::spawnSync#1'
-    ]
-  });
-
-  expect(model.candidates).toContainEqual(expect.objectContaining({
-    code: 'direct-process-transport-outside-owner',
-    subject: 'src/example/cli.ts'
-  }));
-  expect('authority' in TCB_CLOSURE_LOCK).toBe(false);
 });
 
 test('verification-action runner receives a narrow repository capability and cannot dispatch processes', () => {

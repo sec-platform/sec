@@ -79,9 +79,10 @@ test('closed environment profiles preserve historical data without accepting unr
 
 import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../../helpers/ci-verification-fixtures.ts';
 
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../src/adapters/providers/linux-verification/contract.ts';
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, createCiVerificationNativeProviderRevision } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION, createCiVerificationNativeProviderRevision } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest } from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
@@ -1072,6 +1073,39 @@ test('sandbox command plan declares cgroup, namespace, private-root, uid, capabi
     executionAuthorization
   });
   expect(() => assertHostedSutSandboxCommandPlan(plan)).not.toThrow();
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v7');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).not.toContain(':sandbox-v5');
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY).toMatchObject({
+    policyRevision: 'sandbox-v7',
+    rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
+    toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v3',
+    network: 'none',
+    inheritedFileDescriptors: 'stdio-plus-authenticated-archive-fd-until-private-copy',
+    inputMount: 'retained-ordinary-fd-private-tmpfs-authenticated-copy-v2',
+    resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit'
+  });
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.archiveValidation).toMatchObject({
+    retainedOrdinaryFileDescriptor: true,
+    privateCopyDigestReadback: true,
+    hostExtraction: false
+  });
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits).toMatchObject({
+    aggregateCpuSeconds: 7200,
+    perProcessCpuSeconds: 7200,
+    wallSeconds: 3600
+  });
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outerSutContainerCapabilities).toEqual([
+    'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
+  ]);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries).toContain('/usr/bin/tar');
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.version)
+    .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries)
+    .toContain(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeDirectories).toEqual([
+    '/usr/lib/git-core',
+    CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory
+  ]);
   expect(plan.command).toBe('/usr/bin/unshare');
   const encoded = JSON.stringify(plan.argv);
   for (const invariant of [

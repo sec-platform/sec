@@ -3,16 +3,14 @@ import { expect, test } from 'bun:test';
 import { stat } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 
-import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, hostedSessionCoordinationBudget } from '../../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape } from '../../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../src/adapters/providers/linux-verification/contract.ts';
-import { CI_VERIFICATION_ACTION_DISPATCH_TYPE } from '../../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../../src/adapters/verification/platform/action/contract/provider.ts';
-import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
+import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../../src/adapters/verification/platform/ci/contract/core.ts';
 import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
-import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CI_VERIFICATION_EXECUTION_MODEL, CodexDevelopmentBuildVerificationPlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { slowTestSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { readCompilerFile } from '../../helpers/compiler-fixtures.ts';
 import { TCB_TRUST_ROOT } from '../../../src/adapters/verification/platform/trust/compiler.ts';
 import {
@@ -241,179 +239,6 @@ test('release payload expires independently of retained build identity and verif
     'if-no-files-found': 'error',
     'retention-days': 90
   });
-});
-
-test('active PR contract has one V2 Session dispatch and no legacy verification authority', async () => {
-  const source = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
-  assertCiVerificationPerJobHostedWholeWorkflowShape(source);
-  const workflow = parseYaml(source) as Workflow;
-  const contract = buildCiContract();
-
-  expect(contract.executionModel).toBe(CI_VERIFICATION_EXECUTION_MODEL);
-  expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
-  expect(contract.prDispatchType).toBe(CI_VERIFICATION_SESSION_DISPATCH_TYPE);
-  expect([...(workflow.on.repository_dispatch?.types ?? [])].sort()).toEqual([
-    CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-    'sec-resume-verification-session-v1',
-    CI_VERIFICATION_ACTION_DISPATCH_TYPE,
-    'sec-produce-main-health-v1',
-    'sec-produce-agent-operation-activation-v1'
-  ].sort());
-  expect(workflow.permissions).toEqual({ actions: 'read', contents: 'read', 'pull-requests': 'read' });
-  expect(workflow.concurrency).toBeUndefined();
-  expect(workflow.on.push).toBeUndefined();
-  const runtimeSteps = Object.entries(workflow.jobs)
-    .filter(([, job]) => job.steps.some(value => typeof value.run === 'string'))
-    .sort(([left], [right]) => left.localeCompare(right))
-    .flatMap(([, job]) => job.steps);
-  expect(CI_VERIFICATION_PR_STEP_ORDER).toEqual(runtimeSteps.map(value => value.name));
-  expect(contract.prWorkflowStepOrder).toEqual(runtimeSteps.map(value => value.name));
-  expect(contract.prWorkflowStepCount).toBe(runtimeSteps.length);
-  expect(contract.prWorkflowCommands).toEqual(runtimeSteps.flatMap(value => value.run ?? []));
-  expect(contract.prWorkflowCommandCount).toBe(contract.prWorkflowCommands.length);
-
-  const coordinator = workflow.jobs['coordinate-verification-session']!;
-  expect(coordinator.permissions).toEqual({
-    actions: 'read', checks: 'read', contents: 'write', issues: 'write',
-    'pull-requests': 'write', statuses: 'read', 'id-token': 'write'
-  });
-  expect(coordinator.concurrency).toEqual({
-    group: 'sec-verification-session-${{ github.repository_id }}-${{ needs.validate-hosted-request.outputs.session-revision-hex }}',
-    'cancel-in-progress': false,
-    queue: 'max'
-  });
-  const parentPlan = step(workflow, 'coordinate-verification-session',
-    'Prepare canonical parent Action dispatch plan');
-  const parentUpload = step(workflow, 'coordinate-verification-session',
-    'Upload canonical parent Action dispatch plan artifact');
-  const actionDispatch = step(workflow, 'coordinate-verification-session',
-    'Complete original Action coordination and canonical Session');
-  expect(parentUpload.with).toMatchObject({
-    path: '${{ github.workspace }}/.tmp/codex/hosted-job/coordinate-verification-session/out/parent-plan',
-    'if-no-files-found': 'error',
-    'retention-days': 90
-  });
-  const coordinatorStepNames = coordinator.steps.map(({ name }) => name);
-  expect([
-    parentPlan.name, parentUpload.name, actionDispatch.name
-  ].map((name) => coordinatorStepNames.indexOf(name))).toEqual([
-    parentPlan.name, parentUpload.name, actionDispatch.name
-  ].map((name) => coordinatorStepNames.indexOf(name)).sort((left, right) => left - right));
-
-  const resolver = workflow.jobs['resolve-verification-action']!;
-  const preflight = workflow.jobs['preflight-verification-action-sut']!;
-  const claim = workflow.jobs['claim-verification-action']!;
-  const sut = workflow.jobs['execute-verification-action-sut']!;
-  const assembler = workflow.jobs['assemble-verification-action-terminal']!;
-  const jobMinutes = [resolver, preflight, claim, sut, assembler].map(job => job['timeout-minutes']!);
-  expect(jobMinutes).toEqual([20, 10, 35, 75, 30]);
-  const budget = hostedSessionCoordinationBudget();
-  const completeActionMinutes = jobMinutes.reduce((sum, value) => sum + value, 0) + 5;
-  expect(budget.actionWindowMs).toBe(completeActionMinutes * 60_000);
-  expect(budget.reviewWindowMs).toBe(20 * 60_000);
-  expect(budget.actionOverheadMs).toBe(5 * 60_000);
-  expect(budget.coordinatorOverheadMs).toBe(10 * 60_000);
-  expect(budget.actionPollIntervalMs).toBe(15_000);
-  expect(budget.reviewPollIntervalMs).toBe(20_000);
-  expect(budget.actionMaximumAttempts).toBe(completeActionMinutes * 60 / 15 + 1);
-  expect(budget.reviewMaximumAttempts).toBe(20 * 60 / 20 + 1);
-  expect(coordinator['timeout-minutes']).toBe(20 + completeActionMinutes + 10);
-  for (const job of [claim, assembler]) expect(job.concurrency).toEqual({
-    group: 'sec-verification-action-${{ github.repository_id }}-${{ needs.resolve-verification-action.outputs.action-key-hex }}',
-    'cancel-in-progress': false,
-    queue: 'max'
-  });
-  expect(resolver.permissions).toEqual({
-    actions: 'read', checks: 'read', contents: 'read', issues: 'read',
-    'pull-requests': 'read', statuses: 'read', 'id-token': 'write'
-  });
-  expect(claim.permissions).toEqual({
-    actions: 'write', checks: 'read', contents: 'read', statuses: 'write', 'id-token': 'write'
-  });
-  expect(preflight.permissions).toEqual({ actions: 'read', contents: 'read', 'id-token': 'write' });
-  expect(sut.permissions).toEqual({ actions: 'read', contents: 'read', 'id-token': 'write' });
-  expect(assembler.permissions).toEqual({
-    actions: 'write', checks: 'read', contents: 'read', statuses: 'write', 'id-token': 'write'
-  });
-  // This preserves the canonical sandbox execution ceiling and reserves a
-  // separately named post-execution budget for mandatory terminalization.
-  const hostedSutWallClockMinutes = Math.ceil(
-    CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds / 60
-  );
-  const hostedSutTerminalizationReserveMinutes = 15;
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds).toBe(3_600);
-  expect(sut['timeout-minutes']).toBe(
-    hostedSutWallClockMinutes + hostedSutTerminalizationReserveMinutes
-  );
-  const candidateCheckout = step(workflow, 'claim-verification-action',
-    'Checkout exact candidate for trusted materialization only');
-  expect(candidateCheckout.with).toMatchObject({
-    ref: '${{ needs.validate-hosted-request.outputs.head-sha }}',
-    path: '.tmp/codex/candidate',
-    'persist-credentials': false
-  });
-  const install = step(workflow, 'claim-verification-action',
-    'Install exact trusted launcher dependencies');
-  const sandboxPreflight = step(workflow, 'preflight-verification-action-sut',
-    'Prove hostile SUT sandbox on the executing job');
-  const capabilityReadback = step(workflow, 'claim-verification-action',
-    'Download exact SUT capability observation');
-  const marker = step(workflow, 'claim-verification-action',
-    'Create immutable Action start marker from fresh provider census');
-  const claimStepNames = claim.steps.map(({ name }) => name);
-  const markerUpload = step(workflow, 'claim-verification-action', 'Upload immutable Action start marker');
-  const claimTicket = step(workflow, 'claim-verification-action',
-    'Publish durable start tombstone and issue execution ticket');
-  expect([install.name, capabilityReadback.name, candidateCheckout.name, marker.name, markerUpload.name, claimTicket.name]
-    .map((name) => claimStepNames.indexOf(name))).toEqual(
-      [install.name, capabilityReadback.name, candidateCheckout.name, marker.name, markerUpload.name, claimTicket.name]
-        .map((name) => claimStepNames.indexOf(name))
-        .sort((left, right) => left - right)
-    );
-  expect(claim.needs).toContain('preflight-verification-action-sut');
-  expect(sandboxPreflight.run).toContain('--phase self-test-hosted-action-sandbox');
-  const sutRun = step(workflow, 'execute-verification-action-sut',
-    'Execute one normalized candidate operation without credentials');
-  // Credentials belong to the trusted launcher; its sandbox boundary owns
-  // exclusion from the candidate process, rather than an empty workflow env.
-  expect(sutRun.run).toBe('exec bun --no-env-file src/bootstrap/development/hosted-job-runtime.ts --job execute-verification-action-sut --phase execute-hosted-action-sut');
-  expect(sut.if).toContain("needs.claim-verification-action.outputs.ticket-issued == 'true'");
-  expect(step(workflow, 'assemble-verification-action-terminal',
-    'Assemble canonical five-state terminal artifact').name)
-    .toBe('Assemble canonical five-state terminal artifact');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v7');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).not.toContain(':sandbox-v5');
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY).toMatchObject({
-    policyRevision: 'sandbox-v7',
-    rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
-    toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v3',
-    network: 'none',
-    inheritedFileDescriptors: 'stdio-plus-authenticated-archive-fd-until-private-copy',
-    inputMount: 'retained-ordinary-fd-private-tmpfs-authenticated-copy-v2',
-    resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit'
-  });
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.archiveValidation).toMatchObject({
-    retainedOrdinaryFileDescriptor: true,
-    privateCopyDigestReadback: true,
-    hostExtraction: false
-  });
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits).toMatchObject({
-    aggregateCpuSeconds: 7200,
-    perProcessCpuSeconds: 7200,
-    wallSeconds: 3600
-  });
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outerSutContainerCapabilities).toEqual([
-    'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
-  ]);
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries).toContain('/usr/bin/tar');
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.version)
-    .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion);
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries)
-    .toContain(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath);
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeDirectories).toEqual([
-    '/usr/lib/git-core',
-    CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory
-  ]);
 });
 
 test('SUT launchers bind locked dependencies and bootstrap selects existing required checks', async () => {
