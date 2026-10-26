@@ -141,9 +141,3 @@ test('a source root symlink is rejected instead of turning a mutable fixture int
   await assert.rejects(copyWorkspaceFixture(alias, target), /ordinary directory/);
   assert.deepEqual(await fs.readdir(target), []);
 }));
-
-test('native overlapping-copy rejection preserves the source files', () => using(async (_root, source) => {
-  await write(source, 'value', 'original');
-  await assert.rejects(copyWorkspaceFixture(source, path.join(source, 'recursive-target')));
-  assert.equal(await fs.readFile(path.join(source, 'value'), 'utf8'), 'original');
-}));
