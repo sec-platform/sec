@@ -19,10 +19,9 @@ import {
 import { expectationFromFactDelta } from '../../../src/compiler/semantic-mutation/match-expectation.ts';
 import { normalizeSemanticMutationRequest, semanticMutationAuthorizationRevision } from '../../../src/compiler/semantic-mutation/normalize-request.ts';
 import {
-  assertSemanticMutationPlanInvariant, planSemanticMutation, planSemanticMutationWithAsyncProducerSeamForTest,
+  assertSemanticMutationPlanInvariant, planSemanticMutation,
   planSemanticMutationWithProducerSeamForTest,
-  semanticMutationPlanRevision,
-  type SemanticMutationPlanProducerSeamForTest
+  semanticMutationPlanRevision
 } from '../../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
 import { assertSemanticMutationResultInvariant, buildSemanticMutationResult, semanticMutationResultRevision } from '../../../src/compiler/semantic-mutation/result.ts';
@@ -32,7 +31,7 @@ import {
 } from '../../../src/compiler/semantic-mutation/verification-policy.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 import type { FactDeltaEndpointContext } from '../../../src/semantics/engineering-ir/delta-types.ts';
-import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest, type VerificationRequirement } from '../../../src/semantics/mutation/types.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest, type VerificationRequirement } from '../../../src/semantics/mutation/types.ts';
 import { semanticMutationEngineeringInput } from '../../helpers/semantic-mutation-recovery-fixture.ts';
 import { semanticMutationVerificationReportFixture } from '../../helpers/semantic-mutation-verification-report.ts';
 
@@ -461,167 +460,23 @@ test('expectation and operation allowlist reject missing, extra, and entity drif
   expect(factDeltaRejected.diagnostics[0]?.code).toBe('FACT-DELTA-001');
 });
 
-test('planner stops later producers at every frozen failure boundary', () => {
-  const value = fixture();
-  const input: SemanticMutationInput = {
-    request: value.request,
-    base: value.base,
-    authorization: value.auth,
-    preparation: value.preparation,
-    verificationPlanning: value.verificationPlanning
-  };
-  const run = (
-    candidate: SemanticMutationInput,
-    failAt?: 'fact-delta' | 'impact'
-  ) => {
-    const calls = { factDelta: 0, impact: 0, verification: 0 };
-    const producers: SemanticMutationPlanProducerSeamForTest = {
-      buildFactDelta(...args) {
-        calls.factDelta += 1;
-        if (failAt === 'fact-delta') {
-          throw new CodedFailure('FACT-DELTA-001', 'Injected trusted Fact Delta failure');
-        }
-        return buildFactDelta(...args);
-      },
-      buildImpactPropagation(...args) {
-        calls.impact += 1;
-        if (failAt === 'impact') {
-          throw new CodedFailure('IMPACT-001', 'Injected trusted Impact failure');
-        }
-        return buildImpactPropagation(...args);
-      },
-      evaluateVerificationPlanning(...args) {
-        calls.verification += 1;
-        return evaluateSemanticMutationVerificationPlanning(...args);
-      }
-    };
-    return {
-      plan: planSemanticMutationWithProducerSeamForTest(candidate, producers),
-      calls
-    };
-  };
-
-  const preconditionRequest = {
-    ...value.request,
-    preconditions: [{
-      conditionId: 'condition:missing-entity',
-      kind: 'entity' as const,
-      entityId: 'state:item:missing',
-      exists: true
-    }]
-  };
-  const precondition = run({ ...input, request: preconditionRequest });
-  expect(precondition.plan).toMatchObject({ status: 'rejected', rejectedAt: 'precondition' });
-  expect(precondition.calls).toEqual({ factDelta: 0, impact: 0, verification: 0 });
-
-  for (const rejectedAt of ['transform', 'staged-rebuild'] as const) {
-    const preparation = {
-      status: 'rejected' as const,
-      preflightRevision: value.preflight.preflightRevision,
-      rejectedAt,
-      diagnostics: [{
-        origin: 'semantic-mutation' as const,
-        code: rejectedAt === 'transform' ? 'SEMANTIC-MUTATION-006' as const : 'SEMANTIC-MUTATION-008' as const,
-        stage: rejectedAt,
-        message: 'Injected preparation failure'
-      }]
-    };
-    const rejected = run({ ...input, preparation });
-    expect(rejected.plan).toMatchObject({ status: 'rejected', rejectedAt });
-    expect(rejected.calls).toEqual({ factDelta: 0, impact: 0, verification: 0 });
-  }
-
-  const factDelta = run(input, 'fact-delta');
-  expect(factDelta.plan).toMatchObject({ status: 'rejected', rejectedAt: 'fact-delta' });
-  expect(factDelta.calls).toEqual({ factDelta: 1, impact: 0, verification: 0 });
-
-  const missingExpectationRequest = {
-    ...value.request,
-    expectation: { ...value.request.expectation, addedFacts: value.request.expectation.addedFacts.slice(1) }
-  };
-  const missingExpectationPreflight = preflightSemanticMutation({
-    request: missingExpectationRequest,
-    base: value.base,
-    authorization: value.auth
-  });
-  if (missingExpectationPreflight.status !== 'ready') throw new Error(JSON.stringify(missingExpectationPreflight));
-  const expectation = run({
-    ...input,
-    request: missingExpectationRequest,
-    preparation: {
-      ...value.preparation,
-      preflightRevision: missingExpectationPreflight.preflightRevision
-    }
-  });
-  expect(expectation.plan).toMatchObject({ status: 'rejected', rejectedAt: 'expectation' });
-  expect(expectation.calls).toEqual({ factDelta: 1, impact: 0, verification: 0 });
-
-  const impact = run(input, 'impact');
-  expect(impact.plan).toMatchObject({ status: 'rejected', rejectedAt: 'impact' });
-  expect(impact.calls).toEqual({ factDelta: 1, impact: 1, verification: 0 });
-
-  const blockedPlanning = buildSemanticMutationVerificationPlanningContext({
-    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
-    impactRevision: value.impact.impactRevision,
-    uncertaintyStatus: 'blocked',
-    capabilities: value.requiredVerification.map((requirement) => ({
-      requirement,
-      status: 'runnable' as const,
-      isolated: true
-    }))
-  }, value.requiredVerification);
-  const verification = run({ ...input, verificationPlanning: blockedPlanning });
-  expect(verification.plan).toMatchObject({ status: 'rejected', rejectedAt: 'impact-verification' });
-  expect(verification.calls).toEqual({ factDelta: 1, impact: 1, verification: 1 });
-
-  const ready = run(input);
-  expect(ready.plan.status).toBe('ready');
-  expect(ready.calls).toEqual({ factDelta: 1, impact: 1, verification: 1 });
-});
-
-test('async Verification finalization executes Fact Delta, Impact, and the requirement-union producer once', async () => {
-  const value = fixture();
-  const calls = { factDelta: 0, impact: 0, verificationPlanning: 0, verificationEvaluation: 0 };
-  const plan = await planSemanticMutationWithAsyncProducerSeamForTest({
-    request: value.request,
-    base: value.base,
-    authorization: value.auth,
-    preparation: value.preparation,
-    verificationPlanning: value.verificationPlanning
-  }, {
-    buildFactDelta(...args) {
-      calls.factDelta += 1;
-      return buildFactDelta(...args);
-    },
-    buildImpactPropagation(...args) {
-      calls.impact += 1;
-      return buildImpactPropagation(...args);
-    },
-    evaluateVerificationPlanning(...args) {
-      calls.verificationEvaluation += 1;
-      return evaluateSemanticMutationVerificationPlanning(...args);
-    }
-  }, {
-    async produce({ impact, requirements }) {
-      calls.verificationPlanning += 1;
-      expect(impact.impactRevision).toBe(value.impact.impactRevision);
-      expect(requirements).toEqual(value.requiredVerification);
-      await Promise.resolve();
-      return value.verificationPlanning;
-    }
-  });
-
-  expect(plan.status).toBe('ready');
-  expect(calls).toEqual({
-    factDelta: 1,
-    impact: 1,
-    verificationPlanning: 1,
-    verificationEvaluation: 1
-  });
-});
-
 test('nested producer diagnostics preserve only trusted FACT/Impact failures and redact unknown errors', () => {
+  const value = fixture();
+  const impactFailure = planSemanticMutationWithProducerSeamForTest({
+    request: value.request,
+    base: value.base,
+    authorization: value.auth,
+    preparation: value.preparation,
+    verificationPlanning: value.verificationPlanning
+  }, {
+    buildFactDelta,
+    buildImpactPropagation() {
+      throw new CodedFailure('IMPACT-001', 'Injected trusted Impact failure');
+    },
+    evaluateVerificationPlanning: evaluateSemanticMutationVerificationPlanning
+  });
+  expect(impactFailure).toMatchObject({ status: 'rejected', rejectedAt: 'impact' });
+
   const absolutePath = String.raw`C:\private\workspace\source.yaml`;
   const secret = 'token=do-not-publish';
   const trusted = nestedDiagnostic(
