@@ -224,7 +224,7 @@ test('test retirement derives DELETE only from one compiler-issued consumer-zero
   })).toThrow('sealed baseline/current Source Program evidence: supersession-receipt');
 });
 
-test('test retirement blocks real consumers, path contracts, dynamic imports, and parse unknowns', () => {
+test('test retirement blocks live consumers, unknown sources, and consumer-free observation obligations', () => {
   const current = compileSupersessionFixture({
     'src/example/operation.ts': "export const value = 'ok';\n"
   });
@@ -246,19 +246,26 @@ test('test retirement blocks real consumers, path contracts, dynamic imports, an
     withUnchangedCurrent(
       "const target = '../src/example/operation.ts';\nvoid import(target);\n"
     ),
-    withUnchangedCurrent('export const malformed = ;\n')
+    withUnchangedCurrent('export const malformed = ;\n'),
+    // All semantic classes share one nonempty-observation gate. Their syntax
+    // classification has the independent fixed oracle in test-value.test.ts.
+    withUnchangedCurrent(
+      "import { expect, test } from 'bun:test';\ntest('failure', () => expect(() => { throw new Error('failure'); }).toThrow());\n"
+    )
   ];
 
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.status))
-    .toEqual(['blocked', 'blocked', 'blocked', 'blocked', 'blocked']);
+    .toEqual(['blocked', 'blocked', 'blocked', 'blocked', 'blocked', 'blocked']);
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.reason))
     .toEqual([
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
-      'consumer-closure-not-empty'
+      'consumer-closure-not-empty',
+      'observation-obligation-not-empty'
     ]);
+  expect(fixtures[5]!.retirement.proofs[0]!.observationClasses).toContain('failure-boundary');
   for (const fixture of fixtures) {
     const projection = projectSourceProgramTestRetirementDispositions(
       fixture.observedProjection,
@@ -269,39 +276,4 @@ test('test retirement blocks real consumers, path contracts, dynamic imports, an
       disposition: 'unknown'
     }));
   }
-});
-
-test('test retirement preserves behavior, Effect, durable, failure, and algorithm observations', () => {
-  const current = compileSupersessionFixture({
-    'src/example/operation.ts': "export const value = 'ok';\n"
-  });
-  const withUnchangedCurrent = (source: string) => compileTestRetirementFixture(
-    source, undefined, undefined, undefined, false, current
-  );
-  const fixtures = [
-    compileTestRetirementFixture(
-      "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('behavior', () => expect(execute()).toBe('ok'));\n",
-      "export function execute(): string { return 'ok'; }\n"
-    ),
-    withUnchangedCurrent(
-      "import { test } from 'bun:test';\nimport { readFile } from 'node:fs/promises';\ntest('effect', async () => { await readFile('state'); });\n"
-    ),
-    withUnchangedCurrent(
-      "import { expect, test } from 'bun:test';\nimport { readFile, writeFile } from 'node:fs/promises';\ntest('durable', async () => { await writeFile('state', 'x'); expect(await readFile('state', 'utf8')).toBe('x'); });\n"
-    ),
-    withUnchangedCurrent(
-      "import { expect, test } from 'bun:test';\ntest('failure', () => expect(() => { throw new Error('failure'); }).toThrow());\n"
-    ),
-    withUnchangedCurrent(
-      "import { expect, test } from 'bun:test';\ntest('property', () => { for (const value of [1, 2]) expect(value).toBeGreaterThan(0); });\n"
-    )
-  ];
-  const classes = fixtures.map(({ retirement }) => retirement.proofs[0]!.observationClasses);
-
-  expect(classes[0]).toContain('behavior');
-  expect(classes[1]).toContain('effect');
-  expect(classes[2]).toEqual(expect.arrayContaining(['durable-state', 'effect']));
-  expect(classes[3]).toContain('failure-boundary');
-  expect(classes[4]).toContain('algorithm-property');
-  expect(fixtures.every(({ retirement }) => retirement.proofs[0]?.status === 'blocked')).toBe(true);
 });
