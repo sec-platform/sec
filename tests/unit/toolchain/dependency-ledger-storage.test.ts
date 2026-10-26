@@ -135,10 +135,12 @@ test('a fabricated ledger context is refused rather than accepted by its clock f
 
 for (const shape of ['unknown-entry', 'fork', 'missing-predecessor', 'two-roots']) {
   test(`existing ledger graph rejection remains effective: ${shape}`, async () => fixture(async root => {
-    const one = record(root), two = record(root, one, 'second');
     if (shape === 'unknown-entry') writeFileSync(path.join(root, 'foreign.txt'), 'foreign');
-    else if (shape === 'missing-predecessor') save(root, two);
-    else { save(root, one); save(root, two); save(root, shape === 'fork' ? record(root, one, 'fork') : record(root, null, 'new-root')); }
+    else {
+      const one = record(root), two = record(root, one, 'second');
+      if (shape === 'missing-predecessor') save(root, two);
+      else { save(root, one); save(root, two); save(root, shape === 'fork' ? record(root, one, 'fork') : record(root, null, 'new-root')); }
+    }
     assert.throws(() => readDependencyTransitionRecordSet(inspectNoFollowDirectoryChain(root).target, root,
       runtimeDependencyOperationContext(controls()), shape));
   }));

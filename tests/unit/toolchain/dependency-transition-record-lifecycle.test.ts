@@ -118,15 +118,16 @@ test('begin captures only known request fields and narrows effect options before
   await pending; assert.ok(calls > 0);
 }));
 
-for (const [key, value] of [['sequence', 3], ['attemptNonce', 'replaced'], ['operationKey', 'sha256:' + '0'.repeat(64)],
-  ['previousRecordDigest', null], ['preimage', null], ['schema', 'wrong']] as const) {
-  test(`a successor cannot override immutable ${key}`, async () => using(async f => {
-    const first = await beginDependencyTransition(request(f)); let effects = 0;
+test('a successor cannot override immutable fields', async () => using(async f => {
+  const first = await beginDependencyTransition(request(f));
+  for (const [key, value] of [['sequence', 3], ['attemptNonce', 'replaced'], ['operationKey', 'sha256:' + '0'.repeat(64)],
+    ['previousRecordDigest', null], ['preimage', null], ['schema', 'wrong']] as const) {
+    let effects = 0;
     await assert.rejects(advanceDependencyTransition(first, { phase: 'complete', [key]: value } as never,
       { ...f.options, async beforeCommit() { effects++; } }));
     assert.equal(effects, 0); assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
-  }));
-}
+  }
+}));
 
 test('invalid update descriptors and schema values are refused before namespace effects', async () => using(async f => {
   const first = await beginDependencyTransition(request(f));

@@ -272,24 +272,16 @@ function pinnedBunVersionForTest(): string {
   return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
 }
 
-async function prepareBridgeRecovery(input: Readonly<{
-  failure: 'bun-runtime-drift' | Readonly<{ code: string; message: string }> | null;
-  root: string;
-}>): Promise<Readonly<{
-  bridgePath: string;
-  installIdentityFailure: Readonly<{ code: string; message: string }> | null;
-  pinnedBunVersion: string;
-  sourcePath: string;
-}>> {
+async function prepareBridgeRecovery(root: string): Promise<Readonly<{ code: string; message: string }>> {
   const pinnedBunVersion = pinnedBunVersionForTest();
-  const sourcePath = path.join(input.root, 'node_modules');
-  const bridgePath = path.join(input.root, 'consumer', 'node_modules');
+  const sourcePath = path.join(root, 'node_modules');
+  const bridgePath = path.join(root, 'consumer', 'node_modules');
   await mkdir(sourcePath, { recursive: true });
   await mkdir(path.dirname(bridgePath), { recursive: true });
-  const fixtureIdentity = generatedStateDigest({ ownerRoot: input.root, pinnedBunVersion });
+  const fixtureIdentity = generatedStateDigest({ ownerRoot: root, pinnedBunVersion });
   const binding = Object.freeze({
     architecture: process.arch,
-    bunExecutablePath: path.join(input.root, 'persisted-bun.exe'),
+    bunExecutablePath: path.join(root, 'persisted-bun.exe'),
     bunExecutableSha256: fixtureIdentity,
     bunVersion: pinnedBunVersion,
     declaredBunVersion: pinnedBunVersion,
@@ -304,9 +296,9 @@ async function prepareBridgeRecovery(input: Readonly<{
   });
   await Promise.all([
     writeFile(path.join(sourcePath, COMPILER_BINDING_FILE), `${JSON.stringify(binding)}\n`, 'utf8'),
-    writeFile(path.join(input.root, '.bun-version'), `${pinnedBunVersion}\n`, 'utf8'),
-    writeFile(path.join(input.root, 'bun.lock'), '', 'utf8'),
-    writeFile(path.join(input.root, 'package.json'), `${JSON.stringify({
+    writeFile(path.join(root, '.bun-version'), `${pinnedBunVersion}\n`, 'utf8'),
+    writeFile(path.join(root, 'bun.lock'), '', 'utf8'),
+    writeFile(path.join(root, 'package.json'), `${JSON.stringify({
       dependencies: {},
       devDependencies: {},
       packageManager: `bun@${pinnedBunVersion}`
@@ -316,7 +308,7 @@ async function prepareBridgeRecovery(input: Readonly<{
   const sourceGeneration = await runtimeDependencySourceGeneration({
     binding,
     options,
-    ownerRoot: input.root,
+    ownerRoot: root,
     sourcePath
   });
   let transition = await beginDependencyTransition({
@@ -325,39 +317,29 @@ async function prepareBridgeRecovery(input: Readonly<{
     destinationPath: bridgePath,
     kind: 'compiler-bridge',
     options,
-    ownerRoot: input.root,
+    ownerRoot: root,
     sourceGeneration,
     stagePath: null
   });
-  let installIdentityFailure: Readonly<{ code: string; message: string }> | null = null;
-  if (input.failure === 'bun-runtime-drift') {
-    try {
-      await compilerDependencyIdentity(input.root);
-      throw new Error('mismatched materialization identity was accepted');
-    } catch (error) {
-      installIdentityFailure = transitionFailure(error);
-    }
+  let installIdentityFailure: Readonly<{ code: string; message: string }>;
+  try {
+    await compilerDependencyIdentity(root);
+    throw new Error('mismatched materialization identity was accepted');
+  } catch (error) {
+    installIdentityFailure = transitionFailure(error);
   }
-  const durableFailure = input.failure === 'bun-runtime-drift'
-    ? installIdentityFailure
-    : input.failure;
-  if (durableFailure !== null) {
-    transition = await advanceDependencyTransition(transition, {
-      durability: 'unknown',
-      failure: durableFailure,
-      phase: 'recovery-required'
-    }, options);
-  }
+  transition = await advanceDependencyTransition(transition, {
+    durability: 'unknown',
+    failure: installIdentityFailure,
+    phase: 'recovery-required'
+  }, options);
   expect(transition.destination.kind).toBe('absent');
-  return Object.freeze({ bridgePath, installIdentityFailure, pinnedBunVersion, sourcePath });
+  return installIdentityFailure;
 }
 
-test('preserves persisted Bun-drift recovery evidence and blocks a new install', async () => {
+test('preserves Bun-drift recovery evidence, blocks installation and rejects later journal corruption', async () => {
   await withMigrationFixture('sec-dependency-bridge-bun-drift-', async root => {
-    const { installIdentityFailure } = await prepareBridgeRecovery({
-      failure: 'bun-runtime-drift',
-      root
-    });
+    const installIdentityFailure = await prepareBridgeRecovery(root);
 
     // The materialization identity remains strict: this root cannot start a
     // new install under the current Bun generation.
@@ -392,8 +374,19 @@ test('preserves persisted Bun-drift recovery evidence and blocks a new install',
     expect(terminal?.failure).toEqual(installIdentityFailure);
     expect(await readRegularFiles(recordsRoot)).toEqual(beforeRecords);
     expect(commandStarts).toBe(0);
+
+    for (const name of await readdir(recordsRoot)) {
+      const recordPath = path.join(recordsRoot, name);
+      const value = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
+      if (value.phase === 'recovery-required') {
+        await writeFile(recordPath, `${JSON.stringify({ ...value, unexpected: true })}\n`, 'utf8');
+        break;
+      }
+    }
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toMatchObject({ code: 'RUNTIME-DEPS-002' });
   });
-});
+}, 30_000);
 
 test('settles exact active and retired legacy stage registrations without admitting installation', async () => {
   await withMigrationFixture('sec-dependency-stage-registration-', async root => {
@@ -454,23 +447,6 @@ test('preserves unregistered or physically replaced legacy stages before any set
       expect((await readdir(path.dirname(blockedPath))).includes(path.basename(blockedPath))).toBe(true);
     });
   }
-}, 30_000);
-
-test('blocks legacy bridge admission when persisted journal evidence changes', async () => {
-  await withMigrationFixture('sec-dependency-bridge-journal-', async root => {
-    await prepareBridgeRecovery({ failure: 'bun-runtime-drift', root });
-    const recordsRoot = path.join(targetJournalRoot(root), 'records');
-    for (const name of await readdir(recordsRoot)) {
-      const recordPath = path.join(recordsRoot, name);
-      const value = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
-      if (value.phase === 'recovery-required') {
-        await writeFile(recordPath, `${JSON.stringify({ ...value, unexpected: true })}\n`, 'utf8');
-        break;
-      }
-    }
-    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
-      .rejects.toMatchObject({ code: 'RUNTIME-DEPS-002' });
-  });
 }, 30_000);
 
 test.serial('coordination cutover locator survives an invocation-owned Runtime State environment', async () => {
