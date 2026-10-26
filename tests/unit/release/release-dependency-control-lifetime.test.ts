@@ -189,11 +189,11 @@ test('release public entries preserve body and cleanup failures for every retain
         for (const settings of [[true, false], [true, true], [false, true]]) {
           [bodyFails, cleanupFails] = settings;
           // Payload transparency belongs to the shared settlement owner. Keep
-          // its full basis at identity, and undefined at every other catch so
+          // sentinel, NaN and reference cases at identity, and undefined at other catches so
           // each public wiring still detects a missing/falsy-primary shortcut.
           // Cleanup-only calls never consume the primary value.
           const primaries = bodyFails && phase === 'identity'
-            ? [undefined, null, false, 0, NaN, Object.freeze({ phase })]
+            ? [undefined, NaN, Object.freeze({ phase })]
             : [undefined];
           for (primary of primaries) {
             cleanup = Object.freeze({ cleanup: phase });

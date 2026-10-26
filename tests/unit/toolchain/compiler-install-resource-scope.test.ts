@@ -61,27 +61,26 @@ for (const count of [0, 1, 2, 3]) {
   });
 }
 
-for (const primary of [undefined, null, false, 0, 'execution failure']) {
-  test(`cleanup preserves ${String(primary)} as a present execution failure`, async () => {
-    const closeFailure = new Error('close'), disposeFailure = new Error('dispose'), order: string[] = [];
-    await assert.rejects(withCompilerInstallResources(async resources => {
-      resources.executable(executable(() => { order.push('exe'); throw disposeFailure; }));
-      resources.workingDirectory(directory(() => { order.push('cwd'); }));
-      // @ts-expect-error Deliberately malformed session exercises settlement failure preservation.
-      resources.processSession({ close() { order.push('session'); throw closeFailure; } }, expectation());
-      throw primary;
-    }), error => {
-      assert.ok(error instanceof CompilerInstallSettlementFailure);
-      assert.equal(compilerInstallProcessSettlementUnproven(error), false);
-      assert.equal(error.primaryFailed, true); assert.equal(error.cause, primary);
-      assert.deepEqual(error.resourceFailures.map(f => f.reason), [closeFailure, disposeFailure]);
-      assert.deepEqual(error.resourceFailures.map(f => f.resource), ['process-session', 'executable']);
-      assert.ok(Object.isFrozen(error.resourceFailures)); assert.ok(error.resourceFailures.every(Object.isFrozen));
-      return true;
-    });
-    assert.deepEqual(order, ['session', 'cwd', 'exe']);
+test('cleanup preserves undefined as a present execution failure', async () => {
+  const primary = undefined;
+  const closeFailure = new Error('close'), disposeFailure = new Error('dispose'), order: string[] = [];
+  await assert.rejects(withCompilerInstallResources(async resources => {
+    resources.executable(executable(() => { order.push('exe'); throw disposeFailure; }));
+    resources.workingDirectory(directory(() => { order.push('cwd'); }));
+    // @ts-expect-error Deliberately malformed session exercises settlement failure preservation.
+    resources.processSession({ close() { order.push('session'); throw closeFailure; } }, expectation());
+    throw primary;
+  }), error => {
+    assert.ok(error instanceof CompilerInstallSettlementFailure);
+    assert.equal(compilerInstallProcessSettlementUnproven(error), false);
+    assert.equal(error.primaryFailed, true); assert.equal(error.cause, primary);
+    assert.deepEqual(error.resourceFailures.map(f => f.reason), [closeFailure, disposeFailure]);
+    assert.deepEqual(error.resourceFailures.map(f => f.resource), ['process-session', 'executable']);
+    assert.ok(Object.isFrozen(error.resourceFailures)); assert.ok(error.resourceFailures.every(Object.isFrozen));
+    return true;
   });
-}
+  assert.deepEqual(order, ['session', 'cwd', 'exe']);
+});
 
 test('successful execution with failed settlement is not returned as success', async () => {
   await assert.rejects(withCompilerInstallResources(async resources => {

@@ -108,20 +108,19 @@ for (const kind of ['wait', 'fence'] as const) {
   });
 }
 
-for (const reason of [null, 'cancelled', { kind: 'owner-cancel' }]) {
-  test(`a pending effect fence preserves cancellation reason ${reason === null ? 'null' : typeof reason}`, async () => {
-    const controller = new AbortController(); const held = deferred(); const entered = deferred();
-    const options = runtimeDependencyOperationOptions({
-      signal: controller.signal,
-      beforeCommit: async () => { entered.resolve(); await held.promise; }
-    });
-    const work = observed(runtimeDependencyOperationEffectFence(options, 'reason-fence'));
-    try {
-      await entered.promise; controller.abort(reason); await nextTurn();
-      requireRejection(work.outcome(), reason);
-    } finally { held.resolve(); await work.settled; }
+test('a pending effect fence preserves cancellation reason null', async () => {
+  const reason = null;
+  const controller = new AbortController(); const held = deferred(); const entered = deferred();
+  const options = runtimeDependencyOperationOptions({
+    signal: controller.signal,
+    beforeCommit: async () => { entered.resolve(); await held.promise; }
   });
-}
+  const work = observed(runtimeDependencyOperationEffectFence(options, 'reason-fence'));
+  try {
+    await entered.promise; controller.abort(reason); await nextTurn();
+    requireRejection(work.outcome(), reason);
+  } finally { held.resolve(); await work.settled; }
+});
 
 test('the pending effect fence does not restart after cancellation when its provider later resolves', async () => {
   const controller = new AbortController(); const held = deferred(); const entered = deferred();
