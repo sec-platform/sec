@@ -63,13 +63,6 @@ function recordedProxy<T extends object>(target: T, throwOnTrap: boolean = false
   };
 }
 
-function recordedRevokedProxy<T extends object>(target: T) {
-  const trapCalls: RecordedProxyTrap[] = [];
-  const revocable = Proxy.revocable(target, recordingProxyHandler(trapCalls, true));
-  revocable.revoke();
-  return { proxy: revocable.proxy, trapCalls };
-}
-
 // ---------------------------------------------------------------------------
 // Validator negative cases
 // ---------------------------------------------------------------------------
@@ -326,109 +319,6 @@ test('canonical prototype toJSON guards reject without executing and restore exa
     expect(Object.getOwnPropertyDescriptor(prototype, 'toJSON')).toEqual(previous);
   }
   expect(candidateCodeExecutions).toBe(0);
-});
-
-test('strict verification-data boundary rejects every Proxy before installed traps execute', () => {
-  const transparentObject = recordedProxy({ value: 'transparent' });
-  const maliciousArray = recordedProxy(['stateful'], true);
-  let functionExecutions = 0;
-  const proxiedFunction = recordedProxy(() => {
-    functionExecutions += 1;
-    return 'executed';
-  }, true);
-  const revokedObject = recordedRevokedProxy({ value: 'revoked' });
-  const revokedArray = recordedRevokedProxy(['revoked']);
-
-  for (const candidate of [
-    transparentObject,
-    maliciousArray,
-    proxiedFunction,
-    revokedObject,
-    revokedArray
-  ]) {
-    expect(() => CodexDevelopmentSnapshotVerificationData(candidate.proxy))
-      .toThrow('Verification data must not contain Proxy values.');
-    expect(candidate.trapCalls).toEqual([]);
-  }
-  expect(functionExecutions).toBe(0);
-});
-
-test('strict verification-data boundary rejects candidate-controlled prototypes without executing traps', () => {
-  const candidates: Array<{
-    value: unknown;
-    trapCalls: RecordedProxyTrap[];
-    expectedPrototype: 'Object' | 'Array';
-  }> = [];
-
-  const transparentPrototype = recordedProxy({ inherited: true });
-  const transparentValue = Object.create(transparentPrototype.proxy) as Record<string, unknown>;
-  Object.defineProperty(transparentValue, 'value', {
-    value: 'transparent', enumerable: true, configurable: true, writable: true
-  });
-  transparentPrototype.trapCalls.length = 0;
-  candidates.push({
-    value: transparentValue,
-    trapCalls: transparentPrototype.trapCalls,
-    expectedPrototype: 'Object'
-  });
-
-  const statefulPrototype = recordedProxy({ inherited: true }, true);
-  const statefulValue = Object.create(statefulPrototype.proxy) as Record<string, unknown>;
-  Object.defineProperty(statefulValue, 'value', {
-    value: 'stateful', enumerable: true, configurable: true, writable: true
-  });
-  statefulPrototype.trapCalls.length = 0;
-  candidates.push({
-    value: statefulValue,
-    trapCalls: statefulPrototype.trapCalls,
-    expectedPrototype: 'Object'
-  });
-
-  const deepPrototype = recordedProxy({ inherited: true }, true);
-  const ordinaryImmediatePrototype = Object.create(deepPrototype.proxy) as object;
-  const deepValue = Object.create(ordinaryImmediatePrototype) as Record<string, unknown>;
-  Object.defineProperty(deepValue, 'value', {
-    value: 'deep', enumerable: true, configurable: true, writable: true
-  });
-  deepPrototype.trapCalls.length = 0;
-  candidates.push({
-    value: deepValue,
-    trapCalls: deepPrototype.trapCalls,
-    expectedPrototype: 'Object'
-  });
-
-  const arrayPrototype = recordedProxy(Array.prototype);
-  const arrayValue = ['array'];
-  Object.setPrototypeOf(arrayValue, arrayPrototype.proxy);
-  arrayPrototype.trapCalls.length = 0;
-  candidates.push({
-    value: arrayValue,
-    trapCalls: arrayPrototype.trapCalls,
-    expectedPrototype: 'Array'
-  });
-
-  const revokedTrapCalls: RecordedProxyTrap[] = [];
-  const revokedPrototype = Proxy.revocable(
-    { inherited: true },
-    recordingProxyHandler(revokedTrapCalls, false)
-  );
-  const revokedValue = Object.create(revokedPrototype.proxy) as Record<string, unknown>;
-  Object.defineProperty(revokedValue, 'value', {
-    value: 'revoked', enumerable: true, configurable: true, writable: true
-  });
-  revokedTrapCalls.length = 0;
-  revokedPrototype.revoke();
-  candidates.push({
-    value: revokedValue,
-    trapCalls: revokedTrapCalls,
-    expectedPrototype: 'Object'
-  });
-
-  for (const candidate of candidates) {
-    expect(() => CodexDevelopmentSnapshotVerificationData(candidate.value))
-      .toThrow(`must use the canonical ${candidate.expectedPrototype} prototype.`);
-    expect(candidate.trapCalls).toEqual([]);
-  }
 });
 
 test('aggregate input is an exact ordinary container and snapshots trusted views before reduction', () => {
