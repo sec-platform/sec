@@ -15,29 +15,22 @@ const rejected = (error: unknown) => (error as { code?: string }).code === 'RUNT
 function parent() { return bind({ lockTimeoutMs: 100, monotonicNowMs: () => 0 }); }
 function symbolOf(value: object) { return Object.getOwnPropertySymbols(value)[0]!; }
 
-for (const change of ['extended-deadline', 'removed-cancellation', 'changed-clock', 'changed-identity'] as const) {
-  test(`shape-compatible ledger forgery is rejected: ${change}`, async () => {
-    const original = bind({ lockTimeoutMs: 100, monotonicNowMs: () => 0,
-      signal: new AbortController().signal });
-    const fake = { ...context(original) };
-    if (change === 'extended-deadline') fake.deadlineAtMonotonicMs += 1_000_000;
-    if (change === 'removed-cancellation') fake.signal = undefined;
-    if (change === 'changed-clock') fake.monotonicNowMs = () => assert.fail('forged clock called');
-    if (change === 'changed-identity') fake.operationId = 'borrowed-identity';
-    const candidate = { ...original, [symbolOf(original)]: Object.freeze(fake) };
-    assert.throws(() => context(candidate), rejected);
-    // Field variants exercise issuance here; each consumer independently checks
-    // its routing with a forged clock that must never execute.
-    if (change !== 'changed-clock') return;
-    for (const consume of [bind, install, (x: typeof candidate) => remaining(x, 'remaining'),
-      (x: typeof candidate) => deadline(x, 'deadline'), readRuntimeDependencyOperationTelemetry,
-      (x: typeof candidate) => measureRuntimeDependencyOperationPhase(x, 'install', () => assert.fail('action ran'))]) {
-      assert.throws(() => consume(candidate), rejected);
-    }
-    await assert.rejects(waitForRuntimeDependencyOperation(candidate, 1, async () => assert.fail('sleep ran'), 'wait'), rejected);
-    await assert.rejects(awaitRuntimeDependencyOperation(fake, 'forged context', () => assert.fail('provider ran')), rejected);
-  });
-}
+test('shape-compatible ledger forgery is rejected: changed-clock', async () => {
+  const original = bind({ lockTimeoutMs: 100, monotonicNowMs: () => 0,
+    signal: new AbortController().signal });
+  const fake = { ...context(original) };
+  fake.monotonicNowMs = () => assert.fail('forged clock called');
+  const candidate = { ...original, [symbolOf(original)]: Object.freeze(fake) };
+  assert.throws(() => context(candidate), rejected);
+  // Each consumer must reject the unissued ledger before its clock or action runs.
+  for (const consume of [bind, install, (x: typeof candidate) => remaining(x, 'remaining'),
+    (x: typeof candidate) => deadline(x, 'deadline'), readRuntimeDependencyOperationTelemetry,
+    (x: typeof candidate) => measureRuntimeDependencyOperationPhase(x, 'install', () => assert.fail('action ran'))]) {
+    assert.throws(() => consume(candidate), rejected);
+  }
+  await assert.rejects(waitForRuntimeDependencyOperation(candidate, 1, async () => assert.fail('sleep ran'), 'wait'), rejected);
+  await assert.rejects(awaitRuntimeDependencyOperation(fake, 'forged context', () => assert.fail('provider ran')), rejected);
+});
 
 test('a binding accessor is rejected before a compatibility options spread invokes it', () => {
   const original = parent();

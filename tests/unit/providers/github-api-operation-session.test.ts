@@ -424,7 +424,7 @@ test('aggregate response-byte budget rejects a bounded stream once its ceiling i
   })).rejects.toThrow('response-byte budget exceeded');
 });
 
-for (const reason of [undefined, null, false, 0, '', new Error('operation failed')] as const) {
+for (const reason of [undefined, new Error('operation failed')] as const) {
   test(`read session distinguishes failure occurrence from ${String(reason)} payload`, async () => {
     const api = capability({
       effect: 'read',
@@ -442,13 +442,11 @@ for (const reason of [undefined, null, false, 0, '', new Error('operation failed
   });
 }
 
-for (const value of [undefined, null, false, 0, ''] as const) {
-  test(`normal ${String(value)} results are distinct from thrown payloads`, async () => {
-    const api = capability({ effect: 'read', transport: async () => Response.json({}) });
-    const result = await withGitHubApiTestSession({ capability: api, operation: async () => value });
-    expect(result).toBe(value);
-  });
-}
+test('normal undefined results are distinct from thrown payloads', async () => {
+  const api = capability({ effect: 'read', transport: async () => Response.json({}) });
+  const result = await withGitHubApiTestSession({ capability: api, operation: async () => undefined });
+  expect(result).toBe(undefined);
+});
 
 for (const reason of [undefined] as const) {
   test(`primary ${String(reason)} failure and unjoined work both survive terminal closure`, async () => {

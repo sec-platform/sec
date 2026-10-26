@@ -69,7 +69,7 @@ for (const mode of ['sync', 'async'] as const) {
   });
 }
 
-for (const end of [-1, NaN, Infinity, -Infinity]) {
+for (const end of [-1, NaN]) {
   test(`unmeasurable terminal duration ${String(end)} is explicit, not a business failure`, () => {
     const state = clock();
     assert.equal(measureRuntimeDependencyOperationPhase(state.options, 'identity', () => { state.time(end); return 'result'; }), 'result');

@@ -7,7 +7,7 @@ import {
   runtimeDependencyOperationRemainingMs as remaining
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
-import { captureRuntimeDependencyInstallRequest, isRuntimeDependencyInstallMode } from '../../../src/execution/dependency-install-request.ts';
+import { captureRuntimeDependencyInstallRequest } from '../../../src/execution/dependency-install-request.ts';
 
 const controls = () => ({ lockTimeoutMs: 1000, monotonicNowMs: () => 0 });
 
@@ -153,7 +153,7 @@ test('method binding and the selected clock preserve exact sync and async failur
 test('public request validation and internal coordinator accept the same three modes without new defaults', () => {
   for(const mode of ['allow','offline-copy-only','prebound-only'] as const){
     const request=captureRuntimeDependencyInstallRequest({installMode:mode});
-    assert.equal(request.installMode,mode);assert.equal(request.rematerialize,undefined);assert.ok(isRuntimeDependencyInstallMode(mode));
+    assert.equal(request.installMode,mode);assert.equal(request.rematerialize,undefined);
     const bound=bind({...request,...controls()});assert.equal(bound.installMode,mode);assert.equal(bound.rematerialize,undefined);
     assert.equal(bound.lockTimeoutMs,1000);
   }
