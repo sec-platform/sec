@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { acquireWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
@@ -40,9 +40,8 @@ async function legacyFixture(relativePath = '.tmp/dependency-installs/c.staging-
   const key = generatedStateDigest({ schema: 'sec-generated-state-registration-key-v1', relativePath }).slice(7);
   await writeFile(path.join(sourceRoot, `registration-${registration.registrationDigest.slice(7)}.json`), bytes);
   await writeFile(path.join(sourceRoot, `${key}.json`), bytes);
-  const names = (await readdir(sourceRoot)).sort();
   const backend = createGeneratedStateRegistrationMutationBackend();
-  return { workspaceRoot, environment, sourceRoot, relativePath, registration, names, bytes, backend };
+  return { workspaceRoot, environment, relativePath, registration, backend };
 }
 
 test('readonly retirement requires execution issuance and independent original native evidence', async () => {

@@ -70,7 +70,7 @@ async function registrationFixture() {
     root: identity(generated),
     operationId: 'registration-migration-current'
   }, { clock: () => new Date('2026-08-29T00:01:00.000Z') });
-  const historical = createGeneratedStateRegistration({
+  const historical = () => createGeneratedStateRegistration({
     repositoryRoot,
     workspace: identity(workspace),
     rule,
@@ -90,7 +90,8 @@ async function registrationFixture() {
 
 async function legacyFixture() {
   const fixture = await registrationFixture();
-  const { registrationsRoot, current, historical } = fixture;
+  const { registrationsRoot, current } = fixture;
+  const historical = fixture.historical();
   await mkdir(registrationsRoot);
   const currentBytes = canonicalBytes(current);
   const historicalBytes = canonicalBytes(historical);
@@ -220,13 +221,12 @@ async function rawV2Fixture(kind: 'current' | 'one-hop' | 'disposed' | 'gap' | '
   const retired = retireGeneratedStateRegistration(fixture.current, generatedStateDigest('raw-retirement'), {
     clock: () => new Date('2026-08-29T00:02:00.000Z')
   });
-  const foreign = retireGeneratedStateRegistration(fixture.historical, generatedStateDigest('raw-foreign-retirement'), {
-    clock: () => new Date('2026-08-29T00:02:00.000Z')
-  });
-  const registrations = kind === 'current' ? [fixture.current] :
-    kind === 'gap' ? [fixture.current, retired, foreign] :
-    kind === 'foreign' ? [fixture.current, foreign] :
-    kind === 'fork' ? [fixture.current, retired, foreign] : [fixture.current, retired];
+  const registrations = kind === 'current' || kind === 'foreign' ? [fixture.current] : [fixture.current, retired];
+  if (kind === 'gap' || kind === 'foreign' || kind === 'fork') {
+    registrations.push(retireGeneratedStateRegistration(fixture.historical(), generatedStateDigest('raw-foreign-retirement'), {
+      clock: () => new Date('2026-08-29T00:02:00.000Z')
+    }));
+  }
   const records: Array<Record<string, unknown> & { recordDigest: `sha256:${string}` }> = [];
   for (const registration of registrations) {
     const previous = kind === 'fork' && records.length === 2 ? records[0] : records.at(-1);
@@ -249,14 +249,19 @@ async function rawV2Fixture(kind: 'current' | 'one-hop' | 'disposed' | 'gap' | '
       registrationDigest: fixture.current.registrationDigest, ledgerRecordDigest: records[0]!.recordDigest
     }));
   }
+  return { ...fixture, source, retired };
+}
+
+async function sourceSnapshot(source: string) {
   const sourceNames = (await readdir(source)).sort();
   const sourceBytes = await Promise.all(sourceNames.map(name => readFile(path.join(source, name))));
-  return { ...fixture, source, sourceNames, sourceBytes, retired };
+  return { sourceNames, sourceBytes };
 }
 
 for (const kind of ['current', 'disposed'] as const) {
   test(`raw unguarded v2 ${kind} migrates without rewriting its source`, async () => {
     const fixture = await rawV2Fixture(kind);
+    const { sourceNames, sourceBytes } = await sourceSnapshot(fixture.source);
     await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
     const backend = createGeneratedStateRegistrationMutationBackend();
     await withMigratedGeneratedStateMutation({ workspaceRoot: fixture.repositoryRoot, environment: fixture.environment, backend, use: async (_, resource) => {
@@ -266,9 +271,9 @@ for (const kind of ['current', 'disposed'] as const) {
       expect(observation.registration === null).toBe(kind === 'disposed');
       if (kind !== 'current') expect(observation.previousRegistration?.registrationDigest).toBe(fixture.current.registrationDigest);
     } });
-    expect((await readdir(fixture.source)).sort()).toEqual(fixture.sourceNames);
-    for (let index = 0; index < fixture.sourceNames.length; index += 1) {
-      expect(await readFile(path.join(fixture.source, fixture.sourceNames[index]!))).toEqual(fixture.sourceBytes[index]);
+    expect((await readdir(fixture.source)).sort()).toEqual(sourceNames);
+    for (let index = 0; index < sourceNames.length; index += 1) {
+      expect(await readFile(path.join(fixture.source, sourceNames[index]!))).toEqual(sourceBytes[index]);
     }
     const names = await readdir(fixture.registrationsV2Root);
     expect(names.some(name => /^[0-9a-f]{64}\.json$/u.test(name) || /^registration-[0-9a-f]{64}\.json$/u.test(name))).toBe(false);
@@ -283,10 +288,11 @@ for (const kind of ['current', 'disposed'] as const) {
 for (const kind of ['gap', 'foreign', 'fork', 'missing-predecessor'] as const) {
   test(`raw v2 ${kind} preserves all source bytes and refuses migration`, async () => {
     const fixture = await rawV2Fixture(kind);
+    const { sourceNames, sourceBytes } = await sourceSnapshot(fixture.source);
     await expect(ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment }))
       .rejects.toThrow();
-    for (let index = 0; index < fixture.sourceNames.length; index += 1) {
-      expect(await readFile(path.join(fixture.source, fixture.sourceNames[index]!))).toEqual(fixture.sourceBytes[index]);
+    for (let index = 0; index < sourceNames.length; index += 1) {
+      expect(await readFile(path.join(fixture.source, sourceNames[index]!))).toEqual(sourceBytes[index]);
     }
     expect(await readdir(fixture.registrationsV2Root)).toEqual([]);
   });
@@ -321,14 +327,15 @@ test('migration preserves a foreign physical replacement before publishing an in
 
 test('a first producer observation reads legal old retirement without publishing the new namespace', async () => {
   const fixture = await rawV2Fixture('one-hop');
+  const { sourceNames, sourceBytes } = await sourceSnapshot(fixture.source);
   const hooks = generatedStateProducerHooks({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
   const observation = await hooks.observeRetirement(relativePath);
   expect(observation.status).toBe('retired-present');
   expect(observation.registrationDigest).toBe(fixture.retired.registrationDigest);
   expect((await hooks.inspect([relativePath])).entries[0]?.registrationState).toBe('retired');
   await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
-  for (let index = 0; index < fixture.sourceNames.length; index += 1) {
-    expect(await readFile(path.join(fixture.source, fixture.sourceNames[index]!))).toEqual(fixture.sourceBytes[index]);
+  for (let index = 0; index < sourceNames.length; index += 1) {
+    expect(await readFile(path.join(fixture.source, sourceNames[index]!))).toEqual(sourceBytes[index]);
   }
   await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
   expect((await hooks.observeRetirement(relativePath)).registrationDigest).toBe(observation.registrationDigest);
@@ -338,9 +345,9 @@ test('a first producer observation reads legal old retirement without publishing
     expect(migrated.registration?.registrationDigest).toBe(fixture.retired.registrationDigest);
     expect(migrated.previousRegistration?.registrationDigest).toBe(fixture.current.registrationDigest);
   } });
-  expect((await readdir(fixture.source)).sort()).toEqual(fixture.sourceNames);
-  for (let index = 0; index < fixture.sourceNames.length; index += 1) {
-    expect(await readFile(path.join(fixture.source, fixture.sourceNames[index]!))).toEqual(fixture.sourceBytes[index]);
+  expect((await readdir(fixture.source)).sort()).toEqual(sourceNames);
+  for (let index = 0; index < sourceNames.length; index += 1) {
+    expect(await readFile(path.join(fixture.source, sourceNames[index]!))).toEqual(sourceBytes[index]);
   }
   const names = await readdir(fixture.registrationsV2Root);
   expect(names.some(name => /^[0-9a-f]{64}\.json$/u.test(name) || /^registration-[0-9a-f]{64}\.json$/u.test(name))).toBe(false);
