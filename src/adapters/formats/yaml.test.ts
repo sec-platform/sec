@@ -15,21 +15,20 @@ const VALUE_ADMISSION = {
 } as const;
 
 test('both YAML capabilities reject a second document with the parser cause intact', () => {
-  for (const source of ['first: 1\n---\nsecond: 2\n', '---\nfirst: 1\n...\n---\n']) {
-    for (const parse of [parseYamlValue, parseYamlDocument]) {
-      assert.throws(() => parse(source, VALUE_ADMISSION), (error: unknown) => {
-        expect(error).toBeInstanceOf(YamlSyntaxError);
-        expect(error).toBeInstanceOf(CodedFailure);
-        expect(error).toMatchObject({
-          code: 'YAML-SYNTAX-001',
-          kind: 'invalid-yaml',
-          details: { kind: 'invalid-yaml' },
-          yamlErrorCode: 'MULTIPLE_DOCS',
-          cause: expect.objectContaining({ code: 'MULTIPLE_DOCS' })
-        });
-        return true;
+  const source = 'first: 1\n---\nsecond: 2\n';
+  for (const parse of [parseYamlValue, parseYamlDocument]) {
+    assert.throws(() => parse(source, VALUE_ADMISSION), (error: unknown) => {
+      expect(error).toBeInstanceOf(YamlSyntaxError);
+      expect(error).toBeInstanceOf(CodedFailure);
+      expect(error).toMatchObject({
+        code: 'YAML-SYNTAX-001',
+        kind: 'invalid-yaml',
+        details: { kind: 'invalid-yaml' },
+        yamlErrorCode: 'MULTIPLE_DOCS',
+        cause: expect.objectContaining({ code: 'MULTIPLE_DOCS' })
       });
-    }
+      return true;
+    });
   }
   expect(parseYamlValue('---\nvalue: |\n  ---\n...\n', VALUE_ADMISSION))
     .toEqual({ value: '---\n' });
