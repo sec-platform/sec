@@ -16,20 +16,20 @@ const review = {
   assessment: 'All exact source changes have a retained or superseding consumer.', unknowns: []
 };
 
-function preparation() {
-  const retirements = [parseExactRefRetirement({ classification: 'reviewed-plan-superseded',
-    branches: ['fix/old'], expectedHeadSha: HEAD, review })];
-  const request = { schema: 'sec-repository-maintenance-request-v2', repository: 'sec-platform/sec',
-    expectedMainSha: MAIN, operations: retirements.map((retirement) => ({ kind: 'exact-ref-retirement', retirement })) };
-  return { schema: 'sec-exact-ref-batch-recovery-preparation-v1', repository: request.repository,
-    expectedMainSha: MAIN, requestDigest: sha256(request), retirements,
-    refs: [{ branch: 'fix/old', expectedHeadSha: HEAD, refState: 'present', blocker: null }],
-    recovery: { bundleName: 'sec-branch-closeout-batch-plan.bundle', sha256: `sha256:${'2'.repeat(64)}`,
-      verifyOutput: 'complete native bundle' } };
-}
+// Only immutable plan data is shared; every provider capability and result remains per case.
+const retirements = Object.freeze([parseExactRefRetirement({ classification: 'reviewed-plan-superseded',
+  branches: ['fix/old'], expectedHeadSha: HEAD, review })]);
+const request = { schema: 'sec-repository-maintenance-request-v2', repository: 'sec-platform/sec',
+  expectedMainSha: MAIN, operations: retirements.map((retirement) => ({ kind: 'exact-ref-retirement', retirement })) };
+const baselinePreparation = Object.freeze({ schema: 'sec-exact-ref-batch-recovery-preparation-v1', repository: request.repository,
+  expectedMainSha: MAIN, requestDigest: sha256(request), retirements,
+  refs: Object.freeze([Object.freeze({ branch: 'fix/old', expectedHeadSha: HEAD, refState: 'present', blocker: null })]),
+  recovery: Object.freeze({ bundleName: 'sec-branch-closeout-batch-plan.bundle', sha256: `sha256:${'2'.repeat(64)}`,
+    verifyOutput: 'complete native bundle' }) });
+const originalRunTitle = `maintenance/${sha256({ requestDigest: baselinePreparation.requestDigest, resumeReceipt: null })}`;
 
 test('fixed batch preparation rejects changed plans, duplicate refs and incomplete source review', () => {
-  const prepared = preparation();
+  const prepared = baselinePreparation;
   expect(parseExactRemoteRefBatchRecoveryPreparation(prepared)).toEqual({
     schema: 'sec-exact-ref-batch-recovery-preparation-v2', repository: 'sec-platform/sec',
     expectedMainSha: MAIN, requestDigest: prepared.requestDigest,
@@ -63,7 +63,7 @@ test('fixed batch preparation rejects changed plans, duplicate refs and incomple
 });
 
 test('preparation v2 preserves historical absence independently of the latest present state and reads v1 conservatively', () => {
-  const legacy = preparation();
+  const legacy = baselinePreparation;
   expect(parseExactRemoteRefBatchRecoveryPreparation(legacy).refs[0]!.absenceObserved).toBe(false);
   const current = { ...legacy, schema: 'sec-exact-ref-batch-recovery-preparation-v2',
     refs: legacy.refs.map((row) => ({ ...row, absenceObserved: true })) };
@@ -93,7 +93,7 @@ mock.module('../../../src/adapters/providers/github-api/operation-session.ts', (
 const { observeExactRefBatchResumeReceipt } = await import('../../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts');
 
 test('historical receipt reader rejects malformed locator identity before provider access', async () => {
-  const prepared = preparation();
+  const prepared = baselinePreparation;
   const locator = { artifactId: '123', artifactDigest: `sha256:${'d'.repeat(64)}` as const, runId: '456', runAttempt: 1 };
   for (const changed of [{ runAttempt: 0 }, { artifactId: '../123' },
     { artifactId: '9'.repeat(30) }, { artifactDigest: 'not-a-digest' }]) {
@@ -107,8 +107,8 @@ test('historical receipt reader rejects malformed locator identity before provid
 
 for (const fault of ['none', 'run', 'request', 'archive'] as const) {
   test.serial(`historical receipt verification-read ${fault}`, async () => {
-    const prepared = preparation();
-    const receipt = { schema: 'sec-repository-maintenance-result-v3', requestDigest: prepared.requestDigest as string,
+    const prepared = baselinePreparation;
+    const receipt = fault === 'run' ? undefined : { schema: 'sec-repository-maintenance-result-v3', requestDigest: prepared.requestDigest as string,
       resumeReceipt: null, recoveryPreparation: prepared,
       recoveryCarrier: { provider: 'github-actions-artifact', repository: 'sec-platform/sec', artifactId: 2,
         artifactName: 'sec-repository-maintenance-recovery-10-1', artifactDigest: `sha256:${'f'.repeat(64)}`,
@@ -118,15 +118,21 @@ for (const fault of ['none', 'run', 'request', 'archive'] as const) {
       progress: ['effect-started', 'effect-returned', 'absence-observed'].map(phase => ({ branch: 'fix/old', expectedHeadSha: HEAD, phase })),
       results: [{ branch: 'fix/old', expectedHeadSha: HEAD, status: 'retired' as const, targetState: 'absent' as const,
         effectOutcome: 'acknowledged' as const, detail: 'Original acknowledged deletion and absence readback' }] };
-    if (fault === 'request') receipt.requestDigest = `sha256:${'0'.repeat(64)}`;
-    const zip = new ZipFile();
-    zip.addBuffer(Buffer.from(JSON.stringify(receipt)), 'maintenance-result.json');
-    const archivePromise = new Response(zip.outputStream).arrayBuffer();
-    zip.end();
-    const archive = new Uint8Array(await archivePromise);
-    const archiveDigest = rawSha256(archive);
-    const received = archive.slice();
-    if (fault === 'archive') received[0] = received[0]! ^ 1;
+    // Run provenance rejects before artifact access; do not build an unconsumed ZIP.
+    let archive: Uint8Array | undefined;
+    let archiveDigest = `sha256:${'d'.repeat(64)}` as const;
+    let received: Uint8Array | undefined;
+    if (receipt !== undefined) {
+      if (fault === 'request') receipt.requestDigest = `sha256:${'0'.repeat(64)}`;
+      const zip = new ZipFile();
+      zip.addBuffer(Buffer.from(JSON.stringify(receipt)), 'maintenance-result.json');
+      const archivePromise = new Response(zip.outputStream).arrayBuffer();
+      zip.end();
+      archive = new Uint8Array(await archivePromise);
+      archiveDigest = rawSha256(archive);
+      received = archive.slice();
+      if (fault === 'archive') received[0] = received[0]! ^ 1;
+    }
     const requests: string[] = [];
     historyCapability = issueGitHubApiTestCapability({ repository: 'sec-platform/sec', token: 'test-token-0123456789',
       principal: { transport: 'github-rest-token', login: 'reader', nodeId: 'READER', userId: 1, permission: 'read' },
@@ -137,7 +143,8 @@ for (const fault of ['none', 'run', 'request', 'archive'] as const) {
           path: '.github/workflows/repository-maintenance.yml', event: 'workflow_dispatch', status: 'completed',
           head_sha: fault === 'run' ? HEAD : MAIN, head_branch: 'main',
           repository: { full_name: 'sec-platform/sec' }, head_repository: { full_name: 'sec-platform/sec' },
-          actor: { type: 'User' }, display_title: `maintenance/${sha256({ requestDigest: prepared.requestDigest, resumeReceipt: null })}` });
+          actor: { type: 'User' }, display_title: originalRunTitle });
+        if (archive === undefined || received === undefined) throw new Error(`Unexpected artifact read: ${url.pathname}`);
         if (url.pathname.endsWith('/artifacts/1')) return Response.json({ id: 1,
           name: 'sec-repository-maintenance-result-10-1', workflow_run: { id: 10 }, expired: false,
           size_in_bytes: archive.byteLength, digest: archiveDigest });
@@ -154,7 +161,7 @@ for (const fault of ['none', 'run', 'request', 'archive'] as const) {
         expectedMainSha: MAIN, retirements: prepared.retirements, requestDigest: prepared.requestDigest,
         resumeReceipt: { artifactId: '1', artifactDigest: archiveDigest, runId: '10', runAttempt: 1 } });
       if (fault === 'none') {
-        expect((await result).results).toEqual(receipt.results);
+        expect((await result).results).toEqual(receipt!.results);
         expect([...new Set(requests)].sort()).toEqual([
           '/receipt.zip',
           '/repos/sec-platform/sec/actions/artifacts/1',

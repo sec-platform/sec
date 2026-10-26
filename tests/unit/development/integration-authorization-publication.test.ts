@@ -64,14 +64,6 @@ function job(input: {
   steps?: readonly GitHubWorkflowJobStepObservation[];
 }): GitHubWorkflowJobObservation {
   const current = input.current ?? false;
-  const phaseStep = step({
-    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES[input.phase],
-    number: 5,
-    status: current ? 'in_progress' : 'completed',
-    conclusion: current ? null : input.phaseStarted === false ? 'skipped' : 'success',
-    startedAt: current || input.phaseStarted !== false ? '2026-08-09T00:00:00.000Z' : null,
-    completedAt: current ? null : '2026-08-09T00:01:00.000Z'
-  });
   return Object.freeze({
     id: String(1000 + input.attempt + (input.phase === 'recoveryPreparation' ? 100 : 0)),
     runId: '900',
@@ -82,7 +74,14 @@ function job(input: {
     headSha: WORKFLOW_SHA,
     startedAt: '2026-08-09T00:00:00.000Z',
     completedAt: current ? null : '2026-08-09T00:02:00.000Z',
-    steps: input.steps ?? [phaseStep]
+    steps: input.steps ?? [step({
+      name: HOSTED_INTEGRATION_PHASE_STEP_NAMES[input.phase],
+      number: 5,
+      status: current ? 'in_progress' : 'completed',
+      conclusion: current ? null : input.phaseStarted === false ? 'skipped' : 'success',
+      startedAt: current || input.phaseStarted !== false ? '2026-08-09T00:00:00.000Z' : null,
+      completedAt: current ? null : '2026-08-09T00:01:00.000Z'
+    })]
   });
 }
 
