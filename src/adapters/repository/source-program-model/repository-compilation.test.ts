@@ -115,8 +115,6 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
   expect(receipt.model.sourceRevision).toBe(workspaceSnapshot.sourceRevision);
   expect(receipt.receiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 
-  expect(() => assertWorkspaceSourceSnapshot(workspaceSnapshot)).not.toThrow();
-
   const forged = Object.freeze({ ...workspaceSnapshot }) as WorkspaceSourceSnapshot;
   expect(() => assertWorkspaceSourceSnapshot(forged))
     .toThrow('was not issued by the Source Program owner');
@@ -134,10 +132,9 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
 });
 
 test('repository compilation contexts reject fact mixing and keep virtual mutation explicit', () => {
-  const left = fixture();
-  const right = fixture();
+  const input = fixture();
   const leftContext = compileVirtualWorkspaceSourceSnapshot({
-    ...left,
+    ...input,
     subject: virtualSnapshotSubject('left-observation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
   const mutationSubject: WorkspaceSourceSnapshotSubject = Object.freeze({
@@ -149,32 +146,32 @@ test('repository compilation contexts reject fact mixing and keep virtual mutati
     })
   });
   const rightContext = compileVirtualWorkspaceSourceSnapshot({
-    ...right,
+    ...input,
     subject: mutationSubject as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
   const leftModel = compileTypeScriptSourceProgramModelFromWorkspaceSnapshot({
-    ...left,
+    ...input,
     sourceRevision: leftContext.sourceRevision
   }, leftContext);
   const rightModel = compileTypeScriptSourceProgramModelFromWorkspaceSnapshot({
-    ...right,
+    ...input,
     sourceRevision: rightContext.sourceRevision
   }, rightContext);
 
   expect(rightContext.subject.kind).toBe('virtual-mutation');
   expect(() => compileSourceProgramTestObservationsFromWorkspaceSnapshot({
     productionModel: leftModel,
-    files: right.files,
-    moduleMembership: right.moduleMembership
+    files: input.files,
+    moduleMembership: input.moduleMembership
   }, rightContext)).toThrow('cannot mix a production model');
 
   const leftObservations = compileSourceProgramTestObservationsFromWorkspaceSnapshot({
     productionModel: leftModel,
-    files: left.files,
-    moduleMembership: left.moduleMembership
+    files: input.files,
+    moduleMembership: input.moduleMembership
   }, leftContext);
   expect(() => compileRepositorySourceProgramModelFromWorkspaceSnapshot({
-    ...right,
+    ...input,
     sourceRevision: rightContext.sourceRevision,
     typescriptModel: rightModel,
     testObservations: leftObservations

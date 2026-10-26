@@ -325,8 +325,7 @@ function causalFixture() {
 function compilationInput(
   value: ReturnType<typeof fixture>,
   files: readonly SourceProgramFileInput[],
-  sourceRevision: string,
-  withCache = true
+  sourceRevision: string
 ) {
   const projectConfig = value.files.find(({ path: repositoryPath }) => repositoryPath === 'tsconfig.json');
   if (projectConfig === undefined) throw new Error('Fixture project config is unavailable');
@@ -346,7 +345,7 @@ function compilationInput(
     })
   });
   return Object.freeze({
-    ...(withCache ? { cacheProvider: value.cacheProvider } : {}),
+    cacheProvider: value.cacheProvider,
     workspaceSnapshot,
     projectInput: compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
     repositoryRoot: value.repositoryRoot
@@ -377,7 +376,7 @@ function storeGeneration(
   overrides: Partial<Pick<RepositoryCompilationGenerationReceipt, 'projectConfigDigest' | 'projectInputDigest'>> = {}
 ): RepositoryCompilationGenerationReceipt {
   const context = value.input.workspaceSnapshot;
-  const projectInput = compileWorkspaceTypeScriptProjectInput(context, 'tsconfig.json');
+  const projectInput = value.input.projectInput;
   return issueRepositoryCompilationGenerationReceipt({
     projectInputDigest: overrides.projectInputDigest ?? projectInput.projectInputDigest,
     projectConfigDigest: overrides.projectConfigDigest ?? projectInput.projectConfigDigest,
@@ -626,9 +625,8 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
   const predecessor = value.cacheProvider.openContentAddressedHint(predecessorGeneration).loadPredecessor();
   expect(predecessor.status).toBe('hit');
   const cached = compileVirtualRepositorySourceProgramCompilation(changedInput);
-  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value, changedFiles, sourceRevision, false
-  ));
+  const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+  const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
   expect(cached.typeScriptCompilation.mode).toBe('incremental');
   expect(cached.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
@@ -648,10 +646,10 @@ for (const membershipChange of ['addition', 'deletion'] as const) {
     const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({
       repositoryPath, contentDigest
     })));
-    const cached = compileVirtualRepositorySourceProgramCompilation(compilationInput(value, changedFiles, sourceRevision));
-    const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-      value, changedFiles, sourceRevision, false
-    ));
+    const changedInput = compilationInput(value, changedFiles, sourceRevision);
+    const cached = compileVirtualRepositorySourceProgramCompilation(changedInput);
+    const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+    const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
     const currentPaths = cached.typeScriptCompilation.model.files.map(({ path: repositoryPath }) => repositoryPath);
     if (membershipChange === 'addition') expect(currentPaths).toContain('src/example/added.ts');
@@ -674,9 +672,8 @@ test.serial('an invalid predecessor hint is a disposable miss and cannot block c
   const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
   const changedInput = compilationInput(value, changedFiles, sourceRevision);
   const recovered = compileVirtualRepositorySourceProgramCompilation(changedInput);
-  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value, changedFiles, sourceRevision, false
-  ));
+  const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+  const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
   expect(recovered.typeScriptCompilation.mode).toBe('full');
   expect(recovered.model).toEqual(clean.model);
@@ -725,9 +722,8 @@ for (const dependencyScope of ['global augmentation', 'unchanged reference direc
     });
     expect(value.cacheProvider.openContentAddressedHint(predecessorGeneration).loadPredecessor().status).toBe('hit');
     const changed = compileVirtualRepositorySourceProgramCompilation(changedInput);
-    const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-      value, changedFiles, changedRevision, false
-    ));
+    const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+    const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
     expect(changed.typeScriptCompilation.mode).toBe('full');
     expect(changed.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
