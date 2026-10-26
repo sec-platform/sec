@@ -29,8 +29,8 @@ test('V2 explicit execution reports missing frozen native content without creati
 for (const name of ['actor-drift', 'metadata-drift', 'forged-content', 'cancelled']) {
   test(`V2 ${name} cannot advance into qualification, source execution or operation state`, async () => {
     const observed = await scenario(name);
-    expect(observed.failure).not.toBeNull();
-    if (name === 'cancelled') expect(observed.failure).toBe('CANCELLED_PROVIDER_READ');
+    expect(observed.failure).toBe(name === 'cancelled' ? 'CANCELLED_PROVIDER_READ'
+      : 'Local preparation V2 request differs from current exact source or qualification requirements. Prepare again.');
     expect(observed.counters).toMatchObject({ source: 0, native: 0, healthObservation: 0 });
     expect(observed.stateCreated).toBe(false); expect(observed.cacheCreated).toBe(false);
   });

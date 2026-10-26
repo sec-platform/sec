@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { rawSha256 } from '../../../../contracts/canonical.ts';
 import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
@@ -82,6 +82,35 @@ async function commitFixture(
   return git(root, ['rev-parse', 'HEAD']);
 }
 
+// Reuse only completed immutable source preparation. Each consumer still owns
+// private Git objects, refs, index and worktree, and observes its copied HEAD.
+let defaultRepository: Promise<string> | undefined;
+async function copyDefaultRepository(root: string): Promise<string> {
+  defaultRepository ??= (async () => {
+    const template = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-base-'));
+    try {
+      git(template, ['init', '--quiet']);
+      git(template, ['config', 'user.email', 'tests@example.com']);
+      git(template, ['config', 'user.name', 'SEC Tests']);
+      await commitFixture(template, 'export function normalize(): void {}\n', 'base');
+      return template;
+    } catch (primary) {
+      return settleWorkspaceCallback(async () => { throw primary; },
+        () => rm(template, { recursive: true, force: true }));
+    }
+  })();
+  await cp(await defaultRepository, root, { recursive: true });
+  return git(root, ['rev-parse', 'HEAD']);
+}
+
+afterAll(async () => {
+  if (defaultRepository === undefined) return;
+  const settled = await Promise.allSettled([defaultRepository]);
+  if (settled[0]!.status === 'fulfilled') {
+    await rm(settled[0]!.value, { recursive: true, force: true });
+  }
+});
+
 async function exactSnapshot(root: string, commitSha: string) {
   return withAuthorityGitReadSession({
     cwd: root,
@@ -109,14 +138,7 @@ async function subject(root: string, commitSha: string) {
 test('subject compiler owns producer, exact-tree, config and toolchain identity', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-subject-'));
   return settleWorkspaceCallback(async () => {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    const firstCommit = await commitFixture(
-      root,
-      'export function normalize(): void {}\n',
-      'first'
-    );
+    const firstCommit = await copyDefaultRepository(root);
     const firstSnapshot = await exactSnapshot(root, firstCommit);
     const fullProducer = compileSourceProgramOperationProducerClosure(
       compileRepositorySourceProgramCompilation({ workspaceSnapshot: firstSnapshot }),
@@ -188,11 +210,7 @@ test('empty owner selection settles before project parsing', () => {
 test('staged normalization shares the Source Program input boundary for template files', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-template-'));
   return settleWorkspaceCallback(async () => {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    const candidateBase = await commitFixture(root,
-      'export function normalize(): void {}\n', 'template-base');
+    const candidateBase = await copyDefaultRepository(root);
     git(root, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
     const templatePath = 'catalog/registry/official/example/files/src/template.ts';
     await mkdir(path.dirname(path.join(root, templatePath)), { recursive: true });
@@ -231,17 +249,10 @@ test('staged normalization shares the Source Program input boundary for template
 test('canonical immutable candidate receives an owner terminal', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-terminal-'));
   return settleWorkspaceCallback(async () => {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    const baseCommit = await commitFixture(
-      root,
-      'export function normalize(): void {}\n',
-      'base'
-    );
+    const baseCommit = await copyDefaultRepository(root);
     const candidateCommit = await commitFixture(
       root,
-      'export function normalize(): void {}\n',
+      'export function normalize(): void {}\nexport const canonicalCandidate = true;\n',
       'canonical-candidate'
     );
     const terminal = await verifyCandidate({
@@ -331,10 +342,7 @@ test('candidate configuration is immutable when the working tree config drifts',
 test('empty staged selection issues opaque not-applicable admission before reading unrelated source blobs', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-staged-'));
   return settleWorkspaceCallback(async () => {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
+    await copyDefaultRepository(root);
     await writeFile(path.join(root, 'src', 'unselected.ts'), Buffer.from([0xff, 0xfe]));
     git(root, ['add', 'src/unselected.ts']);
     git(root, ['commit', '--quiet', '-m', 'unrelated invalid UTF-8 source']);
