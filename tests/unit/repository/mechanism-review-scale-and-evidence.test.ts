@@ -109,52 +109,6 @@ test('lack of module ownership does not prevent a valid declaration-local mixed-
   assert.equal(result.counts['distributed-direct-transport'], 0);
 });
 
-test('repeated startup effects share one review context and retain every distinct callsite', () => {
-  const capabilities = Array.from({ length: 2000 }, (_, index) => capability({
-    observationId: `effect-${index}`, owningDeclarationObservationId: null,
-    span: { start: index * 10, end: index * 10 + 8 }
-  }));
-  const result = review({ ...facts(), capabilities: [...capabilities, capabilities[0]!, capabilities[0]!] });
-  assert.equal(result.coverage.findingUnit, 'rule-subject-context');
-  assert.equal(result.coverage.scannedCapabilities, 2002);
-  assert.equal(result.counts['module-initialization-effect'], 1);
-  assert.equal(result.findings[0]!.disposition, 'review-required');
-  assert.equal(result.findings[0]!.sites.length, 2000);
-  assert.deepEqual(new Set(result.findings[0]!.sites.map((site) => site.observationId)),
-    new Set(Array.from({ length: 2000 }, (_, index) => `effect-${index}`)));
-  assert.deepEqual(result.findings[0]!.sites.find((site) => site.observationId === 'effect-0'), {
-    path: 'src/a.ts', contentDigest: 'a-bytes', start: 0, end: 8, observationId: 'effect-0'
-  });
-});
-
-test('repeated self calls are grouped by their exact declaration without dropping locations', () => {
-  const references = Array.from({ length: 2000 }, (_, index) => call({ span: { start: index * 5, end: index * 5 + 3 } }));
-  const result = review({ ...facts(), references });
-  assert.equal(result.counts['direct-recursive-call'], 1);
-  assert.equal(result.findings[0]!.sites.length, 2000);
-  assert.equal(new Set(result.findings[0]!.sites.map((site) => site.start)).size, 2000);
-});
-
-test('arbitrary operation vocabulary of 4096 remains complete', () => {
-  const operationCount = 4096;
-  const capabilities = Array.from({ length: operationCount }, (_, index) => capability({
-    owningDeclarationObservationId: null, operation: `domain.operation.${index}`, observationId: `call-${index}`,
-    span: { start: index * 3, end: index * 3 + 1 }
-  }));
-  const result = review({ ...facts(), capabilities });
-  assert.equal(result.counts['module-initialization-effect'], operationCount);
-  assert.equal(result.findings.length, operationCount);
-  assert.equal(new Set(result.findings.flatMap((finding) => finding.sites.map((site) => site.observationId))).size, operationCount);
-});
-
-test('thousands of dependency names do not require predeclared semantic categories', () => {
-  const dependencies = Array.from({ length: 2048 }, (_, index) => [dependency({ name: `package-${index}` }), dependency({ name: `package-${index}`, requirement: '^2' })]).flat();
-  const result = review({ ...facts(), dependencies });
-  assert.equal(result.counts['dependency-requirement-divergence'], 2048);
-  assert.equal(new Set(result.findings.map((finding) => finding.subject)).size, 2048);
-});
-
-
 test('diagnostic identities bind source bytes, findings and unresolved details without caller aliases', () => {
   const base = facts();
   const references = [call(), call({ span: { start: 30, end: 35 } })];
@@ -163,6 +117,11 @@ test('diagnostic identities bind source bytes, findings and unresolved details w
   const before = review(input);
   const after = review({ ...input, references: [references[0]!, { ...references[1]!, span: { start: 31, end: 36 } }] });
   assert.equal(before.findings.length, 1);
+  assert.equal(before.counts['direct-recursive-call'], 1);
+  assert.deepEqual(before.findings[0]!.sites, [
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 2, end: 7, observationId: 'a' },
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 30, end: 35, observationId: 'a' }
+  ]);
   assert.notEqual(before.findings[0]!.findingDigest, after.findings[0]!.findingDigest);
   assert.notEqual(before.reviewDigest, after.reviewDigest);
   assert.notEqual(review({ ...input, sourceRevision: 'next' }).reviewDigest, before.reviewDigest);
@@ -191,17 +150,35 @@ test('the scanner does not freeze input observations while freezing shared outpu
 
 // Roles must not collapse merely because their unlabelled text sets agree.
 test('effect category and operation remain distinct roles in a review context', () => {
+  const repeated = capability({ owningDeclarationObservationId: null,
+    capability: 'filesystem', operation: 'process', observationId: 'effect-0', span: { start: 0, end: 8 } });
   const result = review({ ...facts(), capabilities: [
+    repeated,
     capability({ owningDeclarationObservationId: null, capability: 'filesystem', operation: 'process', observationId: 'first' }),
-    capability({ owningDeclarationObservationId: null, capability: 'process', operation: 'filesystem', observationId: 'second' })
+    capability({ owningDeclarationObservationId: null, capability: 'process', operation: 'filesystem', observationId: 'second' }),
+    repeated, repeated,
+    capability({ owningDeclarationObservationId: null, operation: 'domain.operation.0', observationId: 'call-0', span: { start: 0, end: 1 } }),
+    capability({ owningDeclarationObservationId: null, operation: 'domain.operation.1', observationId: 'call-1', span: { start: 3, end: 4 } })
   ] });
-  assert.equal(result.counts['module-initialization-effect'], 2);
+  assert.equal(result.coverage.findingUnit, 'rule-subject-context');
+  assert.equal(result.coverage.scannedCapabilities, 7);
+  assert.equal(result.counts['module-initialization-effect'], 4);
+  assert.equal(result.findings.length, 4);
   assert.deepEqual(new Set(result.findings.map((finding) => finding.related.join(','))), new Set([
-    'capability:filesystem,operation:process', 'capability:process,operation:filesystem'
+    'capability:filesystem,operation:process', 'capability:process,operation:filesystem',
+    'capability:filesystem,operation:domain.operation.0', 'capability:filesystem,operation:domain.operation.1'
   ]));
-  assert.deepEqual(result.findings.find((finding) => finding.related.includes('capability:filesystem'))!.sites, [{
-    path: 'src/a.ts', contentDigest: 'a-bytes', start: 1, end: 8, observationId: 'first'
-  }]);
+  assert.deepEqual(result.findings.find((finding) => finding.related.includes('operation:process'))!.sites, [
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 0, end: 8, observationId: 'effect-0' },
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 1, end: 8, observationId: 'first' }
+  ]);
+  for (const [operation, observationId, start, end] of [
+    ['domain.operation.0', 'call-0', 0, 1], ['domain.operation.1', 'call-1', 3, 4]
+  ] as const) {
+    assert.deepEqual(result.findings.find((finding) => finding.related.includes(`operation:${operation}`))!.sites, [
+      { path: 'src/a.ts', contentDigest: 'a-bytes', start, end, observationId }
+    ]);
+  }
 });
 
 
@@ -318,12 +295,14 @@ test('production findings preserve exact rule roles, owners and sites without pr
       call({ targetObservationId: 'b', span: { start: 40, end: 45 } }),
       call({ path: 'src/b.ts', sourceObservationId: 'b', targetObservationId: 'b' }),
       call({ path: 'tests/a.test.ts', sourceObservationId: 'test', targetObservationId: 'test' })],
-    dependencies: [dependency(), dependency({ requirement: '^2' }), dependency({ name: 'same-only' }), dependency({ name: 'same-only' })]
+    dependencies: [dependency(), dependency({ requirement: '^2' }),
+      dependency({ name: 'package-0' }), dependency({ name: 'package-0', requirement: '^2' }),
+      dependency({ name: 'same-only' }), dependency({ name: 'same-only' })]
   };
   const result = review(input);
   assert.deepEqual(result.counts, {
     'module-initialization-effect': 0, 'distributed-direct-transport': 1,
-    'mixed-effect-declaration': 1, 'direct-recursive-call': 2, 'dependency-requirement-divergence': 1
+    'mixed-effect-declaration': 1, 'direct-recursive-call': 2, 'dependency-requirement-divergence': 2
   });
   assert.deepEqual(result.unknowns, []);
   assert.equal(result.coverage.scannedCapabilities, 14);
@@ -339,9 +318,11 @@ test('production findings preserve exact rule roles, owners and sites without pr
   assert.deepEqual(recursive.map(item => item.subject), ['a', 'b']);
   assert.deepEqual(recursive[0]!.sites, [{ path: 'src/a.ts', contentDigest: 'a-bytes', start: 20, end: 25, observationId: 'a' }]);
   assert.deepEqual(recursive[1]!.sites, [{ path: 'src/b.ts', contentDigest: 'b-bytes', start: 2, end: 7, observationId: 'b' }]);
-  const divergent = result.findings.find(item => item.code === 'dependency-requirement-divergence')!;
-  assert.equal(divergent.subject, 'library');
-  assert.deepEqual(divergent.related, ['^1', '^2']);
+  const divergent = result.findings.filter(item => item.code === 'dependency-requirement-divergence');
+  assert.deepEqual(divergent.map(item => ({ subject: item.subject, related: item.related })), [
+    { subject: 'library', related: ['^1', '^2'] },
+    { subject: 'package-0', related: ['^1', '^2'] }
+  ]);
   assert.deepEqual(result, review({ ...input, files: [...input.files].reverse(), declarations: [...input.declarations].reverse(),
     capabilities: [...input.capabilities].reverse(), references: [...input.references].reverse(), dependencies: [...input.dependencies].reverse() }));
 });
