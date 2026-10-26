@@ -65,20 +65,20 @@ test('worker request, handshake and result bind the independent canonical field 
 });
 
 test('the existing outgoing payload ceilings apply before copying or Base64 encoding', () => {
-  const f = fixture();
+  const request = requestFor(input()), handshake = handshakeFor(request);
   assert.throws(() => requestFor(input(new Uint8Array(limits.maximumOperationInputBytes + 1))), code('input-too-large'));
-  assert.throws(() => resultFor(f.request, f.handshake, new Uint8Array(limits.maximumOperationResultBytes + 1)), code('input-too-large'));
+  assert.throws(() => resultFor(request, handshake, new Uint8Array(limits.maximumOperationResultBytes + 1)), code('input-too-large'));
 });
 
 test('Base64 length and declared byte limits are rejected before native decoded allocation', () => {
-  const f = fixture(); const from = Buffer.from; let decodes = 0;
+  const request = requestFor(input()); const from = Buffer.from; let decodes = 0;
   Buffer.from = ((...args: unknown[]) => {
     if (args[1] === 'base64') decodes++;
     return Reflect.apply(from, Buffer, args);
   }) as typeof Buffer.from;
   try {
-    assert.throws(() => requestPayload(f.request, 1), code('payload-invalid'));
-    assert.throws(() => requestPayload({ ...f.request, payloadByteLength: 0 }, 4096), code('payload-invalid'));
+    assert.throws(() => requestPayload(request, 1), code('payload-invalid'));
+    assert.throws(() => requestPayload({ ...request, payloadByteLength: 0 }, 4096), code('payload-invalid'));
     assert.equal(decodes, 0);
   } finally { Buffer.from = from; }
 });
@@ -95,7 +95,7 @@ test('canonical request and result bytes roundtrip for empty, binary and UTF-8 p
 });
 
 test('every binding dimension is checked before a candidate can cross into this request', () => {
-  const expected = fixture();
+  const expected = requestFor(input());
   const dimensions = [['operationIdentityDigest', 'foreign-operation'], ['boundAttemptDigest', 'foreign-attempt'],
     ['generationDigest', 'foreign-generation'], ['entrypointAddress', 'foreign-entrypoint'],
     ['implementationDigest', 'foreign-implementation'], ['dependencyGenerationDigest', 'foreign-dependency'],
@@ -104,7 +104,7 @@ test('every binding dimension is checked before a candidate can cross into this 
     const request = requestFor({ ...input(), [key]: key === 'entrypointAddress' ? 'module-entrypoint:other#default' : digest('foreign') });
     const handshake = handshakeFor(request), result = resultFor(request, handshake, Buffer.from('result'));
     assert.throws(() => parseResult({ bytes: encodeResult(request, handshake, result), eofObserved: true },
-      expected.request, budget), code(error));
+      expected, budget), code(error));
   }
 });
 
@@ -131,10 +131,10 @@ test('partial, extra, CRLF and invalid UTF-8 streams are rejected rather than re
 });
 
 test('unknown fields, duplicate keys and noncanonical JSON continue to reject', () => {
-  const f = fixture(), text = Buffer.from(encodeRequest(f.request)).toString();
+  const request = requestFor(input()), text = Buffer.from(encodeRequest(request)).toString();
   const duplicate = text.replace('"subjectDigest":', `"subjectDigest":"${digest('duplicate')}","subjectDigest":`);
   assert.throws(() => parseRequest({ bytes: Buffer.from(duplicate), eofObserved: true }, budget), code('duplicate-field'));
-  const unknown = JSON.stringify({ ...f.request, unknown: true }) + '\n';
+  const unknown = JSON.stringify({ ...request, unknown: true }) + '\n';
   assert.throws(() => parseRequest({ bytes: Buffer.from(unknown), eofObserved: true }, budget), code('unknown-field'));
   assert.throws(() => parseRequest({ bytes: Buffer.from(' ' + text), eofObserved: true }, budget), code('invalid-json'));
 });

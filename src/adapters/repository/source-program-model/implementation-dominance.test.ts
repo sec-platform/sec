@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import type { RepositoryModuleMembership } from '../architecture/contract.ts';
 import {
-  compileSourceProgramImplementationCandidates,
   compileSourceProgramImplementationDominance
 } from './implementation-dominance.ts';
 import {
@@ -64,14 +63,8 @@ test('equal declaration bytes without an owner responsibility remain heuristic u
     'src/identity': 'identity-owner',
     'src/consumer': 'consumer-owner'
   }));
-  const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
-  expect(candidates).toContainEqual(expect.objectContaining({
-    kind: 'identity',
-    evidenceClass: 'heuristic',
-    observationClass: 'unknown'
-  }));
   expect(compilation.units.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
   expect(compilation.findings).toEqual([expect.objectContaining({
     kind: 'identity',
@@ -260,12 +253,10 @@ test('codec-shaped names remain unknown when the compiler cannot prove one gramm
     'src/schema/decode.ts': 'const payloadSchema = { parse: (value: string): unknown => JSON.parse(value) };\nexport function decodePayload(value: string): unknown { return payloadSchema.parse(value); }\n'
   };
   const { model, ownerIntents } = compileFacts(sources, membershipWithCodec);
-  const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
-  const codecCandidates = candidates.filter(({ kind }) => kind === 'contract-codec');
-  expect(codecCandidates.length).toBeGreaterThan(0);
-  expect(codecCandidates.every(({ evidenceClass }) => evidenceClass === 'heuristic')).toBe(true);
+  const codecUnits = compilation.units.filter(({ kind }) => kind === 'contract-codec');
+  expect(codecUnits.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
   expect(compilation.findings.filter(({ kind }) => kind === 'contract-codec')).toEqual([
     expect.objectContaining({ disposition: 'unknown', removableUnitIds: [] })
   ]);
