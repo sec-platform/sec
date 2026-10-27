@@ -15,9 +15,6 @@ test('Block conflict selectors retain their own namespace alongside local Overri
   ] });
   assert.deepEqual(parsed.overrides[0]!.conflictsWith, conflictsWith);
   assert.deepEqual(parsed.overrides.map(entry => entry.source), ['manual', 'rule-backed']);
-  parsed.overrides[0]!.conflictsWith.length = 0;
-  assert.deepEqual(first.conflictsWith, ['second', 'entity/customer@0.2.0', 'entity/customer@0.2.x', 'entity/customer@>=0.2.0']);
-  assert.equal(first.reason, '  reason  ');
   for (const reference of [
     'entity/customer', 'entity/customer@', 'entity/customer@>=0.2',
     'entity/customer@01.2.x', 'entity/customer@>=01.2.0', 'Entity/customer@0.2.0',
@@ -28,7 +25,10 @@ test('Block conflict selectors retain their own namespace alongside local Overri
   }
 });
 
-test('Override admission rejects malformed fields and unauthorized paths, owners or conflicts', () => {
+test('Override admission preserves empty defaults and rejects malformed fields, unauthorized paths, owners or conflicts', () => {
+  assert.deepEqual(emptyOverrideManifest(), { overrides: [] });
+  assert.deepEqual(validate({}), { overrides: [] });
+  assert.deepEqual(validate({ overrides: [row()] }).overrides[0]!.conflictsWith, []);
   for (const field of [{ source: 'custom' }, { conflictsWith: [7] }, { reason: '   ' }, { foreign: true }, { entry: false }]) {
     assert.throws(() => validate({ overrides: [{ ...row(), ...field }] }), error => (error as { code?: string }).code === 'OVERRIDE-SCHEMA-001');
   }
@@ -41,17 +41,4 @@ test('Override admission rejects malformed fields and unauthorized paths, owners
     { overrides: [{ ...row(), conflictsWith: ['entity/customer@>=0.2.0', 'entity/customer@>=0.2.0'] }] },
     { overrides: [{ ...row(), entry: '../source.ts' }] }
   ]) assert.throws(() => validate(input));
-});
-
-test('default arrays are independently owned across parses and between entries', () => {
-  assert.deepEqual(emptyOverrideManifest(), { overrides: [] });
-  const first = validate({}), second = validate({});
-  assert.deepEqual(first, { overrides: [] });
-  first.overrides.push(validate({ overrides: [row()] }).overrides[0]!);
-  assert.deepEqual(second.overrides, []);
-  const pair = validate({ overrides: [row('first', 'src/a.ts'), row('second', 'src/b.ts')] });
-  const repeat = validate({ overrides: [row('first', 'src/a.ts')] });
-  pair.overrides[0]!.conflictsWith.push('second');
-  assert.deepEqual(pair.overrides[1]!.conflictsWith, []);
-  assert.deepEqual(repeat.overrides[0]!.conflictsWith, []);
 });

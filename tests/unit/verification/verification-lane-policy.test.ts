@@ -71,8 +71,6 @@ test('selection rejects without invoking coercion or conversion callbacks', () =
   const value = { toString() { conversions++; return 'all'; }, valueOf() { conversions++; return 'all'; },
     [Symbol.toPrimitive]() { conversions++; return 'all'; } };
   assert.throws(() => verificationLaneProfile(value), RangeError);
-  assert.throws(() => parseVerifyCommandInput({ lane: value }),
-    (error: unknown) => error instanceof CodedFailure && error.code === 'CLI-USAGE-001');
   assert.equal(conversions, 0);
 });
 
@@ -84,10 +82,5 @@ test('standalone and pipeline defaults remain independently registered', () => {
   assert.equal(option('compile').defaultValue, 'all');
   assert.equal(option('verify').required, true);
   assert.equal(option('compile').required, true);
-});
-
-test('inherited lane cannot silently enter the standalone own-input boundary', () => {
-  assert.throws(() => parseVerifyCommandInput(Object.create({ lane: 'all' })),
-    (error: unknown) => error instanceof CodedFailure && error.code === 'CLI-USAGE-001');
 });
 

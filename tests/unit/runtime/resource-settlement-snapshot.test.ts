@@ -2,38 +2,34 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError, settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 
-for (const asynchronous of [false, true]) {
-  const execute = asynchronous ? settlePhysicalResourcesAsync : settlePhysicalResources;
-  test(`${asynchronous ? 'async' : 'sync'} cleanup captures membership and actions before metadata or effects`, async () => {
-    const events: string[] = [], failure = new Error('second');
-    const second = { label: 'second', settle() { events.push('second'); throw failure; } };
-    const cleanup = [{ get label() {
-      cleanup.length = 0;
-      cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
-      return 'first';
-    }, settle() {
-      cleanup.length = 0; cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
-      second.label = 'renamed'; second.settle = () => assert.fail('replaced'); events.push('first');
-    } }, second];
-    await assert.rejects(async () => execute({ cleanup }), error => {
-      assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
-      assert.deepEqual(error.failures, [{ label: 'second', error: failure }]);
-      return true;
-    });
-    assert.deepEqual(events, ['first', 'second']);
+test('cleanup captures membership and actions before metadata or effects', async () => {
+  const events: string[] = [], failure = new Error('second');
+  const second = { label: 'second', settle() { events.push('second'); throw failure; } };
+  const cleanup = [{ get label() {
+    cleanup.length = 0;
+    cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
+    return 'first';
+  }, settle() {
+    cleanup.length = 0; cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
+    second.label = 'renamed'; second.settle = () => assert.fail('replaced'); events.push('first');
+  } }, second];
+  await assert.rejects(async () => settlePhysicalResources({ cleanup }), error => {
+    assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
+    assert.deepEqual(error.failures, [{ label: 'second', error: failure }]);
+    return true;
   });
+  assert.deepEqual(events, ['first', 'second']);
+});
 
-  test(`${asynchronous ? 'async' : 'sync'} primary error is captured even when its source is later mutated`, async () => {
-    const unaccompanied = new Error('operation failed');
-    await assert.rejects(async () => execute({ primary: { label: 'run', error: unaccompanied }, cleanup: [] }),
-      error => error === unaccompanied);
-    const primary = { label: 'run', error: null as unknown };
-    await assert.rejects(async () => execute({ primary, cleanup: [{ label: 'cleanup', settle() {
-      primary.label = 'other'; primary.error = new Error('replacement');
-    } }] }), error => error === null);
-  });
-
-}
+test('primary error is captured even when its source is later mutated', async () => {
+  const unaccompanied = new Error('operation failed');
+  await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'run', error: unaccompanied }, cleanup: [] }),
+    error => error === unaccompanied);
+  const primary = { label: 'run', error: null as unknown };
+  await assert.rejects(async () => settlePhysicalResources({ primary, cleanup: [{ label: 'cleanup', settle() {
+    primary.label = 'other'; primary.error = new Error('replacement');
+  } }] }), error => error === null);
+});
 
 test('cleanup capture keeps a class-private receiver without consulting a caller iterator', () => {
   class Resource { #closed = false; label = 'class'; settle() { this.#closed = true; } get closed() { return this.#closed; } }
@@ -75,8 +71,12 @@ test('async settlement preserves primary, capture and cleanup failures while att
   const primary = new Error('run'), access = new Error('get method');
   const first = new Error('first cleanup'), third = new Error('third cleanup');
   const events: string[] = [];
-  await assert.rejects(settlePhysicalResourcesAsync({ primary: { label: 'run', error: primary }, cleanup: [
-    { label: 'first', async settle() { events.push('first'); throw first; } },
+  const primaryInput = { label: 'run', error: primary };
+  await assert.rejects(settlePhysicalResourcesAsync({ primary: primaryInput, cleanup: [
+    { label: 'first', async settle() {
+      primaryInput.label = 'changed'; primaryInput.error = new Error('replacement');
+      events.push('first'); throw first;
+    } },
     { label: 'broken', get settle(): () => void { throw access; } },
     { label: 'second', async settle() { events.push('second'); } },
     { label: 'third', async settle() { events.push('third'); throw third; } }

@@ -8,8 +8,6 @@ import {
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput
 } from '../../../src/entry/cli/workspace-command-input.ts';
 
-const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
-
 for (const value of [undefined, true]) {
   test(`write commands capture default and explicit boolean ${value}`, () => {
     assert.deepEqual(parseComposeCommandInput({ lock: value }), { lock: value ?? false });
@@ -60,15 +58,6 @@ for (const subject of ['plan', 'diagnostics']) {
     if (input.kind === 'execute') { assert.equal(input.subject, subject); assert.equal(input.targetVersion, '1'); }
   });
 }
-
-test('an upgrade without positional arguments retains the actual command in its usage error', () => {
-  assert.throws(() => parseUpgradeCommandInput(undefined, undefined, { dryRun: true }, 'custom upgrade'),
-    (error: unknown) => usage(error) && (error as Error).message.startsWith('Usage: custom upgrade '));
-});
-
-test('a missing upgrade target is rejected even when a dry run is requested', () => {
-  assert.throws(() => parseUpgradeCommandInput('block', undefined, { dryRun: true }, 'sec upgrade'), usage);
-});
 
 test('field definitions drive actual Commander registration', () => {
   const root = new Command().name('sec'); registerWorkspaceCommands(root);

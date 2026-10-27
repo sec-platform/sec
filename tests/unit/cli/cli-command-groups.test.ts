@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import { registerInspectionCommands } from '../../../src/bootstrap/cli/register-inspection-commands.ts';
 import { registerWorkspaceCommands } from '../../../src/bootstrap/cli/register-workspace-commands.ts';
 
-function program() {
+function program(name = 'sec') {
   let output = '';
-  const command = new Command().name('sec').exitOverride().configureOutput({
+  const command = new Command().name(name).exitOverride().configureOutput({
     writeOut: (value) => { output += value; }, writeErr: (value) => { output += value; }
   });
   registerWorkspaceCommands(command);
@@ -62,12 +62,19 @@ test('verification rejects an unknown lane before loading its executor', async (
 for (const [args, expectedCode] of [
   ...['repair','lock','artifacts']
     .map(name => [[name, 'not-a-mode'], 'commander.invalidArgument'] as const),
-  [['upgrade'], 'CLI-USAGE-001'],
-  [['upgrade', 'a-block'], 'CLI-USAGE-001']
+  [['upgrade', '--dry-run'], 'CLI-USAGE-001'],
+  [['upgrade', 'a-block', '--dry-run'], 'CLI-USAGE-001']
 ] as const) {
   test(`${args.join(' ')} rejects incomplete or invalid arguments before loading a domain`, async () => {
-    const { command } = program();
+    const renamedRoot = args[0] === 'upgrade' && args[1] === '--dry-run';
+    const { command } = program(renamedRoot ? 'custom' : 'sec');
     await assert.rejects(command.parseAsync([...args], { from: 'user' }),
-      (error: unknown) => (error as { code?: string }).code === expectedCode);
+      (error: unknown) => {
+        if ((error as { code?: string }).code !== expectedCode) return false;
+        if (args[0] === 'upgrade') {
+          assert.match((error as Error).message, renamedRoot ? /^Usage: custom upgrade /u : /^Usage: sec upgrade /u);
+        }
+        return true;
+      });
   });
 }

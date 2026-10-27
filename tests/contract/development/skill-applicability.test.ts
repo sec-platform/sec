@@ -123,39 +123,29 @@ test('Skill selection remains orthogonal to Task Capsule write and resource auth
   expect('scopeConflicts' in decision).toBeFalse();
 });
 
-test('candidate quarantine revisions are derived from exact Git objects', async () => {
-  await inGitProtocolRepository(async (root, git) => {
-    const repositoryPath = 'AGENTS.md';
-    writeFileSync(path.join(root, repositoryPath), 'Trusted fixture guidance\n');
-    gitProtocolSuccess(git(['add', '--', repositoryPath]));
-    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted fixture']));
-    const base = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
-    const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${base}:${repositoryPath}`])).trim();
-    writeFileSync(path.join(root, repositoryPath), 'Candidate fixture guidance\n');
-    writeFileSync(path.join(root, 'product.ts'), 'export const candidate = true;\n');
-    gitProtocolSuccess(git(['add', '--', repositoryPath, 'product.ts']));
-    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'candidate fixture']));
-    const head = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
-    const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${head}:${repositoryPath}`])).trim();
-    const changed = gitProtocolSuccess(git(['diff', '--name-only', '-z', base, head])).split('\0').filter(Boolean);
-    const plan = compileOperationReadPlan(planInput({ base, head, changedPaths: changed }));
-    const decision = evaluateSkillApplicability({
-      ...projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan),
-      trustedSkillRevisions: { [repositoryPath]: trustedBlob },
-      candidateSkillRevisions: { [repositoryPath]: candidateBlob }
-    });
-    expect(trustedBlob).not.toBe(candidateBlob);
-    expect(decision.status).toBe('applicable');
-    expect(decision.selectedSkillId).toBe('worker-development');
-    expect(decision.quarantinePaths).toEqual([repositoryPath]);
-    expect(decision.trustedSkillRevision).toBe(trustedBlob);
-    expect(decision.candidateSkillRevision).toBe(candidateBlob);
-    expect(decision.reasonCodes).toEqual(
-      expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
-    );
+test('candidate quarantine keeps distinct trusted and candidate revision observations', () => {
+  // The pure evaluator consumes observations; test-owned Git commits do not
+  // exercise the production revision observer.
+  const repositoryPath = 'AGENTS.md';
+  const trustedBlob = '3'.repeat(40);
+  const candidateBlob = '4'.repeat(40);
+  const plan = compileOperationReadPlan(planInput({
+    base: '1'.repeat(40), head: '2'.repeat(40), changedPaths: [repositoryPath, 'product.ts']
+  }));
+  const decision = evaluateSkillApplicability({
+    ...projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan),
+    trustedSkillRevisions: { [repositoryPath]: trustedBlob },
+    candidateSkillRevisions: { [repositoryPath]: candidateBlob }
   });
+  expect(decision.status).toBe('applicable');
+  expect(decision.selectedSkillId).toBe('worker-development');
+  expect(decision.quarantinePaths).toEqual([repositoryPath]);
+  expect(decision.trustedSkillRevision).toBe(trustedBlob);
+  expect(decision.candidateSkillRevision).toBe(candidateBlob);
+  expect(decision.reasonCodes).toEqual(
+    expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
+  );
 });
-
 
 test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner stays trusted through real observation, Capsule and Read Plan comparison', async () => {
   const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';

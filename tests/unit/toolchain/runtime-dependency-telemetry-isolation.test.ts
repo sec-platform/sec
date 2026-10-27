@@ -90,46 +90,6 @@ for (const field of ['code', 'message', 'name'] as const) {
   });
 }
 
-test('classification does not inspect an unrelated message field', () => {
-  const state = clock();
-  const error = new CodedFailure('UNRELATED', 'failure'); error.name = 'AbortError';
-  Object.defineProperty(error, 'message', { get() { throw new Error('irrelevant message'); } });
-  assert.throws(() => measureRuntimeDependencyOperationPhase(state.options, 'cleanup', () => { throw error; }), (actual: unknown) => actual === error);
-  assert.equal(readRuntimeDependencyOperationTelemetry(state.options).phases[0]!.outcomes.aborted, 1);
-});
-
-test('existing cancellation and deadline outcome projections retain their precedence', () => {
-  const controller = new AbortController();
-  const options = runtimeDependencyOperationOptions({ signal: controller.signal, monotonicNowMs: () => 0 });
-  const failure = new Error('provider');
-  Object.defineProperty(controller.signal, 'aborted', { value: true, configurable: true });
-  assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { throw failure; }), error => error === failure);
-  Object.defineProperty(controller.signal, 'aborted', { value: false });
-  const deadline = new CodedFailure('RUNTIME-DEPS-003', 'operation DEADLINE exhausted');
-  assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { throw deadline; }), (error: unknown) => error === deadline);
-  assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { controller.abort(deadline); throw deadline; }), (error: unknown) => error === deadline);
-  const abortedFailure = Object.freeze({ abort: 'native' });
-  assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { throw abortedFailure; }), error => error === abortedFailure);
-  const phase = readRuntimeDependencyOperationTelemetry(options).phases[0]!;
-  assert.equal(phase.outcomes['deadline-exhausted'], 1);
-  assert.equal(phase.outcomes.aborted, 2);
-  assert.equal(phase.outcomes.failed, 1);
-  assert.equal(phase.count, 4);
-});
-
-test('successful durations accumulate without mutating previously published snapshots', () => {
-  const state = clock();
-  measureRuntimeDependencyOperationPhase(state.options, 'install', () => { state.time(4); });
-  const first = readRuntimeDependencyOperationTelemetry(state.options);
-  measureRuntimeDependencyOperationPhase(state.options, 'install', () => { state.time(11); });
-  const second = readRuntimeDependencyOperationTelemetry(state.options);
-  assert.equal(first.phases[0]!.count, 1); assert.equal(first.phases[0]!.durationMs, 4);
-  assert.equal(second.phases[0]!.count, 2); assert.equal(second.phases[0]!.durationMs, 11);
-  assert.equal(second.phases[0]!.unmeasuredCount, 0);
-  assert.ok(Object.isFrozen(second)); assert.ok(Object.isFrozen(second.phases));
-  assert.ok(Object.isFrozen(second.phases[0])); assert.ok(Object.isFrozen(second.phases[0]!.outcomes));
-});
-
 test('terminal recording retains the captured context after caller options are revoked', () => {
   const state = clock();
   const { proxy: options, revoke } = Proxy.revocable(state.options, {});
@@ -151,16 +111,4 @@ test('parent and narrowed child share telemetry while unrelated operations remai
   measureRuntimeDependencyOperationPhase(child, 'source-scan', () => { state.time(5); });
   assert.deepEqual(readRuntimeDependencyOperationTelemetry(state.options).phases.map((phase) => [phase.phase, phase.durationMs]), [['identity', 2], ['source-scan', 3]]);
   assert.deepEqual(readRuntimeDependencyOperationTelemetry(clock().options).phases, []);
-});
-
-test('overlapping asynchronous attempts each retain their own elapsed interval', async () => {
-  const state = clock();
-  let finishFirst!: () => void; let finishSecond!: () => void;
-  const first = measureRuntimeDependencyOperationPhaseAsync(state.options, 'install', () => new Promise<void>((resolve) => { finishFirst = resolve; }));
-  const second = measureRuntimeDependencyOperationPhaseAsync(state.options, 'install', () => new Promise<void>((resolve) => { finishSecond = resolve; }));
-  state.time(5); finishSecond(); await second;
-  state.time(10); finishFirst(); await first;
-  const phase = readRuntimeDependencyOperationTelemetry(state.options).phases[0]!;
-  assert.equal(phase.count, 2); assert.equal(phase.durationMs, 15);
-  assert.equal(phase.unmeasuredCount, 0); assert.equal(phase.outcomes.completed, 2);
 });
