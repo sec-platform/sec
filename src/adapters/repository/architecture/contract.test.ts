@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 import { compilerRoot } from "../../workspace-context.ts";
 import { compileSourceProgramRepositoryModuleGraph } from '../source-program-model/source-program-module-graph.ts';
 import {
-  assertRepositoryModuleArchitectureBoundaries,
   assertRepositoryModuleImportBoundaries,
   assertRepositoryModuleSourceProgramBoundaries,
   collectRepositoryModuleBoundaryViolations,
@@ -645,88 +644,6 @@ test('repository topology projects same-owner file cycles from the canonical gra
   expect(compile([...files].reverse())).toEqual(topology);
 });
 
-test('cross-owner aggregate facades are TypeScript facts rather than index filename policy', () => {
-  const files = [
-    'src/consumer/use.ts',
-    'src/provider/public.ts',
-    'src/provider/contract.ts',
-    'src/provider/runtime/effect.ts'
-  ];
-  const consumer = repositoryModuleTestDescriptor('src/consumer');
-  const provider = repositoryModuleTestDescriptor('src/provider');
-  const membership = {
-    descriptors: [consumer, provider],
-    graphRoots: ['src'],
-    moduleRoots: ['src/consumer', 'src/provider'],
-    moduleForPath: (file: string) => file.startsWith('src/consumer/') ? consumer : provider
-  };
-
-  const publicGraph = compileSourceProgramRepositoryModuleGraph({
-    files: files,
-    readSource: (file) => file === 'src/consumer/use.ts'
-      ? "export type { Contract } from '../provider/contract.ts';"
-      : file === 'src/provider/contract.ts'
-        ? 'export interface Contract { readonly value: string; }'
-        : 'export const effect = true;'
-  });
-  expect(() => assertRepositoryModuleImportBoundaries(publicGraph, membership)).not.toThrow();
-
-  const aggregateGraph = compileSourceProgramRepositoryModuleGraph({
-    files: files,
-    readSource: (file) => file === 'src/consumer/use.ts'
-      ? "export type { Contract } from '../provider/public.ts';"
-      : file === 'src/provider/contract.ts'
-        ? 'export interface Contract { readonly value: string; }'
-        : file === 'src/provider/public.ts'
-          ? 'export type { Contract } from \'./contract.ts\';'
-          : 'export const effect = true;'
-  });
-  const sourceProgramFacts = {
-    files: files.map((path) => ({
-      path,
-      moduleId: path.startsWith('src/consumer/') ? consumer.moduleId : provider.moduleId,
-      surface: 'production' as const,
-      semanticKind: path === 'src/provider/public.ts'
-        ? 'pure-reexport' as const
-        : path === 'src/provider/runtime/effect.ts' || path === 'src/consumer/use.ts'
-          ? 'executable' as const
-          : 'declaration-owner' as const,
-      semanticObservationClass: 'derived' as const
-    })),
-    entrypoints: [],
-    entrypointClosures: [],
-    capabilities: []
-  };
-  const aggregateProjection = compileRepositoryModuleArchitectureProjection(
-    aggregateGraph,
-    membership,
-    sourceProgramFacts
-  );
-  expect(aggregateProjection.aggregateFacadePaths).toEqual(['src/provider/public.ts']);
-  expect(() => assertRepositoryModuleArchitectureBoundaries(
-    aggregateGraph,
-    membership,
-    sourceProgramFacts
-  ))
-    .toThrow('[cross-package-aggregate-surface]');
-
-  const implementationGraph = compileSourceProgramRepositoryModuleGraph({
-    files: files,
-    readSource: (file) => file === 'src/consumer/use.ts'
-      ? "export { effect } from '../provider/runtime/effect.ts';"
-      : file === 'src/provider/contract.ts'
-        ? 'export interface Contract { readonly value: string; }'
-        : 'export const effect = true;'
-  });
-  const implementationProjection = compileRepositoryModuleArchitectureProjection(
-    implementationGraph,
-    membership,
-    sourceProgramFacts
-  );
-  expect(implementationProjection.aggregateFacadePaths).toEqual([]);
-  expect(implementationProjection.violations).toEqual([]);
-});
-
 test('pre-dependency entrypoints cannot import an unavailable package', () => {
   const descriptor = parseRepositoryModuleDescriptor({
     importGraph: 'runtime',
@@ -759,30 +676,6 @@ test('repository module admission rejects retired src/apps and src/modules roots
       externalEntrypoints: []
     }, `${retiredRoot}/module.json`)).toThrow('retired repository root');
   }
-});
-
-test('repository module boundary compiler does not turn internal path spelling into policy', () => {
-  const consumer = repositoryModuleTestDescriptor('src/consumer');
-  const provider = repositoryModuleTestDescriptor('src/provider');
-  const graph = compileSourceProgramRepositoryModuleGraph({ files: [
-    'src/consumer/index.ts',
-    'src/provider/index.ts',
-    'src/provider/internal/private.ts',
-    'src/provider/operation.ts'
-  ], readSource: (file) => file === 'src/consumer/index.ts'
-    ? [
-      "import '../provider/internal/private.ts';",
-      "import '../provider/operation.ts';"
-    ].join('\n')
-    : 'export {};' });
-  const violations = collectRepositoryModuleBoundaryViolations(graph, {
-    descriptors: [consumer, provider],
-    graphRoots: ['src'],
-    moduleRoots: [consumer.root, provider.root],
-    moduleForPath: (file) => file.startsWith('src/consumer/') ? consumer : provider
-  });
-
-  expect(violations).toEqual([]);
 });
 
 test('repository module dependency cycles exclude test observation edges', () => {

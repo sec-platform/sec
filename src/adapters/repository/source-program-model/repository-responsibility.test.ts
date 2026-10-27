@@ -3,6 +3,8 @@ import { type BuildEngineeringIRInput } from '../../../compiler/ir/build-enginee
 import { buildValidatedEngineeringIR } from '../../../compiler/ir/validate-engineering-ir.ts';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
+  assertRepositoryModuleArchitectureBoundaries,
+  assertRepositoryModuleImportBoundaries,
   compileRepositoryModuleArchitectureProjection,
   compileRepositoryModuleMembershipSnapshot
 } from '../architecture/contract.ts';
@@ -13,12 +15,12 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
   const sources = new Map([
     [
       'src/public-contract/types.ts',
-      "import type { Runtime } from '../runtime-owner/service.ts';\n"
+      "import type { Runtime } from '../runtime-owner/internal/private.ts';\n"
       + 'export interface Contract { readonly runtime: Runtime; }\n'
     ],
     ['src/public-contract/facade.ts', "export type { Contract } from './types.ts';\n"],
     [
-      'src/runtime-owner/service.ts',
+      'src/runtime-owner/internal/private.ts',
       'export interface Runtime { readonly ready: boolean; }\n'
       + 'export function run(): Runtime { return { ready: true }; }\n'
     ],
@@ -27,7 +29,6 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
       "import type { Contract } from '../public-contract/facade.ts';\n"
       + 'export function main(_contract?: Contract): void {}\n'
     ],
-    ['src/declared-query/value.ts', 'export function read(): string { return \'value\'; }\n'],
     ['src/looks-like-query/value.ts', 'export function read(): string { return \'value\'; }\n']
   ]);
   const descriptors = [
@@ -49,10 +50,6 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
         importGraph: 'runtime',
         externalEntrypoints: ['src/command-owner/cli.ts']
       }
-    },
-    {
-      root: 'src/declared-query',
-      descriptor: { importGraph: 'runtime', externalEntrypoints: [] }
     },
     {
       root: 'src/looks-like-query',
@@ -83,6 +80,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     readSource: (path) => sources.get(path) ?? null
   });
   const projection = compileRepositoryModuleArchitectureProjection(graph, membership, model);
+  expect(() => assertRepositoryModuleImportBoundaries(graph, membership)).not.toThrow();
 
   expect(model.files).toContainEqual(expect.objectContaining({
     path: 'src/public-contract/facade.ts',
@@ -95,15 +93,25 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     semanticObservationClass: 'derived'
   }));
   expect(model.files).toContainEqual(expect.objectContaining({
-    path: 'src/runtime-owner/service.ts',
+    path: 'src/runtime-owner/internal/private.ts',
     semanticKind: 'executable',
     semanticObservationClass: 'derived'
   }));
   expect(projection.nodeResponsibilities.map(({ path, responsibility }) => [path, responsibility]))
-    .toContainEqual(['src/runtime-owner/service.ts', 'unknown']);
+    .toContainEqual(['src/runtime-owner/internal/private.ts', 'unknown']);
   expect(projection.nodeResponsibilities.map(({ path, responsibility }) => [path, responsibility]))
     .toContainEqual(['src/command-owner/cli.ts', 'unknown']);
-  expect(projection.aggregateFacadePaths).toContain('src/public-contract/facade.ts');
+  expect(projection.aggregateFacadePaths).toEqual(['src/public-contract/facade.ts']);
+  // The same real source model includes a direct cross-owner import from the
+  // contract to executable internal/private.ts: only the aggregate facade is forbidden.
+  expect(projection.violations.filter(({ code }) => code === 'cross-package-aggregate-surface'))
+    .toEqual([expect.objectContaining({
+      code: 'cross-package-aggregate-surface',
+      from: 'src/command-owner/cli.ts',
+      to: 'src/public-contract/facade.ts'
+    })]);
+  expect(() => assertRepositoryModuleArchitectureBoundaries(graph, membership, model))
+    .toThrow('[cross-package-aggregate-surface]');
   expect(projection.nodeResponsibilities).toContainEqual(expect.objectContaining({
     path: 'src/looks-like-query/value.ts',
     responsibility: 'unknown',
@@ -208,16 +216,6 @@ test('Source Program binds validated semantic intent to one exact exported decla
   });
   expect(projection.nodeResponsibilities).toEqual([
     expect.objectContaining({ path: sourcePath, responsibility: 'operation' })
-  ]);
-
-  const missingContract = structuredClone(semanticContract);
-  missingContract.contract.responsibilities[0]!.bindings![0]!.declaration.exportName = 'missing';
-  const missingSnapshot = buildValidatedEngineeringIR(engineeringInput(missingContract));
-  expect(compileSourceProgramResponsibilityEvidence(model, missingSnapshot)).toEqual([
-    expect.objectContaining({
-      observationClass: 'unknown',
-      reason: 'exported-declaration-missing'
-    })
   ]);
 
   for (const [declarationPath, exportName, reason] of [
