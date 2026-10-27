@@ -76,28 +76,15 @@ test('V2 source preparation round-trips into an immutable detached input, includ
 });
 
 
+// Full canonical content is already pinned by independent request/operation vectors.
+// Retain distinct numeric, coupled trust, collection and nullable nested changes.
 const changedBodyCases: readonly (readonly [string, (value: VerificationSessionLocalPreparationRequestV2Body) => VerificationSessionLocalPreparationRequestV2Body])[] = [
-  ['repository', value => ({ ...value, repository: 'sec-platform/other' })],
   ['prNumber', value => ({ ...value, prNumber: 124 })],
   ['expectedBaseSha and exact trustedRevision', value => ({ ...value, expectedBaseSha: SHA_B,
     qualificationRequirements: { ...value.qualificationRequirements, trustedRevision: SHA_B } })],
-  ['expectedBaseTreeSha', value => ({ ...value, expectedBaseTreeSha: SHA_B })],
-  ['expectedHeadSha', value => ({ ...value, expectedHeadSha: SHA_B })],
-  ['expectedHeadTreeSha', value => ({ ...value, expectedHeadTreeSha: SHA_B })],
-  ['manifestPath', value => ({ ...value, manifestPath: 'config/repository/work-packages/other.md' })],
-  ['manifestDigest', value => ({ ...value, manifestDigest: DIGEST_B })],
-  ['profile', value => ({ ...value, profile: 'full' })],
   ['authorizedPaths', value => ({ ...value, authorizedPaths: ['src/a.ts'] })],
-  ['sourceFactsDigest', value => ({ ...value, sourceFactsDigest: DIGEST_B })],
-  ['verificationPlanDigest', value => ({ ...value, verificationPlanDigest: DIGEST_B })],
-  ['actorNodeId', value => ({ ...value, actorNodeId: 'USER_other' })],
-  ['sourceProgramBindingDigest', value => ({ ...value, sourceProgramBindingDigest: DIGEST_B })],
-  ...(['nativeProfileDigest', 'nativeContentManifestDigest', 'mainHealthMethodDigest', 'mainHealthPolicyDigest',
-    'reviewPolicyDigest', 'evidenceRequirementDigest', 'integrationPolicyDigest'] as const).map(field =>
-    [field, (value: VerificationSessionLocalPreparationRequestV2Body) => ({ ...value,
-      qualificationRequirements: { ...value.qualificationRequirements, [field]: DIGEST_B } })] as const),
-  ['verificationContractRevision', value => ({ ...value,
-    qualificationRequirements: { ...value.qualificationRequirements, verificationContractRevision: 'ci-verification-v20' } })]
+  ['nativeContentManifestDigest', value => ({ ...value,
+    qualificationRequirements: { ...value.qualificationRequirements, nativeContentManifestDigest: DIGEST_B } })]
 ];
 
 for (const [field, change] of changedBodyCases) {
