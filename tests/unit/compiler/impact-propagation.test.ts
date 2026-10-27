@@ -1,4 +1,10 @@
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+
+import { buildEngineeringIR } from '../../../src/compiler/ir/build-engineering-ir.ts';
+import { digest, semanticRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
+import { deriveScenarioDefinitions } from '../../../src/compiler/ir/scenario-facts.ts';
+import { validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 
 import { buildFactDelta } from '../../../src/compiler/ir/build-fact-delta.ts';
 import { buildImpactPropagation } from '../../../src/compiler/semantic-impact/build-impact-propagation.ts';
@@ -12,7 +18,9 @@ import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../.
 import type { ValidatedEngineeringIRSnapshot } from '../../../src/semantics/engineering-ir/validated-types.ts';
 
 const APP_ID = 'app:impact';
-const GRAPH_ID = 'graph:impact';
+const input = { app: { id: 'impact', name: 'Impact' }, resolvedBlocks: [], manifests: [],
+  acceptanceIds: [], policyDeclarations: [] };
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 function entity(
   id: string,
@@ -30,21 +38,23 @@ function fact(
   object: string | unknown,
   authority: SemanticAuthority = 'authoritative'
 ): SemanticFact {
+  const factObject: SemanticFact['object'] = typeof object === 'string' && predicate !== 'GUARANTEES'
+    ? { kind: 'entity', entityId: object } : { kind: 'value', value: object as never };
+  const objectKey = factObject.kind === 'entity' ? `entity:${factObject.entityId}` : `value:${JSON.stringify(factObject.value)}`;
+  // Fixture wire preimage is encoded independently; expected path IDs below are fixed literals.
+  const factId = `fact:${hash(`${subject}\0${predicate}\0${objectKey}`).slice(0, 24)}`;
+  const provenance = [{ kind: authority === 'inferred' ? 'ai' as const : authority === 'observed' ? 'runtime' as const : 'contract' as const,
+    sourceId: `source:${id}:${authority}` }];
   return {
-    id,
+    id: factId,
     subject,
     predicate,
-    object: typeof object === 'string'
-      ? { kind: 'entity', entityId: object }
-      : { kind: 'value', value: object as never },
+    object: factObject,
     assertions: [{
-      id: `assertion:${id}:${authority}`,
+      id: `assertion:${hash([factId, authority, JSON.stringify(provenance)].join('\0')).slice(0, 24)}`,
       authority,
       confidence: authority === 'inferred' ? 0.5 : 1,
-      provenance: [{
-        kind: authority === 'inferred' ? 'ai' : authority === 'observed' ? 'runtime' : 'contract',
-        sourceId: `source:${id}:${authority}`
-      }],
+      provenance,
       evidence: [],
       validFromRevision: 'pending'
     }]
@@ -56,26 +66,15 @@ function snapshot(
   entities: readonly SemanticEntity[],
   facts: readonly SemanticFact[] = []
 ): ValidatedEngineeringIRSnapshot {
-  const semanticRevision = `sha256:${revision.padEnd(64, revision[0] ?? '0').slice(0, 64)}`;
-  const canonicalFacts = [...structuredClone(facts)]
-    .sort((left, right) => left.id.localeCompare(right.id));
-  for (const candidate of canonicalFacts) {
-    candidate.assertions.sort((left, right) => left.id.localeCompare(right.id));
-    for (const assertion of candidate.assertions) assertion.validFromRevision = semanticRevision;
-  }
-  return {
-    ir: {
-      formatVersion: '2',
-      graphId: GRAPH_ID,
-      inputRevision: `sha256:input-${revision}`,
-      semanticRevision,
-      appId: APP_ID,
-      entities: [entity(APP_ID, 'app'), ...structuredClone(entities)]
-        .sort((left, right) => left.id.localeCompare(right.id)),
-      facts: canonicalFacts,
-      scenarios: []
-    }
-  } as unknown as ValidatedEngineeringIRSnapshot;
+  const source = { ...input, app: { ...input.app, name: revision } };
+  const ir = buildEngineeringIR(source);
+  ir.entities = [entity(APP_ID, 'app', 'Impact'), ...structuredClone(entities)]
+    .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  ir.facts = [...structuredClone(facts)].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  ir.scenarios = deriveScenarioDefinitions(ir.entities, ir.facts);
+  ir.semanticRevision = `sha256:${digest(semanticRevisionPayload(ir.graphId, ir.appId, ir.entities, ir.facts, ir.scenarios))}`;
+  for (const candidate of ir.facts) for (const assertion of candidate.assertions) assertion.validFromRevision = ir.semanticRevision;
+  return validateEngineeringIR(ir, source);
 }
 
 function context(
@@ -107,7 +106,7 @@ function expectDeepFrozen(value: unknown): void {
 }
 
 test('empty canonical change is immutable, deterministic, and deeply frozen', () => {
-  const value = snapshot('a', [entity('entity:A')]);
+  const value = snapshot('a', [entity('entity:impact:A', 'entity')]);
   const from = context(value, 'tx:first-from');
   const to = context(value, 'tx:first-to');
   const delta = buildFactDelta(from, to);
@@ -131,20 +130,20 @@ test('empty canonical change is immutable, deterministic, and deeply frozen', ()
 
 test('entity merge-join covers add, remove, update, and empty Fact Delta', () => {
   const before = snapshot('b', [
-    entity('entity:removed'),
-    entity('entity:updated', 'entity', 'Before', [{ key: 'rank', value: 1 }])
+    entity('entity:impact:removed', 'entity'),
+    entity('entity:impact:updated', 'entity', 'Before', [{ key: 'rank', value: 1 }])
   ]);
   const after = snapshot('c', [
-    entity('entity:added'),
-    entity('entity:updated', 'entity', 'After', [{ key: 'rank', value: 2 }])
+    entity('entity:impact:added', 'entity'),
+    entity('entity:impact:updated', 'entity', 'After', [{ key: 'rank', value: 2 }])
   ]);
   const result = propagate(before, after);
 
   expect(result.seeds.map((seed) => [seed.basis, seed.kind, seed.anchorEntityId])).toEqual([
-    ['from', 'entity-removed', 'entity:removed'],
-    ['from', 'entity-updated', 'entity:updated'],
-    ['to', 'entity-added', 'entity:added'],
-    ['to', 'entity-updated', 'entity:updated']
+    ['from', 'entity-removed', 'entity:impact:removed'],
+    ['from', 'entity-updated', 'entity:impact:updated'],
+    ['to', 'entity-added', 'entity:impact:added'],
+    ['to', 'entity-updated', 'entity:impact:updated']
   ]);
   expect(result.seeds.filter((seed) => seed.kind === 'entity-updated')).toEqual(
     expect.arrayContaining([
@@ -155,21 +154,21 @@ test('entity merge-join covers add, remove, update, and empty Fact Delta', () =>
 });
 
 test('Fact seeds preserve endpoint basis and traverse only definite endpoint graphs', () => {
-  const entities = [entity('A'), entity('B'), entity('C'), entity('D')];
+  const entities = [entity('responsibility:impact:A'), entity('responsibility:impact:B'), entity('responsibility:impact:C'), entity('responsibility:impact:D')];
   const before = snapshot('e', entities, [
-    fact('fact:C-depends-B', 'C', 'DEPENDS_ON', 'B')
+    fact('fact:C-depends-B', 'responsibility:impact:C', 'DEPENDS_ON', 'responsibility:impact:B')
   ]);
   const after = snapshot('f', entities, [
-    fact('fact:B-depends-A', 'B', 'DEPENDS_ON', 'A'),
-    fact('fact:D-depends-B', 'D', 'DEPENDS_ON', 'B')
+    fact('fact:B-depends-A', 'responsibility:impact:B', 'DEPENDS_ON', 'responsibility:impact:A'),
+    fact('fact:D-depends-B', 'responsibility:impact:D', 'DEPENDS_ON', 'responsibility:impact:B')
   ]);
   const result = propagate(before, after);
 
   expect(result.seeds.map((seed) => [seed.basis, seed.kind, seed.anchorEntityId])).toEqual(
     expect.arrayContaining([
-      ['from', 'fact-removed', 'C'],
-      ['to', 'fact-added', 'B'],
-      ['to', 'fact-added', 'D']
+      ['from', 'fact-removed', 'responsibility:impact:C'],
+      ['to', 'fact-added', 'responsibility:impact:B'],
+      ['to', 'fact-added', 'responsibility:impact:D']
     ])
   );
   expect(result.seeds).toHaveLength(3);
@@ -177,38 +176,38 @@ test('Fact seeds preserve endpoint basis and traverse only definite endpoint gra
   expect(result.transitive).toEqual([]);
 
   const endpointEntities = [
-    entity('A', 'responsibility', 'Before'),
-    entity('C'),
-    entity('D'),
-    entity('E'),
-    entity('F')
+    entity('responsibility:impact:A', 'responsibility', 'Before'),
+    entity('responsibility:impact:C'),
+    entity('responsibility:impact:D'),
+    entity('responsibility:impact:E'),
+    entity('responsibility:impact:F')
   ];
   const stableEndpointFacts = [
-    fact('fact:E-depends-C', 'E', 'DEPENDS_ON', 'C'),
-    fact('fact:F-depends-D', 'F', 'DEPENDS_ON', 'D')
+    fact('fact:E-depends-C', 'responsibility:impact:E', 'DEPENDS_ON', 'responsibility:impact:C'),
+    fact('fact:F-depends-D', 'responsibility:impact:F', 'DEPENDS_ON', 'responsibility:impact:D')
   ];
   const entityBefore = snapshot('g', endpointEntities, [
-    fact('fact:C-depends-A', 'C', 'DEPENDS_ON', 'A'),
+    fact('fact:C-depends-A', 'responsibility:impact:C', 'DEPENDS_ON', 'responsibility:impact:A'),
     ...stableEndpointFacts
   ]);
   const entityAfter = snapshot('h', endpointEntities.map((value) =>
-    value.id === 'A' ? { ...value, label: 'After' } : value
+    value.id === 'responsibility:impact:A' ? { ...value, label: 'After' } : value
   ), [
-    fact('fact:D-depends-A', 'D', 'DEPENDS_ON', 'A'),
+    fact('fact:D-depends-A', 'responsibility:impact:D', 'DEPENDS_ON', 'responsibility:impact:A'),
     ...stableEndpointFacts
   ]);
   const endpointResult = propagate(entityBefore, entityAfter);
   expect(endpointResult.direct.map((entry) => [entry.basis, entry.entityId, entry.canonicalPath[0]?.factId]))
     .toEqual([
-      ['from', 'E', 'fact:E-depends-C'],
-      ['to', 'F', 'fact:F-depends-D']
+      ['from', 'responsibility:impact:E', 'fact:36276231b01c5ee36f6aae7f'],
+      ['to', 'responsibility:impact:F', 'fact:00f26a379b73b892c5f91551']
     ]);
 });
 
 test('assertion-only changes remain local while non-definite Fact roots become unknown', () => {
-  const entities = [entity('A'), entity('B'), entity('C')];
-  const baseFact = fact('fact:B-depends-A', 'B', 'DEPENDS_ON', 'A');
-  const dependent = fact('fact:C-depends-B', 'C', 'DEPENDS_ON', 'B');
+  const entities = [entity('responsibility:impact:A'), entity('responsibility:impact:B'), entity('responsibility:impact:C')];
+  const baseFact = fact('fact:B-depends-A', 'responsibility:impact:B', 'DEPENDS_ON', 'responsibility:impact:A');
+  const dependent = fact('fact:C-depends-B', 'responsibility:impact:C', 'DEPENDS_ON', 'responsibility:impact:B');
   const before = snapshot('i', entities, [baseFact, dependent]);
   const updated = structuredClone(baseFact);
   updated.assertions[0]!.confidence = 0.75;
@@ -217,17 +216,17 @@ test('assertion-only changes remain local while non-definite Fact roots become u
   const result = propagate(before, after);
 
   expect(result.seeds.map((seed) => [seed.basis, seed.kind, seed.anchorEntityId])).toEqual([
-    ['from', 'assertion-updated', 'B'],
-    ['to', 'assertion-updated', 'B']
+    ['from', 'assertion-updated', 'responsibility:impact:B'],
+    ['to', 'assertion-updated', 'responsibility:impact:B']
   ]);
   expect(result.direct).toEqual([]);
   expect(result.transitive).toEqual([]);
 
   const inferred = snapshot('k', entities, [fact(
-    'fact:B-depends-A-inferred',
-    'B',
+    'fact:B-depends-A',
+    'responsibility:impact:B',
     'DEPENDS_ON',
-    'A',
+    'responsibility:impact:A',
     'inferred'
   )]);
   const inferredResult = propagate(snapshot('l', entities), inferred);
@@ -236,8 +235,8 @@ test('assertion-only changes remain local while non-definite Fact roots become u
     expect.objectContaining({
       basis: 'to',
       reasonCode: 'non-definite-authority',
-      boundaryEntityId: 'B',
-      factId: 'fact:B-depends-A-inferred'
+      boundaryEntityId: 'responsibility:impact:B',
+      factId: 'fact:83e4da92860c9a323319bc2b'
     })
   ]);
 });
@@ -271,48 +270,49 @@ test('propagation registry covers every predicate with canonical executable edge
 });
 
 test('deterministic closure handles diamond, cycle, shortest witness, causes, and disconnected nodes', () => {
-  const entities = ['A', 'B', 'C', 'D', 'X', 'Y'].map((id) =>
-    entity(id, 'responsibility', id === 'A' ? 'Before' : id)
+  const entities = ['responsibility:impact:A', 'responsibility:impact:B', 'responsibility:impact:C', 'responsibility:impact:D', 'responsibility:impact:X', 'responsibility:impact:Y'].map((id) =>
+    entity(id, 'responsibility', id === 'responsibility:impact:A' ? 'Before' : id)
   );
   const graph = [
-    fact('fact:A-depends-D', 'A', 'DEPENDS_ON', 'D'),
-    fact('fact:B-depends-A', 'B', 'DEPENDS_ON', 'A'),
-    fact('fact:C-depends-A', 'C', 'DEPENDS_ON', 'A'),
-    fact('fact:D-depends-B', 'D', 'DEPENDS_ON', 'B'),
-    fact('fact:D-depends-C', 'D', 'DEPENDS_ON', 'C'),
-    fact('fact:Y-depends-X', 'Y', 'DEPENDS_ON', 'X')
+    fact('fact:A-depends-D', 'responsibility:impact:A', 'DEPENDS_ON', 'responsibility:impact:D'),
+    fact('fact:B-depends-A', 'responsibility:impact:B', 'DEPENDS_ON', 'responsibility:impact:A'),
+    fact('fact:C-depends-A', 'responsibility:impact:C', 'DEPENDS_ON', 'responsibility:impact:A'),
+    fact('fact:D-depends-B', 'responsibility:impact:D', 'DEPENDS_ON', 'responsibility:impact:B'),
+    fact('fact:D-depends-C', 'responsibility:impact:D', 'DEPENDS_ON', 'responsibility:impact:C'),
+    fact('fact:Y-depends-X', 'responsibility:impact:Y', 'DEPENDS_ON', 'responsibility:impact:X')
   ];
   const before = snapshot('m', entities, graph);
   const after = snapshot('n', entities.map((value) =>
-    value.id === 'A' ? { ...value, label: 'After' } : value
+    value.id === 'responsibility:impact:A' ? { ...value, label: 'After' } : value
   ), graph);
   const result = propagate(before, after);
 
   for (const basis of ['from', 'to'] as const) {
     expect(result.direct.filter((entry) => entry.basis === basis).map((entry) => entry.entityId))
-      .toEqual(['B', 'C']);
+      .toEqual(['responsibility:impact:B', 'responsibility:impact:C']);
     const transitive = result.transitive.filter((entry) => entry.basis === basis);
-    expect(transitive.map((entry) => entry.entityId)).toEqual(['D']);
+    expect(transitive.map((entry) => entry.entityId)).toEqual(['responsibility:impact:D']);
+    // Both routes have length two; the canonical C route has the smaller first Fact ID.
     expect(transitive[0]?.canonicalPath.map((step) => step.factId)).toEqual([
-      'fact:B-depends-A',
-      'fact:D-depends-B'
+      'fact:5296792c120f4b48b5d9f91e',
+      'fact:5a7c00164d0e5d3093479f7c'
     ]);
-    expect(result.direct.some((entry) => entry.entityId === 'A')).toBe(false);
-    expect(result.transitive.some((entry) => ['A', 'X', 'Y'].includes(entry.entityId))).toBe(false);
+    expect(result.direct.some((entry) => entry.entityId === 'responsibility:impact:A')).toBe(false);
+    expect(result.transitive.some((entry) => ['responsibility:impact:A', 'responsibility:impact:X', 'responsibility:impact:Y'].includes(entry.entityId))).toBe(false);
   }
 
   const twoSeedsBefore = snapshot('o', [
-    entity('A', 'responsibility', 'Before A'),
-    entity('C', 'responsibility', 'Before C'),
-    entity('D')
+    entity('responsibility:impact:A', 'responsibility', 'Before A'),
+    entity('responsibility:impact:C', 'responsibility', 'Before C'),
+    entity('responsibility:impact:D')
   ], [
-    fact('fact:D-depends-A', 'D', 'DEPENDS_ON', 'A'),
-    fact('fact:D-depends-C', 'D', 'DEPENDS_ON', 'C')
+    fact('fact:D-depends-A', 'responsibility:impact:D', 'DEPENDS_ON', 'responsibility:impact:A'),
+    fact('fact:D-depends-C', 'responsibility:impact:D', 'DEPENDS_ON', 'responsibility:impact:C')
   ]);
   const twoSeedsAfter = snapshot('p', [
-    entity('A', 'responsibility', 'After A'),
-    entity('C', 'responsibility', 'After C'),
-    entity('D')
+    entity('responsibility:impact:A', 'responsibility', 'After A'),
+    entity('responsibility:impact:C', 'responsibility', 'After C'),
+    entity('responsibility:impact:D')
   ], twoSeedsBefore.ir.facts);
   const twoSeeds = propagate(twoSeedsBefore, twoSeedsAfter);
   expect(twoSeeds.direct.find((entry) => entry.basis === 'from')?.seedIds).toHaveLength(2);
@@ -320,27 +320,27 @@ test('deterministic closure handles diamond, cycle, shortest witness, causes, an
 
 test('unknown frontiers cover both adjacency directions, value stops, self-edge dedupe, and no dynamic output', () => {
   const before = snapshot('q', [
-    entity('A', 'operation', 'Before'),
-    entity('B', 'operation'),
-    entity('S', 'state')
+    entity('operation:impact:A', 'operation', 'Before'),
+    entity('operation:impact:B', 'operation'),
+    entity('state:impact:S', 'state')
   ], [
-    fact('fact:A-invokes-A', 'A', 'INVOKES', 'A'),
-    fact('fact:A-invokes-B', 'A', 'INVOKES', 'B'),
-    fact('fact:B-invokes-A', 'B', 'INVOKES', 'A'),
-    { ...fact('fact:S-guarantees', 'S', 'GUARANTEES', 'ready'), object: { kind: 'value', value: 'ready' } }
+    fact('fact:A-invokes-A', 'operation:impact:A', 'INVOKES', 'operation:impact:A'),
+    fact('fact:A-invokes-B', 'operation:impact:A', 'INVOKES', 'operation:impact:B'),
+    fact('fact:B-invokes-A', 'operation:impact:B', 'INVOKES', 'operation:impact:A'),
+    fact('fact:S-guarantees', 'state:impact:S', 'GUARANTEES', 'ready')
   ]);
   const after = snapshot('r', before.ir.entities
     .filter((value) => value.id !== APP_ID)
-    .map((value) => ['A', 'S'].includes(value.id) ? { ...value, label: 'After' } : value), before.ir.facts);
+    .map((value) => ['operation:impact:A', 'state:impact:S'].includes(value.id) ? { ...value, label: 'After' } : value), before.ir.facts);
   const result = propagate(before, after);
 
   for (const basis of ['from', 'to'] as const) {
     const basisUnknown = result.uncertainties.filter((entry) => entry.basis === basis);
-    expect(basisUnknown.filter((entry) => entry.factId === 'fact:A-invokes-A')).toHaveLength(1);
+    expect(basisUnknown.filter((entry) => entry.factId === 'fact:8b4112b0455a80140d61e64e')).toHaveLength(1);
     expect(basisUnknown).toEqual(expect.arrayContaining([
-      expect.objectContaining({ factId: 'fact:A-invokes-B', reasonCode: 'unregistered-active-predicate' }),
-      expect.objectContaining({ factId: 'fact:B-invokes-A', reasonCode: 'unregistered-active-predicate' }),
-      expect.objectContaining({ factId: 'fact:S-guarantees', reasonCode: 'value-object-boundary' })
+      expect.objectContaining({ factId: 'fact:faec540f48e6b23cd39feb6c', reasonCode: 'unregistered-active-predicate' }),
+      expect.objectContaining({ factId: 'fact:0e3982ba3444ac1ff58b1111', reasonCode: 'unregistered-active-predicate' }),
+      expect.objectContaining({ factId: 'fact:a66116225934fe2dcd8ab28d', reasonCode: 'value-object-boundary' })
     ]));
   }
   expect(result.uncertainties.every((entry) => entry.classification === 'unknown')).toBe(true);
@@ -352,18 +352,21 @@ test('verification recommendations retain exact selectors and classify missing/n
     entity('artifact:one', 'artifact', 'Before artifact'),
     entity('policy:semantic', 'policy', 'Before policy'),
     entity('policy:verification', 'policy'),
-    entity('scenario:mapped', 'scenario', 'Before mapped'),
-    entity('scenario:missing', 'scenario', 'Before missing')
+    entity('scenario:impact:mapped', 'scenario', 'Before mapped'),
+    entity('scenario:impact:missing', 'scenario', 'Before missing'),
+    entity('operation:impact:entry', 'operation')
   ];
   const mappings = [
     fact('fact:artifact-acceptance', 'artifact:one', 'VERIFIED_BY', 'acceptance:one'),
     fact('fact:artifact-selector', 'artifact:one', 'VERIFIED_BY', { selector: '  Test:Exact  ' }),
     fact('fact:policy-mapping', 'policy:semantic', 'VERIFIED_BY', 'policy:verification'),
-    fact('fact:scenario-acceptance', 'scenario:mapped', 'VERIFIED_BY', 'acceptance:one')
+    fact('fact:scenario-acceptance', 'scenario:impact:mapped', 'VERIFIED_BY', 'acceptance:one'),
+    fact('fact:mapped-entry', 'scenario:impact:mapped', 'INVOKES', 'operation:impact:entry'),
+    fact('fact:missing-entry', 'scenario:impact:missing', 'INVOKES', 'operation:impact:entry')
   ];
   const before = snapshot('s', entities, mappings);
   const after = snapshot('t', entities.map((value) =>
-    ['acceptance:one', 'artifact:one', 'policy:semantic', 'scenario:mapped', 'scenario:missing'].includes(value.id)
+    ['acceptance:one', 'artifact:one', 'policy:semantic', 'scenario:impact:mapped', 'scenario:impact:missing'].includes(value.id)
       ? { ...value, label: `After ${value.id}` }
       : value
   ), mappings);
@@ -382,13 +385,13 @@ test('verification recommendations retain exact selectors and classify missing/n
     }),
     expect.objectContaining({
       reasonCode: 'verification-mapping-missing',
-      boundaryEntityId: 'scenario:missing'
+      boundaryEntityId: 'scenario:impact:missing'
     })
   ]));
 
   const inferredMapping = fact(
     'fact:scenario-verification-inferred',
-    'scenario:missing',
+    'scenario:impact:missing',
     'VERIFIED_BY',
     'acceptance:one',
     'inferred'
@@ -401,8 +404,8 @@ test('verification recommendations retain exact selectors and classify missing/n
   expect(inferredResult.uncertainties).toContainEqual(expect.objectContaining({
     basis: 'to',
     reasonCode: 'non-definite-authority',
-    boundaryEntityId: 'scenario:missing',
-    factId: 'fact:scenario-verification-inferred'
+    boundaryEntityId: 'scenario:impact:missing',
+    factId: 'fact:22111aad6a1b1fd5e80017ec'
   }));
 
   const updatedMapping = structuredClone(mappings[3]!);
@@ -411,7 +414,8 @@ test('verification recommendations retain exact selectors and classify missing/n
     snapshot('verification-assertion-from', entities, mappings),
     snapshot('verification-assertion-to', entities, [
       ...mappings.slice(0, 3),
-      updatedMapping
+      updatedMapping,
+      ...mappings.slice(4)
     ])
   );
   expect(assertionOnlyResult.verification).toContainEqual(expect.objectContaining({

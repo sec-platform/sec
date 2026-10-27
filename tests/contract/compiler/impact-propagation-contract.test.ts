@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { buildEngineeringIR } from '../../../src/compiler/ir/build-engineering-ir.ts';
+import { validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 
 import { sha256 } from '../../../src/contracts/canonical.ts';
 
@@ -8,47 +11,40 @@ import type { FactDeltaEndpointContext } from '../../../src/semantics/engineerin
 import type { SemanticFact } from '../../../src/semantics/engineering-ir/fact-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../../src/semantics/engineering-ir/validated-types.ts';
 
-const FROM_SEMANTIC_REVISION = `sha256:${'1'.repeat(64)}`;
-const TO_SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
+const hash = (text: string): string => createHash('sha256').update(text).digest('hex');
+const FACT_ID = `fact:${hash('responsibility:impact:B\0DEPENDS_ON\0entity:responsibility:impact:A').slice(0, 24)}`;
+const PROVENANCE = [{ kind: 'contract' as const, sourceId: 'contract:impact-vector' }];
 
-function dependencyFact(validFromRevision: string): SemanticFact {
-  return {
-    id: 'fact:B-depends-A',
-    subject: 'responsibility:B',
-    predicate: 'DEPENDS_ON',
-    object: { kind: 'entity', entityId: 'responsibility:A' },
+function vectorSnapshot(inputName: string, label: string): ValidatedEngineeringIRSnapshot {
+  const input = { app: { id: 'impact-contract', name: inputName },
+    resolvedBlocks: [], manifests: [], acceptanceIds: [], policyDeclarations: [] };
+  const ir = buildEngineeringIR(input);
+  // Cached IR admission binds the input digest separately from semantic material.
+  // Keep the semantic label fixed while varying the source/audit coordinate.
+  ir.entities = [
+    { id: 'app:impact-contract', kind: 'app', label: 'Impact Contract', attributes: [] },
+    { id: 'responsibility:impact:A', kind: 'responsibility', label, attributes: [] },
+    { id: 'responsibility:impact:B', kind: 'responsibility', label: 'B', attributes: [] }
+  ];
+  const fact: SemanticFact = {
+    id: FACT_ID, subject: 'responsibility:impact:B', predicate: 'DEPENDS_ON',
+    object: { kind: 'entity', entityId: 'responsibility:impact:A' },
     assertions: [{
-      id: 'assertion:B-depends-A',
-      authority: 'authoritative',
-      confidence: 1,
-      provenance: [{ kind: 'contract', sourceId: 'contract:impact-vector' }],
-      evidence: [],
-      validFromRevision
+      id: `assertion:${hash([FACT_ID, 'authoritative', JSON.stringify(PROVENANCE)].join('\0')).slice(0, 24)}`,
+      authority: 'authoritative', confidence: 1, provenance: PROVENANCE,
+      evidence: [], validFromRevision: 'pending'
     }]
   };
-}
-
-function vectorSnapshot(
-  semanticRevision: string,
-  inputRevision: string,
-  label: string
-): ValidatedEngineeringIRSnapshot {
-  return {
-    ir: {
-      formatVersion: '2',
-      graphId: 'graph:impact-contract',
-      inputRevision,
-      semanticRevision,
-      appId: 'app:impact-contract',
-      entities: [
-        { id: 'app:impact-contract', kind: 'app', label: 'Impact Contract', attributes: [] },
-        { id: 'responsibility:A', kind: 'responsibility', label, attributes: [] },
-        { id: 'responsibility:B', kind: 'responsibility', label: 'B', attributes: [] }
-      ],
-      facts: [dependencyFact(semanticRevision)],
-      scenarios: []
-    }
-  } as unknown as ValidatedEngineeringIRSnapshot;
+  ir.facts = [fact];
+  // Independent wire preimage, not the production revision-payload helper.
+  ir.semanticRevision = `sha256:${hash(JSON.stringify({
+    formatVersion: '2', graphId: 'engineering-ir:impact-contract', appId: 'app:impact-contract',
+    entities: ir.entities,
+    facts: [{ ...fact, assertions: fact.assertions.map(({ validFromRevision: _revision, ...claim }) => claim) }],
+    scenarios: []
+  }))}`;
+  fact.assertions[0]!.validFromRevision = ir.semanticRevision;
+  return validateEngineeringIR(ir, input);
 }
 
 function endpoint(
@@ -68,16 +64,8 @@ function vector(
   toTransaction = 'tx:to',
   inputSuffix = 'original'
 ) {
-  const before = vectorSnapshot(
-    FROM_SEMANTIC_REVISION,
-    `sha256:input-from-${inputSuffix}`,
-    'Before A'
-  );
-  const after = vectorSnapshot(
-    TO_SEMANTIC_REVISION,
-    `sha256:input-to-${inputSuffix}`,
-    'After A'
-  );
+  const before = vectorSnapshot(`input-from-${inputSuffix}`, 'Before A');
+  const after = vectorSnapshot(`input-to-${inputSuffix}`, 'After A');
   const from = endpoint(before, fromTransaction);
   const to = endpoint(after, toTransaction);
   const delta = buildFactDelta(from, to);
@@ -85,49 +73,49 @@ function vector(
 }
 
 test('independent impact vector binds propagation evidence while excluding audit coordinates', () => {
-  const { delta, result } = vector();
+  const { before, after, delta, result } = vector();
   const fromSeedId = sha256({
     domain: 'engineering-ir-impact-seed-v1',
     kind: 'entity-updated',
     basis: 'from',
-    entityId: 'responsibility:A'
+    entityId: 'responsibility:impact:A'
   });
   const toSeedId = sha256({
     domain: 'engineering-ir-impact-seed-v1',
     kind: 'entity-updated',
     basis: 'to',
-    entityId: 'responsibility:A'
+    entityId: 'responsibility:impact:A'
   });
   const expectedSeeds = [
     {
       id: fromSeedId,
       kind: 'entity-updated',
       basis: 'from',
-      entityId: 'responsibility:A',
-      anchorEntityId: 'responsibility:A',
+      entityId: 'responsibility:impact:A',
+      anchorEntityId: 'responsibility:impact:A',
       changedFields: ['label']
     },
     {
       id: toSeedId,
       kind: 'entity-updated',
       basis: 'to',
-      entityId: 'responsibility:A',
-      anchorEntityId: 'responsibility:A',
+      entityId: 'responsibility:impact:A',
+      anchorEntityId: 'responsibility:impact:A',
       changedFields: ['label']
     }
   ] as const;
   const pathStep = {
-    factId: 'fact:B-depends-A',
+    factId: FACT_ID,
     predicate: 'DEPENDS_ON',
     ruleVariantId: 'impact.depends-on.object-to-subject.v1',
     direction: 'object-to-subject',
-    fromEntityId: 'responsibility:A',
-    toEntityId: 'responsibility:B'
+    fromEntityId: 'responsibility:impact:A',
+    toEntityId: 'responsibility:impact:B'
   } as const;
   const expectedDirect = [
     {
       basis: 'from',
-      entityId: 'responsibility:B',
+      entityId: 'responsibility:impact:B',
       level: 'direct',
       distance: 1,
       seedIds: [fromSeedId],
@@ -135,7 +123,7 @@ test('independent impact vector binds propagation evidence while excluding audit
     },
     {
       basis: 'to',
-      entityId: 'responsibility:B',
+      entityId: 'responsibility:impact:B',
       level: 'direct',
       distance: 1,
       seedIds: [toSeedId],
@@ -154,15 +142,15 @@ test('independent impact vector binds propagation evidence while excluding audit
     contractVersion: '1',
     scope: 'fact-delta+validated-graph',
     formatVersion: '2',
-    graphId: 'graph:impact-contract',
+    graphId: 'engineering-ir:impact-contract',
     appId: 'app:impact-contract',
     deltaRevision: delta.deltaRevision,
     from: {
-      semanticRevision: FROM_SEMANTIC_REVISION,
+      semanticRevision: before.ir.semanticRevision,
       factSetDigest: delta.fromFactSetDigest
     },
     to: {
-      semanticRevision: TO_SEMANTIC_REVISION,
+      semanticRevision: after.ir.semanticRevision,
       factSetDigest: delta.toFactSetDigest
     },
     propagationRuleRevision: 'impact-propagation-rules-v1',
@@ -173,7 +161,10 @@ test('independent impact vector binds propagation evidence while excluding audit
     verification: []
   });
   expect(result.impactRevision).toBe(expectedRevision);
-  const alternate = vector('tx:alternate-from', 'tx:alternate-to', 'alternate').result;
+  const alternateVector = vector('tx:alternate-from', 'tx:alternate-to', 'alternate');
+  expect(alternateVector.before.ir.inputRevision).not.toBe(before.ir.inputRevision);
+  expect(alternateVector.after.ir.inputRevision).not.toBe(after.ir.inputRevision);
+  const alternate = alternateVector.result;
 
   expect(alternate.fromSemanticRevision).toBe(result.fromSemanticRevision);
   expect(alternate.toSemanticRevision).toBe(result.toSemanticRevision);

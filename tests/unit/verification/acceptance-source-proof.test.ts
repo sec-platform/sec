@@ -132,10 +132,13 @@ test('fast and runtime files close every declared semantic acceptance', async ()
 
 test('missing, unexecuted or unmapped source evidence cannot close acceptance coverage', async () => {
   {
-    const input = fixture();
-    expect(buildAcceptanceCoverageReport(input).acceptancePassed).toEqual(['invoice_total']);
     const empty = fixture(); empty.fast.acceptance.passed = [];
-    expect(buildAcceptanceCoverageReport(empty).acceptancePassed).toEqual([]);
+    empty.runtime = runtime([]);
+    const emptyCoverage = buildAcceptanceCoverageReport(empty);
+    expect(emptyCoverage.acceptancePassed).toEqual([]);
+    expect(emptyCoverage.blocks.map(({ id, uncovered }) => ({ id, uncovered })))
+      .toEqual([{ id: 'billing/invoice', uncovered: true }]);
+    expect(emptyCoverage.uncoveredBlocks).toEqual(['billing/invoice']);
     const skipped = fixture(); skipped.fast.acceptance.status = 'skipped';
     expect(buildAcceptanceCoverageReport(skipped).acceptancePassed).toEqual([]);
     const helper = fixture(); helper.lock.installPlan.push({ ...helper.lock.installPlan[0]!, to: 'tests/acceptance/helpers.ts' });
@@ -195,15 +198,6 @@ test('missing, unexecuted or unmapped source evidence cannot close acceptance co
       uncovered: true
     });
     expect(partial.uncoveredBlocks).toEqual(['target/block']);
-
-    const empty = await buildAcceptanceCoverage(
-      '.',
-      currentLock,
-      runtime([]),
-      fast([])
-    );
-    expect(empty.acceptancePassed).toEqual([]);
-    expect(empty.blocks.every((entry) => entry.uncovered)).toBe(true);
   }
 });
 

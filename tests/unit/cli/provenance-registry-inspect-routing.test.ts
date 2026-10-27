@@ -2,8 +2,6 @@ import { expect, test } from 'bun:test';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceProvenancePath } from '../../../src/adapters/workspace-context.ts';
-import { projectProvenanceRegistryInspect } from '../../../src/application/provenance-registry-inspect.ts';
-import { formatProvenanceRegistry } from '../../../src/entry/cli/provenance-registry-inspect.ts';
 import { expectCliJson, expectCliSuccess, runCliInProcess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
@@ -15,6 +13,7 @@ test('provenance inspection routes text through application and entry while pres
         originType: 'block',
         originId: 'block-a',
         registrySourceId: 'official',
+        generatedByPass: 'compose',
         verifiedBy: ['verify:a'],
         overrideStatus: 'none'
       },
@@ -44,25 +43,12 @@ test('provenance inspection routes text through application and entry while pres
         path: 'src/generated-b.ts',
         originType: 'generated',
         originId: 'generated-b',
-        generatedByPass: 'compose',
         verifiedBy: [] as string[],
         overrideStatus: 'none'
       }
     ]
   };
   const provenance = { formatVersion: '1', artifacts: source.artifacts };
-
-  // A generated artifact without a declared producing pass is not an
-  // empty-string pass. Retain this absence boundary next to the real CLI
-  // consumer instead of a separate projection-only registration.
-  const unboundPass = projectProvenanceRegistryInspect({ artifacts: [{
-    path: 'src/no-pass.ts', originType: 'generated', originId: 'unbound',
-    verifiedBy: [], overrideStatus: 'none'
-  }] });
-  expect(unboundPass.generatedPasses).toEqual([]);
-  const absentPasses = formatProvenanceRegistry(unboundPass).split('\n')
-    .find(line => line.startsWith('Generated passes:'));
-  expect(absentPasses).toContain('none');
 
   await withTempWorkspace(async (workspaceRoot) => {
     const missing = await runCliInProcess(workspaceRoot, ['provenance']);
@@ -83,8 +69,8 @@ test('provenance inspection routes text through application and entry while pres
     }
     expect(text).toMatch(/Registry sources[^\n]*\bofficial=1(?=$|[\s;,()])/u);
     const passes = text.split('\n').find((line) => /^Generated passes\b/u.test(line));
-    expect(passes).toMatch(/\bcompose(?=$|[\s;,()])/u);
-    expect(passes).toMatch(/\bemit(?=$|[\s;,()])/u);
+    expect(passes?.slice('Generated passes:'.length).split(',').map(value => value.trim()))
+      .toEqual(['compose', 'emit']);
     // Check each risk against its artifact; a correct word on the wrong row is insufficient.
     for (const [path, fields] of [
       ['src/block-a.ts', ['origin=block:block-a', 'registry=official', 'verifiedBy=verify:a', 'override=none']],
