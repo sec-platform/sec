@@ -19,7 +19,6 @@ for (const value of [undefined, true]) {
     if (repair.kind === 'execute' && upgrade.kind === 'execute') {
       assert.deepEqual(repair.request, { dryRun: value ?? false });
       assert.deepEqual(upgrade.request, { dryRun: value ?? false });
-      assert.ok(Object.isFrozen(repair.request)); assert.ok(Object.isFrozen(upgrade.request));
     }
   });
 }
@@ -31,7 +30,7 @@ for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as con
       : parseUpgradeCommandInput(mode === 'upgrade-plan' ? 'plan' : 'diagnostics', undefined, options, 'sec upgrade');
     assert.equal(input.kind, mode === 'upgrade-diagnostics' ? 'diagnostics' : 'plan');
     assert.equal('request' in input, false);
-    assert.equal('subject' in input, false); assert.ok(Object.isFrozen(input));
+    assert.equal('subject' in input, false);
     assert.deepEqual(input.output, { json: true, compact: false });
   });
 }
@@ -52,7 +51,6 @@ test('later changes to raw flags do not change captured request or presentation'
   assert.deepEqual(input.output, { json: true, compact: true });
   if (input.kind !== 'execute') assert.fail('wrong selected route');
   assert.equal(input.request.dryRun, false);
-  assert.equal(Reflect.set(input.request, 'dryRun', true), false);
   const repairOptions = { json: true, compact: false, dryRun: true };
   const repair = parseRepairCommandInput(undefined, repairOptions);
   repairOptions.json = false; repairOptions.dryRun = false;

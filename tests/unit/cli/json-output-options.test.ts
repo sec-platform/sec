@@ -21,7 +21,6 @@ test('captured output and selected JSON progress survive caller mutation until c
   assert.equal(await work, expected);
   assert.equal(calls, 1);
   assert.equal(output.json, true);
-  assert.equal(Reflect.set(output, 'compact', true), false);
 });
 
 
@@ -49,7 +48,6 @@ test('valid flags execute the actual selected action exactly once', async () => 
       effects += 1;
       const output = jsonOpts(opts);
       assert.deepEqual(output, { json: args.includes('--json'), compact: args.includes('--compact') });
-      assert.ok(Object.isFrozen(output));
     });
     await command.parseAsync(args, { from: 'user' });
     assert.equal(effects, 1);

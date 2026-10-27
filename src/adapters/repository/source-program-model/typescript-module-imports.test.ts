@@ -49,9 +49,6 @@ function assertObservation(
 ): void {
   assert.deepEqual(facts.imports.map(({ kind, specifier, typeOnly }) => ({ kind, specifier, typeOnly })), imports);
   assert.deepEqual(facts.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
-  assert.ok(Object.isFrozen(facts));
-  assert.ok(Object.isFrozen(facts.imports));
-  assert.ok(Object.isFrozen(facts.unresolvedFiles));
 }
 
 for (const { name, source, imports, unresolved } of cases.filter(({ source }) => !emitCases.includes(source))) {

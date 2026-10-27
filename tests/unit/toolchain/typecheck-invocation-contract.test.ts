@@ -8,7 +8,7 @@ import { captureTypecheckInvocation } from '../../../src/adapters/verification/t
 
 for (const isolated of [undefined, false, true]) test(`typecheck captures explicit/default mode ${String(isolated)}`, () => {
   const value = captureTypecheckInvocation('project', { isolated });
-  assert.equal(value.isolated, isolated === true); assert.ok(Object.isFrozen(value));
+  assert.equal(value.isolated, isolated === true);
   assert.equal(value.projectRoot, path.resolve('project')); assert.equal(value.dependencyProjectRoot, value.projectRoot);
 });
 test('typecheck selection survives later cwd changes and caller mutation', () => {

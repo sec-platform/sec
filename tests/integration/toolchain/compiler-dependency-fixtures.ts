@@ -334,14 +334,6 @@ async function runFixtureGit(workspaceRoot: string, args: string[]): Promise<str
   return result.stdout.trim();
 }
 
-async function withLinkedWorktreeTempWorkspace<T>(callback: (root: string) => Promise<T>): Promise<T> {
-  const root = await fs.mkdtemp(path.join(tmpdir(), LINKED_WORKTREE_TEMP_PREFIX));
-  return settleWorkspaceCallback(
-    () => callback(root),
-    () => fs.rm(root, { recursive: true, force: true })
-  );
-}
-
 async function installCompilerDependencyFixture(workingDirectory: string, marker: string): Promise<void> {
   const packages = [{ name: 'commander', version: '1.0.0' }, {
     main: './lib/typescript.js',
@@ -641,7 +633,6 @@ export {
   withCompilerTestWorkspace,
   withEffectfulCompilerWorkspace,
   withLinkedCompilerTestWorkspaces,
-  withLinkedWorktreeTempWorkspace,
   withRetainedCompilerContentFixture,
   withTempWorkspace,
   writeCompilerDependencyRoot, type GeneratedStateWorktreeRetirementEffectAuthority,

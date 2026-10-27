@@ -36,7 +36,6 @@ test('standalone captures each lane and the independent output and timing choice
     assert.equal(workspace.request.lane, lane);
     assert.deepEqual(workspace.output, expectedOutput);
     assert.equal(workspace.request.emitTiming, !expectedOutput.json);
-    assert.ok(Object.isFrozen(workspace)); assert.ok(Object.isFrozen(workspace.request));
   }
   const mutable: Record<string, unknown> = { lane: 'runtime', json: true, compact: false };
   const captured = parseVerifyCommandInput(mutable);

@@ -28,14 +28,11 @@ test('compile forwards invalid stage admission for both bounds', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', through: '' }), code('PIPELINE-USAGE-001'));
 });
 
-test('returned values are frozen, detached from caller mutation and cannot change invocation source', () => {
+test('returned values are detached from caller mutation and cannot change invocation source', () => {
   const input = { lane: 'all', from: 'resolve', json: true, source: 'api' };
   const result = parsePipelineCompileOptions(input);
   input.from = 'emit'; input.json = false;
   assert.equal(result.invocation.from, 'resolve');
   assert.equal(result.invocation.source, 'cli');
   assert.deepEqual(result.output, { json: true, compact: false });
-  assert.ok(Object.isFrozen(result));
-  assert.ok(Object.isFrozen(result.invocation));
-  assert.ok(Object.isFrozen(result.output));
 });

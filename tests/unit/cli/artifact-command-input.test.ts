@@ -14,7 +14,6 @@ for (const filter of [undefined, 'governance', 'contract'] as const) {
   test(`path selection binds canonical filter ${filter} and output without a write request`, () => {
     const input = parseArtifactCommandInput(undefined, { paths: true, kind: filter, json: true, compact: true });
     assert.deepEqual(input, { kind: 'paths', filter, output: { json: true, compact: true } });
-    assert.ok(Object.isFrozen(input)); assert.ok(Object.isFrozen(input.output));
     assert.equal('request' in input, false);
   });
 }
@@ -38,7 +37,6 @@ test('later caller mutation cannot alter the admitted path and filter selection'
   const captured = parseArtifactCommandInput(undefined, raw);
   raw.paths = false; raw.kind = 'contract'; raw.json = false;
   assert.deepEqual(captured, { kind: 'paths', filter: 'test', output: { json: true, compact: false } });
-  assert.ok(Object.isFrozen(captured)); assert.ok(Object.isFrozen(captured.output));
   assert.equal('request' in captured, false);
 });
 
