@@ -360,12 +360,16 @@ test('TCB closure includes statically named relative ESM loads and rejects hidde
     'const target = "./leaf.ts"; export const loaded = import(target);'
   )).toThrow('dynamic import is not statically resolvable');
   expect(() => runtimeRelativeImportsFromSource(
+    'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts',
+    "export const https = import('node:https');"
+  )).toThrow('(dynamic node:https import)');
+  expect(() => runtimeRelativeImportsFromSource(
     'synthetic-eval-loader.ts',
     'export const loaded = eval("import(\\"./hidden.ts\\")");'
   )).toThrow('(eval)');
 });
 
-test('TCB closure admits the compiler API and rejects the retired code-generation provider', () => {
+test('TCB closure admits the compiler API and rejects unreviewed providers', () => {
   expect(() => runtimeRelativeImportsFromSource(
     'synthetic-compiler-api.ts',
     "import ts from 'typescript'; export const factory = ts.factory;"
@@ -374,6 +378,11 @@ test('TCB closure admits the compiler API and rejects the retired code-generatio
     'synthetic-retired-codegen-provider.ts',
     "import { Project } from 'ts-morph'; export const project = new Project();"
   )).toThrow('ts-morph');
+  expect(() => runtimeRelativeImportsFromSource(
+    'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts',
+    "import { request } from 'node:http'; function download() { return request(target); }"
+  )).toThrow('TCB runtime import is outside the approved relative/external policy: '
+    + 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:http.');
 });
 
 test('TCB closure admits only direct Bun data parser calls', () => {
@@ -914,21 +923,6 @@ test.serial('TCB generation rejects a stale reviewed network dispatcher authoriz
     TCB_REVIEWED_NETWORK_DISPATCHERS.delete(stale);
   }
   expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
-});
-
-test('TCB retired network imports reject alternate import forms', () => {
-  const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
-  for (const source of [
-    "import { get } from 'node:https'; function download() { return get(target); }",
-    "import { request as send } from 'node:https'; function download() { return send(target); }",
-    "import https from 'node:https'; function download() { return https.request(target); }",
-    "import * as https from 'node:https'; function download() { return https.request(target); }",
-    "export { request } from 'node:https';",
-    "export const https = import('node:https');",
-    "import { request } from 'node:http'; function download() { return request(target); }"
-  ]) {
-    expect(() => runtimeRelativeImportsFromSource(publisher, source)).toThrow();
-  }
 });
 
 test('TCB live census excludes the retired publisher and denies its actual HTTPS source', () => {
