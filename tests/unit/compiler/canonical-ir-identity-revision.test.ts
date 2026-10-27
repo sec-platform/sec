@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId } from '../../../src/compiler/ir/ir-identity.ts';
-import { digest } from '../../../src/compiler/ir/ir-revision.ts';
+import { digest, inputRevisionPayload } from '../../../src/compiler/ir/ir-revision.ts';
 import type { LoadedSemanticContract } from '../../../src/semantics/definitions/types.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../../src/semantics/policies/rules.ts';
 
@@ -289,18 +289,18 @@ test('canonical revisions preserve unordered and audit equivalence while disting
 test('distinct transition tuples remain separate facts in either source order', () => {
   const input = fixture();
   const state = input.semanticContracts![0]!.contract.states[0]!;
-  state.values = ['a\0b', 'c', 'a', 'b\0c'];
+  state.values = ['a\0b', 'c', 'a', 'b\0c', 'edited'];
   const first = { from: 'a\0b', to: 'c', by: 'processItem' };
   const second = { from: 'a', to: 'b\0c', by: 'processItem' };
   const singletonRevisions = [first, second].map(transition => {
     state.transitions = [transition];
     return buildEngineeringIR(input).inputRevision;
   });
-  const pairRevisions: string[] = [];
+  const pairIRs: ReturnType<typeof buildEngineeringIR>[] = [];
   for (const transitions of [[first, second], [second, first]]) {
     state.transitions = transitions;
     const ir = buildEngineeringIR(input);
-    pairRevisions.push(ir.inputRevision);
+    pairIRs.push(ir);
     for (const singletonRevision of singletonRevisions) expect(ir.inputRevision).not.toBe(singletonRevision);
     const transitionsInIR = ir.facts.filter(fact => fact.predicate === 'TRANSITIONS_TO');
     expect(transitionsInIR).toHaveLength(2);
@@ -310,5 +310,23 @@ test('distinct transition tuples remain separate facts in either source order', 
       { kind: 'value', value: { from: 'a', to: 'b\0c', by: 'operation:item:processItem' } }
     ]));
   }
-  expect(pairRevisions[0]).toBe(pairRevisions[1]);
+  expect(pairIRs[0]!.inputRevision).toBe(pairIRs[1]!.inputRevision);
+  // This same real-build keeper owns tuple ordering and subsequent-edit
+  // observations; separate schema/projection fixtures add no different owner.
+  const before = pairIRs[1]!;
+  const payload = inputRevisionPayload(input);
+  expect(JSON.parse(payload).semanticContracts[0].contract.states[0].transitions).toEqual([
+    { from: 'a', to: 'b\0c', by: 'processItem' },
+    { from: 'a\0b', to: 'c', by: 'processItem' }
+  ]);
+  second.to = 'edited';
+  const after = buildEngineeringIR(input);
+  expect(inputRevisionPayload(input)).not.toBe(payload);
+  expect(after.inputRevision).not.toBe(before.inputRevision);
+  const unchanged = before.facts.find(fact => fact.predicate === 'TRANSITIONS_TO'
+    && fact.object.kind === 'value' && typeof fact.object.value === 'object'
+    && fact.object.value !== null && !Array.isArray(fact.object.value)
+    && fact.object.value.from === first.from)!;
+  expect(after.facts.filter(fact => fact.predicate === 'TRANSITIONS_TO')).toHaveLength(2);
+  expect(after.facts.some(fact => fact.id === unchanged.id)).toBe(true);
 });

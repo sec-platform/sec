@@ -74,26 +74,6 @@ async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Pr
   if (failures.length > 1) throw new AggregateError(failures, 'Runtime manifest fixture writes failed');
 }
 
-describe('project and compiler runtime manifests', () => {
-  test('derive versions from the root package.json', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      await ensureProjectBase(workspaceRoot);
-      const compiler = await ensureCompilerDepsReady();
-
-      const rootPackage = await readCompilerPackageJson();
-      const projectPackage = await readJson<RuntimePackageJson>(path.join(workspaceRoot, 'package.json'));
-      const compilerPackage = await readJson<RuntimePackageJson>(path.join(compiler.root, 'package.json'));
-
-      expect(projectPackage.dependencies.yaml).toBe(rootPackage.dependencies?.yaml as string);
-      expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node'] as string);
-      expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript as string);
-      expect(compilerPackage.dependencies).toEqual(projectPackage.dependencies);
-      expect(compilerPackage.devDependencies).toEqual(projectPackage.devDependencies);
-      await expect(fs.lstat(path.join(workspaceRoot, '.shared-deps'))).rejects.toMatchObject({ code: 'ENOENT' });
-    }, 'engineering-compiler-runtime-manifest-');
-  });
-});
-
 describe('dependency bridge', () => {
   test('settles a failed consumer before a later consumer reuses the bridge', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
@@ -276,6 +256,15 @@ describe('ensureProjectDependencies', () => {
       await ensureProjectBase(workspaceRoot);
       const canonicalSharedBefore = await observeCanonicalSharedDependencies();
       const compiler = await ensureCompilerDepsReady();
+      const rootPackage = await readCompilerPackageJson();
+      const projectPackage = await readJson<RuntimePackageJson>(path.join(workspaceRoot, 'package.json'));
+      const compilerPackage = await readJson<RuntimePackageJson>(path.join(compiler.root, 'package.json'));
+
+      expect(projectPackage.dependencies.yaml).toBe(rootPackage.dependencies?.yaml as string);
+      expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node'] as string);
+      expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript as string);
+      expect(compilerPackage.dependencies).toEqual(projectPackage.dependencies);
+      expect(compilerPackage.devDependencies).toEqual(projectPackage.devDependencies);
       expect(await observeCanonicalSharedDependencies()).toEqual(canonicalSharedBefore);
       const sourcePath = compiler.sourceGeneration?.sourcePath ?? await fs.realpath(path.join(compilerRoot, 'node_modules'));
       expect(compiler.runtimeMaterialization).toBeDefined();

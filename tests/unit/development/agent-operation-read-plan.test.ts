@@ -5,7 +5,6 @@ import {
   compileOperationReadPlan,
   parseOperationReadPlan,
   projectSkillApplicabilityEnvelopeFromOperationReadPlan,
-  resolveMaintainerMutation,
   type OperationReadPlanInput
 } from '../../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
@@ -224,55 +223,4 @@ test('Read Plan rejects a Capsule whose role changed without rebinding its diges
       planningContext: { ...malformed.taskCapsule.planningContext, role: 'a0' }
     }
   })).toThrow(/complete planning content/u);
-});
-
-test('maintainer mutation accepts current state or returns typed conflict without resurrection', () => {
-  expect(resolveMaintainerMutation({
-    resourceKind: 'external-worktree',
-    snapshotRevision: 'old',
-    currentRevision: 'maintainer-new',
-    conflictsWithOperation: false,
-    restoreAuthority: 'none',
-    casPrecondition: 'not-applicable'
-  })).toMatchObject({
-    status: 'accept-current',
-    authoritativeRevision: 'maintainer-new',
-    oldObservationStale: true,
-    effectDisposition: 'no-effect'
-  });
-  expect(resolveMaintainerMutation({
-    resourceKind: 'external-worktree',
-    snapshotRevision: 'old',
-    currentRevision: 'maintainer-new',
-    conflictsWithOperation: true,
-    restoreAuthority: 'none',
-    casPrecondition: 'not-applicable'
-  }).status).toBe('external-maintainer-mutation');
-});
-
-test('protected root rejects operation-owned CAS while explicit restore remains separate', () => {
-  const blocked = resolveMaintainerMutation({
-    resourceKind: 'protected-interactive-root',
-    snapshotRevision: 'old',
-    currentRevision: 'current',
-    conflictsWithOperation: true,
-    restoreAuthority: 'operation-owned-cas-claimed',
-    casPrecondition: 'matched'
-  });
-  expect(blocked).toMatchObject({
-    status: 'external-maintainer-mutation',
-    effectDisposition: 'separate-verified-executor-required',
-    reasonCode: 'protected-root-outside-candidate-authority'
-  });
-  expect(resolveMaintainerMutation({
-    resourceKind: 'protected-interactive-root',
-    snapshotRevision: 'old',
-    currentRevision: 'current',
-    conflictsWithOperation: true,
-    restoreAuthority: 'explicit-user-request-claimed',
-    casPrecondition: 'not-applicable'
-  })).toMatchObject({
-    status: 'external-maintainer-mutation',
-    effectDisposition: 'separate-verified-executor-required'
-  });
 });

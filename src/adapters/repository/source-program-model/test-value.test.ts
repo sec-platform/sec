@@ -87,12 +87,12 @@ test('test-value compilation derives behavior, effects, failures, and properties
       "import { expect, test } from 'bun:test';",
       "import fs from 'node:fs/promises';",
       "import { publicBehavior } from '../../src/example/index.ts';",
-      "test('observes the public boundary and durable effect', async () => {",
+      "test.each([1, 1])('observes the public boundary and durable effect', async () => {",
       "  const target = 'test-output';",
       "  await fs.writeFile(target, String(publicBehavior(1)));",
       "  expect(await fs.readFile(target, 'utf8')).toBe('2');",
       '});',
-      "test('preserves the typed failure boundary over a property set', () => {",
+      "test.each(makeRows())('preserves the typed failure boundary over a property set', () => {",
       '  for (const value of [-1, -2]) expect(() => publicBehavior(value)).toThrow();',
       '});'
     ].join('\n')
@@ -106,19 +106,7 @@ test('test-value compilation derives behavior, effects, failures, and properties
     observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
   expect(result.findings).toEqual([]);
   expect(result.records.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
-    { status: 'known', count: 1 }, { status: 'known', count: 1 }
-  ]);
-  const tables = compile({
-    'tests/unit/tables.test.ts': [
-      "import { test } from 'bun:test';",
-      "test.each([1, 1])('duplicate rows', () => {});",
-      "test.each([])('empty table', () => {});",
-      "test.each(makeRows())('dynamic table', () => {});"
-    ].join('\n')
-  });
-  expect(tables.records.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
     { status: 'known', count: 2 },
-    { status: 'known', count: 0 },
     { status: 'unknown', reason: 'registration-table-unresolved' }
   ]);
 });

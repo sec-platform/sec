@@ -137,24 +137,6 @@ test('a second edit changes only the named event and does not merge independentl
   expect(() => buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] })).toThrow();
 });
 
-test('distinct NUL-bearing state transitions survive compilation and a second transition edit', () => {
-  const loaded = contract();
-  loaded.contract.states[0]!.values = ['a', 'a\u0000b', 'b\u0000c', 'c', 'edited'];
-  loaded.contract.states[0]!.transitions = [
-    { from: 'a\u0000b', to: 'c', by: 'closeItem' },
-    { from: 'a', to: 'b\u0000c', by: 'closeItem' }
-  ];
-  const before = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
-  const transitions = before.facts.filter((fact) => fact.predicate === 'TRANSITIONS_TO');
-  expect(transitions).toHaveLength(2);
-  loaded.contract.states[0]!.transitions[1]!.to = 'edited';
-  const after = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
-  expect(after.inputRevision).not.toBe(before.inputRevision);
-  expect(after.facts.filter((fact) => fact.predicate === 'TRANSITIONS_TO')).toHaveLength(2);
-  const unchanged = transitions.find((fact) => fact.object.kind === 'value' && typeof fact.object.value === 'object' && fact.object.value !== null && !Array.isArray(fact.object.value) && fact.object.value.from === 'a\u0000b')!;
-  expect(after.facts.some((fact) => fact.id === unchanged.id)).toBe(true);
-});
-
 test('semantic contract becomes authoritative entities, facts, transitions, and scenario steps', () => {
   const disagreement = contract().contract;
   disagreement.responsibilities[0]!.implements = [];

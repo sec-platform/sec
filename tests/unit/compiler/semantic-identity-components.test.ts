@@ -131,17 +131,3 @@ test('persisted entity validation rejects ambiguous v1 identities before issuing
     expect(() => validateEngineeringIR(ir, source)).toThrow('does not match canonical');
   }
 });
-
-test('arbitrary state strings cannot collide in revision tuples and actual component order is stable', () => {
-  const source = contract();
-  source.states = [{ id: 'state', entity: 'Entity', field: 'field', owner: 'Owner', values: ['a\u0000b', 'a', 'b\u0000c', 'c'], transitions: [
-    { from: 'a\u0000b', to: 'c', by: 'operation' },
-    { from: 'a', to: 'b\u0000c', by: 'operation' }
-  ] }];
-  const domain = { ...input(), semanticContracts: [{ blockId: 'block', contractPath: 'x.yaml', contract: source }] };
-  const payload = inputRevisionPayload(domain);
-  const transitions = JSON.parse(payload).semanticContracts[0].contract.states[0].transitions;
-  expect(transitions).toEqual([{ from: 'a', to: 'b\u0000c', by: 'operation' }, { from: 'a\u0000b', to: 'c', by: 'operation' }]);
-  source.states[0]!.transitions[1]!.to = 'changed';
-  expect(inputRevisionPayload(domain)).not.toBe(payload);
-});
