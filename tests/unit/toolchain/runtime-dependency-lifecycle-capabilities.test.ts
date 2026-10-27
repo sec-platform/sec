@@ -38,6 +38,7 @@ for (const [adopt, expectedPath, expectedIdentity] of [
         assert.equal(path, expectedPath);
         assert.deepEqual(expectation, { ...expectedIdentity,
           physical: { device: 'dev', inode: 'inode', objectId: 'object' } });
+        assert.equal(Reflect.set(expectation!.physical!, 'inode', 'provider-mutation'), false);
         return registration;
       }
       get retired() { assert.fail('read-only consumer acquired retirement'); throw new Error('unreachable'); }

@@ -66,14 +66,6 @@ test('two rejecting checks preserve both values even when both values are undefi
   }
 });
 
-test('a synchronous exception does not prevent the other selected parallel check from starting', async () => {
-  const reason = new Error('synchronous');
-  const { stages, events } = fixture({ documentation: () => { throw reason; } });
-  await assert.rejects(executeFastCheckStages(stages), error => error === reason);
-  assert.equal(events.includes('types'), true);
-  assert.equal(events.includes('tests'), false);
-});
-
 test('mixed failures wait for the still-running peer before leaving the operation', async () => {
   for (const [peerExitCode, message] of [[0, 'docs'], [29, 'first']] as const) {
     let release!: () => void;
@@ -82,7 +74,9 @@ test('mixed failures wait for the still-running peer before leaving the operatio
     const started = new Promise<void>(resolve => { enter = resolve; });
     const reason = new Error(message);
     const { stages, events } = fixture({
-      documentation: async () => { throw reason; },
+      documentation: peerExitCode === 0
+        ? () => { throw reason; }
+        : async () => { throw reason; },
       types: async () => { enter(); await held; return peerExitCode; }
     });
     let settled = false;

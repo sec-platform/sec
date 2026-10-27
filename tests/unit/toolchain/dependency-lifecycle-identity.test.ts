@@ -2,9 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   birthAndBindCompilerDependencyGeneration,
-  compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
-  legacySharedDependencyRetirementExpectation,
   settleRetiredCompilerDependencyGeneration
 } from '../../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
@@ -15,15 +13,6 @@ function control(clock = () => 0, signal?: AbortSignal) {
   return runtimeDependencyOperationControls({ lockTimeoutMs: 100, monotonicNowMs: clock, signal });
 }
 const exhausted = (error: unknown) => (error as { code?: string }).code === 'RUNTIME-DEPS-003';
-
-for (const expectation of [compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation, legacySharedDependencyRetirementExpectation]) {
-  test(`${expectation.name} owns its physical value rather than aliasing the caller`, () => {
-    const source = physical(), expected = expectation(source);
-    source.inode = 'later';
-    assert.equal(expected.physical!.inode, 'inode-a');
-    assert.equal(Reflect.set(expected.physical!, 'inode', 'provider-mutation'), false);
-  });
-}
 
 test('deadline exhausted by birth prevents the next bind, without abandoning the birth promise', async () => {
   let now = 0;

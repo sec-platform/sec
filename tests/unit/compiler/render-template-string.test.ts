@@ -78,17 +78,11 @@ test('interpolation uses literal keys and literal replacement bytes', () => {
 // size/compatibility promise or evidence that this budget is optimal.
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
-test('template output accumulates substitutions up to its exact byte limit', () => {
+test('template output accumulates UTF-8 substitutions up to its exact byte limit', () => {
   const input = '__VALUE__'.repeat(4);
-  const value = 'a'.repeat(MAX_OUTPUT_BYTES / 4);
-  const exact = 'a'.repeat(MAX_OUTPUT_BYTES);
+  const value = '界'.repeat(Math.floor(MAX_OUTPUT_BYTES / 12)) + 'x';
+  const exact = value.repeat(4);
+  assert.equal(Buffer.byteLength(exact), MAX_OUTPUT_BYTES);
   assert.equal(renderTemplateString(input, { VALUE: value }), exact);
   assert.throws(() => renderTemplateString(input + 'a', { VALUE: value }), code('COMPOSE-TEMPLATE-009'));
-});
-
-test('template output bound counts UTF-8 bytes rather than UTF-16 code units', () => {
-  const exact = '界'.repeat(Math.floor(MAX_OUTPUT_BYTES / 3)) + 'x';
-  assert.equal(Buffer.byteLength(exact), MAX_OUTPUT_BYTES);
-  assert.equal(renderTemplateString('__VALUE__', { VALUE: exact }), exact);
-  assert.throws(() => renderTemplateString('__VALUE__', { VALUE: exact + 'x' }), code('COMPOSE-TEMPLATE-009'));
 });
