@@ -21,15 +21,18 @@ test('public request, coordinator, process binder and effect use one captured pr
     get calls(){return this.#calls;}
   }
   const provider=new Provider();const request=capture(provider);
-  const bound=bind({...controls(),...request});const process=bindCompilerInstallInvocation(bound);
+  let now=0;
+  const bound=bind({...controls(),monotonicNowMs:()=>now,...request});const process=bindCompilerInstallInvocation(bound);
   const parent=context(bound);
   assert.equal(process.isolated,true);assert.equal(context(process.controls).operationId,parent.operationId);
   provider.beforeCommit=()=>assert.fail('replacement');
-  const effects=effect(effect(bound));assert.equal(context(effects).operationId,context(bound).operationId);
+  now=25;
+  const effects=effect(effect({...bound,lockTimeoutMs:10_000}));assert.equal(context(effects).operationId,context(bound).operationId);
   await process.beforeCommit?.();await fence(effects,'effect');assert.equal(provider.calls,2);
   const after=context(effects);
   assert.equal(after.operationId,parent.operationId);assert.equal(after.telemetryKey,parent.telemetryKey);
   assert.equal(after.deadlineAtMonotonicMs,parent.deadlineAtMonotonicMs);
+  assert.equal(remaining(effects,'remaining'),975);
   assert.equal(bound.signal,controller.signal);assert.equal(effects.signal,controller.signal);
 });
 

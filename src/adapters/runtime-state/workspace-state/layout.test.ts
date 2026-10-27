@@ -32,9 +32,9 @@ async function withTemporaryRoot(prefix: string, run: (root: string) => Promise<
   });
 }
 
-function fixture(root: string) {
+function fixture(root: string, stateDirectory = 'state') {
   const repositoryRoot = path.join(root, 'repo');
-  const stateRoot = path.join(root, 'state');
+  const stateRoot = path.join(root, stateDirectory);
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot, { recursive: true });
   const environment: NodeJS.ProcessEnv = {
@@ -150,38 +150,15 @@ test('unknown object-store entry vetoes the entire deletion pass, regardless of 
 
 test('physical Runtime State rejects a symlink or junction into the repository before writing', async () => {
   await withTemporaryRoot('sec-runtime-alias-', async root => {
-    const repositoryRoot = path.join(root, 'repo');
-    const stateRoot = path.join(root, 'state-alias');
-    const cacheRoot = path.join(root, 'cache');
-    mkdirSync(repositoryRoot, { recursive: true });
-    symlinkSync(repositoryRoot, stateRoot, process.platform === 'win32' ? 'junction' : 'dir');
-    const environment: NodeJS.ProcessEnv = {
-      ...process.env,
-      SEC_STATE_HOME: stateRoot,
-      SEC_CACHE_HOME: cacheRoot
-    };
-    const checkpoint = createLocalContinuationCheckpoint({
-      repository: 'sec-platform/sec',
-      prNumber: 496,
-      branch: 'integration/sec-static-convergence-20260818',
-      baseSha: '1'.repeat(40),
-      baseTreeSha: '2'.repeat(40),
-      headSha: '3'.repeat(40),
-      headTreeSha: '4'.repeat(40),
-      manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
-    });
-    const layout = resolveSecRuntimeStateForRepository({
-      repository: checkpoint.repository,
-      repositoryRoot,
-      environment
-    });
+    const value = fixture(root, 'state-alias');
+    symlinkSync(value.repositoryRoot, value.stateRoot, process.platform === 'win32' ? 'junction' : 'dir');
     await expect(persistActiveContinuationCheckpoint({
-      layout,
-      repositoryRoot,
-      checkpoint,
-      environment
+      layout: value.layout,
+      repositoryRoot: value.repositoryRoot,
+      checkpoint: value.checkpoint,
+      environment: value.environment
     })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
-    expect(readdirSync(repositoryRoot)).toEqual([]);
+    expect(readdirSync(value.repositoryRoot)).toEqual([]);
   });
 }, 30_000);
 

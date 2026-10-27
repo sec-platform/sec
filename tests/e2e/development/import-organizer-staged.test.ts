@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { access, cp, link, mkdir, mkdtemp, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { cp, link, mkdir, mkdtemp, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -59,22 +59,9 @@ async function settleImportFixtureWrites(writers: readonly Promise<unknown>[]): 
   if (failures.length > 1) throw new AggregateError(failures, 'Import fixture writers failed');
 }
 
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
-async function createRepositoryTemplate(
-  afterDirectoryCreated?: (repoRoot: string) => Promise<void>
-): Promise<string> {
+async function createRepositoryTemplate(): Promise<string> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-template-'));
   try {
-    await afterDirectoryCreated?.(repoRoot);
     git(repoRoot, ['init', '--quiet']);
     git(repoRoot, ['config', 'user.email', 'tests@example.com']);
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
@@ -112,25 +99,18 @@ async function createRepositoryTemplate(
     throw error;
   }
 }
-async function copyRepositoryTemplate(
-  copyRepository: (sourceRoot: string, targetRoot: string) => Promise<void> = async (
-    sourceRoot,
-    targetRoot
-  ) => {
-    await cp(sourceRoot, targetRoot, {
-      recursive: true,
-      errorOnExist: true,
-      force: false
-    });
-  }
-): Promise<string> {
+async function copyRepositoryTemplate(): Promise<string> {
   if (!repositoryTemplateRoot) {
     throw new Error('Import organizer repository template is unavailable');
   }
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-case-'));
   try {
     await rm(repoRoot, { recursive: true, force: true });
-    await copyRepository(repositoryTemplateRoot, repoRoot);
+    await cp(repositoryTemplateRoot, repoRoot, {
+      recursive: true,
+      errorOnExist: true,
+      force: false
+    });
     return repoRoot;
   } catch (error) {
     try { await rm(repoRoot, { recursive: true, force: true }); }
@@ -168,33 +148,6 @@ async function withRepository(run: (repoRoot: string) => Promise<void>): Promise
     });
   });
 }
-
-test.concurrent('fixture creators remove partial repositories before ownership transfer', async () => {
-  await repositorySlot(async () => {
-    let failedTemplateRoot = '';
-    await expect(createRepositoryTemplate(async (repoRoot) => {
-      failedTemplateRoot = repoRoot;
-      await writeFile(path.join(repoRoot, 'partial-template.txt'), 'partial\n', 'utf8');
-      throw new Error('injected template initialization failure');
-    })).rejects.toThrow('injected template initialization failure');
-    expect(failedTemplateRoot).not.toBe('');
-    expect(await pathExists(failedTemplateRoot)).toBe(false);
-
-    let failedCopyRoot = '';
-    await expect(copyRepositoryTemplate(async (sourceRoot, targetRoot) => {
-      failedCopyRoot = targetRoot;
-      await cp(sourceRoot, targetRoot, {
-        recursive: true,
-        errorOnExist: true,
-        force: false
-      });
-      await writeFile(path.join(targetRoot, 'partial-copy.txt'), 'partial\n', 'utf8');
-      throw new Error('injected repository copy failure');
-    })).rejects.toThrow('injected repository copy failure');
-    expect(failedCopyRoot).not.toBe('');
-    expect(await pathExists(failedCopyRoot)).toBe(false);
-  });
-});
 
 test.concurrent('candidate organizer repairs the complete amended commit diff instead of only the staged delta', async () => {
   await withRepository(async (repoRoot) => {

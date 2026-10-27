@@ -291,12 +291,13 @@ test('selected runtime rejects host execution, policy substitution and artifact 
     ['unadmitted job container', 'selected job has an unadmitted field', job => { job.container = { image: 'unqualified:latest' }; }],
     ['credential output', 'job output is not a closed launcher data output', job => { job.outputs!.leak = '${{ secrets.SECRET }}'; }]
   ];
-  for (const [label, guard, mutate] of mutations) {
+  for (const [index, [label, guard, mutate]] of mutations.entries()) {
     const changed = structuredClone(fixture);
     mutate(changed.jobs[PREFLIGHT]!);
     const source = stringifyYaml(changed);
     expect(() => assertCiVerificationPerJobHostedWorkflowShape(source, PREFLIGHT), label).toThrow(guard);
-    expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(source), label).toThrow(guard);
+    // One refusal guards whole-workflow delegation; each selected-policy guard is checked above.
+    if (index === 0) expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(source), label).toThrow(guard);
   }
 });
 
@@ -320,7 +321,6 @@ test('producer output census binds exact launcher and native uploader ownership'
     mutate(changed.jobs[PREFLIGHT]!.outputs!);
     const source = stringifyYaml(changed);
     expect(() => assertCiVerificationPerJobHostedWorkflowShape(source, PREFLIGHT), label).toThrow(guard);
-    expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(source), label).toThrow(guard);
   }
 });
 

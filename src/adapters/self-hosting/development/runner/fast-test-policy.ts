@@ -390,11 +390,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/workspace/project-write-boundary-fallback.test.ts',
-    reason: 'physical-project-write-boundary-and-workspace-publication',
-    resourceClass: 'independent-process'
-  },
-  {
     file: 'tests/unit/verification/verification-suite-process.test.ts',
     reason: 'process-global-environment-and-suite-child-lifecycle',
     resourceClass: 'independent-process'

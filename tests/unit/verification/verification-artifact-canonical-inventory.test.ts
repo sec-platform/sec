@@ -14,19 +14,8 @@ import { buildBlockedProductVerificationClaimSummary } from '../../../src/assura
 import { productVerificationSubjectRevision } from '../../../src/assurance/verification/project/report.ts';
 import { buildReviewLock } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
-import { productVerificationObservationsFixture } from '../../helpers/verification-fixtures.ts';
+import { emptyPolicyReport, productVerificationObservationsFixture } from '../../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
-
-function skippedPolicyReport() {
-  return {
-    status: 'skipped' as const,
-    official: { policies: [], sources: [], violations: [] },
-    project: { policies: [], sources: [], violations: [] },
-    merged: { policies: [] },
-    violations: [],
-    diagnostics: []
-  };
-}
 
 function skippedRuntimeStep() {
   return {
@@ -38,7 +27,7 @@ function skippedRuntimeStep() {
 }
 
 function blockedArtifactSet() {
-  const policyReport = skippedPolicyReport();
+  const policyReport = emptyPolicyReport();
   const fast = {
     status: 'failed' as const,
     build: { status: 'skipped' as const },

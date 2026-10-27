@@ -29,7 +29,7 @@ type VerificationArtifactFixtureOptions = {
   lane?: VerificationReport['summary']['requestedLane'];
 };
 
-function emptyPolicyReport(): PolicyReport {
+export function emptyPolicyReport(): PolicyReport {
   return {
     status: 'skipped',
     official: { policies: [], sources: [], violations: [] },

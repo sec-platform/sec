@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { runtimeDependencyEffectFenceOptions, runtimeDependencyOperationEffectFence } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { runtimeDependencyOperationContext, runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 test('the effect view neither enumerates nor retains installation and lifecycle fields', () => {
   const raw = new Proxy({ lockTimeoutMs: 100, monotonicNowMs: () => 0,
@@ -41,19 +41,6 @@ test('callback getter selection precedes clock callbacks and later effect dispat
   });
   await runtimeDependencyOperationEffectFence(value, 'clock');
   assert.equal(raw.calls, 1);
-});
-
-test('a narrow child keeps the exact parent operation and cannot renew its deadline', () => {
-  let now = 0;
-  const parent = runtimeDependencyOperationControls({ lockTimeoutMs: 100, monotonicNowMs: () => now });
-  const parentContext = runtimeDependencyOperationContext(parent);
-  now = 25;
-  const child = runtimeDependencyEffectFenceOptions({ ...parent, lockTimeoutMs: 1000 });
-  const childContext = runtimeDependencyOperationContext(child);
-  assert.equal(childContext.operationId, parentContext.operationId);
-  assert.equal(childContext.telemetryKey, parentContext.telemetryKey);
-  assert.equal(childContext.deadlineAtMonotonicMs, parentContext.deadlineAtMonotonicMs);
-  assert.equal(runtimeDependencyOperationRemainingMs(child, 'remaining'), 75);
 });
 
 test('a fence getter cannot remove the inherited operation binding during capture', () => {

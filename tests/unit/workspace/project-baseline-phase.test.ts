@@ -10,6 +10,7 @@ import { checkProjectBeforeVerify } from '../../../src/adapters/workspace/projec
 import { checkProjectWriteBoundary } from '../../../src/adapters/workspace/project-write-boundary.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
+import { buildUpgradePlanArtifact } from '../../helpers/upgrade-fixtures.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 function digest(content: string): string {
@@ -37,7 +38,7 @@ function provenanceFor(artifactPath: string, content: string): ProvenanceFile {
   };
 }
 
-test('verification checks provenance until a current baseline supersedes it and detects drift in both phases', async () => {
+test('verification and write boundary detect drift before and after baseline without caller-written authority', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
     const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
@@ -63,9 +64,9 @@ test('verification checks provenance until a current baseline supersedes it and 
     await checkProjectWriteBoundary(workspaceRoot);
     await checkProjectBeforeVerify(workspaceRoot);
     await writeText(absolutePath, 'export const value = 9;');
-    await expect(checkProjectBeforeVerify(workspaceRoot)).rejects.toMatchObject({
-      code: 'ERROR-DRIFT-001'
-    });
+    for (const check of [checkProjectBeforeVerify, checkProjectWriteBoundary]) {
+      await expect(check(workspaceRoot)).rejects.toMatchObject({ code: 'ERROR-DRIFT-001' });
+    }
 
     await writeText(absolutePath, currentContent);
     await writeProjectBaseline(workspaceRoot, baselinePathInput(artifactPath));
@@ -74,9 +75,12 @@ test('verification checks provenance until a current baseline supersedes it and 
     await checkProjectBeforeVerify(workspaceRoot);
     await checkProjectWriteBoundary(workspaceRoot);
 
+    const upgradePlanPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.upgradePlan);
+    await writeJson(upgradePlanPath, buildUpgradePlanArtifact({ impacts: [artifactPath] }));
     await writeText(absolutePath, `${currentContent}\nexport const changed = true;`);
-    await expect(checkProjectBeforeVerify(workspaceRoot)).rejects.toMatchObject({
-      code: 'ERROR-DRIFT-001'
+    await expect(checkProjectBeforeVerify(workspaceRoot)).rejects.toMatchObject({ code: 'ERROR-DRIFT-001' });
+    await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
+      code: 'ERROR-DRIFT-001', details: { path: artifactPath }
     });
   }, 'engineering-compiler-project-baseline-phase-');
 });

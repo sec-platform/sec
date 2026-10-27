@@ -10,7 +10,6 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import type { VerificationReport } from '../../../src/assurance/verification/contract/types.ts';
 import { productVerificationSubjectRevision } from '../../../src/assurance/verification/project/report.ts';
 import type { LockFile } from '../../../src/compiler/contract.ts';
-import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import { buildOfficialCopyInstallStep, buildOfficialResolvedBlock } from '../../helpers/lock-fixtures.ts';
 import {
   buildPassingReviewReport,
@@ -18,30 +17,19 @@ import {
   buildRuntimeVerificationReport
 } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
-import { writeCanonicalVerificationArtifactSetFixture } from '../../helpers/verification-fixtures.ts';
+import { emptyPolicyReport, writeCanonicalVerificationArtifactSetFixture } from '../../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 const ACCEPTANCE_ID = 'user_can_create_customer';
 const ACCEPTANCE_TEST = 'tests/acceptance/customer-flow.test.ts';
 const BLOCK_ID = 'entity/customer-basic';
 
-function skippedPolicyReport(): PolicyReport {
-  return {
-    status: 'skipped',
-    official: { policies: [], sources: [], violations: [] },
-    project: { policies: [], sources: [], violations: [] },
-    merged: { policies: [] },
-    violations: [],
-    diagnostics: []
-  };
-}
-
 async function writeCanonicalPassingVerificationArtifacts(
   workspaceRoot: string,
   report: VerificationReport,
   lock: LockFile
 ): Promise<VerificationReport> {
-  const policyReport = skippedPolicyReport();
+  const policyReport = emptyPolicyReport();
   const fast = {
     ...report.fast,
     status: 'passed' as const,

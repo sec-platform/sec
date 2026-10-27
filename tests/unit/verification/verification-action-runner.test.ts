@@ -426,48 +426,6 @@ test('closed runner rejects new execution before acquiring runtime resources', a
   })).rejects.toThrow('VerificationActionRunner is closing or closed.');
 });
 
-test('concurrent callers in different execution domains join one physical executor invocation', async () => {
-  const repositoryRoot = root();
-  const runner = fixtureRunner();
-  const secondRunner = fixtureRunner();
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => { release = resolve; });
-  try {
-    const key = action();
-    let invocations = 0;
-    const executor = async () => {
-      invocations += 1;
-      await held;
-      return issuedSettlement(key);
-    };
-    const first = runner.execute({
-      repositoryRoot,
-      action: key,
-      executionDomain: 'domain-a',
-      plan: runnablePlan(key, repositoryRoot),
-      executor
-    });
-    await Promise.resolve();
-    const second = secondRunner.execute({
-      repositoryRoot,
-      action: key,
-      executionDomain: 'domain-b',
-      plan: runnablePlan(key, repositoryRoot),
-      executor
-    });
-    release();
-    const [firstResult, secondResult] = await Promise.all([first, second]);
-    expect(invocations).toBe(1);
-    expect(new Set([firstResult.disposition, secondResult.disposition])).toEqual(
-      new Set(['executed', 'joined'])
-    );
-    expect([firstResult, secondResult].every(({ terminal }) => terminal?.status === 'passed')).toBeTrue();
-    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('terminal');
-  } finally {
-    release();
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
-
 test('runner completes machine cutover before reusing a workspace terminal without execution', async () => {
   const repositoryRoot = root();
   const runner = fixtureRunner();
@@ -532,6 +490,7 @@ test('equal ActionKeys in distinct workspaces join one machine-global physical c
     expect(new Set([first.disposition, second.disposition])).toEqual(
       new Set(['executed', 'joined'])
     );
+    expect([first, second].every(({ terminal }) => terminal?.status === 'passed')).toBeTrue();
     const firstReadback = readVerificationActionJournal(firstRepositoryRoot, key.actionKey);
     const secondReadback = readVerificationActionJournal(secondRepositoryRoot, key.actionKey);
     expect(firstReadback.filePath).toBe(secondReadback.filePath);

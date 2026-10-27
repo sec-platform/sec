@@ -5,7 +5,7 @@ import type { AcceptanceCoverageReport } from '../../../src/assurance/acceptance
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
 import { expectGraphEdge, expectGraphNode } from '../../helpers/graph-assertions.ts';
-import { buildReviewLock } from '../../helpers/review-fixtures.ts';
+import { buildPassingReviewCoverage, buildReviewLock } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
 import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../../helpers/upgrade-fixtures.ts';
 
@@ -14,17 +14,6 @@ function emptyPolicyScopeReport(): PolicyReport['project'] {
     policies: [],
     sources: [],
     violations: []
-  };
-}
-
-function emptyCoverage(): AcceptanceCoverageReport {
-  return {
-    formatVersion: '2',
-    status: 'passed',
-    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
-    acceptancePassed: [],
-    blocks: [],
-    uncoveredBlocks: []
   };
 }
 
@@ -46,7 +35,7 @@ test('explain graph projects policy violations and upgrade operations from canon
     ]
   };
   const coverage: AcceptanceCoverageReport = {
-    ...emptyCoverage(),
+    ...buildPassingReviewCoverage(),
     acceptancePassed: ['tenant_only_sees_own_customers']
   };
   const policyReport: PolicyReport = {
@@ -218,7 +207,7 @@ test('explain graph projects policy violations and upgrade operations from canon
     workspaceRoot,
     lock,
     { formatVersion: '1', artifacts: [] },
-    emptyCoverage(),
+    buildPassingReviewCoverage(),
     null,
     upgradePlan,
     diagnostics

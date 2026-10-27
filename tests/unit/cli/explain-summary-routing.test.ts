@@ -53,17 +53,28 @@ test('live explain routing preserves nonempty graph semantics and raw JSON', asy
     const required = [
       ['Node types:', ['Node types: block=1, operation=1']],
       ['Edge types:', ['Edge types: depends_on=1']],
+      ['Coverage:', ['Coverage: 0 blocks', 'uncovered blocks=0']],
+      ['Provenance origins:', ['Provenance origins: none']],
       ['CI status:', ['CI status: passed', 'failures: 0', 'regression risks: 0', 'conflict hints: 0']],
+      ['Chain:', ['Chain: attention', 'stages: 3/4', 'attention: 1', 'failed: 0']],
       ['E2E verification:', ['E2E verification: passed', 'lane=fast', 'failed=none', 'evidence=ci=passed, failures=0']],
       ['E2E coverage:', ['E2E coverage: passed', 'blocks=0/0', 'evidence=blocks=0/0']],
       ['E2E artifacts:', ['E2E artifacts: attention', 'total=0', 'missing=0', 'evidence=artifacts=missing']],
-      ['E2E review:', ['E2E review: passed', 'review-summary=generated', 'evidence=review-summary=generated']]
+      ['E2E review:', ['E2E review: passed', 'review-summary=generated', 'evidence=review-summary=generated']],
+      ['Impacted:', ['Impacted: 0 blocks, 0 runtime entries']],
+      ['Coverage detail:', ['Coverage detail: passed', 'acceptance passed: 0', 'covered blocks: 0/0']],
+      ['Install impact:', ['Install impact: 0 impacts', 'groups: 0', 'actions: none', 'runtime entries: 0', 'targets: 0']],
+      ['Provenance detail:', ['Provenance detail: artifacts: 0', 'overrides: 0', 'registry: 0', 'unverified: 0']]
     ] as const;
+    expect(lines).toHaveLength(required.length + 1);
     for (const [prefix, fields] of required) {
       const rows = lines.filter(line => line.startsWith(prefix));
       expect(rows).toHaveLength(1);
       expectRecord(rows[0], fields);
     }
+    expect(lines.filter(line => line.startsWith('E2E ')).map(line => line.split(':')[0])).toEqual([
+      'E2E verification', 'E2E coverage', 'E2E artifacts', 'E2E review'
+    ]);
     expect(e2eMatrix.rows.map(row => row.stage)).toEqual([
       'verification', 'coverage', 'artifacts', 'review'
     ]);
