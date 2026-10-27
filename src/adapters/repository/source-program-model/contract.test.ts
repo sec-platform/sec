@@ -8,10 +8,13 @@ test('source program retains only the two exact reviewed Python resources in its
   ]) {
     expect(isSourceProgramInputPath(helper)).toBe(true);
     expect(sourceProgramSurfaceForPath(helper)).toBe('resource');
-    for (const other of [helper.replace(/[^/]+$/u, 'other.py'), 'src/other.py',
-      `../${helper}`, `${helper}.bak`, 'tests/fixture.py']) {
+    for (const other of [helper.replace(/[^/]+$/u, 'other.py'),
+      `../${helper}`, `${helper}.bak`]) {
       expect(isSourceProgramInputPath(other)).toBe(false);
     }
+  }
+  for (const other of ['src/other.py', 'tests/fixture.py']) {
+    expect(isSourceProgramInputPath(other)).toBe(false);
   }
 });
 

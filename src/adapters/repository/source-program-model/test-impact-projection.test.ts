@@ -78,6 +78,16 @@ test('compact TestImpact projection retains exact bindings through its codec and
   unknown.unexpected = true;
   expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();
 
+  const outsideSnapshot = JSON.parse(encoded) as Record<string, unknown>;
+  outsideSnapshot.observedTestConsumers = [{
+    targetPath: 'src/compiler/absent.ts',
+    testPath: 'tests/unit/projection-fixture.test.ts'
+  }];
+  const { projectionDigest: _discarded, ...unsigned } = outsideSnapshot;
+  outsideSnapshot.projectionDigest = sha256(unsigned);
+  expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
+    .toThrow('within its snapshot');
+
   const changed = fixture({
     ...projectionSources,
     'src/compiler/projection-fixture.ts': 'export const fixture = 2;'
@@ -85,41 +95,4 @@ test('compact TestImpact projection retains exact bindings through its codec and
   expect(changed.sourceRevision).not.toBe(projection.sourceRevision);
   expect(changed.snapshotDigest).not.toBe(projection.snapshotDigest);
   expect(changed.projectionDigest).not.toBe(projection.projectionDigest);
-});
-
-test('compact projection retains compiler-observed test consumers as canonical observation edges', () => {
-  const { projection } = fixture({
-    'src/compiler/observed-fixture.ts': 'export const observed = true;',
-    'tests/unit/observed-fixture.test.ts': [
-      "import { readFileSync } from 'node:fs';",
-      "readFileSync('src/compiler/observed-fixture.ts', 'utf8');"
-    ].join('\n'),
-    'tests/unit/program-fixture.test.ts': [
-      "import { spawnSync } from 'node:child_process';",
-      "import { test } from 'bun:test';",
-      "import path from 'node:path';",
-      "test.skipIf(process.platform !== 'win32')('program', () => {",
-      "  const program = path.resolve(import.meta.dir, '../../src/compiler/observed-fixture.ts');",
-      "  spawnSync(process.execPath, [program]);",
-      "});"
-    ].join('\n')
-  });
-  expect(projection.observedTestConsumers).toEqual([{
-    targetPath: 'src/compiler/observed-fixture.ts',
-    testPath: 'tests/unit/observed-fixture.test.ts'
-  }, {
-    targetPath: 'src/compiler/observed-fixture.ts',
-    testPath: 'tests/unit/program-fixture.test.ts'
-  }]);
-
-  const encoded = encodeTestImpactProjectionReceipt(projection);
-  const outsideSnapshot = JSON.parse(encoded) as Record<string, unknown>;
-  outsideSnapshot.observedTestConsumers = [{
-    targetPath: 'src/compiler/absent.ts',
-    testPath: 'tests/unit/observed-fixture.test.ts'
-  }];
-  const { projectionDigest: _discarded, ...unsigned } = outsideSnapshot;
-  outsideSnapshot.projectionDigest = sha256(unsigned);
-  expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
-    .toThrow('within its snapshot');
 });

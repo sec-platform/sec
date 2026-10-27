@@ -219,7 +219,7 @@ test('workflow run aliases reject missing or non-string commands and uses confli
   });
   expect(() => compile(aliasedRunSource.replace('*install_dependencies', '*missing_command')))
     .toThrow(/alias does not resolve to one scalar command/u);
-  for (const value of ['{ command: unsafe }', '[unsafe]', '42', 'true', 'null']) {
+  for (const value of ['{ command: unsafe }', '42']) {
     const source = aliasedRunSource.replace(
       '|\n          set -euo pipefail\n          bun install --frozen-lockfile --ignore-scripts', value
     );

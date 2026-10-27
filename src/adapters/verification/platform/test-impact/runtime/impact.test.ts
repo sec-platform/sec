@@ -34,6 +34,7 @@ test('observed local program edges continue through test helpers to runnable tes
   try {
     const sources = {
       'src/value.ts': 'export const value = 1;\n',
+      'src/read-only.ts': 'export const observed = 2;\n',
       'src/value.json': '{"value":1}\n',
       'tests/helpers/value-child.ts': "import '../../src/value.ts';\n",
       'tests/unit/tsconfig-excluded.test.ts': 'test("excluded from type project", () => {});\n',
@@ -43,6 +44,7 @@ test('observed local program edges continue through test helpers to runnable tes
         "import { readFileSync } from 'node:fs';",
         "import { readFileSync as unavailableSyncRead } from 'node:fs/promises';",
         "readFileSync('src/value.json', 'utf8');",
+        "readFileSync('src/read-only.ts', 'utf8');",
         "readFileSync('../outside.json', 'utf8');",
         "readFileSync('src/absent.json', 'utf8');",
         "unavailableSyncRead('src/value.json');",
@@ -52,7 +54,7 @@ test('observed local program edges continue through test helpers to runnable tes
         "spawnSync(process.execPath, ['tests/helpers/value-child.ts']);",
         ''
       ].join('\n'),
-      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"files":["src/value.ts","tests/helpers/value-child.ts","tests/unit/value.test.ts"]}\n'
+      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"files":["src/value.ts","src/read-only.ts","tests/helpers/value-child.ts","tests/unit/value.test.ts"]}\n'
     } as const;
     for (const [repositoryPath, source] of Object.entries(sources)) {
       const absolutePath = path.join(repositoryRoot, ...repositoryPath.split('/'));
@@ -80,10 +82,13 @@ test('observed local program edges continue through test helpers to runnable tes
 
     const selection = selectTestsForSources(['src/value.ts'], provider);
     expect(selection.fast).toEqual(['tests/unit/value.test.ts']);
-    expect(provider.projection.observedTestConsumers).toContainEqual({
-      targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts'
-    });
+    expect(provider.projection.observedTestConsumers).toEqual([
+      { targetPath: 'src/read-only.ts', testPath: 'tests/unit/value.test.ts' },
+      { targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts' },
+      { targetPath: 'tests/helpers/value-child.ts', testPath: 'tests/unit/value.test.ts' }
+    ]);
     expect(selectTestsForSources(['src/value.json'], provider).fast).toEqual(['tests/unit/value.test.ts']);
+    expect(selectTestsForSources(['src/read-only.ts'], provider).fast).toEqual(['tests/unit/value.test.ts']);
     expect(compilation.testObservations.resourceReads.map(({ target }) => target)).toEqual(['src/value.json']);
   } catch (error) {
     primary = { label: 'observed-edge assertions', error };

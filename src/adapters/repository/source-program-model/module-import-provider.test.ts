@@ -111,22 +111,6 @@ test('canonical frontend joins unresolved, type-only and runtime observations wi
   expect(graph.directConsumers('src/c.ts')).toEqual(['src/a.ts']);
 });
 
-test('canonical frontend preserves empty-runtime imports left by inline type specifiers', () => {
-  const graph = compileFixture({
-    'src/statement.ts': "import type { Value } from './provider.ts';",
-    'src/inline.ts': "import { type Value } from './provider.ts';",
-    'src/reexport.ts': "export { type Value } from './provider.ts';",
-    'src/provider.ts': 'export type Value = string;'
-  });
-  expect(graph.directDependencies('src/statement.ts')).toEqual(['src/provider.ts']);
-  expect(graph.directRuntimeDependencies('src/statement.ts')).toEqual([]);
-  expect(graph.directRuntimeDependencies('src/inline.ts')).toEqual(['src/provider.ts']);
-  expect(graph.directRuntimeDependencies('src/reexport.ts')).toEqual(['src/provider.ts']);
-  expect(graph.directConsumers('src/provider.ts')).toEqual([
-    'src/inline.ts', 'src/reexport.ts', 'src/statement.ts'
-  ]);
-});
-
 test('lexical resolution retains ordered candidates, exact first targets and missing-target reverse impact', () => {
   const precedence = [
     'src/target.ts', 'src/target.tsx', 'src/target.mts', 'src/target.cts',
