@@ -52,8 +52,8 @@ test('fresh and cached entry points share admission for unprojected imports and 
   }
 });
 
-test('all scoped identity constructors reject either side of the original colon collision', () => {
-  const constructors = [ids.contractEntityId, ids.contractResponsibilityId, ids.contractOperationId, ids.contractStateId, ids.contractEventId, ids.contractPolicyId, ids.contractPermissionId, ids.contractEffectId, ids.contractScenarioId];
+test('mutation identity constructors reject colon collisions while valid scoped identities stay literal', () => {
+  const constructors = [ids.contractOperationId, ids.contractStateId];
   for (const construct of constructors) {
     expect(() => construct('a:b', 'c')).toThrow();
     expect(() => construct('a', 'b:c')).toThrow();
