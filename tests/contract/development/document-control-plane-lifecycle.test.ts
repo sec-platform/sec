@@ -2727,12 +2727,14 @@ if (process.platform === 'linux') {
       expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md')))
         .toEqual(Buffer.from(journal.files.rollingPlan.pre, 'base64'));
 
+      const beforeStatus = await readFreezeEffectSnapshot(fixture.repositoryRoot);
       const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
       expect(status.activation).toEqual({
         operationId: journal.operationId,
         phase: 'index-published',
         terminal: false
       });
+      expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(beforeStatus);
       const recovered = await freezeDocumentControlPlane({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2853,63 +2855,16 @@ if (process.platform === 'linux') {
       expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
     });
   }, 60_000);
-
-  test('Linux S1 rolling-plan witness preserves read-only status and recovers the same candidate', async () => {
-    await withFreezeFixture(async (fixture) => {
-      const fault = new Error('Injected Linux rolling-plan S1 fault');
-      await expect(freezeDocumentControlPlane({
-        cwd: fixture.repositoryRoot,
-        manifestPath: FREEZE_TARGET_PATH,
-        reviewedOn: '2026-08-09',
-        afterExactPreRecoveryLink: (event) => {
-          if (event.label === 'Rolling plan') throw fault;
-        }
-      })).rejects.toBe(fault);
-      const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
-      const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
-      expect(journal.phase).toBe('pointer-published');
-      const rollingPlanPath = path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md');
-      await expectLinuxExactS1({
-        artifactRoot: transactionRoot,
-        targetPath: rollingPlanPath,
-        targetKey: 'rolling-plan',
-        operationId: journal.operationId,
-        expectedPre: Buffer.from(journal.files.rollingPlan.pre, 'base64')
-      });
-      const beforeStatus = await readFreezeEffectSnapshot(fixture.repositoryRoot);
-      const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
-      expect(status.activation).toEqual({
-        operationId: journal.operationId,
-        phase: 'pointer-published',
-        terminal: false
-      });
-      expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(beforeStatus);
-      const recovered = await freezeDocumentControlPlane({
-        cwd: fixture.repositoryRoot,
-        manifestPath: FREEZE_TARGET_PATH,
-        reviewedOn: '2026-08-09'
-      });
-      expect(recovered.operationId).toBe(journal.operationId);
-      expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
-      await expectFreezeTransactionRetired(fixture.repositoryRoot);
-      const repeated = await freezeDocumentControlPlane({
-        cwd: fixture.repositoryRoot,
-        manifestPath: FREEZE_TARGET_PATH,
-        reviewedOn: '2026-08-09'
-      });
-      expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
-    });
-  }, 60_000);
 }
 
 if (process.platform === 'linux') {
+  // Pointer represents the ordinary writeAtomicCas projection family; rolling
+  // phase/path wiring remains in the nonterminal recovery matrix above.
   const installedNextCases = [
     { kind: 'index', faultAfter: 'after-index-next-install' },
-    { kind: 'pointer', faultAfter: 'after-pointer-next-install' },
-    { kind: 'rolling', faultAfter: 'after-rolling-next-install' }
+    { kind: 'pointer', faultAfter: 'after-pointer-next-install' }
   ] as const satisfies readonly Readonly<{
-    kind: 'index' | 'pointer' | 'rolling';
+    kind: 'index' | 'pointer';
     faultAfter: FreezeFault;
   }>[];
   for (const installedCase of installedNextCases) {
@@ -2933,9 +2888,7 @@ if (process.platform === 'linux') {
           const indexPath = repositoryIndexPath(fixture.repositoryRoot);
           const targetPath = installedCase.kind === 'index'
             ? indexPath
-            : installedCase.kind === 'pointer'
-              ? path.join(fixture.repositoryRoot, POINTER_PATH)
-              : path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md');
+            : path.join(fixture.repositoryRoot, POINTER_PATH);
           const nextPath = installedCase.kind === 'index'
             ? `${indexPath}.lock`
             : path.join(
@@ -2947,7 +2900,7 @@ if (process.platform === 'linux') {
             artifactRoot,
             installedCase.kind === 'index'
               ? 'git-index'
-              : installedCase.kind === 'pointer' ? 'active-pointer' : 'rolling-plan',
+              : 'active-pointer',
             journal.operationId,
             'retired-next'
           );
