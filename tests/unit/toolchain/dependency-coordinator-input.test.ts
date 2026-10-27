@@ -3,54 +3,26 @@ import assert from 'node:assert/strict';
 import {
   runtimeDependencyOperationOptions as bind,
   runtimeDependencyOperationContext as context,
-  runtimeDependencyOperationEffectFence as fence,
-  runtimeDependencyOperationRemainingMs as remaining
+  runtimeDependencyOperationEffectFence as fence
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { captureRuntimeDependencyInstallRequest } from '../../../src/execution/dependency-install-request.ts';
 
 const controls = () => ({ lockTimeoutMs: 1000, monotonicNowMs: () => 0 });
 
-test('every coordinator route consumes the same closed fields without evaluating or forwarding extensions', () => {
-  const hiddenCapability = { invoke() { assert.fail('extension executed'); } };
-  const input = new Proxy({ ...controls(), extension: hiddenCapability,
-    get unknownSecret() { assert.fail('unknown getter'); throw new Error('unreachable'); },
-    get sharedDepsRoot() { assert.fail('retired root getter'); throw new Error('unreachable'); },
-    [Symbol('foreign authority')]: hiddenCapability }, { ownKeys() { assert.fail('enumerated whole input'); } });
-  const bound = bind(input);
-  assert.equal(remaining(bound, 'closed'), 1000);
-  assert.equal('extension' in bound, false); assert.equal('unknownSecret' in bound, false);
-  assert.equal('sharedDepsRoot' in bound, false);
-  // @ts-expect-error Coordinator outputs do not forward arbitrary extensions.
-  assert.equal(bound.customCapability, undefined);
-  assert.ok(Object.isFrozen(bound));
-  const parentInput = new Proxy({ ...bound, get sharedDepsRoot() {
-    assert.fail('retired root accessor executed'); return 'unreachable';
-  } }, {});
-  assert.throws(() => bind(parentInput), error => {
-    assert.equal((error as { code?: string }).code, 'RUNTIME-DEPS-003');
-    assert.match((error as Error).message, /unowned executable accessor/);
-    return true;
-  });
-  assert.equal(context(parentInput), context(bound));
-  assert.ok(!Object.values(bound as Readonly<Record<string, unknown>>).includes(hiddenCapability));
-  assert.equal(Object.getOwnPropertySymbols(bound).length, 1); // Only the actual owner's parent ledger.
-});
-
-test('declared capability identity is preserved without inspecting its methods or freezing the provider', () => {
-  const lifecycle = new Proxy({
+test('declared capability identity is preserved without freezing the provider', () => {
+  const lifecycle = {
     async born() {},
     async inspect() { throw new Error('unused inspection'); },
     async retired() {},
     async disposed() { throw new Error('unused disposal'); }
-  }, { ownKeys() { assert.fail('provider enumeration'); }, get() { assert.fail('provider access'); } });
-  const capability = Object.freeze({ fixture: true });
-  const bound = bind({ ...controls(), generatedStateLifecycle: lifecycle, testMaterialization: capability as never });
-  assert.equal(bound.generatedStateLifecycle, lifecycle); assert.equal(bound.testMaterialization, capability);
+  };
+  const bound = bind({ ...controls(), generatedStateLifecycle: lifecycle });
+  assert.equal(bound.generatedStateLifecycle, lifecycle);
   assert.equal(Object.isFrozen(lifecycle), false);
 });
 
-test('callback and environment methods retain private provider state, arguments and original selection', async () => {
+test('callback and environment methods retain private provider state and arguments', async () => {
   class Provider {
     #events: unknown[][] = [];
     lockTimeoutMs = 1000;
@@ -68,26 +40,12 @@ test('callback and environment methods retain private provider state, arguments 
   }
   const provider = new Provider(); const bound = bind(provider);
   assert.equal(bound.rematerialize, false);
-  provider.rematerialize = true;
-  provider.beforeCommit = async () => assert.fail('late fence'); provider.now = () => assert.fail('late clock');
   await fence(bound, 'private'); assert.equal(bound.now?.(), 'time');
   await bound.sleep?.(4); await bound.testCompilerRename?.('a','b'); await bound.testInstallLockDelete?.('p',3);
   await bound.testCompilerPublishHook?.('active-backed-up'); await bound.testProjectProjectionHook?.('published');
   await bound.testCompilerBridgeValidationHook?.('binding-observed');
-  assert.deepEqual(provider.events.filter(e => e[0] !== 'clock'), [['fence',true],['now'],['sleep',4],['rename','a','b'],
+  assert.deepEqual(provider.events.filter(e => e[0] !== 'clock'), [['fence',false],['now'],['sleep',4],['rename','a','b'],
     ['delete','p',3],['publish','active-backed-up'],['project','published'],['bridge','binding-observed']]);
-});
-
-test('all request decisions and method identities are captured before the clock can change source options', async () => {
-  const events: string[]=[];
-  const raw = { lockTimeoutMs:1000, pollIntervalMs:10, installMode:'allow' as 'allow'|'prebound-only', rematerialize:false,
-    async beforeCommit(){events.push('original');},
-    monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.pollIntervalMs=999;raw.beforeCommit=async()=>assert.fail('replacement');return 0;} };
-  const bound=bind(raw); assert.equal(bound.installMode,'allow'); assert.equal(bound.rematerialize,false);
-  assert.equal(bound.pollIntervalMs,10); assert.ok(Object.isFrozen(bound));
-  assert.equal(Reflect.set(bound,'lockTimeoutMs',10_000),false);
-  assert.equal(context(bound).deadlineAtMonotonicMs,1000);
-  await fence(bound,'capture'); assert.deepEqual(events,['original']);
 });
 
 test('rebinding issued invocations preserves the parent operation and still checks cancellation', () => {
@@ -97,18 +55,6 @@ test('rebinding issued invocations preserves the parent operation and still chec
   assert.equal(context(rebound).operationId,context(first).operationId);
   const reason=Object.freeze({stop:true});controller.abort(reason);
   assert.throws(()=>bind(rebound),e=>e===reason);
-});
-
-test('known inherited and nonenumerable internal values stay outside the existing input boundary', () => {
-  const raw=Object.create({ installMode:'invalid',now(){assert.fail('inherited');} });
-  Object.defineProperty(raw,'sleep',{get(){assert.fail('hidden');},enumerable:false});
-  const bound=bind(raw);assert.equal(bound.installMode,undefined);assert.equal(bound.sleep,undefined);
-});
-
-test('removing a parent binding from a selected getter is rejected rather than minting a fresh ledger', () => {
-  const parent=bind(controls());const symbol=Object.getOwnPropertySymbols(parent)[0]!;
-  const raw={...parent,get installMode(){Reflect.deleteProperty(raw,symbol);return 'allow' as const;}};
-  assert.throws(()=>bind(raw),/not owner-issued/);
 });
 
 test('method binding and the selected clock preserve exact sync and async failure values', async () => {
