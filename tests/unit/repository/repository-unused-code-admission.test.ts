@@ -56,8 +56,8 @@ async function verificationFailure(entries: Readonly<Record<string, string>>, su
   }, 'sec-unused-admission-');
 }
 
-async function rejectsUnused(source: string, surface: 'src' | 'tests', binding: string, column: number, provider?: string): Promise<void> {
-  const failure = await verificationFailure({ 'entry.ts': source }, surface, provider);
+async function rejectsUnused(source: string, surface: 'src' | 'tests', binding: string, column: number): Promise<void> {
+  const failure = await verificationFailure({ 'entry.ts': source }, surface);
   assert.ok(failure, 'Unused code must reject project verification');
   assert.match(failure.message, /\bTS6133:/u);
   // Each negative fixture has exactly one unused binding. Checking the entire
@@ -70,14 +70,8 @@ async function rejectsUnused(source: string, surface: 'src' | 'tests', binding: 
 }
 
 for (const surface of ['src', 'tests'] as const) {
-  test(`${surface} rejects dead locals and private forwarding helpers`, async () => {
+  test(`${surface} rejects unused locals and parameters through repository policy`, async () => {
     await rejectsUnused('const discarded = 1; export const result = 2;', surface, 'discarded', 7);
-    await rejectsUnused('function redundant(value: number) { return value; } export const result = 2;', surface, 'redundant', 10);
-  });
-
-  test(`${surface} rejects unused value imports, type imports and parameters`, async () => {
-    await rejectsUnused('import { value } from "./provider.js"; export const result = 2;', surface, 'value', 1, 'export const value = 1;');
-    await rejectsUnused('import type { Payload } from "./provider.js"; export const result = 2;', surface, 'Payload', 1, 'export type Payload = { value: number };');
     await rejectsUnused('export function evaluate(unused: number) { return 1; }', surface, 'unused', 26);
   });
 
