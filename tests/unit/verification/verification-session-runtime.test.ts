@@ -155,6 +155,10 @@ test('Review provider quota creates one repository-scoped deny-only availability
   });
   if (unavailable.status !== 'unavailable') throw new Error('expected quota unavailable');
   expect(unavailable.receiptRef).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  const retained = JSON.stringify(unavailable);
+  expect(retained).not.toContain('You have reached');
+  expect(retained).not.toContain('Upgrade');
+  expect(retained).not.toContain('add credits');
 
   transport.repositoryIssueComments = [[botIssueComment(quota, {
     id: '303',

@@ -7,7 +7,6 @@ import {
 
 import { bindDocumentationVerificationGateInput, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, type CodexDevelopmentVerificationPlanProfile } from '../../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
-import { resolveTestOwnership } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { parseGitChangedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
 
@@ -74,18 +73,11 @@ test('Quick plan resolves the canonical active documentation corpus', async () =
 test('Quick docs gate follows the canonical documentation lifecycle owner', async () => {
   const paths = currentActiveDocumentationPaths();
   const baseline = currentDocumentationVerificationBaseline();
-  // Keep every corpus member's admission and owner witness at their actual
-  // boundaries; the full-corpus and singleton plans exercise the composition.
+  // Keep every corpus member's admission; the full-corpus and singleton
+  // plans above and below observe actual selected owners.
   for (const file of paths) {
     expect(isDocumentationVerificationInputPath(file, baseline), file).toBe(true);
   }
-  expect(resolveTestOwnership(paths, await testImpactProvider())).toEqual(expect.arrayContaining(
-    paths.map((source) => ({
-      source,
-      owner: 'adapters.self-hosting.control.documentation',
-      identity: { kind: 'module', id: 'adapters.self-hosting.control.documentation' }
-    }))
-  ));
   const singleton = await buildVerificationPlanForTest('quick', ['AGENTS.md']);
   expect(singleton.selectionResolved).toBe(true);
   expect(singleton.affectedOwners).toContain('adapters.self-hosting.control.documentation');

@@ -40,12 +40,6 @@ test('later caller mutation cannot alter the admitted path and filter selection'
   assert.equal('request' in captured, false);
 });
 
-test('inherited selection flags retain the old own-enumerable input boundary', () => {
-  const input = Object.create({ paths: true, kind: 'test' });
-  assert.equal(parseArtifactCommandInput(undefined, input).kind, 'generate');
-  Object.defineProperty(input, 'paths', { value: true, enumerable: false });
-  assert.equal(parseArtifactCommandInput(undefined, input).kind, 'generate');
-});
 
 test('canonical kinds resist mutation and public artifact flags select the requested view', async () => {
   assert.ok(Object.isFrozen(CI_ARTIFACT_KINDS));

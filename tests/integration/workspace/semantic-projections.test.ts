@@ -24,8 +24,8 @@ beforeAll(async () => {
 });
 
 test('architecture projection preserves Responsibility, Port, Effect, and Permission Fact edges', () => {
-  const view = projectArchitectureView(ticketSnapshot, 'responsibility:ticket:TicketLifecycle');
-  expect(view.subject).toBe('responsibility:ticket:TicketLifecycle');
+  const view = projectArchitectureView(ticketSnapshot);
+  expect(view.subject).toBe('app:customer-admin');
 
   const lifecycle = view.nodes.find((node) => node.entityId === 'responsibility:ticket:TicketLifecycle');
   expect(lifecycle?.badges).toEqual(expect.arrayContaining(['stateful']));

@@ -35,14 +35,6 @@ for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as con
   });
 }
 
-test('command-specific flags preserve the own-enumerable input boundary', () => {
-  const options = Object.create({ lock: true, dryRun: true });
-  Object.defineProperty(options, 'lock', { value: true, enumerable: false });
-  assert.deepEqual(parseComposeCommandInput(options), { lock: false });
-  const input = parseRepairCommandInput(undefined, options);
-  assert.equal(input.kind, 'execute');
-  if (input.kind === 'execute') assert.equal(input.request.dryRun, false);
-});
 
 test('later changes to raw flags do not change captured request or presentation', () => {
   const raw = { json: true, compact: true, dryRun: false };

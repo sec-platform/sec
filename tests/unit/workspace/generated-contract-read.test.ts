@@ -3,7 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { readGeneratedContract } from '../../../src/adapters/workspace/generated-contract-read.ts';
 import { saveLock } from '../../../src/adapters/workspace/lock.ts';
-import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
+import { projectPostgresContract } from '../../../src/application/postgres-contract.ts';
+import { formatPostgresContract } from '../../../src/entry/cli/postgres-contract.ts';
 import { semanticArtifactLock } from '../../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
@@ -29,13 +31,23 @@ async function declare(root: string, paths: string[]): Promise<void> {
 test('selection follows lock membership, deduplicates paths and ignores undeclared matching files', async () => {
   await withTempWorkspace(async (root) => {
     await declare(root, [first, first, '.sec/artifacts/generated/missing-contract.json']);
-    const contract = { provider: 'postgres', persistenceMode: 'database', tables: [] };
+    const contract = { provider: 'postgres', persistenceMode: 'database', tables: [
+      { name: 'tickets', tenantScoped: true, columns: ['id', 'tenantId'] },
+      { name: 'customers', tenantScoped: false, columns: ['id'] }
+    ] };
     await write(root, first, JSON.stringify(contract));
     await write(root, second, JSON.stringify(contract));
     expect(await expectCliJson<typeof contract>(root, ['postgres', '--json'])).toEqual(contract);
-    await expectCliText(root, ['postgres'], [
-      'Postgres contract postgres', 'mode=database', 'tables=0', 'tenantScoped=0', 'Table list: none'
-    ]);
+    const { stdout: rendered } = await expectCliSuccess(root, ['postgres']);
+    expect(rendered).toMatch(/(?:^|\s)postgres(?=\s|$)/u);
+    expect(rendered).toMatch(/(?:^|\s)mode=database(?=;|\s|$)/u);
+    expect(rendered).toMatch(/(?:^|\s)tables=2(?=;|\s|$)/u);
+    expect(rendered).toMatch(/(?:^|\s)tenantScoped=1(?=;|\s|$)/u);
+    expect(rendered).toMatch(/^Table list:\s*tickets\s*,\s*customers\s*$/mu);
+    const empty = formatPostgresContract(projectPostgresContract({ ...contract, tables: [] }));
+    for (const field of ['Postgres contract postgres', 'mode=database', 'tables=0', 'tenantScoped=0', 'Table list: none']) {
+      expect(empty).toContain(field);
+    }
   });
 });
 

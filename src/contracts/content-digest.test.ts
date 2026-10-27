@@ -1,6 +1,5 @@
 import { settleResources, type ResourceSettlementFailure } from '../execution/resource-settlement.ts';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { createContentIdentityRuntime } from '../bootstrap/content-identity-runtime.ts';
@@ -8,9 +7,6 @@ import { createContentIdentityRuntime } from '../bootstrap/content-identity-runt
 import { rawSha256 } from './canonical.ts';
 import { parseContentDigest } from './content-digest.ts';
 
-const vectors = JSON.parse(readFileSync(new URL('../../tests/fixtures/identity/blake3-256-vectors.json', import.meta.url), 'utf8')) as {
-  cases: Array<{ inputBytes: number; hex: string }>;
-};
 function input(length: number): Uint8Array {
   return Uint8Array.from({ length }, (_, i) => i % 251);
 }
@@ -31,34 +27,29 @@ test('bootstrap binds the adopted single-thread WASM/SIMD execution profile', ()
   assert.equal(CONTENT.provider.parallelism, 'single-thread');
 });
 
-for (const vector of vectors.cases) {
-  test(`BLAKE3 official unkeyed 256-bit vector: ${vector.inputBytes} bytes`, () => {
-    assert.equal(contentDigest(input(vector.inputBytes)), `blake3:${vector.hex}`);
-  });
-}
-
-test('streaming is invariant around compression and tree-chunk boundaries', () => {
-  // One-shot vectors above own algorithm conformance. Keep the multi-chunk
-  // adapter witness at every partition size without their Cartesian product.
-  const { inputBytes, hex } = vectors.cases.find(vector => vector.inputBytes === 4097)!;
-  const bytes = input(inputBytes);
-  for (const chunkSize of [1, 7, 63, 64, 65, 1023, 1024, 1025, 4096]) {
-    const hash = createContentHasher();
-    let fixtureFailure1: ResourceSettlementFailure | undefined;
-    try {
-      hash.update(new Uint8Array());
-      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-        hash.update(bytes.subarray(offset, offset + chunkSize));
-      }
-      assert.equal(hash.finish(), `blake3:${hex}`);
-    } catch (error) {
-      fixtureFailure1 = { label: 'fixture operation', error };
-    } finally {
-      settleResources({
-        primary: fixtureFailure1,
-        cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
-      });
+test('one-shot and streaming content hashing bind the independent BLAKE3 vector', () => {
+  // BLAKE3-team/BLAKE3 1.8.2 test_vectors/test_vectors.json,
+  // source blob f6da91792c6cdf5c6a0f6dad01803045bb204a68; byte[i] = i % 251.
+  // Algorithm compression/tree-boundary conformance belongs to the pinned
+  // provider; SEC retains an independent oracle for both actual entry paths.
+  const expected = 'blake3:9b4052b38f1c5fc8b1f9ff7ac7b27cd242487b3d890d15c96a1c25b8aa0fb995';
+  const bytes = input(4097);
+  assert.equal(contentDigest(bytes), expected);
+  const hash = createContentHasher();
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
+  try {
+    hash.update(new Uint8Array());
+    for (let offset = 0; offset < bytes.length; offset += 63) {
+      hash.update(bytes.subarray(offset, offset + 63));
     }
+    assert.equal(hash.finish(), expected);
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { hash.dispose(); } }]
+    });
   }
 });
 

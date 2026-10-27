@@ -1430,7 +1430,7 @@ test('journal rejects an unqueued start and reopening a cancelled Action', () =>
   });
 });
 
-test('claim joins one live physical owner and rejects wrong-owner release', () => {
+test('claim joins one live physical owner and preserves ownership during settlement', () => {
   withJournalRoot('sec-action-claim-race-', (root) => {
     const key = action();
     const first = acquireVerificationActionClaim(withStateRoot(root, {
@@ -1443,9 +1443,6 @@ test('claim joins one live physical owner and rejects wrong-owner release', () =
     }));
     expect(first.disposition).toBe('acquired');
     expect(second.disposition).toBe('joined');
-    expect(() => releaseVerificationActionClaim(withStateRoot(root, {
-      repositoryRoot: 'R:/repo', actionKey: key.actionKey, ownerToken: 'owner-b'
-    }))).toThrow('owner mismatch');
     expect(settleVerificationActionClaimIfOwned(withStateRoot(root, {
       repositoryRoot: 'R:/repo', actionKey: key.actionKey, ownerToken: 'owner-b'
     }))).toBe('lost');

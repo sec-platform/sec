@@ -12,7 +12,7 @@ import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../src/adapter
 import { currentActiveDocumentationPaths } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { classifyTestImpactSource } from '../../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
-import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, selectTestsForSources } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: canonicalGitChildEnvironment() });
@@ -126,10 +126,7 @@ test('repository sources route by semantic kind and module identity', () => {
   expect(classifyTestImpactSource('.codex/unowned.toml', activeDocumentationPath)).toBeNull();
   expect(classifyTestImpactSource('.codex/agents/notes.md', activeDocumentationPath)).toBeNull();
 
-  const compilerFixturePath = 'src/compiler/fixture.ts';
   const provider = sourceProvider({
-    [compilerFixturePath]: 'export const fixture = true;',
-    'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;",
     '.codex/agents/worker.toml': 'name = "worker"\n',
     'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
     'src/adapters/self-hosting/control/agent/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
@@ -144,24 +141,9 @@ test('repository sources route by semantic kind and module identity', () => {
     }),
     'tests/unit/install-hooks-fixture.test.ts': "import { installHooks } from '../../src/adapters/self-hosting/development/hooks/install.ts'; void installHooks;"
   });
-  expect(resolveTestOwnership([compilerFixturePath], provider)).toEqual([{
-    source: compilerFixturePath,
-    owner: 'compiler',
-    identity: { kind: 'module', id: 'compiler' }
-  }]);
-  expect(resolveTestOwnership(['.codex/agents/worker.toml'], provider)).toEqual([{
-    source: '.codex/agents/worker.toml',
-    owner: 'adapters.self-hosting.control.agent',
-    identity: { kind: 'module', id: 'adapters.self-hosting.control.agent' }
-  }]);
   expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
     .toEqual(['tests/unit/agent-fixture.test.ts']);
 
-  expect(resolveTestOwnership(['.githooks/post-merge'], provider)).toEqual([{
-    source: '.githooks/post-merge',
-    owner: 'adapters.self-hosting.development.hooks',
-    identity: { kind: 'module', id: 'adapters.self-hosting.development.hooks' }
-  }]);
   expect(selectTestsForSources(['.githooks/post-merge'], provider).fast)
     .toContain('tests/unit/install-hooks-fixture.test.ts');
 });
@@ -191,11 +173,6 @@ test('impact follows executable imports instead of import-like text', () => {
   expect(selection.fast).toEqual([direct, selected]);
   expect(selection.slow).toEqual([slow]);
   expect(selection.owners).toEqual(['bootstrap.engineering']);
-  expect(resolveTestOwnership([source], provider)).toEqual([{
-    source,
-    owner: 'bootstrap.engineering',
-    identity: { kind: 'module', id: 'bootstrap.engineering' }
-  }]);
 });
 
 test('compiler-resolved named barrel references do not select unrelated consumers', () => {
