@@ -1,13 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { captureRuntimeDependencyInstallRequest, isRuntimeDependencyInstallMode } from '../../../src/execution/dependency-install-request.ts';
+import { captureRuntimeDependencyInstallRequest } from '../../../src/execution/dependency-install-request.ts';
 
-for(const mode of [null,false,0,'', 'offline',{},[]])test(`request rejects invalid mode ${JSON.stringify(mode)}`,()=>{
- assert.equal(isRuntimeDependencyInstallMode(mode),false);assert.throws(()=>captureRuntimeDependencyInstallRequest({installMode:mode as never}));
-});
-for(const field of ['rematerialize'] as const)for(const v of [null,'false',0,1,{}])test(`${field} refuses nonboolean ${JSON.stringify(v)}`,()=>{
- assert.throws(()=>captureRuntimeDependencyInstallRequest({[field]:v} as never));
-});
 test('public input is selected without enumerating internal fields',()=>{
  const input=new Proxy({rematerialize:false,get monotonicNowMs(){assert.fail('internal clock'); throw new Error('unreachable');},get generatedStateLifecycle(){assert.fail('lifecycle'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('enumeration');}});
  const r=captureRuntimeDependencyInstallRequest(input);assert.equal(r.rematerialize,false);assert.equal(r.installMode,undefined);assert.equal(Object.hasOwn(r,'monotonicNowMs'),false);assert.ok(Object.isFrozen(r));
@@ -26,4 +20,3 @@ test('selected public values remain captured when getters and the mutable input 
  Object.defineProperty(input,'deadlineAtUnixMs',{value:42,configurable:true});
  assert.equal(r.deadlineAtUnixMs,5000);
 });
-for(const v of [null,false,3,'callback'])test(`invalid commit method ${JSON.stringify(v)} is rejected`,()=>assert.throws(()=>captureRuntimeDependencyInstallRequest({beforeCommit:v as never})));

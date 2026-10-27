@@ -32,13 +32,15 @@ import { projectWorkSelectionCli } from '../../../src/adapters/self-hosting/cont
 import { formatImportRecoveryCommand, shouldReportDevRunnerSuccess } from '../../../src/adapters/self-hosting/development/runner/cli.ts';
 import { rawSha256 } from '../../../src/contracts/canonical.ts';
 
-function declarationTopologyFixture() {
-  const descriptorPath = 'src/projection-owner/module.json';
-  const sourcePath = 'src/projection-owner/runtime.ts';
-  const source = 'export const projection = true;';
-  const sourceRevision = rawSha256(source);
+function declarationTopologyCompilation(sources: Readonly<Record<string, string>>) {
+  const descriptorPath = 'src/example/module.json';
+  const files = Object.entries(sources).map(([repositoryPath, source]) => ({
+    path: repositoryPath,
+    source,
+    contentDigest: rawSha256(source)
+  }));
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, sourcePath],
+    repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{
       descriptorPath,
       source: JSON.stringify({
@@ -51,22 +53,40 @@ function declarationTopologyFixture() {
       })
     }]
   });
+  const sourceRevision = rawSha256(JSON.stringify([...files].sort((left, right) => (
+    left.path.localeCompare(right.path, 'en-US')
+  ))));
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     subject: {
       kind: 'virtual-mutation',
       provenance: {
         kind: 'source-program-virtual-mutation',
-        baseSnapshotDigest: rawSha256('repository-audit-projection-base'),
+        baseSnapshotDigest: rawSha256('declaration-topology-base'),
         mutationDigest: sourceRevision
       }
     },
-    files: [{ path: sourcePath, source, contentDigest: sourceRevision }],
+    files,
     moduleMembership
   });
-  return compileSourceProgramDeclarationTopology(
-    compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot })
-  );
+  return compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
 }
+
+const cyclicSources = Object.freeze({
+  'src/example/a.ts': [
+    "import { b } from './b.ts';",
+    'export function a(value: number): number {',
+    '  return value <= 0 ? 0 : b(value - 1);',
+    '}',
+    ''
+  ].join('\n'),
+  'src/example/b.ts': [
+    "import { a } from './a.ts';",
+    'export function b(value: number): number {',
+    '  return value <= 0 ? 0 : a(value - 1);',
+    '}',
+    ''
+  ].join('\n')
+});
 
 function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
   const contract = parseRepositoryModuleDescriptor(
@@ -242,10 +262,37 @@ describe('bounded control-plane CLI projections', () => {
     expect(shouldReportDevRunnerSuccess({})).toBe(true);
   });
 
-  test('repository audit projects decision facts without path-scale report bodies', () => {
+  test('compiler-issued declaration topology projects decision facts without path-scale report bodies', () => {
+    const compilation = declarationTopologyCompilation(cyclicSources);
+    const topology = compileSourceProgramDeclarationTopology(compilation);
+    const cycle = topology.strongComponents.find(({ paths }) => (
+      paths.includes('src/example/a.ts') && paths.includes('src/example/b.ts')
+    ));
+
+    expect(cycle?.paths).toEqual(['src/example/a.ts', 'src/example/b.ts']);
+    expect(cycle?.declarationObservationIds).toHaveLength(2);
+    expect(topology.edges.some(({ sourcePath, targetPath }) => (
+      sourcePath === 'src/example/a.ts' && targetPath === 'src/example/b.ts'
+    ))).toBeTrue();
+    expect(topology.edges.some(({ sourcePath, targetPath }) => (
+      sourcePath === 'src/example/b.ts' && targetPath === 'src/example/a.ts'
+    ))).toBeTrue();
+    expect(topology.unknowns.some(({ code }) => code === 'module-initialization-relation')).toBeTrue();
+    expect(topology.topologyDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
+    const reversed = declarationTopologyCompilation(Object.freeze({
+      'src/example/b.ts': cyclicSources['src/example/b.ts'],
+      'src/example/a.ts': cyclicSources['src/example/a.ts']
+    }));
+
+    expect(topology.topologyDigest)
+      .toBe(compileSourceProgramDeclarationTopology(reversed).topologyDigest);
+    expect(() => compileSourceProgramDeclarationTopology(Object.freeze({ ...compilation })))
+      .toThrow('requires one compiler-issued compilation receipt');
+
     const report = {
       architecture: architectureProjectionFixture('acyclic'),
-      declarationTopology: declarationTopologyFixture(),
+      declarationTopology: topology,
       revision: {
         defaultHead: 'a'.repeat(40), defaultRef: 'main', defaultRefInput: 'main',
         defaultRefMode: 'ref', head: 'b'.repeat(40), tree: 'c'.repeat(40), worktree: 'clean'
@@ -266,6 +313,14 @@ describe('bounded control-plane CLI projections', () => {
       contentCoverage: Array.from({ length: 2 }, (_, index) => ({ path: `path-${index}` }))
     } as unknown as RepositoryAuditReport;
     const projected = projectRepositoryAuditCli(report);
+    expect(projected.declarationTopology).toEqual({
+      evidenceDigest: topology.topologyDigest,
+      declarations: topology.declarations.length,
+      edges: topology.edges.length,
+      strongComponents: topology.strongComponents.length,
+      cyclicComponents: 1,
+      unknowns: topology.unknowns.length
+    });
     expect(repositoryModuleArchitectureShouldBlock(report.architecture)).toBe(false);
     expect(projectRepositoryModuleArchitectureAudit(report.architecture)).toEqual({
       feedbackProjections: [], reciprocalPairs: [], strongComponents: [], violations: []

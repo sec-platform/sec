@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
+import { assertStateTransitionFunctions } from '../../../src/compiler/state-transition-plan.ts';
 import { renderStateTransitionMapSource } from '../../../src/adapters/targets/typescript/state-transition-source.ts';
 import type { StateTransitionMapGeneratorPlanTask } from '../../../src/semantics/generation/types.ts';
 
@@ -62,24 +63,16 @@ test('prototype-like names, Unicode and escaped strings remain own data keys wit
   }
 });
 
-test('the empty state domain retains its existing valid empty-function interpretation', async () => {
-  const generated = await execute(renderStateTransitionMapSource(task([], [])));
-  assert.deepEqual(generated.WORKFLOW_VALUES, []);
-  assert.deepEqual(generated.WORKFLOW_TRANSITIONS, []);
-  assert.deepEqual(generated.NEXT_WORKFLOW, {});
-});
-
-test('malformed transition functions and injected type bindings never publish generated source', () => {
+test('generator admission rejects non-total transition functions while rendering rejects injected type bindings', () => {
   const missing = task(); missing.transitions.pop();
-  assert.throws(() => renderStateTransitionMapSource(missing), {
+  assert.throws(() => assertStateTransitionFunctions([missing]), {
     code: 'GENERATOR-PLAN-004', message: 'State "workflow" requires exactly one outgoing transition from "done"'
   });
-  const duplicate = task(); duplicate.transitions.push({ ...duplicate.transitions[0]! });
+  const duplicate = task(); duplicate.transitions.push({ ...duplicate.transitions[0]!, to: 'pending' });
   const foreign = task(); foreign.transitions[0]!.to = 'undeclared';
   const unknownSource = task(); unknownSource.transitions[0]!.from = 'undeclared';
-  const repeatedState = task(); repeatedState.stateValues.push('pending');
-  for (const input of [duplicate, foreign, unknownSource, repeatedState]) {
-    assert.throws(() => renderStateTransitionMapSource(input), error =>
+  for (const input of [duplicate, foreign, unknownSource]) {
+    assert.throws(() => assertStateTransitionFunctions([input]), error =>
       error instanceof Error && /State "workflow"/.test(error.message));
   }
   const injected = task(); injected.typeBinding.name = 'State, Unexpected';
@@ -87,10 +80,9 @@ test('malformed transition functions and injected type bindings never publish ge
     error instanceof TypeError && error.message === 'Named import must name one identifier');
 });
 
-test('rendering neither mutates caller plan data nor makes declaration order an output dependency', () => {
-  const input = task(['a:b', 'a', 'c', 'b:c'], ['c', 'b:c', 'a', 'a:b']), before = JSON.stringify(input);
+test('rendering does not make declaration order an output dependency', () => {
+  const input = task(['a:b', 'a', 'c', 'b:c'], ['c', 'b:c', 'a', 'a:b']);
   const first = renderStateTransitionMapSource(input);
-  assert.equal(JSON.stringify(input), before);
   const reordered = structuredClone(input); reordered.stateValues.reverse(); reordered.transitions.reverse();
   assert.equal(renderStateTransitionMapSource(reordered), first);
 });

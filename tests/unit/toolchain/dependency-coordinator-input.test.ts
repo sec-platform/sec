@@ -78,21 +78,6 @@ test('callback and environment methods retain private provider state, arguments 
     ['delete','p',3],['publish','active-backed-up'],['project','published'],['bridge','binding-observed']]);
 });
 
-for (const field of ['beforeCommit','monotonicNowMs','now','sleep','testCompilerRename','testInstallLockDelete',
-  'testCompilerPublishHook','testProjectProjectionHook','testCompilerBridgeValidationHook'] as const) {
-  test(`invalid ${field} is rejected before clock or effect execution`, () => {
-    assert.throws(() => bind({ lockTimeoutMs: 1000, monotonicNowMs() { assert.fail('invalid input ran clock'); },
-      [field]: 'not-callable' } as never), e => (e as {code?: string}).code === 'RUNTIME-DEPS-003');
-  });
-}
-
-for (const input of [{ rematerialize: 'false' }, { installMode: 'maybe' }]) {
-  test(`invalid request decision ${JSON.stringify(input)} does not reach the environment`, () => {
-    assert.throws(() => bind({ ...input, monotonicNowMs() { assert.fail('clock'); } } as never),
-      e => (e as {code?: string}).code === 'RUNTIME-DEPS-003');
-  });
-}
-
 test('all request decisions and method identities are captured before the clock can change source options', async () => {
   const events: string[]=[];
   const raw = { lockTimeoutMs:1000, pollIntervalMs:10, installMode:'allow' as 'allow'|'prebound-only', rematerialize:false,

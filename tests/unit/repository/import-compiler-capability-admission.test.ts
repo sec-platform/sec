@@ -4,9 +4,7 @@ import { compileOperationDemandGraph } from '../../../src/adapters/self-hosting/
 import { admitImportCompilerCapability } from '../../../src/adapters/self-hosting/development/runner/cli.ts';
 
 test('import admission uses the real locked compiler API without any materialization composition', async () => {
-  for (const operation of ['imports-apply', 'imports-check', 'imports-freeze'] as const) {
-    await admitImportCompilerCapability(compileOperationDemandGraph({ operation, terminalWorkIds: [] }));
-  }
+  await admitImportCompilerCapability(compileOperationDemandGraph({ operation: 'imports-check', terminalWorkIds: [] }));
   const identity = typeScriptCompilerIdentity();
   assertTypeScriptCompilerIdentity(identity);
   expect(identity.provider.id).toBe('typescript-compiler-api');

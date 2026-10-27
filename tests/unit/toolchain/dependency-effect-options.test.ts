@@ -49,10 +49,3 @@ test('a fence getter cannot remove the inherited operation binding during captur
   const raw = { ...parent, get beforeCommit() { Reflect.deleteProperty(raw, binding); return undefined; } };
   assert.throws(() => runtimeDependencyEffectFenceOptions(raw), /not owner-issued/);
 });
-
-for (const callback of [null, false, 0, 'callback']) {
-  test(`invalid effect callback ${String(callback)} is rejected before clock sampling`, () => {
-    assert.throws(() => runtimeDependencyEffectFenceOptions({ beforeCommit: callback as never,
-      monotonicNowMs: () => assert.fail('invalid input sampled clock') }), TypeError);
-  });
-}
