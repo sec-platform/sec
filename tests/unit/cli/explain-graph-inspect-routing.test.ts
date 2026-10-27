@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 
 import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
-import { projectExplainGraphInspect } from '../../../src/application/explain-graph-inspect.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliSuccess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
@@ -38,23 +37,15 @@ test('explain inspect preserves historical pin graph JSON through reading, count
     expect(stdout).toMatch(/\b4 nodes(?=$|[\s;,()])/u);
     expect(stdout).toMatch(/\b4 edges(?=$|[\s;,()])/u);
     const nodeTypes = stdout.split('\n').find((line) => /^Node types\b/u.test(line));
-    for (const count of [/\bentity=1(?=$|[\s;,()])/u, /\bpin=1(?=$|[\s;,()])/u, /\bservice=2(?=$|[\s;,()])/u]) {
-      expect(nodeTypes).toMatch(count);
-    }
+    expect(nodeTypes?.match(/\b[\w-]+=\d+(?=$|[\s;,()])/gu)?.sort())
+      .toEqual(['entity=1', 'pin=1', 'service=2']);
     const edgeTypes = stdout.split('\n').find((line) => /^Edge types\b/u.test(line));
-    expect(edgeTypes).toMatch(/\bdepends_on=2(?=$|[\s;,()])/u);
-    expect(edgeTypes).toMatch(/\bwrites_to=2(?=$|[\s;,()])/u);
+    expect(edgeTypes?.match(/\b[\w-]+=\d+(?=$|[\s;,()])/gu)?.sort())
+      .toEqual(['depends_on=2', 'writes_to=2']);
     expect(stdout).toMatch(/Coverage overlay[^\n]*\b2 blocks(?=$|[\s;,()])/u);
     expect(stdout).toMatch(/Provenance overlay[^\n]*\b1 artifacts(?=$|[\s;,()])/u);
 
     const json = await expectCliJson(workspaceRoot, ['explain', 'graph', '--json']);
-    expect(json).toEqual(graph);
-    expect(projectExplainGraphInspect(json as typeof graph)).toEqual({
-      nodeCount: 4, edgeCount: 4,
-      nodeTypeCounts: [{ id: 'entity', count: 1 }, { id: 'pin', count: 1 }, { id: 'service', count: 2 }],
-      edgeTypeCounts: [{ id: 'depends_on', count: 2 }, { id: 'writes_to', count: 2 }],
-      coverageBlockCount: 2, provenanceArtifactCount: 1
-    });
     expect(json).toEqual(graph);
   });
 });

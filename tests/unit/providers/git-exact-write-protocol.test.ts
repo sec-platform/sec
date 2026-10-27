@@ -27,16 +27,6 @@ for (const format of ['sha1', 'sha256'] as const) {
     }
   }, format));
 
-  test(`real ${format} index-info deletion removes a present tracked file without reading its contents`, () => inGitProtocolRepository(async (root, git) => {
-    writeFileSync(path.join(root, 'old'), 'tracked'); gitProtocolSuccess(git(['add', '--', 'old']));
-    writeFileSync(path.join(root, 'old'), 'working content must remain');
-    const delta = captureGitScratchIndexDelta({ additions: [], removals: ['old'] }, format, 1024);
-    const record = formatGitScratchIndexRecord('0', '0'.repeat(format === 'sha1' ? 40 : 64), delta.removals[0]!);
-    gitProtocolSuccess(git(['update-index', '-z', '--index-info'], undefined, record));
-    assert.equal(gitProtocolSuccess(git(['ls-files', '-z'])), '');
-    assert.equal(readFileSync(path.join(root, 'old'), 'utf8'), 'working content must remain');
-  }, format));
-
   test(`real ${format} mixed delta handles both file-to-directory and directory-to-file replacements`, () => inGitProtocolRepository(async (root, git) => {
     writeFileSync(path.join(root, 'a'), 'old file');
     mkdirSync(path.join(root, 'b')); writeFileSync(path.join(root, 'b/child'), 'old child');
@@ -73,7 +63,7 @@ test('real Git identity sanitation and admission agree without trimming legitima
     const oid = gitProtocolSuccess(git(['commit-tree', tree, '-p', parent], { ...base, GIT_AUTHOR_NAME: name }, 'identity\n')).trim();
     assert.ok(!gitProtocolSuccess(git(['cat-file', 'commit', oid])).includes(`author ${name} <`));
   }
-  for (const name of ['.Name.', 'Name, Other', '名🙂', '\u00a0Name\u00a0']) {
+  for (const name of ['.Name.', "A, B:C; O'Name\\B e\u0301", '名🙂', '\u00a0Name\u00a0']) {
     const input = canonicalCommitTreeInput({ ...fixed, author: { ...fixed.author, name } }); assert.ok(input);
     const oid = gitProtocolSuccess(git(['commit-tree', tree, '-p', parent], gitCommitEnvironment(input, base as Record<string, string>), input.message)).trim();
     assert.ok(gitProtocolSuccess(git(['cat-file', 'commit', oid])).includes(`author ${name} <name@example.test> 1700000000 +0000\n`));

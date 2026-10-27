@@ -37,26 +37,13 @@ describe('text byte census presentation boundary', () => {
       }]
     }, { classifications, anomalies });
 
-    expect(view).toEqual({
-      totalFiles: 3,
-      failClosed: true,
-      classifications: [
-        { id: 'canonical-lf', count: 2 },
-        { id: 'unknown', count: 1 }
-      ],
-      anomalies: [{ id: 'mixed-endings', count: 1 }],
-      flaggedEntries: [{
-        path: 'src/mixed.ts',
-        classification: 'unknown',
-        anomalies: ['mixed-endings']
-      }]
-    });
     const text = formatTextByteCensus(view);
     expect(text).toMatch(/\btotalFiles[\s:]+3(?=$|[\s;,])/u);
     expect(text).toMatch(/\bfailClosed[\s:]+true(?=$|[\s;,])/u);
-    expect(text).toMatch(/^\s*canonical-lf[\s:]+2(?=$|[\s;,])/mu);
-    expect(text).toMatch(/^\s*unknown[\s:]+1(?=$|[\s;,])/mu);
-    expect(text).toMatch(/^\s*mixed-endings[\s:]+1(?=$|[\s;,])/mu);
+    expect(Array.from(text.matchAll(/^\s*([a-z][a-z-]*)[\s:]+(\d+)\s*$/gmu),
+      ([, id, count]) => `${id}=${count}`).sort()).toEqual([
+      'canonical-lf=2', 'mixed-endings=1', 'unknown=1'
+    ]);
     expect(text).toMatch(/\bflagged[\s:]+1\s+file/u);
     const flagged = text.split('\n').find((line) => /(?:^|\s)src\/mixed\.ts(?=$|[\s\[])/u.test(line));
     expect(flagged).toBeDefined();

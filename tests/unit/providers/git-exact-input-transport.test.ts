@@ -25,13 +25,6 @@ test('commit identities that Git would trim are rejected rather than silently re
   }
 });
 
-test('interior punctuation, exact non-ASCII spacing and well-formed Unicode identities are preserved', () => {
-  for (const name of ['A, B', 'A:B', "O'Name", 'A\\B', '.Name.', '名🙂', '\u00a0Name\u00a0', 'e\u0301']) {
-    const result = canonicalCommitTreeInput({ ...commit(), author: { ...person(), name } });
-    assert.equal(result?.author.name, name);
-  }
-});
-
 test('one commit cannot combine different Git object formats', () => {
   for (const width of [40, 64]) {
     const input = commit(width), otherWidth = width === 40 ? 64 : 40;

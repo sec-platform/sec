@@ -6,7 +6,6 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
-import { promoteRollingPlan } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import { createMainHealthRepairWorkPackagePath } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
 import type { CurrentWorkLifecycle } from '../../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
@@ -871,45 +870,6 @@ describe('work-selection live contract', () => {
       '"schema": "sec-work-rolling-projection-v1"',
       '"schema": "sec-work-rolling-projection-v1",\n  "schema": "sec-work-rolling-projection-v1"'
     ))).toThrow(/duplicate key "schema"/u);
-    expect(() => parseWorkRollingMachineProjection(machine!.replace(
-      /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
-      `"projectionDigest": "sha256:${'0'.repeat(64)}"`
-    ))).toThrow(/does not bind/u);
-  });
-
-  test('non-selection rolling transition has one typed authority and one generated document', () => {
-    const projection = compileWorkRollingTransitionProjection({
-      exactMain,
-      exactMainTree,
-      authority: {
-        kind: 'committed-candidate-replan',
-        sourceHead: 'c'.repeat(40),
-        sourceTree: 'd'.repeat(40),
-        sourceManifestDigest: rawSha256('source-manifest'),
-        sourcePointerRevision: rawSha256('source-pointer'),
-        sourceRollingRevision: rawSha256('source-rolling')
-      },
-      active: {
-        packageId: 'active-v1',
-        tracking: 'issue-1',
-        manifestPath: 'config/repository/work-packages/active-v1.md',
-        manifestDigest: rawSha256('target-manifest')
-      },
-      candidates: ['candidate-two-v1', 'candidate-three-v1']
-    });
-    const rendered = renderWorkRollingTransitionPlan({
-      projection,
-      reviewedOn: '2026-08-21'
-    });
-    const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
-    expect(machine).toBeDefined();
-    expect(parseWorkRollingMachineProjection(machine!)).toEqual(projection);
-    expect(rendered.match(/^### active-v1$/gmu)).toHaveLength(1);
-    expect(rendered.match(/^### [1-9][0-9]*\. candidate-/gmu)).toHaveLength(2);
-    expect(() => promoteRollingPlan({
-      source: rendered,
-      packageId: 'candidate-two-v1'
-    })).toThrow('require the canonical WorkDecision or transition renderer');
     expect(() => parseWorkRollingMachineProjection(machine!.replace(
       /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
       `"projectionDigest": "sha256:${'0'.repeat(64)}"`

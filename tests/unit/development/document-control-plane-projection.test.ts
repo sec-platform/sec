@@ -10,6 +10,7 @@ import {
   parseCurrentStateSpec,
   parseRollingMachineProjection,
   parseRollingPlan,
+  promoteRollingPlan,
   projectStatusContinuation,
   renderActivePointer,
   requiresCommittedCandidateProjectionRefresh,
@@ -503,16 +504,31 @@ matchingDefaultBlob: none
     reviewedOn: '2026-08-21'
   });
   expect(result.retiredManifestPath).toBeNull();
+  const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(result.rollingPlanSource)?.[1];
+  expect(machine).toBeDefined();
+  expect(parseRollingMachineProjection(result.rollingPlanSource)).toEqual(JSON.parse(machine!));
   expect(parseRollingMachineProjection(result.rollingPlanSource)).toMatchObject({
+    schema: 'sec-work-rolling-transition-projection-v1',
     exactMain,
     exactMainTree,
     authority,
     active: {
       packageId: activePackageId,
       tracking: 'issue-1',
+      manifestPath,
       manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest)
-    }
+    },
+    candidates: [...candidates]
   });
+  expect(result.rollingPlanSource.match(/^### active-v1$/gmu)).toHaveLength(1);
+  expect(result.rollingPlanSource.match(/^### [1-9][0-9]*\. candidate-/gmu)).toHaveLength(2);
+  expect(() => promoteRollingPlan({
+    source: result.rollingPlanSource, packageId: 'candidate-two-v1'
+  })).toThrow('require the canonical WorkDecision or transition renderer');
+  expect(() => parseRollingMachineProjection(result.rollingPlanSource.replace(
+    /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
+    `"projectionDigest": "sha256:${'0'.repeat(64)}"`
+  ))).toThrow(/does not bind/u);
   expect(result.rollingPlanSource).not.toContain('Legacy prose');
   const refreshedAuthority = {
     ...authority,

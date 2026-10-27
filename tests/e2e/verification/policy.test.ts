@@ -61,31 +61,6 @@ test('tenant flow is proven from validated IR and fails closed after source muta
   await expect(runPolicyGate(workspaceRoot)).rejects.toMatchObject({ code: 'VERIFY-POLICY-003' });
 }, 180000);
 
-test('equal project policy declarations retain project attribution without changing assurance', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({
-    prefix: 'engineering-compiler-policy-project-precedence-'
-  });
-  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(projectPoliciesRoot, { recursive: true });
-  await writeYaml(path.join(projectPoliciesRoot, 'tenant.yaml'), {
-    policies: [{
-      id: 'tenant-scope-required',
-      severity: 'error',
-      appliesTo: ['entity/customer-basic', 'ticket/basic', 'worklog/basic'],
-      rule: TENANT_FLOW_RULE
-    }]
-  });
-
-  const report = await runPolicyGate(workspaceRoot);
-  const merged = report.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
-
-  expect(merged).toMatchObject({
-    sourceScope: 'project',
-    sourcePath: 'model/policies/tenant.yaml'
-  });
-  expect(report.evaluation?.assurance).toBe('semantic');
-}, 180000);
-
 test('project declarations cannot remove the official tenant policy obligations', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-project-conflict-');
   const { policiesRoot } = getWorkspacePaths(workspaceRoot);
@@ -117,15 +92,30 @@ test('same policy id with different declarations is a conflict, not last-wins in
   }
 }, 180000);
 
-test('policy applicability is derived from the resolved install plan across blocks', async () => {
+test('equal project policy declarations retain attribution and resolved applicability across blocks', async () => {
   const workspaceRoot = await prepareComposedWorkspace({
     prefix: 'engineering-compiler-policy-targets-',
     blockIds: ['ticket/basic', 'worklog/basic']
+  });
+  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+  await fs.mkdir(projectPoliciesRoot, { recursive: true });
+  await writeYaml(path.join(projectPoliciesRoot, 'tenant.yaml'), {
+    policies: [{
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['entity/customer-basic', 'ticket/basic', 'worklog/basic'],
+      rule: TENANT_FLOW_RULE
+    }]
   });
 
   const report = await runPolicyGate(workspaceRoot);
   const tenantScopePolicy = report.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
 
+  expect(tenantScopePolicy).toMatchObject({
+    sourceScope: 'project',
+    sourcePath: 'model/policies/tenant.yaml'
+  });
+  expect(report.evaluation?.assurance).toBe('semantic');
   expect(tenantScopePolicy?.targets).toEqual([
     'src/installed/entity/customer-service.ts',
     'src/installed/ticket/ticket-service.ts',
