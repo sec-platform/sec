@@ -30,7 +30,7 @@ test('candidates filtered by metadata leaving none resolves none-required with e
   ]);
 });
 
-test('exactly one surviving candidate resolves applicable and selects it', () => {
+test('metadata selects exactly one survivor and refuses ambiguous candidates', () => {
   const decision = evaluateSkillApplicability(envelope({
     candidates: ['worker-development', 'repository-audit']
   }));
@@ -41,6 +41,13 @@ test('exactly one surviving candidate resolves applicable and selects it', () =>
     { skillId: 'worker-development', role: true, operationKind: true },
     { skillId: 'repository-audit', role: false, operationKind: false }
   ]);
+  const ambiguous = evaluateSkillApplicability(envelope({
+    role: 'a0', operationKind: 'design',
+    candidates: ['architecture-evolution', 'heuristic-governance']
+  }));
+  expect(ambiguous.status).toBe('ambiguous');
+  expect(ambiguous.selectedSkillId).toBeNull();
+  expect(ambiguous.reasonCodes).toContain('ambiguous-multiple-candidates');
 });
 
 test('decision projects its binding and marks goal, role, operation and capsule changes stale', () => {
@@ -129,20 +136,25 @@ test('quarantined Skill guidance retains the metadata-selected decision', () => 
     candidates: ['worker-development'],
     changedPaths: ['platform/shared/ci-contract.ts']
   }));
-  const withSkillProse = evaluateSkillApplicability(envelope({
-    candidates: ['worker-development'],
-    changedPaths: ['.agents/skills/worker-development/SKILL.md'],
-    trustedSkillRevisions: { '.agents/skills/worker-development/SKILL.md': 'prose-blob' },
-    candidateSkillRevisions: { '.agents/skills/worker-development/SKILL.md': 'prose-blob' }
-  }));
-  expect(withSkillProse.status).toBe(baseline.status);
-  expect(withSkillProse.selectedSkillId).toBe(baseline.selectedSkillId);
-  expect(withSkillProse.quarantinePaths).toEqual([
-    '.agents/skills/worker-development/SKILL.md'
-  ]);
-  expect(withSkillProse.reasonCodes).toEqual(
-    expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
-  );
+  for (const [guidance, trustedRevision, candidateRevision] of [
+    ['.agents/skills/worker-development/SKILL.md', 'prose-blob', 'prose-blob'],
+    ['AGENTS.md', 'trusted-blob', 'candidate-blob']
+  ] as const) {
+    const withSkillProse = evaluateSkillApplicability(envelope({
+      candidates: ['worker-development'],
+      changedPaths: [guidance, 'product.ts'],
+      trustedSkillRevisions: { [guidance]: trustedRevision },
+      candidateSkillRevisions: { [guidance]: candidateRevision }
+    }));
+    expect(withSkillProse.status).toBe(baseline.status);
+    expect(withSkillProse.selectedSkillId).toBe(baseline.selectedSkillId);
+    expect(withSkillProse.quarantinePaths).toEqual([guidance]);
+    expect(withSkillProse.trustedSkillRevision).toBe(trustedRevision);
+    expect(withSkillProse.candidateSkillRevision).toBe(candidateRevision);
+    expect(withSkillProse.reasonCodes).toEqual(
+      expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
+    );
+  }
 });
 
 test('unknown candidate IDs are ignored without breaking the decision', () => {

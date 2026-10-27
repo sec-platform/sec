@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { agentPlanningContext, agentReadPlanInput } from '../../helpers/agent-planning-input.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../../testkit/git-protocol.ts';
 
 import { expect, test } from 'bun:test';
@@ -15,137 +14,12 @@ import { rawSha256 } from '../../../src/contracts/canonical.ts';
 
 import {
   compileOperationReadPlan,
-  OPERATION_READ_PLAN_INPUT_SCHEMA,
-  projectSkillApplicabilityEnvelopeFromOperationReadPlan,
-  type OperationReadPlanInput
+  OPERATION_READ_PLAN_INPUT_SCHEMA
 } from '../../../src/adapters/self-hosting/control/agent/read-plan.ts';
-import {
-  evaluateSkillApplicability,
-  type AgentRole,
-  type AgentSkillId,
-  type SkillApplicabilityDecision,
-  type TaskCapsuleOperationKind
-} from '../../../src/adapters/self-hosting/control/agent/skill.ts';
-import {
-  compileTaskCapsule,
-  TASK_CAPSULE_INPUT_SCHEMA,
-  type AgentContentDigest,
-  type TaskCapsulePlanningContext
-} from '../../../src/adapters/self-hosting/control/agent/task-capsule.ts';
+import { type AgentContentDigest } from '../../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../../..');
 const digest = (character: string): AgentContentDigest => `sha256:${character.repeat(64)}`;
-
-function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlanInput['taskCapsule'] {
-  return compileTaskCapsule({
-    schema: TASK_CAPSULE_INPUT_SCHEMA,
-    ref: 'urn:sec:task-capsule:skill-applicability-contract',
-    planningContext
-  });
-}
-
-function planInput(overrides: {
-  role?: AgentRole;
-  operationKind?: TaskCapsuleOperationKind;
-  candidates?: readonly AgentSkillId[];
-  authorizedResources?: readonly string[];
-  authorizedGates?: readonly string[];
-  writePaths?: readonly string[];
-  forbiddenPaths?: readonly string[];
-  base?: string;
-  head?: string;
-  changedPaths?: readonly string[];
-}): OperationReadPlanInput {
-  // Pure planning content requires exact object-ID syntax, not a live Git observation.
-  const head = overrides.head ?? 'a'.repeat(40);
-  const base = overrides.base ?? head;
-  const candidates = overrides.candidates ?? ['worker-development'];
-  const observedChangedPaths = overrides.changedPaths ?? [];
-  return agentReadPlanInput(capsule(agentPlanningContext({
-    operationId: 'skill-applicability-contract',
-    role: overrides.role ?? 'worker',
-    operationKind: overrides.operationKind ?? 'implement',
-    trustedRevision: base,
-    targetCandidate: head,
-    scopeProposal: {
-      readPaths: ['docs/开发/AI协作/规则装载与任务恢复.md'],
-      writePaths: overrides.writePaths ?? (observedChangedPaths.length > 0
-        ? observedChangedPaths
-        : ['platform/shared/']),
-      forbiddenPaths: overrides.forbiddenPaths ?? [],
-      authorizedResources: overrides.authorizedResources ?? [],
-      authorizedGates: overrides.authorizedGates ?? [],
-      changedPaths: observedChangedPaths
-    },
-    verificationObligations: [],
-    skillCandidateIds: candidates
-  })), { maxSkillBodies: candidates.length === 0 ? 0 : 1 });
-}
-
-function evaluatePlan(input: OperationReadPlanInput): SkillApplicabilityDecision {
-  return evaluateSkillApplicability(
-    projectSkillApplicabilityEnvelopeFromOperationReadPlan(compileOperationReadPlan(input))
-  );
-}
-
-test('zero candidates and zero body budget resolve none-required', () => {
-  const decision = evaluatePlan(planInput({ candidates: [] }));
-  expect(decision.status).toBe('none-required');
-  expect(decision.selectedSkillId).toBeNull();
-  expect(decision.reasonCodes).toContain('none-required');
-  expect(decision.candidateSkillIds).toEqual([]);
-});
-
-test('multiple surviving metadata candidates resolve ambiguous before any body read', () => {
-  const decision = evaluatePlan(planInput({
-    role: 'a0',
-    operationKind: 'design',
-    candidates: ['architecture-evolution', 'heuristic-governance'],
-    writePaths: []
-  }));
-  expect(decision.status).toBe('ambiguous');
-  expect(decision.selectedSkillId).toBeNull();
-  expect(decision.reasonCodes).toContain('ambiguous-multiple-candidates');
-});
-
-test('Skill selection remains orthogonal to Task Capsule write and resource authority', () => {
-  const decision = evaluatePlan(planInput({
-    role: 'a0',
-    operationKind: 'design',
-    candidates: ['architecture-evolution'],
-    writePaths: [],
-    forbiddenPaths: ['docs/'],
-    authorizedResources: ['github-api'],
-    authorizedGates: ['hosted-gate']
-  }));
-  expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('architecture-evolution');
-  expect('scopeConflicts' in decision).toBeFalse();
-});
-
-test('candidate quarantine keeps distinct trusted and candidate revision observations', () => {
-  // The pure evaluator consumes observations; test-owned Git commits do not
-  // exercise the production revision observer.
-  const repositoryPath = 'AGENTS.md';
-  const trustedBlob = '3'.repeat(40);
-  const candidateBlob = '4'.repeat(40);
-  const plan = compileOperationReadPlan(planInput({
-    base: '1'.repeat(40), head: '2'.repeat(40), changedPaths: [repositoryPath, 'product.ts']
-  }));
-  const decision = evaluateSkillApplicability({
-    ...projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan),
-    trustedSkillRevisions: { [repositoryPath]: trustedBlob },
-    candidateSkillRevisions: { [repositoryPath]: candidateBlob }
-  });
-  expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('worker-development');
-  expect(decision.quarantinePaths).toEqual([repositoryPath]);
-  expect(decision.trustedSkillRevision).toBe(trustedBlob);
-  expect(decision.candidateSkillRevision).toBe(candidateBlob);
-  expect(decision.reasonCodes).toEqual(
-    expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
-  );
-});
 
 test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner stays trusted through real observation, Capsule and Read Plan comparison', async () => {
   const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';

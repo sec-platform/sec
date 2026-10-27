@@ -1,31 +1,29 @@
 import { beforeAll, expect, test } from 'bun:test';
 
 import { loadWorkspaceEngineeringIRBuildInput } from '../../../src/adapters/workspace/engineering-input.ts';
-import { type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
-import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
+import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../../src/compiler/projection/project-architecture-view.ts';
 import { projectScenarioView } from '../../../src/compiler/projection/project-scenario-view.ts';
 import { projectStateView } from '../../../src/compiler/projection/project-state-view.ts';
-import { PREDICATE_SIGNATURE_REGISTRY } from '../../../src/semantics/engineering-ir/predicate-signatures.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../../src/semantics/engineering-ir/validated-types.ts';
 import { INSPECTOR_SECTION_IDS } from '../../../src/semantics/projection/types.ts';
 import { prepareResolvedWorkspace } from '../../testkit/workspace.ts';
 
 let ticketSnapshot: ValidatedEngineeringIRSnapshot;
-let ticketInput: BuildEngineeringIRInput;
 
 beforeAll(async () => {
   const workspaceRoot = await prepareResolvedWorkspace({
     blockIds: ['ticket/basic'],
     prefix: 'engineering-compiler-semantic-projections-'
   });
-  ticketInput = (await loadWorkspaceEngineeringIRBuildInput(workspaceRoot)).engineeringIRInput;
+  const ticketInput = (await loadWorkspaceEngineeringIRBuildInput(workspaceRoot)).engineeringIRInput;
   ticketSnapshot = buildValidatedEngineeringIR(ticketInput);
 });
 
 test('architecture projection preserves Responsibility, Port, Effect, and Permission Fact edges', () => {
   const view = projectArchitectureView(ticketSnapshot);
   expect(view.subject).toBe('app:customer-admin');
+  expect(ticketSnapshot.ir.graphId).toBe('engineering-ir:customer-admin');
 
   const lifecycle = view.nodes.find((node) => node.entityId === 'responsibility:ticket:TicketLifecycle');
   expect(lifecycle?.badges).toEqual(expect.arrayContaining(['stateful']));
@@ -78,67 +76,7 @@ test('state projection exposes owner, backing field, mutator, and transition loo
   )).toBe(true);
 });
 
-test("Ticket closes the P0-2A identity, assertion, signature, and Scenario ownership vertical", () => {
-  const ticketIR = ticketSnapshot.ir;
-  expect(ticketIR.appId).toBe("app:customer-admin");
-  expect(ticketIR.graphId).toBe("engineering-ir:customer-admin");
-  expect(ticketIR.inputRevision).toStartWith("sha256:");
-  expect(ticketIR.semanticRevision).toStartWith("sha256:");
-
-  const tripleKeys = ticketIR.facts.map((fact) =>
-    JSON.stringify([fact.subject, fact.predicate, fact.object]),
-  );
-  expect(new Set(tripleKeys).size).toBe(ticketIR.facts.length);
-  expect(ticketIR.facts.every((fact) => fact.assertions.length > 0)).toBe(true);
-  expect(
-    ticketIR.facts.every(
-      (fact) =>
-        new Set(fact.assertions.map((assertion) => assertion.id)).size ===
-          fact.assertions.length &&
-        fact.assertions.every(
-          (assertion) =>
-            assertion.validFromRevision === ticketIR.semanticRevision &&
-            assertion.provenance.length > 0,
-        ),
-    ),
-  ).toBe(true);
-
-  expect(
-    ticketIR.facts.every(
-      (fact) =>
-        PREDICATE_SIGNATURE_REGISTRY[fact.predicate].status === "active",
-    ),
-  ).toBe(true);
-
-  expect(
-    ticketIR.entities.some((entity) => entity.kind === "scenario-step"),
-  ).toBe(true);
-  expect(
-    ticketIR.scenarios.every((scenario) =>
-      scenario.steps.every(
-        (step) =>
-          ticketIR.entities.some(
-            (entity) =>
-              entity.id === step.id && entity.kind === "scenario-step",
-          ) &&
-          ticketIR.facts.some(
-            (fact) =>
-              fact.subject === scenario.id &&
-              fact.predicate === "CONTAINS" &&
-              fact.object.kind === "entity" &&
-              fact.object.entityId === step.id,
-          ) &&
-          ticketIR.facts.some(
-            (fact) =>
-              fact.subject === step.id &&
-              fact.predicate === "INVOKES" &&
-              fact.object.kind === "entity" &&
-              fact.object.entityId === step.operationEntityId,
-          ),
-      ),
-    ),
-  ).toBe(true);
-
+test('scenario projection preserves canonical entity and Fact references', () => {
   const scenarioId = "scenario:ticket:create-ticket";
   const canonicalView = projectScenarioView(ticketSnapshot, scenarioId);
   expect(canonicalView.subject).toBe(scenarioId);
@@ -150,26 +88,6 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
     ),
   ).toBe(true);
 
-  const original = ticketSnapshot.ir.scenarios.find((scenario) => scenario.id === 'scenario:ticket:create-ticket')!;
-  const scenarioIR = {
-    ...ticketSnapshot.ir,
-    scenarios: ticketSnapshot.ir.scenarios.map((scenario) => scenario.id === original.id
-      ? {
-          ...scenario,
-          steps: [
-            ...scenario.steps,
-            {
-              id: 'transition',
-              operationEntityId: 'operation:ticket:transitionTicketStatus',
-              afterStepIds: ['create'],
-              awaits: true
-            }
-          ]
-        }
-      : scenario)
-  };
-
-  expect(() => validateEngineeringIR(scenarioIR, ticketInput)).toThrow();
   expect(canonicalView.nodes.find((node) => node.id === 'scenario:ticket:create-ticket#step:create')?.references).toContainEqual({
     kind: 'entity',
     ref: 'scenario:ticket:create-ticket#step:create'

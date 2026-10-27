@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { agentPlanningContext, agentReadPlanInput } from '../../helpers/agent-planning-input.ts';
+import { evaluateSkillApplicability } from '../../../src/adapters/self-hosting/control/agent/skill.ts';
 
 import {
   compileOperationReadPlan,
@@ -27,6 +28,7 @@ function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlan
 // The Capsule is immutable planning content, not a live activation or read-plan result.
 const baselineCapsule = capsule(agentPlanningContext({
     operationId: 'issue-346-read-plan',
+    skillCandidateIds: ['worker-development', 'repository-audit'],
     trustedRevision: '6b7f1a3f54b0b4bdd8eef4c065e1e83607f6bbcb',
     targetCandidate: 'ef922744393d451a037349197fe4dd57d6ae8497',
     ownerFacts: [
@@ -45,11 +47,11 @@ const baselineCapsule = capsule(agentPlanningContext({
     ],
     scopeProposal: {
       readPaths: ['.documentation/', 'config/repository/work-packages/', 'docs/', 'src/adapters/self-hosting/control/agent/'],
-      writePaths: ['src/adapters/self-hosting/control/agent/'],
+      writePaths: ['src/adapters/self-hosting/control/agent/', 'AGENTS.md', 'product.ts'],
       forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
       authorizedResources: ['github:issue/346/comments'],
-      authorizedGates: [],
-      changedPaths: ['src/adapters/self-hosting/control/agent/read-plan.ts']
+      authorizedGates: ['hosted-gate'],
+      changedPaths: ['AGENTS.md', 'product.ts']
     },
     verificationObligations: [
       { id: 'focused-contracts', revision: 'v1', reasonCode: 'public-contract-change' }
@@ -136,6 +138,13 @@ test('Read Plan compiles deterministically while referencing rather than redefin
   expect(envelope.taskCapsuleRef).toBe(first.taskCapsule.ref);
   expect(envelope.taskCapsuleDigest).toBe(first.taskCapsule.digest);
   expect(envelope.taskCapsuleRevision).toBe(first.taskCapsule.revision);
+  expect(envelope.candidates).toEqual(['repository-audit', 'worker-development']);
+  expect(envelope.changedPaths).toEqual(['AGENTS.md', 'product.ts']);
+  const decision = evaluateSkillApplicability(envelope);
+  expect(decision.status).toBe('applicable');
+  expect(decision.selectedSkillId).toBe('worker-development');
+  expect(decision.quarantinePaths).toEqual(['AGENTS.md']);
+  expect('scopeConflicts' in decision).toBeFalse();
   expect(() => parseOperationReadPlan({
     ...first,
     readPlanDigest: digest('f')
@@ -192,8 +201,19 @@ test('retired documentation clause projections cannot re-enter the read contract
   })).toThrow(/projection is unsupported/u);
 });
 
-test('zero Skill-body budget rejects selectable candidates', () => {
+test('zero Skill-body budget admits only an empty selection before any body read', () => {
   const malformed = input();
+  const empty = compileOperationReadPlan({
+    ...malformed,
+    taskCapsule: capsule({ ...malformed.taskCapsule.planningContext, skillCandidateIds: [] }),
+    maxSkillBodies: 0
+  });
+  expect(empty.preApplicabilitySkillBodiesRead).toBe(0);
+  const decision = evaluateSkillApplicability(projectSkillApplicabilityEnvelopeFromOperationReadPlan(empty));
+  expect(decision.status).toBe('none-required');
+  expect(decision.selectedSkillId).toBeNull();
+  expect(decision.reasonCodes).toContain('none-required');
+  expect(decision.candidateSkillIds).toEqual([]);
   expect(() => compileOperationReadPlan({
     ...malformed,
     maxSkillBodies: 0
