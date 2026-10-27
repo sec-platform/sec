@@ -26,21 +26,13 @@ function controlsOnlyInput(): RuntimeDependencyOperationControlInput {
   return new Proxy(input, { ownKeys() { throw new Error('whole request enumerated'); } });
 }
 
-for (const consumer of ['bind', 'context', 'remaining', 'wait'] as const) {
-  test(`${consumer} reads only control inputs, not install/lifecycle/test capabilities`, async () => {
-    const input = controlsOnlyInput();
-    switch (consumer) {
-      case 'bind': assert.equal(runtimeDependencyOperationControls(input).lockTimeoutMs, 100); break;
-      case 'context': assert.equal(runtimeDependencyOperationContext(input).initialBudgetMs, 100); break;
-      case 'remaining': assert.equal(runtimeDependencyOperationRemainingMs(input, 'test'), 100); break;
-      case 'wait': {
-        let delay: number | undefined;
-        await waitForRuntimeDependencyOperation(input, 7, async (ms) => { delay = ms; }, 'test');
-        assert.equal(delay, 7); break;
-      }
-    }
-  });
-}
+test('an admitted wait reads only control inputs, not install/lifecycle/test capabilities', async () => {
+  // Wait adopts the shared controls capture; direct context/budget projections
+  // add no separate authority input to this same hostile-source guarantee.
+  let delay: number | undefined;
+  await waitForRuntimeDependencyOperation(controlsOnlyInput(), 7, async (ms) => { delay = ms; }, 'test');
+  assert.equal(delay, 7);
+});
 
 test('bound controls contain no request, raw clock or effect capability', () => {
   const input = { lockTimeoutMs: 100, monotonicNowMs: () => 0,

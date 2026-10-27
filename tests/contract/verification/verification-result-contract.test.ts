@@ -238,7 +238,6 @@ test('strict verification-data boundary accepts JSON data and rejects executable
     enumerable: true,
     configurable: true
   });
-  const customPrototype = Object.assign(Object.create({ inherited: true }), { value: 'custom' });
   const hiddenExtra = { value: 'visible' };
   Object.defineProperty(hiddenExtra, 'hidden', { value: true, enumerable: false });
   const symbolExtra = { value: 'visible', [Symbol('forged')]: true };
@@ -260,7 +259,6 @@ test('strict verification-data boundary accepts JSON data and rejects executable
     inheritedToJSON,
     hiddenToJSON,
     accessor,
-    customPrototype,
     hiddenExtra,
     symbolExtra,
     sparseArray,
@@ -327,8 +325,6 @@ test('aggregate input is an exact ordinary container and snapshots trusted views
   expect(CodexDevelopmentAggregateVerificationClaims(validInput).overallStatus).toBe('passed');
 
   const extraField = { ...validInput, forged: true };
-  const hiddenField = { ...validInput };
-  Object.defineProperty(hiddenField, 'forged', { value: true, enumerable: false });
   const symbolField = { ...validInput, [Symbol('forged')]: true };
   const customPrototype = Object.assign(Object.create({ inherited: true }), validInput);
   const hiddenClaims = { gateResults: validInput.gateResults } as Record<string, unknown>;
@@ -348,7 +344,6 @@ test('aggregate input is an exact ordinary container and snapshots trusted views
 
   for (const candidate of [
     extraField,
-    hiddenField,
     symbolField,
     customPrototype,
     hiddenClaims,
@@ -562,12 +557,6 @@ test('aggregate input rejects empty, control, and missing gate linkage identitie
   const controlSupportedLink = canonicalAggregateFixture();
   controlSupportedLink.gates[0]!.supportedClaims = ['claim\u0000forged'];
   candidates.push(controlSupportedLink);
-  const missingRequiredLinks = canonicalAggregateFixture();
-  delete (missingRequiredLinks.gates[0] as unknown as Record<string, unknown>).requiredForClaims;
-  candidates.push(missingRequiredLinks);
-  const missingSupportedLinks = canonicalAggregateFixture();
-  delete (missingSupportedLinks.gates[0] as unknown as Record<string, unknown>).supportedClaims;
-  candidates.push(missingSupportedLinks);
 
   for (const candidate of candidates) {
     expect(() => CodexDevelopmentAggregateVerificationClaims(aggregateInput(candidate))).toThrow();

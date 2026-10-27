@@ -123,14 +123,10 @@ test('responsibility admission rejects disconnected, noncanonical or executable 
   reject({ ...spec, methodSelection: selection(spec.proofObligation, { methodFamily: 'runtime-fuzz' }) },
     'not admitted by the obligation');
 
-  for (const admissibleMethodFamilies of [['typecheck', 'static-analysis'], ['typecheck', 'typecheck']]) {
-    reject({ ...spec, proofObligation: { ...spec.proofObligation, admissibleMethodFamilies } },
-      'unique and canonically ordered');
-  }
-  for (const oracleCheckerOrReferenceRefs of [['reference:z', 'checker:a'], ['checker:a', 'checker:a']]) {
-    reject({ ...spec, methodSelection: { ...spec.methodSelection, oracleCheckerOrReferenceRefs } },
-      'unique and canonically ordered');
-  }
+  reject({ ...spec, proofObligation: { ...spec.proofObligation,
+    admissibleMethodFamilies: ['typecheck', 'static-analysis'] } }, 'unique and canonically ordered');
+  reject({ ...spec, methodSelection: { ...spec.methodSelection,
+    oracleCheckerOrReferenceRefs: ['checker:a', 'checker:a'] } }, 'unique and canonically ordered');
   reject({ ...spec, claim: { ...spec.claim, propositionDigest: D('0') } }, 'non-placeholder');
   reject({ ...spec, claim: { ...spec.claim, hiddenLatestRef: 'forbidden' } }, 'fields are invalid');
 

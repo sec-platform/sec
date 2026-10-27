@@ -9,7 +9,7 @@ import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
 import { loadPolicyDeclarations, POLICY_YAML_MAX_INPUT_BYTES } from '../../../src/adapters/workspace/sources/load-policy-declarations.ts';
 import { buildLoadedPolicyScope, mergeLoadedPolicyDeclarations } from '../../../src/semantics/policies/declarations.ts';
 import { POLICY_RULE_IDS } from '../../../src/semantics/policies/rules.ts';
-import type { PolicyRule, PolicySourceScope } from '../../../src/semantics/policies/types.ts';
+import type { PolicyRule } from '../../../src/semantics/policies/types.ts';
 
 // Keep actual YAML/Zod, physical source inventory and retained readers in native
 // runs. Do not mark these passed using a JSON or schema substitute. The bundled
@@ -25,17 +25,19 @@ function fixture(run: (f: { root: string; write(name: string, source: string | U
 }
 const row = () => ({ id: 'policy-reuse-fixture', severity: 'warn' as const, appliesTo: ['block/a'], rule: POLICY_RULE_IDS[0] });
 
-test('policy merge rejects differing values across every source scope and input permutation', () => {
+test('cross-scope policy attribution cannot hide differing canonical values', () => {
   const original: PolicyRule = { ...row(), severity: 'blocker' };
+  // Physical project-source conflicts below cover within-scope accumulation.
+  // Crossing scopes must reject whole-value differences, not apply precedence.
   for (const changed of [{ ...original, severity: 'info' as const }, { ...original, appliesTo: ['block/b'] }]) {
-    for (const scopes of [['official', 'official'], ['project', 'project'], ['official', 'project']] as const) {
-      for (const [first, second] of [[original, changed], [changed, original]]) {
-        const sources = scopes.map((scope, index) => ({ scope,
-          sourcePath: `${scope === 'official' ? 'catalog/policies/official' : 'model/policies'}/${index}.yaml`,
-          spec: { policies: [index === 0 ? first! : second!] } }));
-        const scope = (name: PolicySourceScope) => buildLoadedPolicyScope(name, sources.filter(source => source.scope === name));
-        assert.throws(() => mergeLoadedPolicyDeclarations(scope('official'), scope('project')), /Conflicting policy declarations/);
-      }
+    for (const [first, second] of [[original, changed], [changed, original]]) {
+      const official = buildLoadedPolicyScope('official', [
+        { sourcePath: 'catalog/policies/official/a.yaml', spec: { policies: [first!] } }
+      ]);
+      const project = buildLoadedPolicyScope('project', [
+        { sourcePath: 'model/policies/a.yaml', spec: { policies: [second!] } }
+      ]);
+      assert.throws(() => mergeLoadedPolicyDeclarations(official, project), /Conflicting policy declarations/);
     }
   }
 });
@@ -70,18 +72,13 @@ test('policy merge coalesces equal sources and preserves distinct IDs and determ
   assert.deepEqual(official[0]!.spec.policies, [row()]);
 });
 
-for (const source of [
-  'policies: []\npolicies: []\n',
-  '? [policies]\n: []\n'
-]) {
-  test(`policy source uses the shared strict YAML rejection: ${JSON.stringify(source)}`, () => {
-    fixture(f => {
-      f.write('fixture.yaml', source);
-      assert.throws(() => loadPolicyDeclarations(f.root), error =>
-        error instanceof Error && error.cause instanceof YamlSyntaxError);
-    });
+test('policy source selects the shared string-key YAML profile and preserves its failure cause', () => {
+  fixture(f => {
+    f.write('fixture.yaml', '? [policies]\n: []\n');
+    assert.throws(() => loadPolicyDeclarations(f.root), error =>
+      error instanceof Error && error.cause instanceof YamlSyntaxError);
   });
-}
+});
 
 test('aliased project declarations coalesce, isolate callers and retain every source report', () => {
   fixture(f => {

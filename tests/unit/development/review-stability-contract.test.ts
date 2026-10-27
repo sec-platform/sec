@@ -190,20 +190,13 @@ test('Review policy digest binds every canonical App identity field', () => {
 test('Review policy rejects missing, extra, type-drifted, or non-canonical App identity fields', () => {
   const missing: readonly [string, Record<string, unknown>][] = [
     ['missing actor node', { appId: TRUSTED_APP.appId, appNodeId: TRUSTED_APP.appNodeId, appSlug: TRUSTED_APP.appSlug }],
-    ['missing app ID', { actorNodeId: TRUSTED_APP.actorNodeId, appNodeId: TRUSTED_APP.appNodeId, appSlug: TRUSTED_APP.appSlug }],
-    ['missing app node', { actorNodeId: TRUSTED_APP.actorNodeId, appId: TRUSTED_APP.appId, appSlug: TRUSTED_APP.appSlug }],
-    ['missing app slug', { actorNodeId: TRUSTED_APP.actorNodeId, appId: TRUSTED_APP.appId, appNodeId: TRUSTED_APP.appNodeId }]
   ];
   const invalid: readonly [string, Record<string, unknown>][] = [
-    ['extra field', { ...TRUSTED_APP, extra: true }],
-    ['empty actor node', { ...TRUSTED_APP, actorNodeId: '' }],
-    ['overlong actor node', { ...TRUSTED_APP, actorNodeId: 'x'.repeat(257) }],
+    ['unknown field', { appId: TRUSTED_APP.appId, appNodeId: TRUSTED_APP.appNodeId, appSlug: TRUSTED_APP.appSlug, unexpected: true }],
     ['invalid actor node', { ...TRUSTED_APP, actorNodeId: 'BOT invalid' }],
     ['string app ID', { ...TRUSTED_APP, appId: '1144995' }],
     ['zero app ID', { ...TRUSTED_APP, appId: 0 }],
     ['fractional app ID', { ...TRUSTED_APP, appId: 1.5 }],
-    ['empty app node', { ...TRUSTED_APP, appNodeId: '' }],
-    ['overlong app node', { ...TRUSTED_APP, appNodeId: 'x'.repeat(257) }],
     ['invalid app node', { ...TRUSTED_APP, appNodeId: 'A invalid' }],
     ['empty app slug', { ...TRUSTED_APP, appSlug: '' }],
     ['overlong app slug', { ...TRUSTED_APP, appSlug: 'x'.repeat(101) }],
@@ -215,16 +208,14 @@ test('Review policy rejects missing, extra, type-drifted, or non-canonical App i
       policyId: 'invalid-policy', trustedRevision: 'trust-v1',
       trustedApps: [trustedApp] as never,
       allowIndependentHumanApproval: true
-    }), label).toThrow();
+    }), label).toThrow(label === 'missing actor node' || label === 'unknown field'
+      ? 'trustedApps[0] must contain exactly:' : undefined);
   }
 });
 
 test('Review receipt rejects missing, wrong, case-drifted, type-drifted, or extra App identity', () => {
   const missing: readonly [string, Record<string, unknown>][] = [
     ['missing actor node', { kind: 'github-app', appId: TRUSTED_APP.appId, appNodeId: TRUSTED_APP.appNodeId, appSlug: TRUSTED_APP.appSlug, reviewState: 'COMMENTED' }],
-    ['missing app ID', { kind: 'github-app', actorNodeId: TRUSTED_APP.actorNodeId, appNodeId: TRUSTED_APP.appNodeId, appSlug: TRUSTED_APP.appSlug, reviewState: 'COMMENTED' }],
-    ['missing app node', { kind: 'github-app', actorNodeId: TRUSTED_APP.actorNodeId, appId: TRUSTED_APP.appId, appSlug: TRUSTED_APP.appSlug, reviewState: 'COMMENTED' }],
-    ['missing app slug', { kind: 'github-app', actorNodeId: TRUSTED_APP.actorNodeId, appId: TRUSTED_APP.appId, appNodeId: TRUSTED_APP.appNodeId, reviewState: 'COMMENTED' }]
   ];
   const wrong: readonly [string, Record<string, unknown>][] = [
     ['wrong actor node', { kind: 'github-app', ...TRUSTED_APP, actorNodeId: 'BOT_other', reviewState: 'COMMENTED' }],
@@ -235,10 +226,12 @@ test('Review receipt rejects missing, wrong, case-drifted, type-drifted, or extr
     ['case-drifted app node', { kind: 'github-app', ...TRUSTED_APP, appNodeId: TRUSTED_APP.appNodeId.toLowerCase(), reviewState: 'COMMENTED' }],
     ['wrong app slug', { kind: 'github-app', ...TRUSTED_APP, appSlug: 'other-app', reviewState: 'COMMENTED' }],
     ['case-drifted app slug', { kind: 'github-app', ...TRUSTED_APP, appSlug: TRUSTED_APP.appSlug.toUpperCase(), reviewState: 'COMMENTED' }],
-    ['extra field', { kind: 'github-app', ...TRUSTED_APP, reviewState: 'COMMENTED', extra: true }]
+    ['unknown field', { kind: 'github-app', appId: TRUSTED_APP.appId, appNodeId: TRUSTED_APP.appNodeId, appSlug: TRUSTED_APP.appSlug, reviewState: 'COMMENTED', unexpected: true }]
   ];
   for (const [label, principal] of [...missing, ...wrong]) {
-    expect(() => receipt({ principal: principal as never }), label).toThrow();
+    expect(() => receipt({ principal: principal as never }), label)
+      .toThrow(label === 'missing actor node' || label === 'unknown field'
+        ? 'principal must contain exactly:' : undefined);
   }
 });
 

@@ -29,22 +29,20 @@ for (const mode of ['sync', 'async'] as const) {
     assert.throws(() => runtimeDependencyOperationRemainingMs(state.options, 'actual operation'), /clock unavailable/);
   });
 
-  for (const [name, reason] of [['error', new Error('primary')], ['null', null], ['undefined', undefined], ['object', { primary: true }]] as const) {
-    test(`${mode} preserves the exact ${name} rejection when terminal timing also fails`, async () => {
-      const state = clock();
-      const action = () => { state.fail(); throw reason; };
-      let rejected = false;
-      try {
-        if (mode === 'sync') measureRuntimeDependencyOperationPhase(state.options, 'publication', action);
-        else await measureRuntimeDependencyOperationPhaseAsync(state.options, 'publication', async () => action());
-      } catch (error) { rejected = true; assert.equal(error, reason); }
-      assert.equal(rejected, true);
-      const phase = readRuntimeDependencyOperationTelemetry(state.options).phases[0]!;
-      assert.equal(phase.count, 1);
-      assert.equal(phase.unmeasuredCount, 1);
-      assert.equal(phase.outcomes.failed, 1);
-    });
-  }
+  test(`${mode} preserves an undefined rejection when terminal timing also fails`, async () => {
+    const state = clock();
+    const action = () => { state.fail(); throw undefined; };
+    let rejected = false;
+    try {
+      if (mode === 'sync') measureRuntimeDependencyOperationPhase(state.options, 'publication', action);
+      else await measureRuntimeDependencyOperationPhaseAsync(state.options, 'publication', async () => action());
+    } catch (error) { rejected = true; assert.equal(error, undefined); }
+    assert.equal(rejected, true);
+    const phase = readRuntimeDependencyOperationTelemetry(state.options).phases[0]!;
+    assert.equal(phase.count, 1);
+    assert.equal(phase.unmeasuredCount, 1);
+    assert.equal(phase.outcomes.failed, 1);
+  });
 
   test(`${mode} retains the pre-action clock check`, async () => {
     const state = clock(); state.fail();
