@@ -34,12 +34,14 @@ test('review summary preserves coverage, provenance and semantically assured pol
     acceptance: { status: 'failed', passed: ['customer_crud'], failed: ['tenant_scope'] },
     fast: {
       status: 'failed',
-      acceptance: { status: 'passed', passed: ['customer_crud'], failed: [] },
+      acceptance: { status: 'failed', passed: ['customer_crud'],
+        failed: ['tests/acceptance/customer-normalizer.test.ts', 'tests/acceptance/customer-normalizer.test.ts'] },
       policy: { status: 'failed', violations: [violation] }
     },
     runtime: buildRuntimeVerificationReport({
       status: 'failed',
-      acceptance: { status: 'failed', passed: ['customer_crud'], failed: ['tenant_scope'] }
+      unit: { status: 'failed', failed: ['tests/runtime/unit/customer-runtime.test.ts', 'tests/runtime/unit/customer-runtime.test.ts'] },
+      acceptance: { status: 'failed', passed: ['customer_crud'], failed: ['tests/acceptance/customer-flow.test.ts'] }
     }),
     summary: {
       status: 'failed',
@@ -172,6 +174,48 @@ test('review summary preserves coverage, provenance and semantically assured pol
       );
     }
   );
+
+  expect(
+    summary.failurePoints.filter(
+      (point) => point.message === 'Fast-lane acceptance test failed: tests/acceptance/customer-normalizer.test.ts'
+    )
+  ).toHaveLength(1);
+  expect(
+    summary.failurePoints.filter((point) => point.message === 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts')
+  ).toHaveLength(1);
+  expect(summary.failurePoints).toEqual(
+    expect.arrayContaining([
+      {
+        lane: 'fast',
+        kind: 'acceptance',
+        artifactPath: CI_ARTIFACT_FILES.verificationReport,
+        message: 'Fast-lane acceptance test failed: tests/acceptance/customer-normalizer.test.ts'
+      },
+      {
+        lane: 'runtime',
+        kind: 'unit',
+        artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+        message: 'Runtime unit tests failed'
+      },
+      {
+        lane: 'runtime',
+        kind: 'unit',
+        artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+        message: 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts'
+      },
+      {
+        lane: 'runtime',
+        kind: 'acceptance',
+        artifactPath: CI_ARTIFACT_FILES.runtimeReport,
+        message: 'Runtime acceptance test failed: tests/acceptance/customer-flow.test.ts'
+      }
+    ])
+  );
+  expect(summary.regressionRisks).toContainEqual({
+    kind: 'coverage-gap',
+    blockId: 'tenant/basic-workspace',
+    message: 'Block tenant/basic-workspace has no runtime acceptance coverage'
+  });
 
   expect(summary.coverageSummary).toMatchObject({
     status: 'failed',

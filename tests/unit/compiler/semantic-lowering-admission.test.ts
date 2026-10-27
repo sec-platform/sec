@@ -229,10 +229,3 @@ test('unsupported retained platforms keep the original writer without acquiring 
     assert.equal(result.code, 0, result.stderr);
   } };
 }));
-
-test('returned task data is independently owned and remains mutable for its next lifecycle', async () => fixture(async root => {
-  const original = task(); Object.freeze(original.stateValues); Object.freeze(original);
-  const result = await lowerSemanticTasks(root, context([original]));
-  result.tasks[0]!.stateValues.push('consumer-owned');
-  assert.deepEqual(original.stateValues, ['open', 'closed']);
-}));

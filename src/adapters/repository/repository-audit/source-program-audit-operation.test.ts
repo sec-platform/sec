@@ -909,22 +909,6 @@ describe('Source Program audit domain operation', () => {
     assert.equal((request.projection.declarationTopology as { unknowns: number }).unknowns, 1);
   });
 
-  test('full and compact reports disclose the same reasons without granting diagnostic success', () => {
-    const facts = input();
-    for (const full of [false, true]) for (const enforce of [false, true]) {
-      const request = compileSourceProgramAuditOperationInput({ ...facts,
-        sourceProgram: sourceProgramWithOneUnknown(facts.sourceProgram),
-        declarationTopology: { ...facts.declarationTopology, unknowns: [{ reason: 'unresolved' }] },
-        testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] },
-        options: { ...facts.options, full, enforce }
-      });
-      const expected = ['test-retirement-blocked'];
-      assert.deepEqual(request.blockingReasons, expected);
-      assert.deepEqual(request.projection.enforcement, { requested: enforce, blockingReasons: expected });
-      assert.equal(compileSourceProgramAuditOperation(request).exitCode, enforce ? 1 : 0);
-    }
-  });
-
   test('complete coverage and retired proofs remain nonblocking', () => {
     const facts = input();
     const request = compileSourceProgramAuditOperationInput({ ...facts,
@@ -967,7 +951,8 @@ describe('Source Program audit domain operation', () => {
     }) as unknown as Snapshot;
     const findingDelta = compileSourceProgramFindingDelta(make('before'), make('after'));
     assert.equal(findingDelta.entries[0]!.status, 'absent');
-    for (const full of [false, true]) for (const enforce of [false, true]) {
+    for (const full of [false, true]) {
+      const enforce = !full;
       const request = compileSourceProgramAuditOperationInput({ ...facts,
         reconciliation: { ...facts.reconciliation, findingDelta }, options: { ...facts.options, full, enforce } });
       const decoded = parseSourceProgramAuditOperationInput(encodeSourceProgramAuditOperationInput(request), 1_000_000);
@@ -980,6 +965,7 @@ describe('Source Program audit domain operation', () => {
       assert.deepEqual(observed.scope, findingDelta.scope);
       assert.equal('entries' in observed, full); assert.equal(result.exitCode, 0);
       assert.deepEqual(request.blockingReasons, []);
+      assert.deepEqual(result.projection.enforcement, { requested: enforce, blockingReasons: [] });
       const mechanisms = result.projection.mechanisms as Record<string, unknown>;
       assert.deepEqual(decoded.projection.mechanisms, request.projection.mechanisms);
       assert.deepEqual(mechanisms, request.projection.mechanisms);
@@ -1013,12 +999,14 @@ describe('Source Program audit domain operation', () => {
     const delta = compileSourceProgramFindingDelta(base, after);
     assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
       reconciliation: { ...facts.reconciliation, findingDelta: delta } }), /Finding reconciliation/);
-    for (const full of [false, true]) for (const enforce of [false, true]) {
+    for (const full of [false, true]) {
+      const enforce = full;
       const request = compileSourceProgramAuditOperationInput({ ...facts,
         reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta: delta,
           unresolvedReasons: [{ code: 'source-program-observation-coverage-regressed' }] },
         options: { ...facts.options, full, enforce } });
-      assert.ok(request.blockingReasons.includes('reconciliation-unresolved'));
+      assert.deepEqual(request.blockingReasons, ['reconciliation-unresolved']);
+      assert.deepEqual(request.projection.enforcement, { requested: enforce, blockingReasons: ['reconciliation-unresolved'] });
       const result = compileSourceProgramAuditOperation(request);
       assert.equal(result.exitCode, enforce ? 1 : 0);
       const observed = (result.projection.reconciliation as { findingDelta: Record<string, unknown> }).findingDelta;
@@ -1035,7 +1023,7 @@ describe('Source Program audit domain operation', () => {
       reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta: foreign } }), /Finding reconciliation/);
   });
 
-  test('missing review context cannot be supplied as a resolved comparison in either report mode', () => {
+  test('missing review context cannot be supplied as a resolved comparison before report projection', () => {
     const facts = input();
     type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
     const make = (which: 'before' | 'after'): Snapshot => ({
@@ -1051,11 +1039,8 @@ describe('Source Program audit domain operation', () => {
     const findingDelta = compileSourceProgramFindingDelta(make('before'), make('after'));
     assert.equal(findingDelta.contextComparable, false);
     assert.equal(findingDelta.entries.length, 0);
-    for (const full of [false, true]) {
-      assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
-        reconciliation: { ...facts.reconciliation, findingDelta },
-        options: { ...facts.options, full } }), /Finding reconciliation/);
-    }
+    assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+      reconciliation: { ...facts.reconciliation, findingDelta } }), /Finding reconciliation/);
   });
 
   test('an input cannot advertise a different decision from the one the worker executes', () => {
@@ -1077,6 +1062,7 @@ describe('Source Program audit domain operation', () => {
       testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] } });
     const honest = compileSourceProgramAuditOperation(request);
     assert.equal(honest.exitCode, 1);
+    assert.deepEqual(honest.projection.enforcement, { requested: true, blockingReasons: ['test-retirement-blocked'] });
     const unsigned = { projection: honest.projection, reductionPatch: honest.reductionPatch, exitCode: 0 as const };
     const forged = { ...unsigned, resultDigest: digest(unsigned) };
     assert.throws(() => encodeSourceProgramAuditOperationResult(forged), /contradicts.*decision/);

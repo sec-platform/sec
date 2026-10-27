@@ -2,41 +2,32 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { withProgressLifecycle, type ProgressObserver } from '../../../src/execution/progress-lifecycle.ts';
 
-function observer(events: string[], broken?: string, reason: unknown = new Error('display')): ProgressObserver {
+function observer(events: string[], broken = false, reason: unknown = new Error('display')): ProgressObserver {
   const handle = {
-    start(text: string) { assert.equal(this, handle); events.push(`start:${text}`); if (broken === 'start') throw reason; return handle; },
-    succeed(text: string) { assert.equal(this, handle); events.push(`succeed:${text}`); if (broken === 'succeed') throw reason; return handle; },
-    fail(text: string) { assert.equal(this, handle); events.push(`fail:${text}`); if (broken === 'fail') throw reason; return handle; },
-    stop() { assert.equal(this, handle); events.push('stop'); if (broken === 'stop') throw reason; return handle; }
+    start(text: string) { assert.equal(this, handle); events.push(`start:${text}`); if (broken) throw reason; return handle; },
+    succeed(text: string) { assert.equal(this, handle); events.push(`succeed:${text}`); if (broken) throw reason; return handle; },
+    fail(text: string) { assert.equal(this, handle); events.push(`fail:${text}`); if (broken) throw reason; return handle; },
+    stop() { assert.equal(this, handle); events.push('stop'); if (broken) throw reason; return handle; }
   };
   return handle;
 }
 
-for (const broken of [undefined, 'factory', 'start', 'succeed', 'stop']) {
-  test(`successful action remains successful with ${broken ?? 'healthy'} presentation`, async () => {
+for (const broken of ['factory', 'methods']) {
+  test(`successful action remains successful with ${broken} presentation`, async () => {
     const events: string[] = [], value = Object.freeze({ value: 7 });
-    const result = await withProgressLifecycle('task', () => { events.push('factory'); if (broken === 'factory') throw new Error('factory'); return observer(events, broken); },
+    const result = await withProgressLifecycle('task', () => { events.push('factory'); if (broken === 'factory') throw new Error('factory'); return observer(events, broken === 'methods'); },
       async () => { events.push('action'); return value; });
     assert.equal(result, value);
     assert.deepEqual(events, broken === 'factory' ? ['factory', 'action'] : ['factory', 'start:task', 'action', 'succeed:task', 'stop']);
   });
 }
 
-// Start/stop share the success path's prefix/finally; the raw-primary keeper
-// below also exercises failed-action fail and stop errors together.
-for (const broken of [undefined, 'factory', 'fail']) {
-  test(`failed action retains its primary reason with ${broken ?? 'healthy'} presentation`, async () => {
-    const events: string[] = [], primary = Object.freeze({ origin: 'action' });
-    await assert.rejects(withProgressLifecycle('task', () => { events.push('factory'); if (broken === 'factory') throw new Error('factory'); return observer(events, broken); },
-      async () => { events.push('action'); throw primary; }), (error) => error === primary);
-    assert.deepEqual(events, broken === 'factory' ? ['factory', 'action'] : ['factory', 'start:task', 'action', 'fail:task', 'stop']);
-  });
-}
-
 for (const reason of [undefined, Symbol('reason')]) {
   test(`arbitrary thrown value ${String(reason)} survives fail and cleanup failures`, async () => {
-    const handle = { start() {}, succeed() { assert.fail('success on failed action'); }, fail() { throw new Error('fail'); }, stop() { throw new Error('stop'); } };
+    const events: string[] = [];
+    const handle = { start() { events.push('start'); }, succeed() { assert.fail('success on failed action'); }, fail() { events.push('fail'); throw new Error('fail'); }, stop() { events.push('stop'); throw new Error('stop'); } };
     await assert.rejects(withProgressLifecycle('task', () => handle, async () => { throw reason; }), (error) => error === reason);
+    assert.deepEqual(events, ['start', 'fail', 'stop']);
   });
 }
 

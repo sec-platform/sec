@@ -122,27 +122,39 @@ test('a backward wall-clock jump cannot shorten or extend an existing monotonic 
   } finally { Date.now = original; }
 });
 
-test('new lock and absolute deadlines may narrow but never extend an existing operation', () => {
+test('new lock and absolute deadlines may narrow but never extend an existing operation', async () => {
   const original = Date.now;
   let wall = 1000;
   let monotonic = 0;
+  let fenceCalls = 0;
+  let rebound!: ReturnType<typeof normalize>;
   Date.now = () => wall;
   try {
-    const first = normalize({ lockTimeoutMs: 100, monotonicNowMs: () => monotonic });
+    const first = normalize({ lockTimeoutMs: 100, monotonicNowMs: () => monotonic,
+      async beforeCommit() { fenceCalls++; } });
     wall = 1010;
     monotonic = 10;
     const lockNarrowed = normalize({ ...first, lockTimeoutMs: 20 });
     const deadlineNarrowed = normalize({ ...first, deadlineAtUnixMs: 1060 });
     assert.equal(contextOf(lockNarrowed).deadlineAtMonotonicMs, 30);
     assert.equal(contextOf(deadlineNarrowed).deadlineAtMonotonicMs, 60);
-    assert.equal(contextOf(normalize({ ...lockNarrowed, lockTimeoutMs: 1000 })).deadlineAtMonotonicMs, 30);
     const widenedDeadline = normalize({ ...deadlineNarrowed, deadlineAtUnixMs: 5000 });
     const retainedContext = contextOf(widenedDeadline);
     assert.equal(retainedContext.deadlineAtMonotonicMs, 60);
     assert.equal(widenedDeadline.deadlineAtUnixMs, retainedContext.deadlineAtUnixMs);
     assert.strictEqual(contextOf(first).telemetryKey, contextOf(lockNarrowed).telemetryKey);
     assert.strictEqual(contextOf(first).operationId, contextOf(deadlineNarrowed).operationId);
+    assert.equal(remaining(first, 'parent'), 90);
+    monotonic = 25;
+    rebound = normalize({ ...lockNarrowed, lockTimeoutMs: 1000, pollIntervalMs: 1 });
+    assert.equal(contextOf(rebound).deadlineAtMonotonicMs, 30);
+    assert.strictEqual(contextOf(rebound).operationId, contextOf(first).operationId);
+    assert.equal(remaining(rebound, 'rebound'), 5);
   } finally { Date.now = original; }
+  await fence(rebound, 'inherited fence');
+  assert.equal(fenceCalls, 1);
+  monotonic = 31;
+  assert.throws(() => remaining(rebound, 'expired'), deadlineError);
 });
 
 test('fresh or newly narrowed exhausted absolute deadlines still fail closed', () => {

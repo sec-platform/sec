@@ -13,14 +13,8 @@ import { parseReviewSummaryJson } from '../../../src/assurance/verification/revi
 import { verifyWorkspace } from '../../../src/bootstrap/engineering/cli.ts';
 import type { LockFile } from '../../../src/compiler/contract.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
-import { buildOfficialResolvedBlock } from '../../helpers/lock-fixtures.ts';
 import {
-  buildPassingReviewCoverage,
-  buildPassingReviewReport,
-  buildReviewInputs,
-  buildReviewLock,
-  buildReviewProvenance,
-  buildRuntimeVerificationReport
+  buildReviewInputs
 } from '../../helpers/review-fixtures.ts';
 import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess } from '../../testkit/cli.ts';
 import { createWorkspace, prepareComposedWorkspace, prepareLockedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
@@ -141,97 +135,6 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
     ])
   );
 }, 180000);
-test('buildReviewSummary adds failed verification targets as structured failure points', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-targets-');
-  const lock = buildReviewLock({
-    app: { stack: 'typescript-library' },
-    resolvedBlocks: [buildOfficialResolvedBlock({ id: 'entity/customer-basic', installOrder: 1 })],
-    passStatus: {
-      verify: 'failed',
-      repair: 'pending'
-    }
-  });
-  const provenance = buildReviewProvenance();
-  const coverage = buildPassingReviewCoverage({
-    status: 'failed',
-    uncoveredBlocks: ['entity/customer-basic']
-  });
-  const report = buildPassingReviewReport({
-    fast: {
-      status: 'failed',
-      acceptance: {
-        status: 'failed',
-        passed: [],
-        failed: ['tests/acceptance/customer-normalizer.test.ts', 'tests/acceptance/customer-normalizer.test.ts']
-      },
-      logs: { stdout: '', stderr: 'fast failed' }
-    },
-    runtime: buildRuntimeVerificationReport({
-      status: 'failed',
-      build: { passed: ['runtime unit'] },
-      unit: {
-        status: 'failed',
-        failed: ['tests/runtime/unit/customer-runtime.test.ts', 'tests/runtime/unit/customer-runtime.test.ts']
-      },
-      acceptance: {
-        status: 'failed',
-        failed: ['tests/acceptance/customer-flow.test.ts']
-      },
-      logs: { stdout: '', stderr: 'runtime failed' }
-    }),
-    summary: {
-      status: 'failed',
-      requestedLane: 'all',
-      failedLanes: ['fast', 'runtime']
-    },
-    logs: { stdout: '', stderr: 'runtime failed' }
-  });
-
-  const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
-
-  expect(
-    summary.failurePoints.filter(
-      (point) => point.message === 'Fast-lane acceptance test failed: tests/acceptance/customer-normalizer.test.ts'
-    )
-  ).toHaveLength(1);
-  expect(
-    summary.failurePoints.filter((point) => point.message === 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts')
-  ).toHaveLength(1);
-  expect(summary.failurePoints).toEqual(
-    expect.arrayContaining([
-      {
-        lane: 'fast',
-        kind: 'acceptance',
-        artifactPath: CI_ARTIFACT_FILES.verificationReport,
-        message: 'Fast-lane acceptance test failed: tests/acceptance/customer-normalizer.test.ts'
-      },
-      {
-        lane: 'runtime',
-        kind: 'unit',
-        artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-        message: 'Runtime unit tests failed'
-      },
-      {
-        lane: 'runtime',
-        kind: 'unit',
-        artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-        message: 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts'
-      },
-      {
-        lane: 'runtime',
-        kind: 'acceptance',
-        artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-        message: 'Runtime acceptance test failed: tests/acceptance/customer-flow.test.ts'
-      }
-    ])
-  );
-  expect(summary.regressionRisks).toContainEqual({
-    kind: 'coverage-gap',
-    blockId: 'entity/customer-basic',
-    message: 'Block entity/customer-basic has no runtime acceptance coverage'
-  });
-}, 180000);
-
 // CLI overview presentation keeps the existing runtime-heavy suite and shared locked workspace.
 // 只有 overview acceptance 被选中时才创建一次 locked + explained Workspace。
 // 文件内其他 lightweight summary sentinel 不为未选择的完整 Pipeline 付费。

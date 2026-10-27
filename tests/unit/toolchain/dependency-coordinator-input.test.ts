@@ -114,17 +114,6 @@ test('rebinding issued invocations preserves the parent operation and still chec
   assert.throws(()=>bind(rebound),e=>e===reason);
 });
 
-test('narrow child constraints remain independent of the reusable parent', async () => {
-  let now=0,calls=0;
-  const parent=bind({lockTimeoutMs:100,monotonicNowMs:()=>now,async beforeCommit(){calls++;}});now=20;
-  const child=bind({...parent,lockTimeoutMs:10});
-  assert.equal(remaining(parent,'parent'),80);assert.equal(remaining(child,'child'),10);
-  now=25;const rebound=bind({...child,pollIntervalMs:1});
-  assert.equal(context(rebound).operationId,context(parent).operationId);
-  assert.equal(remaining(rebound,'rebound'),5);await fence(rebound,'call');assert.equal(calls,1);
-  now=31;assert.throws(()=>remaining(rebound,'expired'),/deadline/);
-});
-
 test('known inherited and nonenumerable internal values stay outside the existing input boundary', () => {
   const raw=Object.create({ installMode:'invalid',now(){assert.fail('inherited');} });
   Object.defineProperty(raw,'sleep',{get(){assert.fail('hidden');},enumerable:false});
