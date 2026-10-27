@@ -15,6 +15,7 @@ import {
   observeRepositorySourceProgramDescriptorOperationExports,
   summarizeSourceProgramTopology
 } from './repository.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { compileTypeScriptSourceProgramModel, querySourceProgramModel } from './typescript.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
@@ -231,6 +232,24 @@ test('type-only star exports are absent while ambient declarations stay unresolv
   const observations = observeRepositorySourceProgramDescriptorOperationExports(model);
   expect(observations?.find(({ operation }) => operation === 'TypeOnly')?.status).toBe('absent');
   expect(observations?.find(({ operation }) => operation === 'declared')?.status).toBe('unresolved');
+  const graph = compileSourceProgramRepositoryModuleGraph({
+    files: files.map(({ path }) => path),
+    readSource: path => files.find(file => file.path === path)?.source ?? null
+  });
+  const projection = compileRepositoryModuleArchitectureProjection(graph, membership, {
+    ...model,
+    descriptorOperationExports: observations!
+  });
+  expect(projection.violations).toEqual([
+    expect.objectContaining({
+      code: 'repository-descriptor-operation-export-absent',
+      to: 'example:TypeOnly'
+    }),
+    expect.objectContaining({
+      code: 'repository-descriptor-operation-export-unresolved',
+      to: 'example:declared'
+    })
+  ]);
 });
 
 test('source program model finds capability producers, consumers, literals, and opaque paths deterministically', () => {

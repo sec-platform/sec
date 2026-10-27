@@ -42,58 +42,6 @@ test('repository module descriptors resolve unique physical roots and external e
   }
 });
 
-test('stale descriptor operations remain violations with empty roles and owner-internal classification', () => {
-  const sourcePath = 'src/example/operation.ts';
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: [sourcePath],
-    readSource: () => 'export function current(): void {}\n'
-  });
-  for (const ownerInternalOperations of [[], ['old']]) {
-    const descriptorPath = 'src/example/module.json';
-    const membership = compileRepositoryModuleMembershipSnapshot({
-      repositoryFiles: [descriptorPath, sourcePath],
-      descriptorSources: [{
-        descriptorPath,
-        source: JSON.stringify({
-          importGraph: 'runtime',
-          externalEntrypoints: [],
-          capabilityProviders: [{
-            capability: 'example.operation',
-            operations: ['old'],
-            ownerInternalOperations
-          }]
-        })
-      }]
-    });
-    const descriptor = membership.descriptors[0]!;
-    const facts = {
-      files: [],
-      entrypoints: [],
-      entrypointClosures: [],
-      descriptorOperationExports: [{
-        moduleId: descriptor.moduleId,
-        capability: 'example.operation',
-        operation: 'old',
-        scopePaths: [sourcePath],
-        resolutions: [{ status: 'absent' as const, entrypointPath: sourcePath }],
-        status: 'absent' as const
-      }]
-    };
-    expect(compileRepositoryModuleArchitectureProjection(graph, membership, facts)
-      .violations).toContainEqual(expect.objectContaining({
-        code: 'repository-descriptor-operation-export-absent',
-        to: 'example.operation:old'
-      }));
-    expect(compileRepositoryModuleArchitectureProjection(graph, membership, {
-      ...facts,
-      descriptorOperationExports: []
-    }).violations).toContainEqual(expect.objectContaining({
-      code: 'repository-descriptor-operation-export-unresolved',
-      to: 'example.operation:old'
-    }));
-  }
-});
-
 test('repository module descriptor parser rejects unknown fields and invalid paths', () => {
   const descriptor = {
     importGraph: 'runtime',
@@ -1004,49 +952,6 @@ test('repository architecture derives one node responsibility and rejects revers
     from: 'src/contracts/types.ts',
     to: 'src/capability/clock.ts'
   }));
-});
-
-test('package role claims cannot change node responsibility authority', () => {
-  const descriptor = parseRepositoryModuleDescriptor({
-    importGraph: 'runtime',
-    externalEntrypoints: [],
-    capabilityProviders: [{ capability: 'example-provider', operations: ['run'] }]
-  }, 'src/example/module.json');
-  const graph = compileSourceProgramRepositoryModuleGraph({ files: ['src/example/value.ts'], readSource: () => 'export const value = 1;' });
-  const facts = {
-    files: [{
-      path: 'src/example/value.ts',
-      moduleId: descriptor.moduleId,
-      surface: 'production' as const,
-      semanticKind: 'executable' as const,
-      semanticObservationClass: 'derived' as const
-    }],
-    entrypoints: [],
-    entrypointClosures: [],
-    capabilities: [],
-    moduleRoles: [{
-      moduleId: descriptor.moduleId,
-      role: 'command' as const,
-      observationClass: 'observed' as const
-    }]
-  };
-  const projection = compileRepositoryModuleArchitectureProjection(graph, {
-    descriptors: [descriptor],
-    graphRoots: ['src/example'],
-    moduleRoots: ['src/example'],
-    moduleForPath: () => descriptor
-  }, facts);
-  expect(projection.nodeResponsibilities).toEqual([
-    expect.objectContaining({
-      path: 'src/example/value.ts',
-      responsibility: 'unknown',
-      reason: 'responsibility-evidence-unresolved'
-    })
-  ]);
-  expect(projection.violations).toEqual([expect.objectContaining({
-    code: 'repository-descriptor-operation-export-unresolved',
-    to: 'example-provider:run'
-  })]);
 });
 
 test('source-program ownership excludes colocated tests and binds public entrypoints to descriptors', () => {

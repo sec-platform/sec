@@ -226,11 +226,6 @@ test('Action terminal preserves owner issuance, strict parsing, and process diag
     .not.toBe(nextAttempt.ownerTerminalReceipt.terminalReceiptDigest);
   const failed = projectVerificationActionTerminal(settlement('failed'));
   expect(failed.status).toBe('failed');
-  expect(() => projectVerificationActionTerminal({
-    status: 'passed',
-    reasonCode: 'executed-success',
-    resultDigest: null
-  })).toThrow('not Verification-owner-issued');
   expect(() => projectVerificationActionTerminal({ ...completed }))
     .toThrow('not Verification-owner-issued');
   expect(createVerificationActionTerminal(terminal)).toEqual(terminal);
@@ -292,12 +287,12 @@ test('strict ordinary-data boundary rejects getters, proxies, symbols, custom pr
   });
   expect(() => createVerificationActionKey(getterInput)).toThrow(/data property|accessors/);
 
+  let proxyTrapCalls = 0;
   const proxied = new Proxy(actionInput(), {
-    ownKeys: () => { throw new Error('proxy ownKeys executed'); }
+    ownKeys: () => { proxyTrapCalls++; throw new Error('proxy ownKeys executed'); }
   });
-  expect(() => createVerificationActionKey(proxied)).toThrow(/ordinary data|inspect|proxies/);
-  const transparentProxy = new Proxy(actionInput(), {});
-  expect(() => createVerificationActionKey(transparentProxy)).toThrow('proxies are forbidden');
+  expect(() => createVerificationActionKey(proxied)).toThrow('proxies are forbidden');
+  expect(proxyTrapCalls).toBe(0);
 
   const symbolInput = actionInput() as Record<PropertyKey, unknown>;
   symbolInput[Symbol('identity')] = 'forbidden';

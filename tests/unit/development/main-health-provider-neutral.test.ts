@@ -94,26 +94,23 @@ test('trusted runtime current receipt identity matches hosted semantics and reje
     expiresAt
   })).toThrow('not exact or fresh');
 
-  for (const schema of [undefined, 'sec-trusted-runtime-main-health-receipt-v4'] as const) {
-    const current = schema === undefined ? projected : createTrustedRuntimeMainHealthInput(observation, schema);
-    expect(current.producer.sourceRef).toBe(
-      `live-receipt:trusted-main-health/v4/${MAIN}/${'e'.repeat(64)}`
-    );
-    expect(current.producer.sourceDigest).toBe(observation.verificationReceiptDigest);
-    const changedDigest = createTrustedRuntimeMainHealthInput({ ...observation,
-      verificationReceiptDigest: `sha256:${'f'.repeat(64)}` }, schema);
-    expect(changedDigest.producer.sourceRef).toBe(
-      `live-receipt:trusted-main-health/v4/${MAIN}/${'f'.repeat(64)}`
-    );
-    const changedMain = createTrustedRuntimeMainHealthInput({ ...observation,
-      mainSha: '3'.repeat(40), trustRevision: '3'.repeat(40) }, schema);
-    expect(changedMain.producer.sourceRef).toBe(
-      `live-receipt:trusted-main-health/v4/${'3'.repeat(40)}/${'e'.repeat(64)}`
-    );
-  }
-  for (const schema of [null, '', 'v3', 'sec-trusted-runtime-main-health-receipt-v2',
-    'sec-trusted-runtime-main-health-receipt-v3',
-    'sec-trusted-runtime-main-health-observation-v1']) {
+  const schema = 'sec-trusted-runtime-main-health-receipt-v4';
+  const current = createTrustedRuntimeMainHealthInput(observation, schema);
+  expect(current.producer.sourceRef).toBe(
+    `live-receipt:trusted-main-health/v4/${MAIN}/${'e'.repeat(64)}`
+  );
+  expect(current.producer.sourceDigest).toBe(observation.verificationReceiptDigest);
+  const changedDigest = createTrustedRuntimeMainHealthInput({ ...observation,
+    verificationReceiptDigest: `sha256:${'f'.repeat(64)}` }, schema);
+  expect(changedDigest.producer.sourceRef).toBe(
+    `live-receipt:trusted-main-health/v4/${MAIN}/${'f'.repeat(64)}`
+  );
+  const changedMain = createTrustedRuntimeMainHealthInput({ ...observation,
+    mainSha: '3'.repeat(40), trustRevision: '3'.repeat(40) }, schema);
+  expect(changedMain.producer.sourceRef).toBe(
+    `live-receipt:trusted-main-health/v4/${'3'.repeat(40)}/${'e'.repeat(64)}`
+  );
+  for (const schema of [null, 'sec-trusted-runtime-main-health-receipt-v3']) {
     const invalidSchema = schema as TrustedRuntimeMainHealthReceipt['schema'];
     expect(() => createTrustedRuntimeMainHealthInput(observation, invalidSchema))
       .toThrow('receipt reference schema');

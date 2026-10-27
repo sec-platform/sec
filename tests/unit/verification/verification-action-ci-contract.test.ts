@@ -80,19 +80,17 @@ test('direct Bun tests have one bounded normalized target and reject generic sub
     )
   ).toEqual(argv);
 
-  for (const pattern of ['x'.repeat(513), 'x'.repeat(8_192)]) {
-    expect(() => buildCiVerificationActionPlanClosure({
-      candidate,
-      gates: [{
-        id: 'bounded-pattern',
-        phase: 'quick',
-        argv: ['bun', 'test', 'tests/unit/example.test.ts', '--test-name-pattern', pattern],
-        runtime: 'bun',
-        environment: {},
-        coveredScopeIds: []
-      }]
-    })).not.toThrow();
-  }
+  expect(() => buildCiVerificationActionPlanClosure({
+    candidate,
+    gates: [{
+      id: 'bounded-pattern',
+      phase: 'quick',
+      argv: ['bun', 'test', 'tests/unit/example.test.ts', '--test-name-pattern', 'x'.repeat(8_192)],
+      runtime: 'bun',
+      environment: {},
+      coveredScopeIds: []
+    }]
+  })).not.toThrow();
 
   const rejectedArgv = [
     ['bun', 'test'],

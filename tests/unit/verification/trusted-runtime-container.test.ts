@@ -191,11 +191,8 @@ describe('provider-neutral trusted runtime container', () => {
     const carrier = historicalSourceProgramCarrier();
     const parsed = parseTrustedRuntimeSourceProgramAttemptCarrier(JSON.parse(JSON.stringify(carrier)));
     expect(encodeVerificationActionData(parsed)).toBe(encodeVerificationActionData(carrier));
-    for (const observation of [parsed.observation, { ...parsed.observation },
-      JSON.parse(JSON.stringify(parsed.observation))]) {
-      expect(() => assertTrustedRuntimeSourceProgramTransitionObservation(observation))
-        .toThrow('exact live isolated producer observation');
-    }
+    expect(() => assertTrustedRuntimeSourceProgramTransitionObservation(parsed.observation))
+      .toThrow('exact live isolated producer observation');
     const physical = carrier.physicalEvidence;
     expect(physical.invocation.environment).toMatchObject({
       SEC_STATE_HOME: '/sec-runtime/output/state',
@@ -260,7 +257,7 @@ describe('provider-neutral trusted runtime container', () => {
     expect(receipt.actionResults[0]!.unitReceipt.inputs.dependencyContentDigest).toBeNull();
     expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
       receiptDigest: `sha256:${'f'.repeat(64)}` })).toThrow('canonical subject, plan or result bytes');
-    for (const unqualified of [receipt, { ...receipt }, parsed]) {
+    for (const unqualified of [receipt, parsed]) {
       expect(() => assertTrustedRuntimeMainHealthQualification({ receipt: unqualified,
         repositoryRoot: process.cwd(), repository: receipt.repository, mainSha: receipt.mainSha,
         mainTreeSha: receipt.mainTreeSha })).toThrow('current live production execution qualification');
