@@ -1027,6 +1027,7 @@ describe('Source Program audit domain operation', () => {
     const facts = input();
     type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
     const make = (which: 'before' | 'after'): Snapshot => ({
+      ...(which === 'after' ? { analysisPolicy: captureRepositoryAnalysisPolicy([]) } : {}),
       sourceRevision: facts.reconciliation[which].sourceRevision,
       moduleMembershipDigest: digest('membership'),
       workspaceSnapshot: { files: facts.sourceFileIdentities },
@@ -1041,6 +1042,20 @@ describe('Source Program audit domain operation', () => {
     assert.equal(findingDelta.entries.length, 0);
     assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
       reconciliation: { ...facts.reconciliation, findingDelta } }), /Finding reconciliation/);
+    // Serializable audit facts can carry missing context even though current
+    // compiler-issued receipts cannot; compact output must retain that gap.
+    const request = compileSourceProgramAuditOperationInput({ ...facts,
+      reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta,
+        unresolvedReasons: [{ code: 'source-program-observation-coverage-regressed' }] },
+      options: { ...facts.options, full: false } });
+    const compact = (request.projection.reconciliation as { findingDelta: typeof findingDelta }).findingDelta;
+    assert.deepEqual(request.blockingReasons, ['reconciliation-unresolved']);
+    assert.deepEqual(compact.before.incompleteContextFields, ['analysisPolicyDigest']);
+    assert.deepEqual(compact.after.incompleteContextFields, []);
+    assert.equal(compact.contextComparable, false);
+    assert.deepEqual(compact.counts, { introduced: 0, persistent: 0, changed: 0, absent: 0,
+      'out-of-scope': 0, unobserved: 0 });
+    assert.equal(compact.deltaDigest, findingDelta.deltaDigest);
   });
 
   test('an input cannot advertise a different decision from the one the worker executes', () => {

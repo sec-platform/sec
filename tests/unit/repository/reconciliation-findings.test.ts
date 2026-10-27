@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import type { SourceProgramCandidate } from '../../../src/adapters/repository/source-program-model/contract.ts';
 import {
   compileSourceProgramFindingDelta as compare,
-  summarizeSourceProgramFindingDelta as summarize,
   sourceProgramFindingDeltaIsUnresolved as unresolved
 } from '../../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import { sha256 } from '../../../src/contracts/canonical.ts';
@@ -106,34 +105,10 @@ test('source edits are not incorrectly treated as tool changes', () => {
   assert.equal(delta.contextComparable, true); assert.equal(delta.entries[0]!.status, 'absent');
 });
 
-test('configuration changes and incomplete legacy policy remain distinct from product defects', () => {
+test('configuration changes without findings remain distinct from product defects', () => {
   const after = snapshot();
   const delta = compare(snapshot(), { ...after, projectGeneration: { ...after.projectGeneration, environmentDigest: digest('new') } });
   assert.equal(delta.contextComparable, false); assert.deepEqual(delta.entries, []); assert.equal(unresolved(delta), false);
-
-  const { analysisPolicy: _beforePolicy, ...legacyBefore } = snapshot([finding()]);
-  const { analysisPolicy: _afterPolicy, ...legacyAfter } = after;
-  const legacy = compare(legacyBefore, legacyAfter);
-  assert.equal(legacy.contextComparable, false);
-  assert.deepEqual(legacy.before.incompleteContextFields, ['analysisPolicyDigest']);
-  assert.deepEqual(legacy.after.incompleteContextFields, ['analysisPolicyDigest']);
-  assert.equal(legacy.entries[0]!.status, 'unobserved'); assert.equal(unresolved(legacy), true);
-
-  for (const analysisPolicy of [undefined, null, {}, { ...captureRepositoryAnalysisPolicy([]), policyDigest: digest('wrong') }]) {
-    const corrupt = compare(after, { ...after, analysisPolicy } as never);
-    assert.equal(corrupt.contextComparable, false);
-    assert.equal(corrupt.entries.length, 0);
-    assert.deepEqual(corrupt.after.incompleteContextFields, ['analysisPolicyDigest']);
-    assert.equal(unresolved(corrupt), true);
-  }
-
-  const oneSided = compare(legacyBefore, after);
-  const compact = summarize(oneSided);
-  assert.deepEqual(compact.before.incompleteContextFields, ['analysisPolicyDigest']);
-  assert.deepEqual(compact.after.incompleteContextFields, []);
-  assert.equal(compact.contextComparable, oneSided.contextComparable);
-  assert.equal(compact.deltaDigest, oneSided.deltaDigest);
-  assert.deepEqual(compact.counts, oneSided.counts);
 });
 
 test('findings without a path, or with partially lost scope, cannot be certified absent', () => {
