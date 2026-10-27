@@ -16,8 +16,7 @@ type RecordedProxyTrap =
   | 'getPrototypeOf'
   | 'ownKeys'
   | 'getOwnPropertyDescriptor'
-  | 'has'
-  | 'apply';
+  | 'has';
 
 function recordingProxyHandler<T extends object>(
   trapCalls: RecordedProxyTrap[],
@@ -47,10 +46,6 @@ function recordingProxyHandler<T extends object>(
     has(target, property) {
       record('has');
       return Reflect.has(target, property);
-    },
-    apply(target, thisArgument, argumentsList) {
-      record('apply');
-      return Reflect.apply(target as (...args: unknown[]) => unknown, thisArgument, argumentsList);
     }
   };
 }
@@ -319,7 +314,7 @@ test('canonical prototype toJSON guards reject without executing and restore exa
   expect(candidateCodeExecutions).toBe(0);
 });
 
-test('aggregate input is an exact ordinary container and snapshots trusted views before reduction', () => {
+test('aggregate input is an exact ordinary container', () => {
   const fixture = canonicalAggregateFixture();
   const validInput = aggregateInput(fixture);
   expect(CodexDevelopmentAggregateVerificationClaims(validInput).overallStatus).toBe('passed');
@@ -354,23 +349,6 @@ test('aggregate input is an exact ordinary container and snapshots trusted views
     )).toThrow();
   }
   expect(getterCalls).toBe(0);
-
-  let trustedCoverageExecutions = 0;
-  const mutableInput: VerificationAggregateInput = {
-    claims: fixture.claims,
-    gateResults: fixture.gates,
-    isCoverageComplete: (claim, gates) => {
-      trustedCoverageExecutions += 1;
-      (mutableInput.claims[0]!.requiredGateIds as string[]).length = 0;
-      claim.requiredGateIds.length = 0;
-      gates.length = 0;
-      return true;
-    }
-  };
-  const snapshotted = CodexDevelopmentAggregateVerificationClaims(mutableInput);
-  expect(snapshotted.overallStatus).toBe('passed');
-  expect(snapshotted.claimResults[0]!.contributingGateIds).toEqual(['gate-1']);
-  expect(trustedCoverageExecutions).toBe(1);
 });
 
 test('aggregate input rejects top-level and nested Proxy views without executing traps', () => {
@@ -400,26 +378,11 @@ test('aggregate input rejects top-level and nested Proxy views without executing
     trapCalls: nestedGateArray.trapCalls
   });
 
-  let callbackExecutions = 0;
-  const coverageCallback = recordedProxy(() => {
-    callbackExecutions += 1;
-    return true;
-  }, true);
-  views.push({
-    input: {
-      claims: fixture.claims,
-      gateResults: fixture.gates,
-      isCoverageComplete: coverageCallback.proxy
-    },
-    trapCalls: coverageCallback.trapCalls
-  });
-
   for (const view of views) {
     expect(() => CodexDevelopmentAggregateVerificationClaims(view.input))
       .toThrow('Verification data must not contain Proxy values.');
     expect(view.trapCalls).toEqual([]);
   }
-  expect(callbackExecutions).toBe(0);
 });
 
 test('aggregate input rejects Proxy prototypes at its root, claims and gate data boundaries', () => {
@@ -474,11 +437,10 @@ test('trusted claims cannot close vacuously', () => {
       requiredGateIds: ['missing-gate'],
       owningEnvironments: ['linux-x64']
     }],
-    gateResults: [],
-    isCoverageComplete: () => true
+    gateResults: []
   };
-  const callbackCannotCreateCoverage = CodexDevelopmentAggregateVerificationClaims(missingInput);
-  expect(callbackCannotCreateCoverage.claimResults[0]).toMatchObject({
+  const missing = CodexDevelopmentAggregateVerificationClaims(missingInput);
+  expect(missing.claimResults[0]).toMatchObject({
     status: 'not-run',
     coverageComplete: false,
     contributingGateIds: []
@@ -488,13 +450,6 @@ test('trusted claims cannot close vacuously', () => {
   const empty = CodexDevelopmentAggregateVerificationClaims(emptyInput);
   expect(empty).toEqual({
     overallStatus: 'invalidated', overallReasonCode: 'selection-unresolved', claimResults: []
-  });
-
-  const incompleteInput = { ...aggregateInput(fixture), isCoverageComplete: () => false };
-  const incomplete = CodexDevelopmentAggregateVerificationClaims(incompleteInput);
-  expect(incomplete).toMatchObject({
-    overallStatus: 'invalidated', overallReasonCode: 'selection-unresolved',
-    claimResults: [{ status: 'invalidated', reasonCode: 'selection-unresolved', coverageComplete: false }]
   });
 });
 

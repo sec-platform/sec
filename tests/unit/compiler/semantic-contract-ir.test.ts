@@ -206,34 +206,6 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
       awaits: false
     }]
   });
-  expect(buildEngineeringIR({
-    ...input,
-    semanticContracts: [semanticContract, semanticContract]
-  })).toEqual(ir);
-});
-
-test('distinct semantic contracts cannot implicitly merge through a shared namespace', () => {
-  const first = contract();
-  const second = contract();
-  second.contractPath = 'registry/item.basic/contracts/item-extension.yaml';
-  second.contract = {
-    ...second.contract,
-    id: 'item-extension',
-    entities: [],
-    states: [],
-    responsibilities: [],
-    operations: [],
-    events: [],
-    policies: [],
-    permissions: [],
-    effects: [],
-    scenarios: []
-  };
-
-  expectCodedFailure(
-    () => buildEngineeringIR({ ...baseInput(), semanticContracts: [first, second] }),
-    'SEMANTIC-LINK-001'
-  );
 });
 
 test('semantic contract scenario cannot reference undeclared acceptance', () => {

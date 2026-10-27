@@ -126,6 +126,12 @@ test('production dispatcher projection binds both opaque resources through the e
 test('unread candidate compiler, registry and unrelated edits cannot replace adopted policy or change dispatcher facts', async () => {
   return usingFixture(async subject => {
     const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
+    const changedCompiler = rawSha256('changed adopted compiler or dependency generation');
+    expect(reviewedProcessDispatchersFromExactProjection(subject.files, changedCompiler, projection)).toBeNull();
+    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest, {
+      inputDigests: projection.sourceInputDigests, reviewedProcessDispatchers: [dispatcher]
+    })).toBeNull();
+    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest, null)).toBeNull();
     // An accidental no-argument trustedRuntimeClosure reads the real interpreter
     // tree and returns many dispatchers, so it cannot satisfy this independent oracle.
     expect(projection.reviewedProcessDispatchers).toEqual([dispatcher]);
@@ -145,25 +151,11 @@ test('unread candidate compiler, registry and unrelated edits cannot replace ado
       ? file(input.path, 'throw new Error("candidate data is not the adopted compiler");\n') : input);
     for (const input of changed) subject.write(input);
     expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toEqual([dispatcher]);
-    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, compilerInputDigest);
+    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, changedCompiler);
     expect(recomputed.reviewedProcessDispatchers).toEqual([dispatcher]);
-  });
-});
-
-test('compiler identity changes and legacy single-domain payloads cannot reuse candidate dispatcher facts', async () => {
-  return usingFixture(async subject => {
-    const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
-    const changedCompiler = rawSha256('changed adopted compiler or dependency generation');
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, changedCompiler, projection)).toBeNull();
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest, {
-      inputDigests: projection.sourceInputDigests, reviewedProcessDispatchers: [dispatcher]
-    })).toBeNull();
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest, null)).toBeNull();
-    // Same-root ordinary editing conservatively changes the compiler key. Cold
-    // recomputation still preserves policy, rather than treating a miss as empty.
-    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, changedCompiler);
-    expect(recomputed.reviewedProcessDispatchers).toEqual([dispatcher]);
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, changedCompiler, recomputed)).toEqual([dispatcher]);
+    expect(recomputed.compilerInputDigest).toBe(changedCompiler);
+    expect(reviewedProcessDispatchersFromExactProjection(changed, changedCompiler, recomputed)).toEqual([dispatcher]);
+    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, recomputed)).toBeNull();
   });
 });
 

@@ -2,8 +2,6 @@ import { expect, test } from 'bun:test';
 import exampleInput from '../../../examples/semantic-query/input.json' with { type: 'json' };
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
-import { buildValidatedEngineeringIR } from '../../../src/compiler/ir/validate-engineering-ir.ts';
-import { buildSemanticViewSet } from '../../../src/compiler/projection/build-semantic-view-set.ts';
 import { compileSemanticInput } from '../../../src/compiler/semantic-compiler.ts';
 import { buildSemanticGeneratorPlan } from '../../../src/compiler/semantic-plan.ts';
 
@@ -17,44 +15,6 @@ function input(id = 'captured-app'): BuildEngineeringIRInput {
   };
 }
 
-test('compilation preserves canonical results across caller mutation and independent requests', () => {
-  const firstInput = input('first');
-  const before = structuredClone(firstInput);
-  const first = compileSemanticInput({ engineeringIRInput: firstInput });
-  expect(firstInput).toEqual(before);
-
-  const snapshot = buildValidatedEngineeringIR(before);
-  expect(first).toEqual({
-    snapshot,
-    generatorPlan: buildSemanticGeneratorPlan(snapshot, []),
-    semanticViews: buildSemanticViewSet(snapshot)
-  });
-  // A pipeline-to-pipeline equality checks wiring but could accept a
-  // shared omission. This externally specified input must issue one concrete
-  // app identity, no generator tasks, and exactly one architecture view.
-  expect(first.snapshot.ir.appId).toBe('app:first');
-  expect(first.snapshot.ir.entities.filter(entity => entity.kind === 'app').map(entity => entity.id))
-    .toEqual(['app:first']);
-  expect(first.generatorPlan.tasks).toEqual([]);
-  expect(first.semanticViews.views.map(view => view.viewKind)).toEqual(['architecture']);
-  expect(first.semanticViews.views[0]!.nodes.filter(node => node.entityKind === 'app').map(node => node.entityId))
-    .toEqual(['app:first']);
-  expect(first).not.toBeInstanceOf(Promise);
-  expect(Object.isFrozen(first)).toBe(true);
-
-  const second = compileSemanticInput({ engineeringIRInput: input('second') });
-  const repeated = compileSemanticInput({ engineeringIRInput: firstInput });
-  expect(first.snapshot.ir.appId).not.toBe(second.snapshot.ir.appId);
-  expect(first.snapshot.ir.inputRevision).not.toBe(second.snapshot.ir.inputRevision);
-  expect(repeated).toEqual(first);
-
-  firstInput.app.name = 'edited-after-capture';
-  expect(first.snapshot.ir.entities.find((entity) => entity.kind === 'app')?.label).toBe(before.app.name);
-  expect(Object.isFrozen(first.snapshot.ir)).toBe(true);
-  expect(Object.isFrozen(first.generatorPlan)).toBe(true);
-  expect(Object.isFrozen(first.semanticViews)).toBe(true);
-});
-
 test('invalid captured input retains the existing compiler error instead of returning partial results', () => {
   const source = input();
   source.manifests = [{
@@ -66,11 +26,33 @@ test('invalid captured input retains the existing compiler error instead of retu
     .toThrow(expect.objectContaining({ code: 'IR-IDENTITY-002' }));
 });
 
-test('captured manifests supply all generators and roots alone select generation', () => {
+test('captured requests isolate canonical outputs while manifests and roots select generation', () => {
   const source = { engineeringIRInput: structuredClone(exampleInput.engineeringIRInput) as BuildEngineeringIRInput };
   source.engineeringIRInput.manifests[0]!.manifest.generators![0]!.target =
     'src\\installed/item/item-semantic-contract.ts';
+  const before = structuredClone(source);
   const complete = compileSemanticInput(source);
+  expect(source).toEqual(before);
+  expect(complete).not.toBeInstanceOf(Promise);
+  for (const value of [complete, complete.snapshot.ir, complete.generatorPlan, complete.semanticViews]) {
+    expect(Object.isFrozen(value)).toBe(true);
+  }
+  expect(complete.snapshot.ir.appId).toBe('app:item-app');
+  expect(complete.semanticViews.views.find(view => view.viewKind === 'architecture')!.nodes
+    .filter(node => node.entityKind === 'app').map(node => node.entityId)).toEqual(['app:item-app']);
+
+  source.engineeringIRInput.app.name = 'edited-after-capture';
+  expect(complete.snapshot.ir.entities.find(entity => entity.kind === 'app')?.label).toBe('item-app');
+  source.engineeringIRInput.app.name = before.engineeringIRInput.app.name;
+  const independent = compileSemanticInput({ engineeringIRInput: input('independent') });
+  expect(independent.snapshot.ir.appId).toBe('app:independent');
+  expect(independent.snapshot.ir.entities.filter(entity => entity.kind === 'app').map(entity => entity.id))
+    .toEqual(['app:independent']);
+  expect(independent.snapshot.ir.inputRevision).not.toBe(complete.snapshot.ir.inputRevision);
+  expect(independent.generatorPlan.tasks).toEqual([]);
+  expect(independent.semanticViews.views.map(view => view.viewKind)).toEqual(['architecture']);
+  expect(independent.semanticViews.views[0]!.nodes.filter(node => node.entityKind === 'app')
+    .map(node => node.entityId)).toEqual(['app:independent']);
   const { snapshot, generatorPlan: plan } = complete;
   const generatorId = 'generator:item/basic:item-status-runtime-contract';
   const artifactId = 'artifact:src/installed/item/item-semantic-contract.ts';
@@ -107,7 +89,7 @@ test('captured manifests supply all generators and roots alone select generation
     // @ts-expect-error Generator plans require the branded validated snapshot boundary.
     buildSemanticGeneratorPlan(raw, []);
   }
-  expect(compileSemanticInput(source, [generatorId]).generatorPlan).toEqual(complete.generatorPlan);
+  expect(compileSemanticInput(source, [generatorId])).toEqual(complete);
   const empty = compileSemanticInput(source, []);
   expect(empty.generatorPlan.tasks).toEqual([]);
   expect(empty.snapshot).toEqual(complete.snapshot);

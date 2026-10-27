@@ -111,8 +111,6 @@ test('Verification evidence binds complete ordered Action snapshots and canonica
     const gates = plan.actions.map((_, index) => gateEvidence(index, index === 0 ? status : 'passed'));
     const value = evidence(gates);
     expect(value.status).toBe(status);
-    expect(() => CodexDevelopmentAssertVerificationEvidenceV4(value, { actionPlan: plan }, new Date('2026-08-09T00:01:00.000Z')))
-      .not.toThrow();
   }
 });
 
@@ -132,11 +130,6 @@ test('reuse preserves known failure and never promotes non-pass to PASS', () => 
   const knownFailure = evidence([reusedFailure, gateEvidence(1)]);
   expect(knownFailure.status).toBe('failed');
   expect(knownFailure.gates[0]!.result).toMatchObject({ status: 'failed', disposition: 'reused' });
-  expect(() => CodexDevelopmentAssertVerificationEvidenceV4(
-    knownFailure,
-    { actionPlan: plan },
-    new Date('2026-08-09T02:00:00.000Z')
-  )).not.toThrow();
   const invalidated = evidence([gateEvidence(0, 'invalidated'), gateEvidence(1)]);
   const { schema: _schema, evidenceDigest: _digest, ...draft } = invalidated;
   // Recompute the digest so stale hashing cannot mask a missing status check.

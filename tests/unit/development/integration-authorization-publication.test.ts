@@ -100,23 +100,6 @@ function observe(input: {
   });
 }
 
-test('provider phase owner requires the exact current in-progress named step', () => {
-  const phase = 'integration' as const;
-  const ownership = observe({ phase, currentAttempt: 1,
-    attempts: [{ runAttempt: 1, jobs: [job({ attempt: 1, phase, current: true })] }] });
-  expect(ownership).toMatchObject({ runId: '900', runAttempt: 1, jobName: 'integrate',
-    phase, stepName: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration,
-    priorAttemptStarted: false });
-
-  const queued = job({ attempt: 1, phase, current: true, steps: [step({
-    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration,
-    number: 5, status: 'queued', startedAt: null
-  })] });
-  expect(() => observe({ phase, currentAttempt: 1,
-    attempts: [{ runAttempt: 1, jobs: [queued] }] }))
-    .toThrow('not provider-confirmed in progress');
-});
-
 test('authorization recovery preparation belongs to the read-only authorize job', () => {
   const phase = 'recoveryPreparation' as const;
   const ownership = observe({ phase, currentAttempt: 1,
@@ -190,7 +173,7 @@ test('same-name phase records with malformed completion facts fail closed', () =
   ] })).toThrow('facts are incomplete');
 });
 
-test('GitHub workflow job parser requires a complete page-object inventory', () => {
+test('complete provider job pages establish the current phase owner without admitting queued steps', () => {
   const providerJob = {
     id: 1001,
     run_id: 900,
@@ -213,6 +196,20 @@ test('GitHub workflow job parser requires a complete page-object inventory', () 
   expect(exact).toHaveLength(1);
   expect(exact[0]).toMatchObject({ id: '1001', runId: '900', runAttempt: 1,
     name: 'integrate', steps: [{ name: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration }] });
+
+  const phase = 'integration' as const;
+  expect(observe({ phase, currentAttempt: 1,
+    attempts: [{ runAttempt: 1, jobs: exact }] })).toMatchObject({
+    runId: '900', runAttempt: 1, jobName: 'integrate', phase,
+    stepName: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration, priorAttemptStarted: false
+  });
+  const queued = job({ attempt: 1, phase, current: true, steps: [step({
+    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration,
+    number: 5, status: 'queued', startedAt: null
+  })] });
+  expect(() => observe({ phase, currentAttempt: 1,
+    attempts: [{ runAttempt: 1, jobs: [queued] }] }))
+    .toThrow('not provider-confirmed in progress');
 
   expect(() => parseGitHubWorkflowJobsForAttempt({
     source: [providerJob],

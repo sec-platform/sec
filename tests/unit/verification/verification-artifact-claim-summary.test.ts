@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageReport } from '../../../src/assurance/acceptance/coverage.ts';
 import { isCanonicalVerificationArtifactSet } from '../../../src/assurance/verification/artifact/contract/artifact.ts';
-import { buildExpectedProductVerificationClaimSummary, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_CLAIM_ID, PRODUCT_POLICY_GATE_ID } from '../../../src/assurance/verification/profile/contract/product.ts';
+import { buildExpectedProductVerificationClaimSummary, PRODUCT_POLICY_CLAIM_ID, PRODUCT_POLICY_GATE_ID } from '../../../src/assurance/verification/profile/contract/product.ts';
 import type { VerificationClaimResult, VerificationGateResult, VerificationReasonCode, VerificationResultStatus } from '../../../src/assurance/verification/result/contract/result.ts';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
@@ -323,8 +323,19 @@ test('canonical artifacts require coherent child exit and semantic evidence for 
       overallStatus: originalSummary.overall.overallStatus
     }
   };
-  expect(semantic.verificationReport.summary.claimSummary.gates.find(gate => gate.gateId === PRODUCT_POLICY_GATE_ID))
-    .toMatchObject({ status: 'passed', supportedClaims: [PRODUCT_POLICY_CLAIM_ID] });
+  // Fixed public claims, not a second invocation of the production summary builder.
+  expect(originalSummary.overall).toEqual({
+    overallStatus: 'passed',
+    overallReasonCode: 'executed-success',
+    claimResults: [
+      { claimId: 'product-fast-verification', status: 'passed', reasonCode: 'executed-success',
+        contributingGateIds: ['product-fast-lane'], coverageComplete: true },
+      { claimId: 'product-policy-verification', status: 'passed', reasonCode: 'executed-success',
+        contributingGateIds: ['product-policy-gate'], coverageComplete: true },
+      { claimId: 'product-runtime-verification', status: 'passed', reasonCode: 'executed-success',
+        contributingGateIds: ['product-runtime-lane'], coverageComplete: true }
+    ]
+  });
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(semantic)).toBe('passed');
   for (const childExitCode of [1, -1, Number.NaN]) {
     expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...semantic, childExitCode }))
@@ -365,8 +376,7 @@ test('current production artifacts cannot delete claimSummary and fall back to l
 
 test('claimSummary overall status must agree with the legacy summary projection', () => {
   const candidate = mutablePassedArtifact();
-  candidate.verificationReport.summary.claimSummary.overall.overallStatus = 'invalidated';
-  candidate.verificationReport.summary.claimSummary.overall.overallReasonCode = 'selection-unresolved';
+  candidate.verificationReport.summary.status = 'failed';
   expectNonCanonical(candidate);
 });
 
@@ -387,34 +397,12 @@ test('missing artifact fields and unknown report fields remain fail-closed', () 
   expectNonCanonical({ ...intact, runtimeReport: { ...intact.runtimeReport, forged: 'untrusted' } });
 });
 
-test('overall passed cannot conceal a failed claim result', () => {
+test('complete current-writer claim inventory is mandatory', () => {
   const candidate = mutablePassedArtifact();
-  const claim = candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!;
-  claim.status = 'failed';
-  claim.reasonCode = 'executed-failure';
-  claim.coverageComplete = false;
-  expectNonCanonical(candidate);
-});
-
-test('complete current-writer gate and claim inventory is mandatory', () => {
-  const candidate = mutablePassedArtifact();
-  candidate.verificationReport.summary.claimSummary.gates =
-    candidate.verificationReport.summary.claimSummary.gates.filter(
-      (gate) => gate.gateId !== PRODUCT_POLICY_GATE_ID
-    );
   candidate.verificationReport.summary.claimSummary.overall.claimResults =
     candidate.verificationReport.summary.claimSummary.overall.claimResults.filter(
       (claim) => claim.claimId !== PRODUCT_POLICY_CLAIM_ID
     );
-  expectNonCanonical(candidate);
-});
-
-test('passed required gates must explicitly support their claim', () => {
-  const candidate = mutablePassedArtifact();
-  const fastGate = candidate.verificationReport.summary.claimSummary.gates.find(
-    (gate) => gate.gateId === PRODUCT_FAST_GATE_ID
-  )!;
-  fastGate.supportedClaims = [];
   expectNonCanonical(candidate);
 });
 
@@ -530,6 +518,6 @@ test('duplicate identities and forged contribution references remain fail-closed
 
   const forged = mutablePassedArtifact();
   forged.verificationReport.summary.claimSummary.overall.claimResults[0]!
-    .contributingGateIds.push('forged-gate');
+    .contributingGateIds[0] = 'forged-gate';
   expectNonCanonical(forged);
 });

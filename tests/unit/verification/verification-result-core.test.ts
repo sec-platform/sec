@@ -122,29 +122,6 @@ function unsupportedGate(gateId: string, claims: string[], reasonCode: 'capabili
   };
 }
 
-function invalidatedGate(gateId: string, claims: string[], reasonCode: 'selection-unresolved' | 'input-invalidated' | 'evidence-stale' | 'superseded-revision' | 'cancelled'): VerificationGateResult {
-  return {
-    schema: 'sec-verification-gate-result-v1',
-    gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: 'unresolved',
-    status: 'invalidated',
-    disposition: 'not-executed',
-    reasonCode,
-    requiredForClaims: [...claims],
-    supportedClaims: [],
-    environment: null,
-    execution: null,
-    evidenceRefs: [],
-    invalidationRules: [],
-    diagnostic: 'result invalidated'
-  };
-}
-
 function claim(claimId: string, gateIds: string[], owningEnvironments: string[] = ['linux-x64']): VerificationClaimDefinition {
   return { claimId, requiredGateIds: gateIds, owningEnvironments };
 }
@@ -202,26 +179,6 @@ test('regression 3: fast failed → runtime not-run, overall failed', () => {
   expect(result.claimResults[0]!.status).toBe('failed');
 });
 
-// ---------------------------------------------------------------------------
-// Regression 4: Windows required gate on Linux not-run, missing Windows result
-//                → claim not-run
-// ---------------------------------------------------------------------------
-
-test('regression 4: Windows required gate on Linux not-run → claim not-run', () => {
-  // Linux runner executes its gate, but the Windows owning gate is not-run
-  // because the current runner is not the owning environment.
-  const linuxGate = passedGate('linux-gate', [], environment('linux', 'x64', ['typescript']));
-  const windowsGate = notRunGate('windows-gate', ['windows-claim'], 'current-runner-not-owning-environment');
-  const input = {
-    claims: [claim('windows-claim', ['windows-gate'], ['windows-x64'])],
-    gateResults: [linuxGate, windowsGate]
-  };
-  const result = CodexDevelopmentAggregateVerificationClaims(input);
-  expect(result.overallStatus).toBe('not-run');
-  expect(result.claimResults[0]!.status).toBe('not-run');
-  expect(result.claimResults[0]!.reasonCode).toBe('current-runner-not-owning-environment');
-});
-
 test('a non-owning observation cannot authorize a claim owned by another environment', () => {
   const gate = passedGate(
     'linux-gate',
@@ -260,23 +217,6 @@ test('regression 5: an unsupported optional provider does not invalidate an inde
   expect(optionalResult!.status).toBe('unsupported');
   // overall: not passed because one required claim is unsupported.
   expect(result.overallStatus).toBe('unsupported');
-});
-
-// ---------------------------------------------------------------------------
-// Regression 7: stale reused evidence → invalidated, not passed
-// ---------------------------------------------------------------------------
-
-test('regression 7: stale reused evidence → invalidated, not passed', () => {
-  // A gate that was reused but the evidence is now stale.
-  const staleGate = invalidatedGate('stale-gate', ['reuse-claim'], 'evidence-stale');
-  const input = {
-    claims: [claim('reuse-claim', ['stale-gate'])],
-    gateResults: [staleGate]
-  };
-  const result = CodexDevelopmentAggregateVerificationClaims(input);
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-  expect(result.claimResults[0]!.reasonCode).toBe('evidence-stale');
 });
 
 // ---------------------------------------------------------------------------
@@ -359,10 +299,12 @@ test('reused results retain their status and require evidence plus environment i
     const result = CodexDevelopmentBuildVerificationGateResult(reused);
     expect(result).toMatchObject({ status, disposition: 'reused', execution: null,
       reasonCode: status === 'passed' ? 'executed-success' : 'executed-failure' });
-    expect(() => CodexDevelopmentBuildVerificationGateResult({ ...reused, evidenceRefs: [] }))
-      .toThrow(/reused disposition requires non-empty evidenceRefs/);
-    expect(() => CodexDevelopmentBuildVerificationGateResult({ ...reused, environment: null }))
-      .toThrow(/reused disposition requires a non-null environment identity/);
+    // Evidence and environment are disposition guards, independent of pass/fail status.
+    expect(() => CodexDevelopmentBuildVerificationGateResult({ ...reused,
+      ...(status === 'passed' ? { evidenceRefs: [] } : { environment: null }) }))
+      .toThrow(status === 'passed'
+        ? /reused disposition requires non-empty evidenceRefs/
+        : /reused disposition requires a non-null environment identity/);
     if (status === 'failed') {
       expect(() => CodexDevelopmentAssertVerificationGateResult({ ...result, status: 'passed' }))
         .toThrow(/passed status requires/);

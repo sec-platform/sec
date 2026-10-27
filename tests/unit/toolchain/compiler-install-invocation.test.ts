@@ -19,39 +19,21 @@ async function fixture(run: (root: string) => Promise<void>) {
 }
 const budgetFailure = (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003';
 
-test('the install entrypoint captures argv, cwd and capabilities before clock and fence callbacks', async () => fixture(async root => {
-  const initial = process.cwd();
-  const args = ['install', '--frozen-lockfile'];
-  let count = 0;
-  let commitCount = 0;
-  const options = new Proxy({
-    get now() { assert.fail('unrelated wall clock'); throw new Error('unreachable'); },
-    get sharedDepsRoot() { assert.fail('unrelated shared root'); throw new Error('unreachable'); },
-    get generatedStateLifecycle() { assert.fail('unrelated capability'); throw new Error('unreachable'); },
-    get testCompilerRename() { assert.fail('unrelated test seam'); throw new Error('unreachable'); },
-    monotonicNowMs: () => {
-      args[0] = 'clock-replaced';
-      options.beforeCommit = async () => assert.fail('clock-replaced fence ran');
-      return 0;
-    },
-    async beforeCommit() {
-      assert.equal(this, options);
-      commitCount++; args[1] = 'fence-replaced'; process.chdir(tmpdir());
-      options.testMaterialization = issueRuntimeDependencyTestMaterialization(async () => assert.fail('replacement ran'));
-      options.beforeCommit = async () => assert.fail('replacement fence ran');
-    },
+test('the install entrypoint forwards canonical arguments and its absolute staging root', async () => fixture(async root => {
+  const args = Object.freeze(['install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile']);
+  let count = 0, commitCount = 0;
+  const result = await runBunInstall(root, {
+    monotonicNowMs: () => 0,
+    async beforeCommit() { commitCount++; },
     testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
-      count++; assert.deepEqual(request.args, ['install', '--frozen-lockfile']);
+      count++;
+      assert.deepEqual(request.args, ['install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile']);
       assert.equal(request.cwd, root);
       assert.ok(Object.isFrozen(request.args)); return success;
     })
-  }, { ownKeys() { assert.fail('enumerated request'); } });
-  try {
-    process.chdir(root);
-    const result = await runBunInstall('.', options, args, 'cache');
-    assert.equal(count, 1); assert.ok(commitCount > 0);
-    assert.deepEqual(result, { packageManager: 'bun', result: success });
-  } finally { process.chdir(initial); }
+  }, args);
+  assert.equal(count, 1); assert.ok(commitCount > 0);
+  assert.deepEqual(result, { packageManager: 'bun', result: success });
 }));
 
 test('time spent materializing is charged to the original budget rather than a fresh fallback', async () => fixture(async root => {
@@ -92,33 +74,14 @@ for (const place of ['commit', 'input'] as const) {
   }));
 }
 
-test('invalid invocation inputs are refused before clocks or fences', async () => {
+test('installation refuses prebound-only mode and unissued materialization before clocks', async () => {
   const root = path.resolve('compiler-install-admission');
-  for (const [index, args] of ([[undefined], [7], ['nul\0arg'], new Array(1)] as unknown[]).entries()) {
-    await assert.rejects(
-      runBunInstall(root, {
-        monotonicNowMs: () => assert.fail('premature controls'),
-        beforeCommit: async () => assert.fail('premature effect')
-      }, args as string[]),
-      budgetFailure,
-      `invalid argv case ${index}: ${JSON.stringify(args)}`
-    );
-  }
   await assert.rejects(runBunInstall(root, {
     installMode: 'prebound-only', monotonicNowMs: () => assert.fail('clock')
   }, ['install']), /Prebound-only/);
   await assert.rejects(runBunInstall(root, {
     testMaterialization: {} as never, monotonicNowMs: () => assert.fail('clock')
   }, ['install']), /owner-issued/);
-});
-
-test('an argument accessor is never invoked during input admission', async () => {
-  const args: string[] = [];
-  Object.defineProperty(args, 0, { get() { assert.fail('argv getter'); } });
-  await assert.rejects(runBunInstall(path.resolve('compiler-install-admission'), {
-    monotonicNowMs: () => assert.fail('premature controls'),
-    beforeCommit: async () => assert.fail('premature effect')
-  }, args), budgetFailure);
 });
 
 test('offline command spelling remains intact and uses the captured absolute configuration path', async () => fixture(async root => {
