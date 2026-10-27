@@ -40,8 +40,17 @@ function expectCodedFailure(run: () => unknown, code: string): void {
 
 test('validated snapshots are produced only after the full boundary and are deeply frozen', () => {
   const source = input();
-  const snapshot = buildValidatedEngineeringIR(source);
+  const raw = clone(buildValidatedEngineeringIR(source).ir);
+  raw.entities[0]!.attributes = [{ key: 'optionalValue', value: null }];
+  raw.semanticRevision = `sha256:${digest(semanticRevisionPayload(
+    raw.graphId, raw.appId, raw.entities, raw.facts, raw.scenarios
+  ))}`;
+  for (const fact of raw.facts) for (const assertion of fact.assertions) assertion.validFromRevision = raw.semanticRevision;
+  const snapshot = validateEngineeringIR(raw, source);
   const index = indexValidatedEngineeringIR(snapshot);
+
+  expect(snapshot.ir).toEqual(raw);
+  expect(index.entityById.get('app:validated-app')?.attributes).toEqual([{ key: 'optionalValue', value: null }]);
 
   expect(index.entityById.has('app:validated-app')).toBe(true);
   const pending: unknown[] = [snapshot];
