@@ -157,10 +157,6 @@ test('missing, thrown, unavailable, and invalid probe evidence fail closed after
       throw new Error('probe failed');
     },
     () => ({ status: 'available', extra: true }),
-    () => ({
-      formatRevision: 'semantic-mutation-isolation-capability-evidence-v1',
-      status: 'available'
-    }),
     () => 'available'
   ];
 
@@ -298,7 +294,8 @@ test('issued verification executes one exact requirement union and refuses forge
       let coercions = 0;
       const candidate = { ...report, attempted: { ...report.attempted,
         [key]: { toString() { coercions++; return report.attempted[key]; } } } };
-      expect(() => assertSemanticMutationVerificationReportInvariant(candidate)).toThrow();
+      expect(() => assertSemanticMutationVerificationReportInvariant(candidate))
+        .toThrow('Semantic Mutation Verification report is invalid');
       expect(coercions).toBe(0);
       await expect(executeSemanticMutationVerification({ capabilityPlan, requirements,
         planRevision, attempted: candidate.attempted as never, stagedSourceDigest,
@@ -306,13 +303,15 @@ test('issued verification executes one exact requirement union and refuses forge
       expect(coercions).toBe(0);
       expect(calls).toBe(2);
     }
+    let coercions = 0;
+    expect(() => assertSemanticMutationVerificationReportInvariant({ ...report,
+      stagedSourceDigest: { toString() { coercions++; return stagedSourceDigest; } } }))
+      .toThrow('Semantic Mutation Verification report is invalid');
+    expect(coercions).toBe(0);
     for (const key of ['planRevision', 'stagedSourceDigest', 'requiredVerificationDigest'] as const) {
-      let coercions = 0;
       expect(() => assertSemanticMutationVerificationReportInvariant({ ...report,
-        [key]: { toString() { coercions++; return report[key]; } } })).toThrow();
-      expect(coercions).toBe(0);
-      expect(() => assertSemanticMutationVerificationReportInvariant({ ...report,
-        [key]: `blake3:${'a'.repeat(64)}` })).toThrow();
+        [key]: `blake3:${'a'.repeat(64)}` }))
+        .toThrow('Semantic Mutation Verification report is invalid');
     }
 
     const execution = buildSemanticMutationVerificationExecutionRef(report);

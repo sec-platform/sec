@@ -25,7 +25,7 @@ import {
 test('descriptor operations use exact owned runtime exports, including aliases, without admitting a nested owner', () => {
   const sources = new Map([
     ['src/example/root.ts',
-      "export function live(): void {}\nexport { live as alias };\nexport type { TypeOnly as old } from './type.ts';\nexport * from './star.ts';\n"],
+      "export function live(): void {}\nexport { live as alias };\nexport type { TypeOnly as old } from './type.ts';\nexport * from './star.ts';\nexport { starred as remoteAlias } from './star.ts';\n"],
     ['src/example/type.ts', 'export class TypeOnly {}\n'],
     ['src/example/star.ts', 'export function starred(): void {}\n'],
     ['src/example/nested/old.ts', 'export function old(): void {}\n']
@@ -38,7 +38,7 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
         externalEntrypoints: [],
         capabilityProviders: [{
           capability: 'example.operations',
-          operations: ['live', 'alias', 'starred', 'old'],
+          operations: ['live', 'alias', 'starred', 'remoteAlias', 'old'],
           ownerInternalOperations: ['old']
         }]
       })
@@ -75,13 +75,20 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
   const observations = observeRepositorySourceProgramDescriptorOperationExports(model);
   expect(observations).not.toBeNull();
   const byOperation = new Map(observations!.map((observation) => [observation.operation, observation]));
-  for (const name of ['live', 'alias', 'starred']) {
+  for (const [name, targetPath] of [
+    ['live', 'src/example/root.ts'],
+    ['alias', 'src/example/root.ts'],
+    ['starred', 'src/example/star.ts'],
+    ['remoteAlias', 'src/example/star.ts']
+  ] as const) {
     expect(byOperation.get(name)?.status).toBe('resolved');
-    expect(byOperation.get(name)?.resolutions.some((resolution) => (
-      resolution.status === 'resolved'
-      && resolution.targetDeclarationObservationIds.length > 0
-      && resolution.targetPaths.every((path) => path.startsWith('src/example/'))
-    ))).toBe(true);
+    expect(byOperation.get(name)?.resolutions.find(({ entrypointPath }) => (
+      entrypointPath === 'src/example/root.ts'
+    ))).toEqual(expect.objectContaining({
+      status: 'resolved',
+      targetDeclarationObservationIds: expect.arrayContaining([expect.any(String)]),
+      targetPaths: [targetPath]
+    }));
   }
   expect(byOperation.get('old')?.status).toBe('absent');
   expect(byOperation.get('old')?.scopePaths).not.toContain('src/example/nested/old.ts');
