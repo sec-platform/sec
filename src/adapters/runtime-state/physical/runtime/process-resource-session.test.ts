@@ -481,7 +481,13 @@ test('process admission rejects context transplants omitted resources and widene
   ])).toThrow('not narrowed from its operation');
 
   const singleUseOperation = boundOperation({ label: 'context-single-use' });
-  const singleUseContext = requirementBindingContext(singleUseOperation);
+  const absoluteDeadlineAtUnixMs = Date.now() + 2_000;
+  const singleUseContext = issueOperationRequirementBindingContext({
+    operation: singleUseOperation,
+    requirementId: singleUseOperation.plan.execution.requirements[0]!.id,
+    resourceCeilings: singleUseOperation.plan.execution.aggregateBudgets,
+    absoluteDeadlineAtUnixMs
+  });
   const structural = structuredClone(singleUseContext) as OperationRequirementBindingContext;
   expect(() => openProcessResourceSession({
     operation: singleUseOperation,
@@ -491,10 +497,13 @@ test('process admission rejects context transplants omitted resources and widene
     operation: singleUseOperation,
     requirementBindingContext: true as unknown as OperationRequirementBindingContext
   })).toThrow('operation-foundation-issued');
-  openProcessResourceSession({
+  const session = openProcessResourceSession({
     operation: singleUseOperation,
     requirementBindingContext: singleUseContext
-  }).close();
+  });
+  try {
+    expect(session.deadlineAtUnixMs).toBeLessThanOrEqual(absoluteDeadlineAtUnixMs);
+  } finally { session.close(); }
   expect(() => openProcessResourceSession({
     operation: singleUseOperation,
     requirementBindingContext: singleUseContext

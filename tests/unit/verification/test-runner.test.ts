@@ -645,17 +645,26 @@ test('native parallel planning preserves every selected file and isolates extern
     const independent = [
       'tests/unit/development/command-runner.test.ts',
       'tests/integration/workspace/pipeline-kernel.test.ts',
-      'tests/integration/workspace/pipeline-workspace-write-lease.test.ts'
+      'tests/integration/workspace/pipeline-workspace-write-lease.test.ts',
+      'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts'
     ];
     const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
     const original = ['tests/unit/z.test.ts', independent[0]!, 'src/alpha_spec.ts',
-      independent[1]!, shared, 'tests/unit/a.test.ts', independent[2]!];
+      independent[1]!, shared, 'tests/unit/a.test.ts', independent[2]!, independent[3]!];
     const input = original.map((file, index) => portableTestSpellings(file)[index % 4]!);
     const before = [...input];
     const plan = planFastTestProcesses(input);
     assert.deepEqual(plan.parallelFiles, ['tests/unit/z.test.ts', 'src/alpha_spec.ts', 'tests/unit/a.test.ts']);
-    assert.deepEqual(plan.resourceQueues['independent-process'], independent);
-    assert.deepEqual(plan.resourceQueues['shared-host-runtime'], [shared]);
+    assert.deepEqual(plan.resourceQueues, {
+      'independent-process': independent,
+      'shared-host-runtime': [shared],
+      'repository-worktree': [],
+      'host-profile': []
+    });
+    assert.deepEqual(plan.resourceClassOrder, [
+      'independent-process', 'shared-host-runtime', 'repository-worktree', 'host-profile'
+    ]);
+    assert.deepEqual(plan.resourceLimits, DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
     assert.deepEqual(input, before);
     assert.deepEqual(plan, planFastTestProcesses(original));
   }
@@ -675,6 +684,20 @@ test('fast process policy covers default-excluded files and rejects stale or dup
   expect(completeFastFiles).toContain(excludedFastFile);
   expect(() => assertFastTestProcessPolicyInventory(completeFastFiles))
     .not.toThrow();
+
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    (entry) => entry.file === 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts'
+  )).toMatchObject({
+    reason: 'production-host-and-runtime-lifecycle',
+    resourceClass: 'shared-host-runtime',
+    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['shared-host-runtime']
+  });
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    ({ file }) => file === 'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts'
+  )).toMatchObject({
+    resourceClass: 'independent-process',
+    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
+  });
 
   const registeredFile = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!.file;
   expect(() => assertFastTestProcessPolicyInventory(
@@ -716,62 +739,6 @@ test('fast process policy covers default-excluded files and rejects stale or dup
       ...FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(entry => entry.file)])];
     assert.throws(() => assertFastTestProcessPolicyInventory([...files, `./${independent}`]), /duplicated/);
     assert.throws(() => assertFastTestProcessPolicyInventory(files.filter(file => file !== independent)), /stale/);
-  }
-});
-
-test('fast process resource classes uniquely derive limits and isolate production runtime owners', () => {
-  for (const entry of FAST_TEST_PROCESS_ISOLATION_REGISTRY) {
-    expect(entry.processLimit).toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[entry.resourceClass]);
-  }
-
-  const productionHostAndRuntimeLifecycleFiles = [
-    'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts'
-  ];
-  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-    (entry) => entry.file === productionHostAndRuntimeLifecycleFiles[0]
-  )).toMatchObject({
-    reason: 'production-host-and-runtime-lifecycle',
-    resourceClass: 'shared-host-runtime',
-    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['shared-host-runtime']
-  });
-  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-    ({ file }) => file === 'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts'
-  )).toMatchObject({
-    resourceClass: 'independent-process',
-    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
-  });
-  const resourcePlan = planFastTestProcesses([
-    'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts',
-    ...productionHostAndRuntimeLifecycleFiles
-  ]);
-  expect(resourcePlan.parallelFiles).toEqual([]);
-  expect(resourcePlan.resourceClassOrder).toEqual([
-    'independent-process',
-    'shared-host-runtime',
-    'repository-worktree',
-    'host-profile'
-  ]);
-  expect(resourcePlan.resourceQueues).toEqual({
-    'independent-process': [
-      'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts'
-    ],
-    'shared-host-runtime': productionHostAndRuntimeLifecycleFiles,
-    'repository-worktree': [],
-    'host-profile': []
-  });
-  expect(resourcePlan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
-
-  {
-    const independent = 'tests/unit/development/command-runner.test.ts';
-    const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
-    for (const [file, resourceClass] of [[independent, 'independent-process'], [shared, 'shared-host-runtime']] as const) {
-      for (const spelling of portableTestSpellings(file)) {
-        assert.equal(isSecRepositoryTestModulePath(spelling), true);
-        const partition = planFastTestProcesses([spelling]);
-        assert.deepEqual(partition.parallelFiles, []);
-        assert.deepEqual(partition.resourceQueues[resourceClass], [file]);
-      }
-    }
   }
 });
 
@@ -1365,7 +1332,7 @@ test.serial('runFastTests never lets an ordinary sibling failure hide an unresol
   }
 });
 
-test.serial('each resource class obeys its own bounded batches and deterministic class order', async () => {
+test.serial('resource waves obey bounded class order and continue after a settled class failure', async () => {
   const availableFiles = new Set(getFastTestFilesSync());
   const filesByClass = Object.fromEntries(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map(
     (resourceClass) => {
@@ -1414,6 +1381,11 @@ test.serial('each resource class obeys its own bounded batches and deterministic
   const selectedFiles = FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.flatMap(
     (resourceClass) => filesByClass[resourceClass]
   );
+  devCommandExitCodes.push(...selectedFiles.map((_, index) => (
+    index === filesByClass['independent-process'].length - 1 ? 7 : 0
+  )));
+  const errors: string[] = [];
+  console.error = (message?: unknown) => { errors.push(String(message)); };
   const run = runFastTests(selectedFiles);
   let cumulativeStarts = 0;
   const observedWaveClasses: string[] = [];
@@ -1437,7 +1409,11 @@ test.serial('each resource class obeys its own bounded batches and deterministic
       wave.settlement.resolve();
     }
 
-    expect(await run).toBe(0);
+    expect(await run).toBe(7);
+    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+    expect(receipts).toHaveLength(1);
+    expect(JSON.parse(receipts[0]!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)))
+      .toMatchObject({ queue: 'independent-process' });
     expect(devCommandCalls).toEqual(selectedFiles.map((file) => ({
       command: 'bun',
       args: ['test', `./${file}`, ...DEFAULT_MANAGED_INNER_ARGS,
@@ -1450,30 +1426,6 @@ test.serial('each resource class obeys its own bounded batches and deterministic
   } finally {
     for (const wave of waves) wave.settlement.resolve();
   }
-});
-
-test.serial('settled test failure preserves its exit while independent later classes still run', async () => {
-  devCommandExitCodes.push(7, 0, 0, 0);
-  const errors: string[] = [];
-  console.error = (message?: unknown) => { errors.push(String(message)); };
-
-  const code = await runFastTests([
-    'tests/integration/workspace/pipeline-kernel.test.ts',
-    'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
-  ]);
-
-  expect(code).toBe(7);
-  expect(devCommandCalls).toHaveLength(2);
-  expect(invocationTestFiles(devCommandCalls[0].args)).toEqual([
-    'tests/integration/workspace/pipeline-kernel.test.ts'
-  ]);
-  expect(invocationTestFiles(devCommandCalls[1].args)).toEqual([
-    'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
-  ]);
-  const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-  expect(JSON.parse(receipt!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
-    queue: 'independent-process'
-  });
 });
 
 test.serial('explicit fast test files bootstrap once, preserve their environment and settle their invocation runtime', async () => {

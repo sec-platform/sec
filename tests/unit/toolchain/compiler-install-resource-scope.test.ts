@@ -17,7 +17,7 @@ const executable = (dispose: () => void) => ({ dispose }) as RetainedNoFollowOrd
 const directory = (dispose: () => void) => ({ dispose }) as RetainedNoFollowChildProcessDirectory;
 const fixtureDigest = sha256({ fixture: 'compiler-install-resource-settlement' }) as OperationDigest;
 const expectation = () => ({ operationIdentityDigest: fixtureDigest, boundAttemptDigest: fixtureDigest, requirementId: 'test.install' });
-function ownedSession(absoluteDeadlineAtUnixMs?: number) {
+function ownedSession() {
   const budgets = [
     { resource: 'duration-ms' as const, maximum: 5000 }, { resource: 'input-bytes' as const, maximum: 0 },
     { resource: 'output-bytes' as const, maximum: 1 }, { resource: 'processes' as const, maximum: 1 }
@@ -30,18 +30,10 @@ function ownedSession(absoluteDeadlineAtUnixMs?: number) {
   const operation = bindSemanticOperation(plan, [compileCapabilityBinding({ requirementId: 'test.install',
     contractDigest: fixtureDigest, providerIdentityDigest: fixtureDigest })]);
   const session = openProcessResourceSession({ operation, requirementBindingContext: issueOperationRequirementBindingContext({
-    operation, requirementId: 'test.install', resourceCeilings: budgets,
-    ...(absoluteDeadlineAtUnixMs === undefined ? {} : { absoluteDeadlineAtUnixMs }) }) });
+    operation, requirementId: 'test.install', resourceCeilings: budgets }) });
   return { session, expected: { operationIdentityDigest: operation.plan.identity.identityDigest,
     boundAttemptDigest: operation.boundAttemptDigest, requirementId: 'test.install' } };
 }
-
-test('an absolute child deadline narrows the operation without renewal at session admission', () => {
-  const absoluteDeadlineAtUnixMs = Date.now() + 2_000;
-  const { session } = ownedSession(absoluteDeadlineAtUnixMs);
-  assert.ok(session.deadlineAtUnixMs <= absoluteDeadlineAtUnixMs);
-  session.close();
-});
 
 for (const count of [0, 1, 2, 3]) {
   test(`partial acquisition releases exactly the ${count} already acquired resources`, async () => {

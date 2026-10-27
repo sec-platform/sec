@@ -29,11 +29,11 @@ async function execute(text: string): Promise<Generated> {
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 }
 
-test('the actual state renderer produces a runnable total transition map with only public transition data', async () => {
-  const input = task(); input.stateId = 'workflow-state';
+test('the actual state renderer produces a runnable TSX total transition map with only public transition data', async () => {
+  const input = task(); input.stateId = 'workflow-state'; input.target = 'view.tsx';
   const source = renderStateTransitionMapSource(input);
   assert.ok(source.startsWith('// @generated semantic-task:workflow-map contract:workflow state:workflow-state\n'));
-  const parsed = ts.createSourceFile('generated.ts', source, ts.ScriptTarget.Latest, true);
+  const parsed = ts.createSourceFile(input.target, source, ts.ScriptTarget.Latest, true);
   const declaration = parsed.statements.find(ts.isImportDeclaration);
   assert.ok(declaration && ts.isImportDeclaration(declaration));
   assert.ok(ts.isStringLiteral(declaration.moduleSpecifier));
@@ -110,13 +110,6 @@ test('generated TS passes strict checking against the real declared state-union 
   host.directoryExists = name => name === '/virtual' || ts.sys.directoryExists(name);
   const program = ts.createProgram([...files.keys()], options, host);
   assert.deepEqual(ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')), []);
-});
-
-test('generated source is accepted for a TSX destination without changing its state contract', async () => {
-  const input = task(); input.target = 'view.tsx';
-  const generated = await execute(renderStateTransitionMapSource(input));
-  assert.equal(generated.NEXT_WORKFLOW.pending, 'done');
-  assert.equal(generated.NEXT_WORKFLOW.done, 'done');
 });
 
 test('plan metadata remains a line comment rather than becoming executable source', async () => {
