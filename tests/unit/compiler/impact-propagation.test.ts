@@ -177,7 +177,7 @@ test('Fact seeds preserve endpoint basis and traverse only definite endpoint gra
   expect(result.transitive).toEqual([]);
 
   const endpointEntities = [
-    entity('A', 'entity', 'Before'),
+    entity('A', 'responsibility', 'Before'),
     entity('C'),
     entity('D'),
     entity('E'),
@@ -302,16 +302,16 @@ test('deterministic closure handles diamond, cycle, shortest witness, causes, an
   }
 
   const twoSeedsBefore = snapshot('o', [
-    entity('A', 'entity', 'Before A'),
-    entity('C', 'entity', 'Before C'),
+    entity('A', 'responsibility', 'Before A'),
+    entity('C', 'responsibility', 'Before C'),
     entity('D')
   ], [
     fact('fact:D-depends-A', 'D', 'DEPENDS_ON', 'A'),
     fact('fact:D-depends-C', 'D', 'DEPENDS_ON', 'C')
   ]);
   const twoSeedsAfter = snapshot('p', [
-    entity('A', 'entity', 'After A'),
-    entity('C', 'entity', 'After C'),
+    entity('A', 'responsibility', 'After A'),
+    entity('C', 'responsibility', 'After C'),
     entity('D')
   ], twoSeedsBefore.ir.facts);
   const twoSeeds = propagate(twoSeedsBefore, twoSeedsAfter);
@@ -386,23 +386,23 @@ test('verification recommendations retain exact selectors and classify missing/n
     })
   ]));
 
-  const inferredInvocation = fact(
-    'fact:scenario-invokes-inferred',
-    'scenario:mapped',
-    'INVOKES',
+  const inferredMapping = fact(
+    'fact:scenario-verification-inferred',
+    'scenario:missing',
+    'VERIFIED_BY',
     'acceptance:one',
     'inferred'
   );
   const inferredResult = propagate(
     snapshot('verification-inferred-from', entities, mappings),
-    snapshot('verification-inferred-to', entities, [...mappings, inferredInvocation])
+    snapshot('verification-inferred-to', entities, [...mappings, inferredMapping])
   );
   expect(inferredResult.verification).toEqual([]);
   expect(inferredResult.uncertainties).toContainEqual(expect.objectContaining({
     basis: 'to',
     reasonCode: 'non-definite-authority',
-    boundaryEntityId: 'scenario:mapped',
-    factId: 'fact:scenario-invokes-inferred'
+    boundaryEntityId: 'scenario:missing',
+    factId: 'fact:scenario-verification-inferred'
   }));
 
   const updatedMapping = structuredClone(mappings[3]!);

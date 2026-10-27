@@ -3,10 +3,7 @@ import { agentPlanningContext } from '../../helpers/agent-planning-input.ts';
 
 import {
   compileTaskCapsule,
-  parseTaskCapsule,
-  TASK_CAPSULE_AUTHORITY_STATUS,
   TASK_CAPSULE_INPUT_SCHEMA,
-  TASK_CAPSULE_REVISION,
   type AgentContentDigest,
   type TaskCapsuleInput,
   type TaskCapsulePlanningContext
@@ -64,39 +61,12 @@ function input(overrides: Partial<TaskCapsuleInput> = {}): TaskCapsuleInput {
   };
 }
 
-test('Task Capsule is a deterministic content-addressed pure compiler output', () => {
-  const first = compileTaskCapsule(input());
+test('Task Capsule rejects caller state, write-forbidden overlap and changed-path escape', () => {
   const source = planningContext();
-  const second = compileTaskCapsule(input({
-    planningContext: {
-      ...source,
-      ownerFacts: [...source.ownerFacts].reverse(),
-      scopeProposal: {
-        ...source.scopeProposal,
-        readPaths: [...source.scopeProposal.readPaths].reverse(),
-        writePaths: [...source.scopeProposal.writePaths].reverse(),
-        changedPaths: [...source.scopeProposal.changedPaths].reverse()
-      }
-    }
-  }));
-  expect(second).toEqual(first);
-  expect(first.revision).toBe(TASK_CAPSULE_REVISION);
-  expect(first.authorityStatus).toBe(TASK_CAPSULE_AUTHORITY_STATUS);
-  expect(first.effectAuthority).toBe('none');
-  expect(parseTaskCapsule(JSON.parse(JSON.stringify(first)))).toEqual(first);
   expect(() => compileTaskCapsule({
     ...input(),
     currentState: 'candidate'
   })).toThrow(/keys must be exact/u);
-
-  expect(() => parseTaskCapsule({
-    ...first,
-    digest: digest('f')
-  })).toThrow(/digest does not bind its complete planning content/u);
-});
-
-test('Task Capsule scope rejects write-forbidden overlap and changed-path escape', () => {
-  const source = planningContext();
   expect(() => compileTaskCapsule(input({
     planningContext: {
       ...source,

@@ -11,6 +11,7 @@ import {
 import {
   compileTaskCapsule,
   TASK_CAPSULE_INPUT_SCHEMA,
+  TASK_CAPSULE_REVISION,
   type AgentContentDigest,
   type TaskCapsulePlanningContext
 } from '../../../src/adapters/self-hosting/control/agent/task-capsule.ts';
@@ -111,7 +112,7 @@ function input(): OperationReadPlanInput {
 
 test('Read Plan compiles deterministically while referencing rather than redefining Task Capsule', () => {
   const first = compileOperationReadPlan(input());
-  const source = input();
+  const source: OperationReadPlanInput = JSON.parse(JSON.stringify(input()));
   const second = compileOperationReadPlan({
     ...source,
     taskCapsule: {
@@ -121,7 +122,9 @@ test('Read Plan compiles deterministically while referencing rather than redefin
         ownerFacts: [...source.taskCapsule.planningContext.ownerFacts].reverse(),
         scopeProposal: {
           ...source.taskCapsule.planningContext.scopeProposal,
-          readPaths: [...source.taskCapsule.planningContext.scopeProposal.readPaths].reverse()
+          readPaths: [...source.taskCapsule.planningContext.scopeProposal.readPaths].reverse(),
+          writePaths: [...source.taskCapsule.planningContext.scopeProposal.writePaths].reverse(),
+          changedPaths: [...source.taskCapsule.planningContext.scopeProposal.changedPaths].reverse()
         }
       }
     },
@@ -130,6 +133,9 @@ test('Read Plan compiles deterministically while referencing rather than redefin
   });
   expect(second).toEqual(first);
   expect(first.taskCapsule).toEqual(source.taskCapsule);
+  expect(first.taskCapsule.revision).toBe(TASK_CAPSULE_REVISION);
+  expect(first.taskCapsule.authorityStatus).toBe('unbound-planning-content');
+  expect(first.taskCapsule.effectAuthority).toBe('none');
   expect(first.preApplicabilitySkillBodiesRead).toBe(0);
   expect(first.maxSkillBodies).toBe(1);
   expect(first.maintainerMutationPolicy).toBe('current-physical-state-authoritative-v1');
@@ -234,13 +240,14 @@ test('Skill registry validates Capsule guidance candidates without owning Capsul
     .toThrow(/not in the trusted Skill registry/u);
 });
 
-test('Read Plan rejects a Capsule whose role changed without rebinding its digest', () => {
+test('Read Plan rejects forged Capsule digest and changed content before planning', () => {
   const malformed = input();
-  expect(() => compileOperationReadPlan({
-    ...malformed,
-    taskCapsule: {
-      ...malformed.taskCapsule,
-      planningContext: { ...malformed.taskCapsule.planningContext, role: 'a0' }
-    }
-  })).toThrow(/complete planning content/u);
+  for (const taskCapsule of [
+    { ...malformed.taskCapsule, digest: digest('f') },
+    { ...malformed.taskCapsule,
+      planningContext: { ...malformed.taskCapsule.planningContext, role: 'a0' as const } }
+  ]) {
+    expect(() => compileOperationReadPlan({ ...malformed, taskCapsule }))
+      .toThrow(/capsule digest does not bind its complete planning content/u);
+  }
 });

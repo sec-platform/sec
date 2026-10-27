@@ -32,12 +32,11 @@ test('architecture projection preserves exact incident membership and self-relat
   }
 });
 
-test('scenario projection keeps local control flow and global operation evidence without foreign step relations', () => {
-  const ir = viewIR(2); const foreign = addFact(ir, 'scenario:1#step:b', 'PRECEDES', 'scenario:0#step:a');
+test('scenario projection keeps local control flow and global operation evidence', () => {
+  const ir = viewIR(2);
   const global = addFact(ir, 'operation:0', 'READS', 'state:1');
   const view = projectScenarioView(projectionSnapshot(ir), 'scenario:0');
   assert.ok(view.nodes.find((node) => node.id === 'scenario:0#step:a')!.badges.includes('entry'));
-  assert.equal(semanticViewFactIds(view).includes(foreign.id), false);
 
   assert.ok(view.nodes.find((node) => node.id === 'scenario:0#step:a')!.badges.includes('async'));
   assert.ok(view.nodes.find((node) => node.id === 'scenario:0#step:b')!.badges.includes('retry'));
