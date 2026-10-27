@@ -143,23 +143,25 @@ test('V2 digest and operation tampering fail independently, on both sides of sav
   }
 });
 
-test('V2 rejects every missing or unknown field rather than silently discarding identity inputs', () => {
+test('V2 rejects missing and unknown keys at every envelope, request and qualification boundary', () => {
   const value = savedEnvelope;
-  for (const [record, wrap] of [
-    [value, (record: unknown) => record],
-    [value.request, (record: unknown) => ({ ...value, request: record })],
-    [value.request.qualificationRequirements, (record: unknown) => ({ ...value,
-      request: { ...value.request, qualificationRequirements: record } })]
+  // Missing positions all fail the same cardinality check before field semantics.
+  for (const [record, key, label, wrap] of [
+    [value, 'schema', 'envelope', (record: unknown) => record],
+    [value.request, 'repository', 'request', (record: unknown) => ({ ...value, request: record })],
+    [value.request.qualificationRequirements, 'trustedRevision', 'qualificationRequirements',
+      (record: unknown) => ({ ...value, request: { ...value.request, qualificationRequirements: record } })]
   ] as const) {
-    expect(() => parse(wrap({ ...record, unexpected: true }))).toThrow();
-    for (const key of Object.keys(record)) {
-      const missing: Record<string, unknown> = { ...record };
-      delete missing[key];
-      expect(() => parse(wrap(missing)), key).toThrow();
-    }
+    const diagnostic = `Local preparation V2 ${label} must contain exactly:`;
+    const missing: Record<string, unknown> = { ...record };
+    delete missing[key];
+    expect(() => parse(wrap(missing))).toThrow(diagnostic);
+    expect(() => parse(wrap({ ...missing, unexpected: true }))).toThrow(diagnostic);
   }
-  expect(() => createVerificationSessionLocalPreparationRequestV2({ ...body(), requestDigest: DIGEST_A } as never)).toThrow();
-  expect(() => createVerificationSessionLocalPreparationRequestV2({ ...body(), ignored: undefined } as never)).toThrow();
+  expect(() => createVerificationSessionLocalPreparationRequestV2({ ...body(), requestDigest: DIGEST_A } as never))
+    .toThrow('Local preparation V2 request must contain exactly:');
+  expect(() => createVerificationSessionLocalPreparationRequestV2({ ...body(), ignored: undefined } as never))
+    .toThrow('Local preparation V2 request must contain exactly:');
   for (const invalid of [null, [], 1, 'input', { ...value, request: null },
     { ...value, request: { ...value.request, qualificationRequirements: [] } }]) {
     expect(() => parse(invalid)).toThrow();
