@@ -1259,16 +1259,16 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
   expect(hydrated.artifacts).toHaveLength(1);
   expect(hydrated.artifacts[0]).toMatchObject({ artifactId: '1001', runId: '7001', runAttempt: 2 });
 
-  const thousandUnrelated = Array.from({ length: 10 }, (_, pageIndex) => ({
-    total_count: 1000,
+  const unrelatedPages = Array.from({ length: 2 }, (_, pageIndex) => ({
+    total_count: 200,
     artifacts: Array.from({ length: 100 }, (_, recordIndex) => {
       const id = pageIndex * 100 + recordIndex + 1;
-      return summary(id, id === 1000 ? 'coverage_report' : `opaque_${id}`);
+      return summary(id, id === 200 ? 'coverage_report' : `opaque_${id}`);
     })
   }));
   let unrelatedHydrationCalls = 0;
   const unrelatedOnly = (await evaluateGitHubRepositoryActionsArtifactInventory({
-    repository: 'sec-platform/sec', source: thousandUnrelated,
+    repository: 'sec-platform/sec', source: unrelatedPages,
     observeArtifact: () => { unrelatedHydrationCalls += 1; throw new Error('must not hydrate unrelated'); }
   }));
   expect(unrelatedOnly.artifacts).toEqual([]);

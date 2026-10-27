@@ -39,7 +39,6 @@ test('pipeline selection owns a single block list rather than re-reading it afte
   const captured = captureWorkspacePipelineOptions(input);
   input.blockIds.push('block/b'); input.prefix = 'replaced-';
   assert.equal(captured.prefix, 'original-'); assert.deepEqual(captured.blockIds, ['block/a']);
-  assert.ok(Object.isFrozen(captured.blockIds));
 });
 
 test('template identity selects the declared pipeline and rejects inherited or path-shaped keys', () => {

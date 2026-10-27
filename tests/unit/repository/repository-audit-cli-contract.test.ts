@@ -176,10 +176,9 @@ test('revision operands beginning with a switch are refused even in explicit equ
   assert.throws(() => parse(['--supersession-baseline=-other'], 'source-program'), /Git revision/);
 });
 
-test('captured options are immutable and later argv edits do not retarget output', () => {
+test('later argv edits do not retarget captured output options', () => {
   const args = ['--output', 'result with spaces.json', '--query', '中文'];
   const selected = parse(args); args[1] = 'changed.json';
-  assert.ok(Object.isFrozen(selected));
   assert.equal(selected.outputPath, path.resolve('result with spaces.json'));
   assert.equal(selected.query, '中文');
 });

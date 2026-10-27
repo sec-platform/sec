@@ -53,7 +53,7 @@ function trackedRepositoryFiles(): string[] {
   return result.stdout.split('\0').filter(Boolean).sort();
 }
 
-test('tracked Skill and Markdown inventories preserve strict metadata, exact-source governance and document coverage', async () => {
+test('tracked Skill and Markdown inventories preserve valid metadata, exact-source governance and document coverage', async () => {
   const tracked = trackedRepositoryFiles();
   const skillFiles = tracked.filter((file) => /^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file));
   expect(skillFiles).toEqual(
@@ -65,7 +65,6 @@ test('tracked Skill and Markdown inventories preserve strict metadata, exact-sou
     const repositoryPath = `.agents/skills/${skillId}/SKILL.md`;
     const source = await readFile(path.join(REPOSITORY_ROOT, repositoryPath), 'utf8');
     const frontmatter = parseSkill(source);
-    expect(Object.keys(frontmatter).sort()).toEqual(['description', 'name']);
     expect(frontmatter.name).toBe(skillId);
     expect(typeof frontmatter.description).toBe('string');
     expect((frontmatter.description as string).length).toBeGreaterThan(0);

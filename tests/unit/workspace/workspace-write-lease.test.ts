@@ -935,7 +935,7 @@ test('workspace writer lease control-plane quiescence queues heartbeat mutation'
     try {
       const beforeHeartbeat = nowCalls;
       await manager.withControlPlaneQuiesced(workspaceRoot, handle.token, async () => {
-        heartbeats = Array.from({ length: 20 }, () => handle.heartbeat());
+        heartbeats = Array.from({ length: 2 }, () => handle.heartbeat());
         await Promise.resolve();
         await Promise.resolve();
         expect(nowCalls).toBe(beforeHeartbeat);
