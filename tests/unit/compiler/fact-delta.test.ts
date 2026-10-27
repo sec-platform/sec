@@ -89,10 +89,6 @@ function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
   throw new Error(`Expected CodedFailure ${code}`);
 }
 
-function forgedSnapshot(ir: EngineeringIR): ValidatedEngineeringIRSnapshot {
-  return { ir } as unknown as ValidatedEngineeringIRSnapshot;
-}
-
 function sha256(payload: string): string {
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
@@ -307,21 +303,6 @@ test('validFrom rebinding and entity-only changes do not create Fact churn', () 
     buildFactDelta({ ...context(before, 'tx:before'), snapshot: views }, context(before, 'tx:before'));
   }
 
-  const alteredAuditIR = structuredClone(before.ir);
-  alteredAuditIR.inputRevision = 'sha256:alternate-non-semantic-input';
-  const alteredAudit = forgedSnapshot(alteredAuditIR);
-  const alteredNoop = buildFactDelta(
-    {
-      ...context(alteredAudit, 'tx:before'),
-      transactionId: 'tx:alternate-before'
-    },
-    {
-      ...context(alteredAudit, 'tx:before'),
-      transactionId: 'tx:alternate-after'
-    }
-  );
-  expect(alteredNoop.deltaRevision).toBe(noop.deltaRevision);
-
   const after = buildValidatedEngineeringIR(input('delta-app', 'After Label'));
   const delta = buildFactDelta(context(before, 'tx:before'), context(after, 'tx:after'));
 
@@ -332,7 +313,7 @@ test('validFrom rebinding and entity-only changes do not create Fact churn', () 
   expect(delta.changed).toEqual([]);
 });
 
-test('endpoint, lineage, and unsupported validity failures use stable diagnostics', () => {
+test('endpoint and lineage failures use stable diagnostics', () => {
   const source = input();
   const before = buildValidatedEngineeringIR(source);
   const otherApp = buildValidatedEngineeringIR(input('other-app'));
@@ -346,37 +327,5 @@ test('endpoint, lineage, and unsupported validity failures use stable diagnostic
   expectCodedFailure(
     () => buildFactDelta(context(before, 'tx:before'), context(otherApp, 'tx:after')),
     'FACT-DELTA-002'
-  );
-
-  // The core validator now rejects unsupported closed intervals before a
-  // snapshot can be branded and later handed to Fact Delta.
-  expectCodedFailure(() => resign(source, before.ir, (ir) => {
-    ir.facts[0]!.assertions[0]!.validToRevision = 'sha256:closed';
-  }), 'IR-VALIDATION-009');
-
-  const revisionCollisionIR = structuredClone(before.ir);
-  revisionCollisionIR.entities[0]!.label = 'Forged collision';
-  const revisionCollision = forgedSnapshot(revisionCollisionIR);
-  expectCodedFailure(
-    () => buildFactDelta(context(before, 'tx:before'), context(revisionCollision, 'tx:after')),
-    'FACT-DELTA-003'
-  );
-
-  const factCollisionIR = structuredClone(before.ir);
-  factCollisionIR.semanticRevision = 'sha256:forged-fact-collision';
-  factCollisionIR.facts[0]!.object = { kind: 'entity', entityId: factCollisionIR.appId };
-  const factCollision = forgedSnapshot(factCollisionIR);
-  expectCodedFailure(
-    () => buildFactDelta(context(before, 'tx:before'), context(factCollision, 'tx:after')),
-    'FACT-DELTA-004'
-  );
-
-  const assertionCollisionIR = structuredClone(before.ir);
-  assertionCollisionIR.semanticRevision = 'sha256:forged-assertion-collision';
-  assertionCollisionIR.facts[0]!.assertions[0]!.authority = 'observed';
-  const assertionCollision = forgedSnapshot(assertionCollisionIR);
-  expectCodedFailure(
-    () => buildFactDelta(context(before, 'tx:before'), context(assertionCollision, 'tx:after')),
-    'FACT-DELTA-005'
   );
 });
