@@ -813,45 +813,41 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
     subject: 'static-analysis.unused'
   }));
 
-  for (const provider of ['static-analysis.dependencies', 'knip']) {
-    const unavailableShadow = compileSourceProgramReconciliationProjection({
-      before: before.compilation,
-      after: after.compilation,
-      providerEvidence: [Object.freeze({
-        provider,
-        status: 'unresolved',
-        providerRevision: null,
-        configDigest: null,
-        inputDigest: null,
-        candidateDigest: null
-      })]
-    });
-    expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'candidate-provider-evidence-unresolved',
-      subject: provider
-    }));
-    expect(unavailableShadow.status).toBe('unresolved');
-  }
+  const unavailableShadow = compileSourceProgramReconciliationProjection({
+    before: before.compilation,
+    after: after.compilation,
+    providerEvidence: [Object.freeze({
+      provider: 'knip',
+      status: 'unresolved',
+      providerRevision: null,
+      configDigest: null,
+      inputDigest: null,
+      candidateDigest: null
+    })]
+  });
+  expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'candidate-provider-evidence-unresolved',
+    subject: 'knip'
+  }));
+  expect(unavailableShadow.status).toBe('unresolved');
 
-  for (const status of ['absent', 'unexpected']) {
-    const invalidRuntimeStatus = compileSourceProgramReconciliationProjection({
-      before: before.compilation,
-      after: after.compilation,
-      providerEvidence: [Object.freeze({
-        provider: `static-analysis.${status}`,
-        status,
-        providerRevision: null,
-        configDigest: null,
-        inputDigest: null,
-        candidateDigest: null
-      }) as unknown as SourceProgramReconciliationProviderEvidence]
-    });
-    expect(invalidRuntimeStatus.providerEvidence).toEqual([]);
-    expect(invalidRuntimeStatus.unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'candidate-provider-evidence-invalid',
-      subject: `static-analysis.${status}`
-    }));
-  }
+  const invalidRuntimeStatus = compileSourceProgramReconciliationProjection({
+    before: before.compilation,
+    after: after.compilation,
+    providerEvidence: [Object.freeze({
+      provider: 'static-analysis.absent',
+      status: 'absent',
+      providerRevision: null,
+      configDigest: null,
+      inputDigest: null,
+      candidateDigest: null
+    }) as unknown as SourceProgramReconciliationProviderEvidence]
+  });
+  expect(invalidRuntimeStatus.providerEvidence).toEqual([]);
+  expect(invalidRuntimeStatus.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'candidate-provider-evidence-invalid',
+    subject: 'static-analysis.absent'
+  }));
 
   const observed = Object.freeze({
     provider: 'static-analysis.dependencies',

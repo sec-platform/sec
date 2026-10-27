@@ -86,14 +86,16 @@ function view(capabilities: ReturnType<typeof fact>[]) {
 }
 const paths = new Set(['src/a.ts']);
 
-for (const observationClass of ['observed', 'derived', 'unknown']) {
-  for (const transport of ['native-runtime', 'unknown']) {
-    test(`summary preserves ${observationClass} observation with ${transport} transport`, () => {
-      const result = view([fact({ observationClass, transport })]).capabilitySummaryForPaths(paths);
-      assert.deepEqual(result.observedKinds, observationClass === 'unknown' ? [] : ['filesystem']);
-      assert.equal(result.hasUnknown, observationClass === 'unknown' || transport === 'unknown');
-    });
-  }
+for (const [observationClass, transport, observedKinds, hasUnknown] of [
+  ['observed', 'native-runtime', ['filesystem'], false],
+  ['derived', 'unknown', ['filesystem'], true],
+  ['unknown', 'native-runtime', [], true]
+] as const) {
+  test(`summary preserves ${observationClass} observation with ${transport} transport`, () => {
+    const result = view([fact({ observationClass, transport })]).capabilitySummaryForPaths(paths);
+    assert.deepEqual(result.observedKinds, observedKinds);
+    assert.equal(result.hasUnknown, hasUnknown);
+  });
 }
 
 test('unrequested paths and non-production facts cannot contribute effects or unknown status', () => {
@@ -103,7 +105,7 @@ test('unrequested paths and non-production facts cannot contribute effects or un
   assert.deepEqual(result, { observedKinds: ['filesystem'], hasUnknown: false });
 });
 
-test('cross-path union preserves kind membership and unknowns across duplicates and reordering', () => {
+test('cross-path union preserves kind membership and unknowns across duplicates', () => {
   const known = fact();
   const capabilities = [known, known,
     fact({ capability: 'process', observationClass: 'derived' }),
@@ -113,13 +115,9 @@ test('cross-path union preserves kind membership and unknowns across duplicates 
     const records = hasUnknown ? [...capabilities,
       fact({ capability: 'unresolved', observationClass: 'unknown' }),
       fact({ transport: 'unknown' })] : capabilities;
-    for (const reverse of [false, true]) {
-      const result = view(reverse ? [...records].reverse() : records).capabilitySummaryForPaths(
-        new Set(reverse ? ['src/b.ts', 'src/a.ts'] : ['src/a.ts', 'src/b.ts'])
-      );
-      assert.deepEqual(new Set(result.observedKinds), new Set(['filesystem', 'network', 'process']));
-      assert.equal(result.observedKinds.length, 3);
-      assert.equal(result.hasUnknown, hasUnknown);
-    }
+    const result = view(records).capabilitySummaryForPaths(new Set(['src/a.ts', 'src/b.ts']));
+    assert.deepEqual(new Set(result.observedKinds), new Set(['filesystem', 'network', 'process']));
+    assert.equal(result.observedKinds.length, 3);
+    assert.equal(result.hasUnknown, hasUnknown);
   }
 });

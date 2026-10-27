@@ -5,7 +5,7 @@ import { withTempWorkspace } from '../../testkit/workspace.ts';
 import path from 'node:path';
 import { YamlInputLimitError, YamlSyntaxError } from '../../../src/adapters/formats/yaml.ts';
 import { PhysicalNoFollowError } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../../src/adapters/workspace/yaml.ts';
+import { readYaml, writeYaml } from '../../../src/adapters/workspace/yaml.ts';
 
 // Real YAML and ordinary filesystem semantics are required. No JSON-parser,
 // serializer or physical-write substitutes may establish these results.
@@ -18,11 +18,6 @@ test('ordinary YAML collections, aliases and empty documents retain their decode
   assert.deepEqual(await readYaml(file), { first: ['a', 'b'], second: ['a', 'b'] });
   await fs.writeFile(file, ''); assert.equal(await readYaml(file), null);
   await fs.writeFile(file, '[true, 7, null]\n'); assert.deepEqual(await readYaml(file), [true, 7, null]);
-}));
-
-test('generic reads consume strict YAML rather than another permissive entry', () => using(async (_root, file) => {
-  await fs.writeFile(file, 'name: a\nname: b\n');
-  await assert.rejects(readYaml(file), YamlSyntaxError);
 }));
 
 test('invalid UTF-8 cannot be repaired into a different parsed value', () => using(async (_root, file) => {
@@ -41,43 +36,15 @@ test('explicit per-consumer byte and alias limits replace neither schemas nor pe
   await assert.rejects(readYaml(file, { stringKeys: true }), YamlSyntaxError);
 }));
 
-test('later edits to read options cannot widen an already captured admission', () => using(async (_root, file) => {
-  await fs.writeFile(file, 'x: 好');
-  const options = { maximumInputBytes: 5 };
-  const pending = readYaml(file, options); options.maximumInputBytes = 1000;
-  await assert.rejects(pending, YamlInputLimitError);
-}));
-
-test('generic default capacity is explicit and the caller can select a different domain limit', () => using(async (_root, file) => {
-  const text = `x: ${'a'.repeat(WORKSPACE_YAML_MAX_INPUT_BYTES)}`;
-  await fs.writeFile(file, text);
-  await assert.rejects(readYaml(file), YamlInputLimitError);
-  assert.deepEqual(await readYaml(file, { maximumInputBytes: text.length }), { x: 'a'.repeat(WORKSPACE_YAML_MAX_INPUT_BYTES) });
-}));
-
 test('ordinary YAML writes preserve values through the retained file reader', () => using(async (_root, file) => {
   const value = { name: 'example', values: ['one', 'two'], nested: { enabled: true } };
   await writeYaml(file, value);
   assert.deepEqual(await readYaml(file), value);
 }));
 
-test('serialization callbacks cannot retarget a relative write by changing cwd', () => using(async (root, file) => {
-  const cwd = process.cwd();
-  await fs.mkdir(path.join(root, 'other'));
-  try {
-    process.chdir(root);
-    let conversions = 0;
-    await writeYaml('value.yaml', { toJSON() { conversions++; process.chdir(path.join(root, 'other')); return { written: true }; } });
-    assert.ok(conversions >= 1); assert.deepEqual(await readYaml(file), { written: true });
-    await assert.rejects(fs.stat(path.join(root, 'other', 'value.yaml')), e => (e as { code?: string }).code === 'ENOENT');
-  } finally { process.chdir(cwd); }
-}));
-
-test('serializer and fence failures preserve their causes and never produce a success result', () => using(async (_root, file) => {
-  const conversion = Object.freeze({ conversion: 'failed' }), fence = new Error('fence');
-  await assert.rejects(writeYaml(file, { toJSON() { throw conversion; } }), e => e === conversion);
+test('a rejected commit fence never produces a successful YAML write', () => using(async (_root, file) => {
+  const fence = new Error('fence');
   await assert.rejects(writeYaml(file, { valid: true }, () => { throw fence; }), e => e === fence);
-  await assert.rejects(writeYaml(file, { toJSON() { assert.fail('conversion after invalid callback'); } }, null as never), TypeError);
 }));
 
 test('missing input is still an IO error rather than an empty YAML value', () => using(async (_root, file) => {

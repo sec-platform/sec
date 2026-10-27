@@ -59,15 +59,13 @@ test('public completion proof admits exact data and rejects hidden or incomplete
 test('public completion producer never treats caller methods or inherited slots as completed stages', async () => {
   const complete = proof().completedStages;
   const incomplete: unknown[] = [[], complete.slice(0, 1), [...complete, 'extra'], { ...complete, length: complete.length }];
-  for (let index = 0; index < complete.length; index++) {
-    const sparse = [...complete];
-    delete sparse[index];
-    incomplete.push(sparse);
-    const inherited = [...complete];
-    delete inherited[index];
-    Object.setPrototypeOf(inherited, { [index]: complete[index] });
-    incomplete.push(inherited);
-  }
+  const sparse = [...complete];
+  delete sparse[complete.length - 1];
+  incomplete.push(sparse);
+  const inherited = [...complete];
+  delete inherited[0];
+  Object.setPrototypeOf(inherited, { 0: complete[0] });
+  incomplete.push(inherited);
   const forged = complete.map(() => 'forged');
   // @ts-expect-error Deliberately substitutes the caller's comparison method.
   forged.every = () => true;

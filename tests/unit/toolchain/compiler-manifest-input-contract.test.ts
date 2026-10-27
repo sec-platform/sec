@@ -12,13 +12,15 @@ test('manifest records are owned and frozen without prototype-key loss',()=>{
 });
 test('unknown package fields stay allowed and omitted records stay empty',()=>{const r=compilerDependencyManifestAuthority(encode({packageManager:'bun@1.2.3',scripts:{build:'anything'},private:true}));assert.deepEqual(r.dependencies,{});assert.deepEqual(r.devDependencies,{});});
 for(const field of ['dependencies','devDependencies']) {
- // Both fields unconditionally use dependencyRecord; keep its complete shape
- // domain once and a separate refusal proving the second field is wired in.
- const values=field==='dependencies'?[null,[],1,'deps',true]:[null];
- for(const value of values)test(`${field} rejects ${JSON.stringify(value)}`,()=>assert.throws(()=>compilerDependencyManifestAuthority(encode({packageManager:'bun@1.2.3',[field]:value}))));
+ // dependencyRecord has distinct null, nonobject and array guards; exercise
+ // them once, retaining devDependencies refusal as its separate wiring witness.
+ const values=field==='dependencies'?[null,[],1]:[null];
+ for(const value of values)test(`${field} rejects ${JSON.stringify(value)}`,()=>assert.throws(()=>compilerDependencyManifestAuthority(encode({packageManager:'bun@1.2.3',[field]:value})),{code:'IMPORT-AUTHORITY-001',message:`Root ${field} must be a dependency object`}));
 }
-for(const value of [null,1,{},[],false])test(`dependency version is not coerced: ${JSON.stringify(value)}`,()=>assert.throws(()=>compilerDependencyManifestAuthority(encode({packageManager:'bun@1.2.3',dependencies:{a:value}}))));
-for(const value of [null,[],3,{},'',true])test(`packageManager is not coerced: ${JSON.stringify(value)}`,()=>assert.throws(()=>compilerDependencyManifestAuthority(encode({packageManager:value}))));
+// Member values share one nonstring gate; JSON record admission cannot replace it.
+test('dependency version is not coerced: 1',()=>assert.throws(()=>compilerDependencyManifestAuthority(encode({packageManager:'bun@1.2.3',dependencies:{a:1}})),{code:'IMPORT-AUTHORITY-001',message:'Root dependencies.a must be a version string'}));
+// A coercible array detects loss of the string gate; empty text detects the regex.
+for(const value of [['bun@1.2.3'],''])test(`packageManager is not coerced: ${JSON.stringify(value)}`,()=>assert.throws(()=>compilerDependencyManifestAuthority(encode({packageManager:value})),{code:'IMPORT-AUTHORITY-001',message:'Root packageManager must pin one Bun version exactly'}));
 test('duplicate dependency decisions are rejected before manifest authority is returned',()=>assert.throws(()=>compilerDependencyManifestAuthority(Buffer.from('{"packageManager":"bun@1.2.3","dependencies":{"a":"1","a":"2"}}')),/exact JSON/));
 test('invalid UTF8 cannot become a replacement-character dependency key',()=>{const bytes=Buffer.concat([Buffer.from('{"packageManager":"bun@1.2.3","dependencies":{"'),Buffer.from([255]),Buffer.from('\":\"1\"}}')]);assert.throws(()=>compilerDependencyManifestAuthority(bytes));assert.throws(()=>compilerInputText(Uint8Array.of(255),'input'),/UTF-8/);});
 test('manifest fingerprints retain digest grammar and projections despite shadowed byte metadata',()=>{const bytes=encode(base);Object.defineProperties(bytes,{byteLength:{value:0},buffer:{get(){assert.fail('getter');}},[Symbol.iterator]:{value(){assert.fail('iterator');}}});const r=compilerDependencyManifestAuthority(bytes);assert.equal(r.dependencyManifestSha256,baseDigest);assert.deepEqual(Object.keys(r.dependencies),['a','z']);assert.equal(r.declaredBunVersion,'1.2.3');});
