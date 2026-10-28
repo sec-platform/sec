@@ -27,9 +27,18 @@ for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runt
         const { PipelineSettlementFailure } = await import(${JSON.stringify(path.join(repo, 'src/application/pipeline-failure.ts'))});
         const primary = new ProjectIntegrityError('source no longer matches its provenance');
         const secondary = Object.freeze({ reason: 'snapshot-write-failed' });
-        let executions = 0, publications = 0;
+        const controller = ${lane === 'fast' && !rejectPublication} ? new AbortController() : undefined;
+        let executions = 0, publications = 0, observedOptions;
         mock.module(${JSON.stringify(path.join(repo, 'src/application/product-verification.ts'))}, () => ({
-          ...engine, executeProductVerification: async () => { executions++; throw primary; }
+          ...engine, executeProductVerification: async (_lock, selectedLane, options) => {
+            executions++;
+            if (controller) {
+              if (selectedLane !== 'fast' || options.emitTiming !== true || options.isolated !== false)
+                throw new Error('verification decisions changed');
+              observedOptions = options;
+            }
+            throw primary;
+          }
         }));
         mock.module(${JSON.stringify(path.join(repo, 'src/adapters/verification/verification-artifact-publication.ts'))}, () => ({
           publishVerificationArtifactSet: async (input) => {
@@ -44,7 +53,9 @@ for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runt
             project: { policies: [], sources: [], violations: [] }, merged: { policies: [] }, violations: [], diagnostics: [] })
         }));
         const { verifyWorkspace } = await import(${JSON.stringify(path.join(repo, 'src/bootstrap/engineering/verify-orchestrator.ts'))});
-        try { await verifyWorkspace(${JSON.stringify(root)}, { lane: ${JSON.stringify(lane)} }); throw new Error('unexpected success'); }
+        try { await verifyWorkspace(${JSON.stringify(root)}, {
+          lane: ${JSON.stringify(lane)}, ...(controller ? { emitTiming: true, signal: controller.signal } : {})
+        }); throw new Error('unexpected success'); }
         catch (error) {
           if (${lane !== 'runtime' && rejectPublication}) {
             if (!(error instanceof PipelineSettlementFailure) || error.cause !== primary
@@ -52,6 +63,12 @@ for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runt
                 || error.settlementFailures[0]?.reason !== secondary)
               throw new Error('original verification failure was lost');
           } else if (error !== primary) throw new Error('primary verification failure was replaced: ' + error);
+        }
+        if (controller) {
+          if (observedOptions?.signal !== controller.signal) throw new Error('signal identity changed');
+          controller.abort(primary);
+          if (!observedOptions.signal.aborted || observedOptions.signal.reason !== primary)
+            throw new Error('live cancellation was detached');
         }
         if (executions !== 1 || publications !== ${lane === 'runtime' ? 0 : 1}) throw new Error('work was omitted or repeated');
         console.log('verification and settlement boundaries retained');

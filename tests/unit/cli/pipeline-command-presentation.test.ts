@@ -35,19 +35,20 @@ test('journal preserves empty markers, latest failure and pending pass records',
     assert.match(text, /Last committed transaction\W+none(?=$|[\s;,])/u);
     assert.match(text, /\bTransactions[\s:]+0(?=$|[\s;,])/u);
   }
+  const startedAt = '2026-08-30T12:11:08.064Z';
+  const completedAt = '2026-08-30T12:12:41.953Z';
   const journal: PipelineJournal = {
-    formatVersion: '2', activeTransactionId: 'active', lastCommittedTransactionId: 'committed',
+    formatVersion: '2', lastCommittedTransactionId: 'committed',
     transactions: [
-      { id: 'old', source: 'api', requestedStages: [], status: 'succeeded', startedAt: 'old', passRecords: [] },
-      { id: 'latest', source: 'cli', requestedStages: ['verify'], status: 'failed', startedAt: 'now', passRecords: [
-        { passId: 'compose', status: 'succeeded', startedAt: 'then' },
-        { passId: 'verify', status: 'failed', startedAt: 'now' }
+      { id: 'committed', source: 'api', requestedStages: ['resolve'], status: 'succeeded', startedAt, completedAt, passRecords: [] },
+      { id: 'latest', source: 'cli', requestedStages: ['compose', 'verify'], status: 'failed', startedAt, completedAt, passRecords: [
+        { passId: 'compose', status: 'succeeded', startedAt, completedAt },
+        { passId: 'verify', status: 'failed', startedAt, completedAt }
       ] }
     ]
   };
   const before = JSON.stringify(journal);
   const text = formatPipelineJournal(projectPipelineJournal(journal));
-  assert.match(text, /Active transaction\W+active(?=$|[\s;,])/u);
   assert.match(text, /Last committed transaction\W+committed(?=$|[\s;,])/u);
   assert.match(text, /\bTransactions[\s:]+2(?=$|[\s;,])/u);
   assert.match(text, /Latest\W+latest\s+failed(?=$|[\s;,])/u);
@@ -56,10 +57,11 @@ test('journal preserves empty markers, latest failure and pending pass records',
   assert.match(text, /Passes[^\n]*verify=failed(?=$|[\s;,])/u);
   assert.equal(JSON.stringify(journal), before);
 
-  const pending: PipelineJournal = { ...journal, transactions: [
-    { id: 'pending', source: 'repair', requestedStages: [], status: 'running', startedAt: 'now', passRecords: [] }
+  const pending: PipelineJournal = { formatVersion: '2', activeTransactionId: 'pending', transactions: [
+    { id: 'pending', source: 'repair', requestedStages: ['verify'], status: 'running', startedAt, passRecords: [] }
   ] };
   const pendingText = formatPipelineJournal(projectPipelineJournal(pending));
+  assert.match(pendingText, /Active transaction\W+pending(?=$|[\s;,])/u);
   assert.match(pendingText, /Latest\W+pending\s+running(?=$|[\s;,])/u);
   assert.match(pendingText, /Latest[^\n]*source=repair(?=$|[\s;,])/u);
   assert.match(pendingText, /Passes\W+none(?=$|[\s;,])/u);

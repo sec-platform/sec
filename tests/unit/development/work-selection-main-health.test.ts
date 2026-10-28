@@ -10,7 +10,7 @@ import {
   withGitHubApiTestSession
 } from '../../../src/adapters/providers/github-api/test/operation-session.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../src/adapters/runtime-state/workspace-state/paths.ts';
-import { createMainHealthLedger } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { createMainHealthLedger, createMainHealthRepairWorkPackagePath } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
   type TrustedRuntimeMainHealthReceipt
@@ -167,24 +167,18 @@ test('WorkSelection resolves only registered hosted repository health', () => {
     mainTreeSha: TREE,
     now: new Date().toISOString()
   } as const;
-  const missing = resolveWorkSelectionMainHealthProviders({
-    ...base,
-    local: { kind: 'absent' },
-    hosted: { kind: 'absent' }
-  });
-  expect(missing.repairObservation.kind).toBe('provider-missing');
-  expect(missing.projection.state).toBe('unresolved');
+  const local = { kind: 'unavailable' as const, ref: `sha256:${'3'.repeat(64)}` as const };
 
   const unavailable = resolveWorkSelectionMainHealthProviders({
     ...base,
-    local: { kind: 'absent' },
+    local,
     hosted: { kind: 'unavailable', ref: `sha256:${'4'.repeat(64)}` }
   });
   expect(unavailable.repairObservation.kind).toBe('provider-unavailable');
 
   const invalid = resolveWorkSelectionMainHealthProviders({
     ...base,
-    local: { kind: 'absent' },
+    local,
     hosted: { kind: 'invalid', ref: `sha256:${'5'.repeat(64)}` }
   });
   expect(invalid.repairObservation.kind).toBe('provider-invalid');
@@ -213,7 +207,7 @@ test('WorkSelection resolves only registered hosted repository health', () => {
   });
   const healthy = resolveWorkSelectionMainHealthProviders({
     ...base,
-    local: { kind: 'absent' },
+    local,
     hosted: { kind: 'available', ledger: hostedLedger }
   });
   expect(healthy).toMatchObject({
@@ -293,9 +287,20 @@ test('WorkSelection prefers exact valid local evidence over hosted absence/unava
     ledger: localLedger
   });
 
+  const failure = {
+    repository: base.repository,
+    defaultBranch: base.defaultBranch,
+    mainSha: MAIN,
+    mainTreeSha: TREE,
+    owner: 'ci-verification-maintainer',
+    failureFingerprints: [`sha256:${'b'.repeat(64)}` as const]
+  };
   const conflictingHosted = createMainHealthLedger({
     ...equivalentHosted,
-    mainTreeSha: '3'.repeat(40)
+    ...failure,
+    status: 'degraded',
+    allowedLanes: ['repair'],
+    repairWorkPackage: createMainHealthRepairWorkPackagePath(failure)
   });
   expect(resolveWorkSelectionMainHealthProviders({
     ...base,

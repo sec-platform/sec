@@ -119,6 +119,15 @@ for (const stage of ['lower', 'runtime', 'baseline', 'saved'] as const) {
           }
           return result;
         } }));
+        let observedSignal;
+        if (stage === 'saved') {
+          const enginePath = path.join(repo, 'src/application/project-composition.ts');
+          const engine = await import(enginePath), execute = engine.executeProjectComposition;
+          mock.module(enginePath, () => ({ ...engine, executeProjectComposition: (...args) => {
+            observedSignal = args[2].signal;
+            return execute(...args);
+          } }));
+        }
         const { composeProject } = await import(path.join(repo, 'src/bootstrap/engineering/project-composition.ts'));
         const options = { signal: controller.signal, opaqueModuleMaterializationMode: 'workspace-link' };
         if (stage === 'saved') {
@@ -126,6 +135,9 @@ for (const stage of ['lower', 'runtime', 'baseline', 'saved'] as const) {
           const result = await composeWorkspace(workspace, options);
           assert.equal(result.lock.passStatus.compose, 'succeeded');
           assert.equal(readLockFile(workspace).passStatus.compose, 'succeeded');
+          assert.equal(observedSignal, controller.signal);
+          assert.equal(observedSignal.aborted, true);
+          assert.equal(observedSignal.reason, reason);
         } else {
           await assert.rejects(composeProject(workspace, lock, semantic, options), error => error === reason);
           assert.equal(readLockFile(workspace).passStatus.compose, before.passStatus.compose);
