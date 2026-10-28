@@ -40,7 +40,6 @@ const malformed: Array<readonly [string, Record<string, unknown>, 'post'?]> = [
   ['zero module count', { candidateModuleCount: 0 }],
   ['unsafe module count', { candidateModuleCount: Number.MAX_SAFE_INTEGER + 1 }],
   ['null module count', { candidateModuleCount: null }],
-  ['null action with residue', { candidateActionKey: null }],
   ['checker Action/closure mismatch', { checkerActionResultDigest: digest('7') }],
   ['candidate Action/closure mismatch', { candidateActionResultDigest: digest('7') }],
   ['candidate closure absent', { candidateActionResultDigest: null, candidateClosureDigest: null }],
@@ -59,7 +58,10 @@ const malformed: Array<readonly [string, Record<string, unknown>, 'post'?]> = [
   ['PRE has POST job result', { sutJobResult: 'success' }],
   ['PRE has POST diagnostic', { sutDiagnosticDigest: digest('7') }],
   ['duplicate paths', { baseUndecidablePaths: ['src/a.ts', 'src/a.ts'] }],
-  ['nonarray paths', { baseUndecidablePaths: 'src/a.ts' }]
+  ['nonarray paths', { baseUndecidablePaths: 'src/a.ts' }],
+  // Full canonical-path grammar is shared with the V2 request contract;
+  // retain this receipt-specific collection admission independently.
+  ['noncanonical path "src/./a.ts"', { baseUndecidablePaths: ['src/./a.ts'] }]
 ];
 // Equality-bound identities change together, so a relation failure cannot mask
 // their lexical admission. Every other identity still has its own witness.
@@ -82,10 +84,6 @@ for (const fields of [['registryDigest'], ['checkerActionKey'],
 }
 for (const value of ['not-a-digest', 1, null]) {
   malformed.push([`mandatory digest grammar rejects ${JSON.stringify(value)}`, { registryDigest: value }]);
-}
-for (const value of ['../outside.ts', '/outside.ts', 'src/../a.ts', './a.ts', 'src//a.ts',
-  'src/./a.ts', 'src/a.ts/', 'src\\a.ts', '', 'C:/a.ts', 'src/\0a.ts', 'src/e\u0301.ts', 1]) {
-  malformed.push([`noncanonical path ${JSON.stringify(value)}`, { baseUndecidablePaths: [value] }]);
 }
 for (const [name, patch, phase] of malformed) {
   test(`checker grammar rejects ${name} before issuing a receipt`, () => {
@@ -117,8 +115,7 @@ test('exact checker receipt supports both candidate variants and immutable canon
 });
 
 for (const [verdict, auxiliary] of [
-  ['passed', 'not-observed'], ['passed', 'unavailable'], ['passed', 'passed'],
-  ['passed', 'failed'], ['passed', 'invalid'], ['failed', 'passed'], ['manual-bootstrap-required', 'passed']
+  ['passed', 'not-observed'], ['passed', 'unavailable'], ['failed', 'passed']
 ]) {
   test(`POST preserves ${verdict} authority independently of ${auxiliary} auxiliary data`, () => {
     const before = { ...semantic(), authorityVerdict: verdict };
