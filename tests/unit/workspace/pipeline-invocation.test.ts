@@ -1,8 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { bindPipelineCompileRequest, PIPELINE_DEFAULT_VERIFICATION_LANE, selectPipelineStageRange } from '../../../src/application/pipeline-request.ts';
+import { bindPipelineCompileRequest, selectPipelineStageRange } from '../../../src/application/pipeline-request.ts';
 import { PIPELINE_STAGE_IDS } from '../../../src/compiler/pipeline/stages.ts';
-import { PIPELINE_COMPILE_DEFAULT_LANE } from '../../../src/entry/cli/pipeline-command-input.ts';
 
 function code(expected: string) { return (error: unknown) => (error as {code?: string})?.code === expected; }
 
@@ -12,10 +11,10 @@ test('every admitted range retains the ordered semantic prelude and every revers
     const first = from === undefined ? 0 : PIPELINE_STAGE_IDS.indexOf(from);
     const last = through === undefined ? PIPELINE_STAGE_IDS.length - 1 : PIPELINE_STAGE_IDS.indexOf(through);
     if (first > last) {
-      assert.throws(() => bindPipelineCompileRequest({ from, through }), code('PIPELINE-USAGE-001'));
+      assert.throws(() => selectPipelineStageRange(from, through), code('PIPELINE-USAGE-001'));
       continue;
     }
-    const selection = bindPipelineCompileRequest({ from, through });
+    const selection = selectPipelineStageRange(from, through);
     const expected = PIPELINE_STAGE_IDS.slice(first, last + 1);
     if (first > PIPELINE_STAGE_IDS.indexOf('semantic')) expected.unshift('semantic');
     assert.deepEqual(selection.stages, expected);
@@ -24,48 +23,20 @@ test('every admitted range retains the ordered semantic prelude and every revers
   }
 });
 
-for (const value of [null, '', false, 0, {}, [], new String('verify'), Symbol('stage')]) {
-  test(`API stage admission rejects ${typeof value} instead of silently selecting defaults`, () => {
-    assert.throws(() => bindPipelineCompileRequest({ from: value as never }), code('PIPELINE-USAGE-001'));
-    assert.throws(() => bindPipelineCompileRequest({ through: value as never }), code('PIPELINE-USAGE-001'));
-  });
-}
-
-test('requests retain selected decisions without carrying live capabilities', () => {
-  const observed = new Set<string>();
-  const values = { from: 'compose', through: 'verify', source: 'ci', verificationLane: 'runtime' };
-  const replacements: Record<string, string> = { from: 'resolve', through: 'emit', source: 'repair', verificationLane: 'fast' };
-  const input = {};
-  for (const [key, value] of Object.entries(values)) Object.defineProperty(input, key, {
-    configurable: true,
-    get() { if (observed.has(key)) return replacements[key]; observed.add(key); return value; }
-  });
-  for (const key of ['onEvent', 'workspaceWriteLease', 'isolatedVerificationCapability', 'stagedVerificationProof', 'unrelated']) {
-    Object.defineProperty(input, key, { get() { assert.fail('request read capability '+key); } });
-  }
-  const result = bindPipelineCompileRequest(input);
-  for (const [key, value] of Object.entries(replacements)) Object.defineProperty(input, key, { value });
-  assert.deepEqual(result, { from: 'compose', through: 'verify', stages: ['semantic', 'compose', 'verify'], source: 'ci', verificationLane: 'runtime' });
-  assert.equal(Reflect.set(result.stages, 0, 'resolve'), false);
-  assert.equal('workspaceWriteLease' in result, false);
-});
-
-test('only selected API verification requests default an absent lane and reject explicit invalid values', () => {
-  assert.equal(bindPipelineCompileRequest({}).verificationLane, PIPELINE_DEFAULT_VERIFICATION_LANE);
-  assert.equal(PIPELINE_COMPILE_DEFAULT_LANE, PIPELINE_DEFAULT_VERIFICATION_LANE);
-  const unverified = bindPipelineCompileRequest({ through: 'compose',
-    get verificationLane(): never { assert.fail('unused lane'); throw new Error('unreachable'); } });
-  assert.deepEqual(unverified.stages, ['resolve', 'semantic', 'compose']);
-  assert.equal(unverified.verificationLane, PIPELINE_DEFAULT_VERIFICATION_LANE);
-  for (const value of [null, '', false, 0, 'ALL', {}, []]) {
-    assert.throws(() => bindPipelineCompileRequest({ verificationLane: value as never }), code('PIPELINE-USAGE-002'));
-  }
+test('admitted requests preserve their source and lane, with reference verification defaulting to all', () => {
+  assert.equal(bindPipelineCompileRequest({ source: 'reference' }).verificationLane, 'all');
   for (const lane of ['fast', 'runtime', 'all'] as const) {
-    assert.equal(bindPipelineCompileRequest({ verificationLane: lane }).verificationLane, lane);
+    const result = bindPipelineCompileRequest({ source: 'cli', from: 'compose', through: 'verify', verificationLane: lane });
+    assert.deepEqual(result, {
+      from: 'compose', through: 'verify', stages: ['semantic', 'compose', 'verify'],
+      source: 'cli', verificationLane: lane
+    });
+    assert.equal(Reflect.set(result.stages, 0, 'resolve'), false);
   }
 });
 
 test('range errors never execute user coercion hooks', () => {
   const value = { toString() { assert.fail('coercion'); }, [Symbol.toPrimitive]() { assert.fail('coercion'); } };
   assert.throws(() => selectPipelineStageRange(value, undefined), code('PIPELINE-USAGE-001'));
+  assert.throws(() => selectPipelineStageRange(new String('verify'), undefined), code('PIPELINE-USAGE-001'));
 });

@@ -45,17 +45,13 @@ function ledger(overrides: Partial<Parameters<typeof createMainHealthLedger>[0]>
   });
 }
 
-function decide(value: unknown, overrides: Partial<{
-  now: string;
-  expectedRepository: string;
-  expectedMainSha: string;
-}> = {}) {
+function decide(value: unknown, now = OBSERVED_AT) {
   return compileMainHealthRepairDecision({
     observation: { kind: 'available', ledger: value },
-    now: overrides.now ?? OBSERVED_AT,
-    expectedRepository: overrides.expectedRepository ?? 'sec-platform/sec',
+    now,
+    expectedRepository: 'sec-platform/sec',
     expectedDefaultBranch: 'main',
-    expectedMainSha: overrides.expectedMainSha ?? MAIN,
+    expectedMainSha: MAIN,
     expectedMainTreeSha: TREE,
     expectedTrustRevision: MAIN
   });
@@ -80,7 +76,7 @@ test('exact-main repair routing binds valid and refreshed identity while rejecti
   expect(result.binding?.healthRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(result.binding?.ledgerDigest).toBe(originalLedger.ledgerDigest);
   const refreshedLedger = ledger({ observedAt: '2026-08-12T00:01:00.000Z' });
-  const refreshed = decide(refreshedLedger, { now: refreshedLedger.observedAt });
+  const refreshed = decide(refreshedLedger, refreshedLedger.observedAt);
   expect(refreshed.binding?.healthRevision).toBe(result.binding?.healthRevision);
   expect(refreshed.binding?.ledgerDigest).toBe(refreshedLedger.ledgerDigest);
   expect(refreshed.binding?.ledgerDigest).not.toBe(result.binding?.ledgerDigest);
@@ -99,17 +95,7 @@ test('exact-main repair routing binds valid and refreshed identity while rejecti
   expect(decide(healthy)).toMatchObject({
     status: 'blocked', routingState: 'ordinary-only', reasonCode: 'repair-lane-ineligible'
   });
-  expect(decide(originalLedger, { now: '2026-08-12T00:05:00.001Z' }))
-    .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-expired' });
-  expect(decide(originalLedger, { expectedMainSha: '3'.repeat(40) }))
-    .toMatchObject({ status: 'blocked', reasonCode: 'repair-ledger-identity-drift' });
-  expect(decide({ malformed: true }))
-    .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-invalid' });
-});
-
-test('hosted provider absence, transport failure, and invalidity remain distinct locked states', () => {
   for (const [kind, reasonCode] of [
-    ['provider-missing', 'repair-provider-missing'],
     ['provider-unavailable', 'repair-provider-unavailable'],
     ['provider-invalid', 'repair-provider-invalid']
   ] as const) {

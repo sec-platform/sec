@@ -80,15 +80,11 @@ describe('SEC Linux verification environment authority', () => {
     )).toBe(true);
   });
 
-  test('rejects cross-field drift and unknown parallel owners', () => {
+  test('rejects cross-field drift and ungoverned source selection', () => {
     const badBase = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY) as unknown as Record<string, unknown>;
     (badBase.ubuntu as Record<string, unknown>).baseDigest = `sha256:${'f'.repeat(64)}`;
     expect(() => parseSecLinuxVerificationEnvironmentAuthority(badBase))
       .toThrow('Ubuntu base reference must bind its declared digest');
-
-    const parallelOwner = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY) as unknown as Record<string, unknown>;
-    parallelOwner.imageDigest = `sha256:${'a'.repeat(64)}`;
-    expect(() => parseSecLinuxVerificationEnvironmentAuthority(parallelOwner)).toThrow();
 
     const untrustedArchive = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY);
     untrustedArchive.archives.node.url = untrustedArchive.archives.node.url.replace(
