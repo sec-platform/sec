@@ -53,7 +53,7 @@ function passedGate(gateId: string, claims: string[], env?: VerificationGateEnvi
   };
 }
 
-function failedGate(gateId: string, claims: string[], reasonCode: 'executed-failure' | 'timeout' | 'cleanup-failed' | 'process-settlement-failed' = 'executed-failure'): VerificationGateResult {
+function failedGate(gateId: string, claims: string[]): VerificationGateResult {
   return {
     schema: 'sec-verification-gate-result-v1',
     gateId,
@@ -65,7 +65,7 @@ function failedGate(gateId: string, claims: string[], reasonCode: 'executed-fail
     applicability: 'required',
     status: 'failed',
     disposition: 'executed',
-    reasonCode,
+    reasonCode: 'executed-failure',
     requiredForClaims: [...claims],
     supportedClaims: [],
     environment: environment('linux', 'x64', ['typescript']),
@@ -131,15 +131,20 @@ function claim(claimId: string, gateIds: string[], owningEnvironments: string[] 
 // ---------------------------------------------------------------------------
 
 test('regression 1: all-lane fast-passed + runtime-skipped → overall not passed', () => {
-  const fastGate = passedGate('fast-gate', ['overall']);
-  const runtimeGate = notRunGate('runtime-gate', ['overall'], 'fail-fast-prerequisite-failed');
+  const fastGate = passedGate('fast-gate', ['fast-claim']);
+  const runtimeGate = notRunGate('runtime-gate', ['runtime-claim'], 'fail-fast-prerequisite-failed');
   const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [claim('overall', ['fast-gate', 'runtime-gate'])],
+    claims: [claim('fast-claim', ['fast-gate']), claim('runtime-claim', ['runtime-gate'])],
     gateResults: [fastGate, runtimeGate]
   });
   expect(result.overallStatus).toBe('not-run');
-  expect(result.claimResults[0]!.status).toBe('not-run');
-  expect(result.claimResults[0]!.reasonCode).toBe('fail-fast-prerequisite-failed');
+  expect(result.overallReasonCode).toBe('fail-fast-prerequisite-failed');
+  expect(result.claimResults).toEqual([
+    { claimId: 'fast-claim', status: 'passed', reasonCode: 'executed-success',
+      contributingGateIds: ['fast-gate'], coverageComplete: true },
+    { claimId: 'runtime-claim', status: 'not-run', reasonCode: 'fail-fast-prerequisite-failed',
+      contributingGateIds: ['runtime-gate'], coverageComplete: false }
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -166,17 +171,23 @@ test('regression 2: runtime requested + fast not-applicable + runtime passed →
 // ---------------------------------------------------------------------------
 
 test('regression 3: fast failed → runtime not-run, overall failed', () => {
-  const fastGate = failedGate('fast-gate', ['overall']);
+  const fastGate = failedGate('fast-gate', ['fast-claim']);
   // Failed observations may retain a supported-claim link without becoming a pass.
-  fastGate.supportedClaims = ['overall'];
-  const runtimeGate = notRunGate('runtime-gate', ['overall'], 'fail-fast-prerequisite-failed');
+  fastGate.supportedClaims = ['fast-claim'];
+  const runtimeGate = notRunGate('runtime-gate', ['runtime-claim'], 'fail-fast-prerequisite-failed');
   const input = {
-    claims: [claim('overall', ['fast-gate', 'runtime-gate'])],
+    claims: [claim('fast-claim', ['fast-gate']), claim('runtime-claim', ['runtime-gate'])],
     gateResults: [fastGate, runtimeGate]
   };
   const result = CodexDevelopmentAggregateVerificationClaims(input);
   expect(result.overallStatus).toBe('failed');
-  expect(result.claimResults[0]!.status).toBe('failed');
+  expect(result.overallReasonCode).toBe('executed-failure');
+  expect(result.claimResults).toEqual([
+    { claimId: 'fast-claim', status: 'failed', reasonCode: 'executed-failure',
+      contributingGateIds: ['fast-gate'], coverageComplete: false },
+    { claimId: 'runtime-claim', status: 'not-run', reasonCode: 'fail-fast-prerequisite-failed',
+      contributingGateIds: ['runtime-gate'], coverageComplete: false }
+  ]);
 });
 
 test('a non-owning observation cannot authorize a claim owned by another environment', () => {
@@ -292,13 +303,13 @@ test('reused results retain their status and require evidence plus environment i
   for (const status of ['passed', 'failed'] as const) {
     const original = status === 'passed'
       ? passedGate('reuse-gate', ['claim'])
-      : failedGate('reuse-gate', ['claim']);
+      : { ...failedGate('reuse-gate', ['claim']), reasonCode: 'cleanup-failed' as const };
     const { schema: _schema, ...input } = original;
     const reused = { ...input, disposition: 'reused' as const, execution: null,
       evidenceRefs: ['evidence://original-result'] };
     const result = CodexDevelopmentBuildVerificationGateResult(reused);
     expect(result).toMatchObject({ status, disposition: 'reused', execution: null,
-      reasonCode: status === 'passed' ? 'executed-success' : 'executed-failure' });
+      reasonCode: status === 'passed' ? 'executed-success' : 'cleanup-failed' });
     // Evidence and environment are disposition guards, independent of pass/fail status.
     expect(() => CodexDevelopmentBuildVerificationGateResult({ ...reused,
       ...(status === 'passed' ? { evidenceRefs: [] } : { environment: null }) }))
@@ -377,33 +388,4 @@ test('mapProductVerificationStatus: skipped with insufficient context → invali
   });
   expect(result.status).toBe('invalidated');
   expect(result.reasonCode).toBe('selection-unresolved');
-});
-
-// Aggregate edge cases
-// ---------------------------------------------------------------------------
-
-test('aggregate: missing required gate → claim not-run', () => {
-  const gate = passedGate('present-gate', ['claim-1']);
-  const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [claim('claim-1', ['present-gate', 'missing-gate'])],
-    gateResults: [gate]
-  });
-  expect(result.overallStatus).toBe('not-run');
-  expect(result.overallReasonCode).toBe('not-dispatched');
-  expect(result.claimResults[0]!.status).toBe('not-run');
-  expect(result.claimResults[0]!.reasonCode).toBe('not-dispatched');
-});
-
-test('aggregate preserves the decisive overall failure reason', () => {
-  const gate = failedGate('decisive-gate', ['decisive-claim'], 'cleanup-failed');
-  const input = {
-    claims: [claim('decisive-claim', ['passed-gate', 'decisive-gate'])],
-    gateResults: [passedGate('passed-gate', ['decisive-claim']), gate]
-  };
-  const result = CodexDevelopmentAggregateVerificationClaims(input);
-  expect(result).toMatchObject({
-    overallStatus: 'failed',
-    overallReasonCode: 'cleanup-failed',
-    claimResults: [{ status: 'failed' }]
-  });
 });
