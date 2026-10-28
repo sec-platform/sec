@@ -12,72 +12,44 @@ const classifications = [
   'preserve-external',
   'unknown'
 ] as const;
-const anomalies = ['mixed-endings', 'utf8-bom'] as const;
+const anomalies = [
+  'crlf-in-canonical-lf-blob', 'lf-in-explicit-crlf-blob', 'mixed-endings',
+  'utf8-bom', 'nul-byte', 'unknown-encoding', 'attributes-unsupported'
+] as const;
 
 describe('text byte census presentation boundary', () => {
-  test('application projects an ordered finite view and entry preserves the text contract', () => {
-    const view = projectTextByteCensusReport({
-      totalFiles: 3,
-      failClosed: true,
-      classificationCounts: {
-        'canonical-lf': 2,
-        'explicit-crlf': 0,
-        binary: 0,
-        'preserve-external': 0,
-        unknown: 1
-      },
-      anomalyCounts: {
-        'mixed-endings': 1,
-        'utf8-bom': 0
-      },
-      flaggedEntries: [{
-        path: 'src/mixed.ts',
-        classification: 'unknown',
-        anomalies: ['mixed-endings']
-      }]
-    }, { classifications, anomalies });
-
-    const text = formatTextByteCensus(view);
-    expect(text).toMatch(/\btotalFiles[\s:]+3(?=$|[\s;,])/u);
-    expect(text).toMatch(/\bfailClosed[\s:]+true(?=$|[\s;,])/u);
-    expect(Array.from(text.matchAll(/^\s*([a-z][a-z-]*)[\s:]+(\d+)\s*$/gmu),
-      ([, id, count]) => `${id}=${count}`).sort()).toEqual([
-      'canonical-lf=2', 'mixed-endings=1', 'unknown=1'
-    ]);
-    expect(text).toMatch(/\bflagged[\s:]+1\s+file/u);
-    const flagged = text.split('\n').find((line) => /(?:^|\s)src\/mixed\.ts(?=$|[\s\[])/u.test(line));
-    expect(flagged).toBeDefined();
-    expect(flagged).toMatch(/(?:^|[\s\[])unknown(?=$|[\s\];,])/u);
-    expect(flagged).toMatch(/(?:^|\s)mixed-endings(?=$|[\s;,])/u);
-  });
-
-  test('entry prints no-anomaly state and caps flagged detail at twenty rows', () => {
+  test('entry caps flagged detail at twenty rows', () => {
     const view = projectTextByteCensusReport({
       totalFiles: 21,
-      failClosed: false,
+      failClosed: true,
       classificationCounts: {
-        'canonical-lf': 21,
+        'canonical-lf': 0,
         'explicit-crlf': 0,
         binary: 0,
-        'preserve-external': 0,
+        'preserve-external': 21,
         unknown: 0
       },
       anomalyCounts: {
+        'crlf-in-canonical-lf-blob': 0,
+        'lf-in-explicit-crlf-blob': 0,
         'mixed-endings': 0,
-        'utf8-bom': 0
+        'utf8-bom': 21,
+        'nul-byte': 0,
+        'unknown-encoding': 0,
+        'attributes-unsupported': 0
       },
       flaggedEntries: Array.from({ length: 21 }, (_, index) => ({
-        path: `src/${index}.ts`,
-        classification: 'canonical-lf' as const,
-        anomalies: [] as const
+        path: `src/${String(index).padStart(2, '0')}.ts`,
+        classification: 'preserve-external' as const,
+        anomalies: ['utf8-bom'] as const
       }))
     }, { classifications, anomalies });
     const text = formatTextByteCensus(view);
-    expect(text).toMatch(/\banomalies[\s:]+\(none\)/u);
+    expect(text).toMatch(/\bpreserve-external[\s:]+21(?=$|[\s;,])/u);
     expect(text).toMatch(/\bflagged[\s:]+21\s+file/u);
     expect(text).toMatch(/(?:^|\s)1\s+more(?=$|[\s;,])/u);
     expect(Array.from(text.matchAll(/(?:^|\s)(src\/\d+\.ts)(?=$|\s|\[)/gu), ([, file]) => file))
-      .toEqual(Array.from({ length: 20 }, (_, index) => `src/${index}.ts`));
+      .toEqual(Array.from({ length: 20 }, (_, index) => `src/${String(index).padStart(2, '0')}.ts`));
   });
 
   test('application admits finite fail-on thresholds and evaluates them without CLI casts', () => {

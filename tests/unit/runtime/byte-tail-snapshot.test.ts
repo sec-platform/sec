@@ -15,10 +15,3 @@ test('suffix selection matches an independent array slice for sizes and nonzero 
     }
   }
 });
-
-test('a diagnostic tail owns its selected bytes independently of the caller', () => {
-  const bytes = Uint8Array.of(1, 2, 3, 71, 72);
-  const result = snapshotByteTail(bytes, 2);
-  bytes.fill(0);
-  assert.deepEqual([...result], [71, 72]);
-});

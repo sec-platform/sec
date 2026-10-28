@@ -8,6 +8,9 @@ import { pathToFileURL } from 'node:url';
 import { affectedGitSelectionDigest, issueAffectedGitSelectionSource, rebindAffectedGitSelectionSource } from '../../../src/adapters/verification/platform/test-impact/runtime/affected-git-source.ts';
 import { withRetainedBunTestCommands } from '../../testkit/process-resource.ts';
 import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { TEXT_BYTE_ANOMALIES, TEXT_BYTE_CLASSIFICATIONS } from '../../../src/adapters/runtime-state/text-byte-census.ts';
+import { projectTextByteCensusReport } from '../../../src/application/text-byte-census.ts';
+import { formatTextByteCensus } from '../../../src/entry/cli/text-byte-census.ts';
 
 import { withAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/authority.ts';
 import { createAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/runtime/session.ts';
@@ -191,6 +194,9 @@ test('exact committed blobs and attribute policy are isolated from .git/info/att
     const census = await runCensus(root);
     expect(census.classificationCounts['canonical-lf']).toBe(1);
     expect(census.failClosed).toBe(false);
+    expect(formatTextByteCensus(projectTextByteCensusReport(census, {
+      classifications: TEXT_BYTE_CLASSIFICATIONS, anomalies: TEXT_BYTE_ANOMALIES
+    }))).toMatch(/\banomalies[\s:]+\(none\)/u);
 
     const settlement = await runSettlement(root);
     expect(settlement.status).toBe('settled');
@@ -226,6 +232,20 @@ test('text census treats NUL in declared text as a terminal fail-closed finding'
       classification: 'unknown',
       anomalies: ['nul-byte']
     });
+    const text = formatTextByteCensus(projectTextByteCensusReport(report, {
+      classifications: TEXT_BYTE_CLASSIFICATIONS, anomalies: TEXT_BYTE_ANOMALIES
+    }));
+    expect(text).toMatch(/\btotalFiles[\s:]+2(?=$|[\s;,])/u);
+    expect(text).toMatch(/\bfailClosed[\s:]+true(?=$|[\s;,])/u);
+    expect(Array.from(text.matchAll(/^\s*([a-z][a-z-]*)[\s:]+(\d+)\s*$/gmu),
+      ([, id, count]) => `${id}=${count}`).sort()).toEqual([
+      'nul-byte=1', 'preserve-external=1', 'unknown=1'
+    ]);
+    expect(text).toMatch(/\bflagged[\s:]+1\s+file/u);
+    const flagged = text.split('\n').find((line) => /(?:^|\s)committed\.ts(?=$|[\s\[])/u.test(line));
+    expect(flagged).toBeDefined();
+    expect(flagged).toMatch(/(?:^|[\s\[])unknown(?=$|[\s\];,])/u);
+    expect(flagged).toMatch(/(?:^|\s)nul-byte(?=$|[\s;,])/u);
   });
 });
 

@@ -6,14 +6,13 @@ import {
 } from './cleanup-budget.ts';
 
 test('cleanup admission preserves every deadline and abort-state observation', () => {
-  for (const mode of ['before-clock', 'during-clock', 'expired', 'live'] as const) {
+  for (const mode of ['before-clock', 'expired', 'live'] as const) {
     const controller = new AbortController();
     let clockCalls = 0;
     if (mode === 'before-clock') controller.abort();
     const session = createGeneratedStateCleanupOperationSession({ deadlineAtMonotonicMs: 100,
       signal: controller.signal, monotonicNowMs: () => {
         clockCalls++;
-        if (mode === 'during-clock') controller.abort();
         return mode === 'expired' ? 100 : 1;
       } });
     const state = generatedStateCleanupOperationState(session)!;

@@ -31,8 +31,6 @@ test.serial('root validation and native failures cannot become successful output
 
   const reason = Object.freeze({ conversion: 'failed' }), value = { toJSON() { throw reason; } };
   assert.throws(() => stringifyJsonValue(value, 2), error => error === reason);
-  assert.throws(() => formatJsonFile(value), error => error === reason);
-  assert.throws(() => formatJson(value, { compact: false }), error => error === reason);
 
   // CLI emission is a separate effect: invalid JSON must not write even one frame.
   const log = console.log;

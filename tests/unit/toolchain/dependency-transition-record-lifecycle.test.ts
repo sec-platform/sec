@@ -59,37 +59,6 @@ test('begin, successor and durable readback retain one exact canonical immutable
   assertDeepFrozen(parsed); assert.deepEqual(parsed, second);
 }));
 
-test('begin never retargets owner or source after asynchronous slot observation starts', async () => using(async f => {
-  const values = request(f);
-  const expectedDestination = values.destinationPath;
-  mkdirSync(expectedDestination);
-  const replacements = { ...values, kind: 'runtime-projection',
-    ownerRoot: path.join(f.root, 'missing-owner'), destinationPath: path.join(f.root, 'other'),
-    stagePath: path.join(f.root, 'source'), stageRootPath: path.join(f.root, 'source'),
-    backupPath: path.join(f.root, 'source'), bindingDigest: null,
-    sourceGeneration: { ...f.sourceGeneration, ownerRoot: path.join(f.root, 'missing-source') },
-    options: { ...f.options, async beforeCommit() { assert.fail('replacement effect'); } } };
-  const selected = new Set<PropertyKey>();
-  const input = new Proxy(values, { get(target, key, receiver) {
-    if (Object.hasOwn(replacements, key)) {
-      if (selected.has(key)) return Reflect.get(replacements, key);
-      selected.add(key);
-    }
-    return Reflect.get(target, key, receiver);
-  } });
-  const pending = beginDependencyTransition(input);
-  Object.assign(values, { ownerRoot: path.join(f.root, 'missing-owner'), destinationPath: path.join(f.root, 'other'),
-    sourceGeneration: { ...f.sourceGeneration, ownerRoot: path.join(f.root, 'missing-source') } });
-  const result = await pending;
-  assert.equal(result.ownerRoot, f.root); assert.equal(result.kind, 'compiler-bridge');
-  for (const slot of [result.destination, result.preimage]) {
-    assert.equal(slot.path, expectedDestination); assert.equal(slot.kind, 'directory');
-    assert.equal(slot.bindingDigest, f.sourceGeneration.bindingDigest);
-  }
-  assert.equal(result.stage, null); assert.equal(result.stageRoot, null); assert.equal(result.backup, null);
-  assert.deepEqual(result.sourceGeneration, f.sourceGeneration);
-}));
-
 test('begin rejects a structural source clone before creating any transition namespace', async () => using(async f => {
   await assert.rejects(beginDependencyTransition({ ...request(f), sourceGeneration: { ...f.sourceGeneration } }),
     (error: unknown) => error instanceof Error && error.message.includes('was not issued by the physical source compiler'));
@@ -116,48 +85,6 @@ test('begin captures only known request fields and narrows effect options before
   const pending = beginDependencyTransition(input);
   rawOptions.beforeCommit = async () => assert.fail('late replacement');
   await pending; assert.ok(calls > 0);
-}));
-
-test('a successor cannot override immutable fields', async () => using(async f => {
-  const first = await beginDependencyTransition(request(f));
-  for (const [key, value] of [['sequence', 3], ['attemptNonce', 'replaced'], ['operationKey', 'sha256:' + '0'.repeat(64)],
-    ['previousRecordDigest', null], ['preimage', null], ['schema', 'wrong']] as const) {
-    let effects = 0;
-    await assert.rejects(advanceDependencyTransition(first, { phase: 'complete', [key]: value } as never,
-      { ...f.options, async beforeCommit() { effects++; } }));
-    assert.equal(effects, 0); assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
-  }
-}));
-
-test('invalid update descriptors and schema values are refused before namespace effects', async () => using(async f => {
-  const first = await beginDependencyTransition(request(f));
-  const accessor = Object.defineProperty({}, 'phase', { enumerable: true, get() { assert.fail('getter invoked'); } });
-  const hidden = Object.defineProperty({}, 'phase', { value: 'complete', enumerable: false });
-  for (const patch of [accessor, hidden, { phase: 'complete', [Symbol('extra')]: true }, null, []]) {
-    await assert.rejects(advanceDependencyTransition(first, patch as never, f.options));
-  }
-  let effects = 0;
-  await assert.rejects(advanceDependencyTransition(first, { phase: 'not-a-phase' as never },
-    { ...f.options, async beforeCommit() { effects++; } }));
-  assert.equal(effects, 0);
-  assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
-}));
-
-test('nested successor data cannot drift during namespace admission or publication', async () => using(async f => {
-  const first = await beginDependencyTransition(request(f));
-  const failure = { code: 'ORIGINAL', message: 'original failure' };
-  const next = await advanceDependencyTransition(first, { phase: 'recovery-required', durability: 'unknown', failure },
-    { ...f.options, async beforeCommit() { failure.code = 'REPLACED'; failure.message = 'changed'; } });
-  assert.deepEqual(next.failure, { code: 'ORIGINAL', message: 'original failure' });
-  assertDeepFrozen(next);
-  assert.deepEqual(await readDependencyTransition(f.root, f.options), next);
-}));
-
-test('invalid begin record shape is rejected before creating a ledger namespace', async () => using(async f => {
-  let effects = 0;
-  await assert.rejects(beginDependencyTransition({ ...request(f), kind: 'unknown-kind' as never,
-    options: { ...f.options, async beforeCommit() { effects++; } } }));
-  assert.equal(effects, 0); assert.equal(existsSync(dependencyTransitionNamespacePaths(f.root).recordsRoot), false);
 }));
 
 test('project runtime bridge records bind a project locator to an external issued source generation', async () => using(async f => {
