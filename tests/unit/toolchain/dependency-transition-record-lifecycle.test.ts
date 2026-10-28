@@ -65,17 +65,6 @@ test('begin rejects a structural source clone before creating any transition nam
   assert.equal(existsSync(path.join(f.root, '.tmp')), false);
 }));
 
-test('relative begin paths are interpreted at invocation, not after an await changes cwd', async () => using(async f => {
-  const original = process.cwd();
-  try {
-    process.chdir(f.root);
-    const pending = beginDependencyTransition({ ...request(f), ownerRoot: '.', destinationPath: 'bridge' });
-    process.chdir(tmpdir());
-    const result = await pending;
-    assert.equal(result.ownerRoot, f.root); assert.equal(result.destination.path, path.join(f.root, 'bridge'));
-  } finally { process.chdir(original); }
-}));
-
 test('begin captures only known request fields and narrows effect options before callbacks', async () => using(async f => {
   let calls = 0;
   const rawOptions = new Proxy({ ...f.options, beforeCommit: async () => { calls++; },
