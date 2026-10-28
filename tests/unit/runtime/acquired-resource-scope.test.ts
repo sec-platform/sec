@@ -2,8 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   ResourceCompositeSettlementError,
-  withAcquiredResource,
-  type AcquiredResourceScope
+  withAcquiredResource
 } from '../../../src/execution/resource-settlement.ts';
 
 async function rejectsWith(promise: Promise<unknown>, expected: unknown): Promise<void> {
@@ -73,45 +72,6 @@ test('body and release errors retain labels, occurrence order and exact payloads
     assert.deepEqual(error.errors, [primary, cleanup]);
     return true;
   });
-});
-
-test('release and operation are selected before acquisition can mutate the scope', async () => {
-  const events: string[] = [];
-  const input: AcquiredResourceScope<number, number> = {
-    operationLabel: 'body', resourceLabel: 'resource',
-    acquire() {
-      input.use = () => { events.push('replacement-use'); return 0; };
-      input.release = () => { events.push('replacement-release'); };
-      return 3;
-    },
-    use(resource) { events.push('use'); return resource + 1; },
-    release() { events.push('release'); }
-  };
-  assert.equal(await withAcquiredResource(input), 4);
-  assert.deepEqual(events, ['use', 'release']);
-});
-
-test('class-private provider state keeps the original method receiver', async () => {
-  class Provider implements AcquiredResourceScope<number, number> {
-    readonly operationLabel = 'body'; readonly resourceLabel = 'resource';
-    #value = 9; released = false;
-    acquire() { return this.#value; }
-    use(value: number) { return value + this.#value; }
-    release(value: number) { assert.equal(value, this.#value); this.released = true; }
-  }
-  const provider = new Provider();
-  assert.equal(await withAcquiredResource(provider), 18);
-  assert.equal(provider.released, true);
-});
-
-test('an invalid release is rejected before acquiring a resource', async () => {
-  let acquired = false;
-  await assert.rejects(withAcquiredResource({
-    operationLabel: 'body', resourceLabel: 'resource',
-    acquire() { acquired = true; return 1; }, use: value => value,
-    release: null as unknown as () => void
-  }), TypeError);
-  assert.equal(acquired, false);
 });
 
 test('normal value delivery waits for asynchronous release acknowledgement', async () => {

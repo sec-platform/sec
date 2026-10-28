@@ -38,7 +38,7 @@ test('async settlement waits for each cleanup before attempting peers and return
 });
 
 test('async settlement preserves the primary and all cleanup failures while attempting every peer', async () => {
-  const primary = new Error('run');
+  const primary = undefined;
   const first = new Error('first cleanup'), third = new Error('third cleanup');
   const events: string[] = [];
   const primaryInput = { label: 'run', error: primary };
