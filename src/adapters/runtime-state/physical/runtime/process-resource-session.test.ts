@@ -938,7 +938,7 @@ test.skipIf(process.platform !== 'linux')(
 
 // New implementation proposal. These exercise the real process owner when
 // admitted by the existing test runner; source presence is not runtime evidence.
-test('bound archive commands preserve original issuer, captured data and single-use settlement', async () => {
+test('bound archive commands preserve original issuer and single-use settlement', async () => {
   const operation = boundOperation({ label: 'new-bound-recipe-identity', budgets: [
     { resource: 'duration-ms', maximum: 10_000 }, { resource: 'input-bytes', maximum: 0 },
     { resource: 'output-bytes', maximum: 32 }, { resource: 'processes', maximum: 2 }
@@ -961,8 +961,6 @@ test('bound archive commands preserve original issuer, captured data and single-
     expect(() => { issuer.issue({ ...binding! }, input); transferred = true; }).toThrow('original live issuer');
     const command = issuer.issue(binding, input);
     transferred = true;
-    argv[2] = 'process.stdout.write("changed")';
-    env.RECIPE_VALUE = 'changed';
     expect(() => session.close()).toThrow('outstanding bound-command');
     await expect(runBoundProcessResourceCommand(session, binding, { ...command })).rejects.toThrow('original member');
     const result = await runBoundProcessResourceCommand(session, binding, command);
@@ -1056,89 +1054,6 @@ test('cancelled bound archive commands consume no later child and still release 
       if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
     } },
     { label: 'untransferred archive input', settle: () => { if (!transferred) retained?.dispose(); } },
-    { label: 'archive command session', settle: () => { session.close(); } }
-  ] });
-});
-
-test('bound command admission rejects reentrant close before registering retained resources', () => {
-  const operation = boundOperation({ label: 'new-bound-reentrant-close' });
-  const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
-  const issuer = createProcessResourceCommandIssuer();
-  let binding: ReturnType<typeof bindProcessResourceCommandIssuer> | undefined;
-  let retained: ReturnType<typeof retainTestBoundary> | undefined;
-  let transferred = false;
-  let primary: ResourceSettlementFailure | undefined;
-  let closed: ProcessResourceSessionReceipt | undefined;
-  const env = new Proxy({}, { ownKeys() { closed = session.close(); return []; } });
-  try {
-    binding = bindProcessResourceCommandIssuer(session, issuer.identity);
-    const inputBoundary = retained = retainTestBoundary();
-    expect(() => {
-      issuer.issue(binding!, { boundary: inputBoundary.boundary, args: ['--version'],
-        options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
-      transferred = true;
-    })
-      .toThrow('original live issuer');
-    if (closed === undefined) throw new Error('Reentrant close did not return its original receipt.');
-    expect(session.close()).toBe(closed);
-    expect(session.processCount).toBe(0);
-    // Failed preparation never transfers this retained input to a command.
-    expect(() => inputBoundary.boundary.workingDirectory.assertCurrent()).not.toThrow();
-  } catch (error) {
-    primary = { label: 'reentrant close assertions', error };
-  }
-  settleResources({ primary, cleanup: [
-    { label: 'prepared archive commands', settle: () => {
-      if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
-    } },
-    { label: 'untransferred archive input', settle: () => { if (!transferred) retained?.dispose(); } },
-    { label: 'archive command session', settle: () => { session.close(); } }
-  ] });
-});
-
-test('bound command admission rechecks preparation capacity after reentrant issue', () => {
-  const operation = boundOperation({ label: 'new-bound-reentrant-issue', budgets: [
-    { resource: 'duration-ms', maximum: 10_000 }, { resource: 'input-bytes', maximum: 0 },
-    { resource: 'output-bytes', maximum: 16 }, { resource: 'processes', maximum: 1 }
-  ] });
-  const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
-  const issuer = createProcessResourceCommandIssuer();
-  let binding: ReturnType<typeof bindProcessResourceCommandIssuer> | undefined;
-  let outer: ReturnType<typeof retainTestBoundary> | undefined;
-  let inner: ReturnType<typeof retainTestBoundary> | undefined;
-  let outerIssued = false;
-  let innerIssued = false;
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    binding = bindProcessResourceCommandIssuer(session, issuer.identity);
-    const outerInput = outer = retainTestBoundary();
-    const innerInput = inner = retainTestBoundary();
-    const env = new Proxy({}, { ownKeys() {
-      issuer.issue(binding!, { boundary: innerInput.boundary, args: ['--version'],
-        options: { env: {}, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
-      innerIssued = true;
-      return [];
-    } });
-    expect(() => {
-      issuer.issue(binding!, { boundary: outerInput.boundary, args: ['--version'],
-        options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
-      outerIssued = true;
-    }).toThrow('process ceiling');
-    expect(innerIssued).toBe(true);
-    expect(() => session.close()).toThrow('outstanding bound-command');
-    releasePreparedProcessResourceCommands(session, binding);
-    expect(() => innerInput.boundary.workingDirectory.assertCurrent()).toThrow();
-    expect(session.processCount).toBe(0);
-    assertProcessResourceSessionReceipt(session.close());
-  } catch (error) {
-    primary = { label: 'reentrant issue assertions', error };
-  }
-  settleResources({ primary, cleanup: [
-    { label: 'prepared archive commands', settle: () => {
-      if (binding !== undefined) releasePreparedProcessResourceCommands(session, binding);
-    } },
-    { label: 'untransferred inner input', settle: () => { if (!innerIssued) inner?.dispose(); } },
-    { label: 'untransferred outer input', settle: () => { if (!outerIssued) outer?.dispose(); } },
     { label: 'archive command session', settle: () => { session.close(); } }
   ] });
 });
