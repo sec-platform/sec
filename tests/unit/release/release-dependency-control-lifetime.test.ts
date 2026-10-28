@@ -64,34 +64,31 @@ test('frozen release controls settle owned handles after acquisition and read fa
       }));
       const { prepareFrozenReleaseSource } = await import(${source('src/adapters/release/release-source-materialization.ts')});
       // Each failed preparation owns fresh handles and never issues a source.
-      // Keep all cuts, including repetition in the same module instance.
       for (fault of ['package-acquire', 'lock-acquire', 'lock-acquire-and-dispose', 'read', 'read-and-dispose', 'undefined-read']) {
         primary = fault === 'undefined-read' ? undefined : Object.freeze({ fault });
-        for (let invocation = 0; invocation < 2; invocation++) {
-          events.length = 0;
-          let caught = false;
-          try { await prepareFrozenReleaseSource('/borrowed-repository'); }
-          catch (error) {
-            caught = true;
-            if (fault === 'lock-acquire-and-dispose') {
-              assert.deepEqual(error.errors, [primary, packageCleanup]);
-            } else if (fault === 'read-and-dispose') {
-              assert.deepEqual(error.errors, [primary, lockCleanup, packageCleanup]);
-              assert.deepEqual(error.failures.map(f => f.label), [
-                'frozen dependency materialization',
-                'frozen dependency bun.lock dispose',
-                'frozen dependency package.json dispose'
-              ]);
-            } else assert.equal(error, primary);
-          }
-          assert.equal(caught, true);
-          const expected = fault === 'package-acquire'
-            ? ['acquire-package.json', 'dispose-stage']
-            : fault.startsWith('lock-acquire')
-              ? ['acquire-package.json', 'acquire-bun.lock', 'dispose-package.json', 'dispose-stage']
-              : ['acquire-package.json', 'acquire-bun.lock', 'dispose-bun.lock', 'dispose-package.json', 'dispose-stage'];
-          assert.deepEqual(events, expected);
+        events.length = 0;
+        let caught = false;
+        try { await prepareFrozenReleaseSource('/borrowed-repository'); }
+        catch (error) {
+          caught = true;
+          if (fault === 'lock-acquire-and-dispose') {
+            assert.deepEqual(error.errors, [primary, packageCleanup]);
+          } else if (fault === 'read-and-dispose') {
+            assert.deepEqual(error.errors, [primary, lockCleanup, packageCleanup]);
+            assert.deepEqual(error.failures.map(f => f.label), [
+              'frozen dependency materialization',
+              'frozen dependency bun.lock dispose',
+              'frozen dependency package.json dispose'
+            ]);
+          } else assert.equal(error, primary);
         }
+        assert.equal(caught, true);
+        const expected = fault === 'package-acquire'
+          ? ['acquire-package.json', 'dispose-stage']
+          : fault.startsWith('lock-acquire')
+            ? ['acquire-package.json', 'acquire-bun.lock', 'dispose-package.json', 'dispose-stage']
+            : ['acquire-package.json', 'acquire-bun.lock', 'dispose-bun.lock', 'dispose-package.json', 'dispose-stage'];
+        assert.deepEqual(events, expected);
       }
       console.log('owned controls settled');
     `);

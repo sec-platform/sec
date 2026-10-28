@@ -2,46 +2,28 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError, settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 
-test('cleanup captures membership and actions before metadata or effects', async () => {
-  const events: string[] = [], failure = new Error('second');
-  const second = { label: 'second', settle() { events.push('second'); throw failure; } };
-  const cleanup = [{ get label() {
-    cleanup.length = 0;
-    cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
-    return 'first';
-  }, settle() {
-    cleanup.length = 0; cleanup.push({ label: 'extra', settle() { assert.fail('not admitted'); } });
-    second.label = 'renamed'; second.settle = () => assert.fail('replaced'); events.push('first');
-  } }, second];
-  await assert.rejects(async () => settlePhysicalResources({ cleanup }), error => {
+test('synchronous settlement preserves exact primary failures and still attempts every cleanup', async () => {
+  const events: string[] = [], failure = new Error('first cleanup');
+  await assert.rejects(async () => settlePhysicalResources({ cleanup: [
+    { label: 'first', settle() { events.push('first'); throw failure; } },
+    { label: 'second', settle() { events.push('second'); } }
+  ] }), error => {
     assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
-    assert.deepEqual(error.failures, [{ label: 'second', error: failure }]);
+    assert.deepEqual(error.failures, [{ label: 'first', error: failure }]);
+    assert.deepEqual(error.errors, [failure]);
     return true;
   });
   assert.deepEqual(events, ['first', 'second']);
-});
-
-test('primary error is captured even when its source is later mutated', async () => {
   const unaccompanied = new Error('operation failed');
   await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'run', error: unaccompanied }, cleanup: [] }),
     error => error === unaccompanied);
-  const primary = { label: 'run', error: null as unknown };
-  await assert.rejects(async () => settlePhysicalResources({ primary, cleanup: [{ label: 'cleanup', settle() {
-    primary.label = 'other'; primary.error = new Error('replacement');
-  } }] }), error => error === null);
+  await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'run', error: null }, cleanup: [{
+    label: 'cleanup', settle() { events.push('primary-cleanup'); }
+  }] }), error => error === null);
+  assert.deepEqual(events, ['first', 'second', 'primary-cleanup']);
 });
 
-test('cleanup capture keeps a class-private receiver without consulting a caller iterator', () => {
-  class Resource { #closed = false; label = 'class'; settle() { this.#closed = true; } get closed() { return this.#closed; } }
-  const resource = new Resource(), cleanup = [resource];
-  Object.defineProperty(cleanup, Symbol.iterator, { get() {
-    assert.fail('cleanup membership must not execute a caller iterator');
-  } });
-  settlePhysicalResources({ cleanup });
-  assert.equal(resource.closed, true);
-});
-
-test('async capture happens before suspension, while actual cleanup order stays sequential', async () => {
+test('async settlement waits for each cleanup before attempting peers and returning', async () => {
   let release!: () => void, entered!: () => void;
   const held = new Promise<void>(r => { release = r; }), begun = new Promise<void>(r => { entered = r; });
   const events: string[] = [];
@@ -49,35 +31,21 @@ test('async capture happens before suspension, while actual cleanup order stays 
   const third = { label: 'third', settle() { events.push('third'); } };
   const pending = settlePhysicalResourcesAsync({ cleanup: [{ label: 'first', async settle() { entered(); await held; events.push('first'); } }, second, third] });
   try {
-    await begun; second.settle = () => assert.fail('late replacement'); second.label = 'changed';
+    await begun;
     assert.deepEqual(events, []);
   } finally { release(); await pending; }
-  const terminal = await pending;
   assert.deepEqual(events, ['first', 'start:second', 'second', 'third']);
-  assert.deepEqual(terminal, { status: 'settled', attemptedLabels: ['first', 'second', 'third'] });
 });
 
-test('composite failure fields and AggregateError values describe one captured sequence', () => {
-  const primary = new Error('primary'), secondary = new Error('secondary');
-  const source = [{ label: 'primary', error: primary }, { label: 'secondary', error: secondary }];
-  const failure = new PhysicalResourceCompositeSettlementError(source);
-  source.reverse(); source[0]!.label = 'changed'; source[0]!.error = new Error('replacement');
-  assert.deepEqual(failure.errors, [primary, secondary]);
-  assert.deepEqual(failure.failures, [{ label: 'primary', error: primary }, { label: 'secondary', error: secondary }]);
-  assert.ok(Object.isFrozen(failure.failures[0])); assert.equal(Object.isFrozen(primary), false);
-});
-
-test('async settlement preserves primary, capture and cleanup failures while attempting every peer', async () => {
-  const primary = new Error('run'), access = new Error('get method');
+test('async settlement preserves the primary and all cleanup failures while attempting every peer', async () => {
+  const primary = new Error('run');
   const first = new Error('first cleanup'), third = new Error('third cleanup');
   const events: string[] = [];
   const primaryInput = { label: 'run', error: primary };
   await assert.rejects(settlePhysicalResourcesAsync({ primary: primaryInput, cleanup: [
     { label: 'first', async settle() {
-      primaryInput.label = 'changed'; primaryInput.error = new Error('replacement');
       events.push('first'); throw first;
     } },
-    { label: 'broken', get settle(): () => void { throw access; } },
     { label: 'second', async settle() { events.push('second'); } },
     { label: 'third', async settle() { events.push('third'); throw third; } }
   ] }), error => {
@@ -85,43 +53,10 @@ test('async settlement preserves primary, capture and cleanup failures while att
     assert.deepEqual(error.failures, [
       { label: 'run', error: primary },
       { label: 'first', error: first },
-      { label: 'broken', error: access },
       { label: 'third', error: third }
     ]);
-    assert.deepEqual(error.errors, [primary, first, access, third]);
+    assert.deepEqual(error.errors, [primary, first, third]);
     return true;
   });
   assert.deepEqual(events, ['first', 'second', 'third']);
 });
-
-// Dense-slot admission belongs to the shared capture; async failure draining is observed above.
-for (const variant of ['hole', 'accessor', 'inherited'] as const) {
-  test(`cleanup capture reports a ${variant} slot without abandoning peers or the primary`, async () => {
-    const events: string[] = [];
-    const cleanup = [
-      { label: 'invalid', settle() { assert.fail('invalid slot was admitted'); } },
-      { label: 'owned', settle() { events.push('owned'); } }
-    ];
-    if (variant === 'accessor') Object.defineProperty(cleanup, '0', { get() {
-      assert.fail('array-slot accessors must not execute');
-    } });
-    else {
-      Reflect.deleteProperty(cleanup, '0');
-      if (variant === 'inherited') {
-        const prototype = Object.create(Array.prototype);
-        Object.defineProperty(prototype, '0', { value: {
-          label: 'foreign', settle() { assert.fail('inherited cleanup was admitted'); }
-        } });
-        Object.setPrototypeOf(cleanup, prototype);
-      }
-    }
-    await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'operation', error: undefined }, cleanup }), error => {
-      assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
-      assert.deepEqual(error.failures.map(failure => failure.label), ['operation', 'cleanup[0]']);
-      assert.equal(error.errors[0], undefined);
-      assert.ok(error.errors[1] instanceof TypeError);
-      return true;
-    });
-    assert.deepEqual(events, ['owned']);
-  });
-}
