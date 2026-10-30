@@ -1,0 +1,20 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:retrieval-resource",
+  "imports": {},
+  "definitions": {
+    "ServiceMemory": {
+      "resource:model": {
+        "unitRef": "unit:MiB",
+        "allocation": "shared",
+        "capacityLiteral": {
+          "magnitude": "512",
+          "unitRef": "unit:MiB"
+        }
+      }
+    }
+  },
+  "exports": [
+    "ServiceMemory"
+  ]
+}

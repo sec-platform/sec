@@ -1,0 +1,345 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:retrieval-assembly",
+  "imports": {
+    "sourceModel": {
+      "workspace": "module:source-model-subjects-v1"
+    },
+    "input": {
+      "workspace": "module:retrieval-input-subjects"
+    },
+    "kernel": {
+      "workspace": "module:retrieval-query-private"
+    },
+    "public": {
+      "workspace": "module:retrieval-public"
+    },
+    "business": {
+      "workspace": "module:retrieval-business-input"
+    },
+    "engineering": {
+      "workspace": "module:retrieval-engineering"
+    },
+    "environment": {
+      "workspace": "module:retrieval-environment"
+    }
+  },
+  "definitions": {
+    "CommandLine": {
+      "product:system": {
+        "components": [
+          {
+            "instance": "queryKernel",
+            "componentRef": "kernel:QueryKernel",
+            "contextBindings": {
+              "business": {
+                "source": "context",
+                "role": "business"
+              },
+              "self": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "componentPath": [
+                    "queryKernel"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "instance": "serviceEntry",
+            "componentRef": "public:ServiceEntry",
+            "contextBindings": {
+              "business": {
+                "source": "context",
+                "role": "business"
+              },
+              "self": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "componentPath": [
+                    "serviceEntry"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "instance": "dataAccess",
+            "componentRef": "public:DataAccess",
+            "contextBindings": {
+              "business": {
+                "source": "context",
+                "role": "business"
+              },
+              "self": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "componentPath": [
+                    "dataAccess"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "contextRoles": {
+          "base": {
+            "typeRef": "input:OriginalProject",
+            "cardinality": "one"
+          },
+          "business": {
+            "typeRef": "input:BusinessContract",
+            "cardinality": "one"
+          },
+          "publicAPI": {
+            "typeRef": "input:PublicAPI",
+            "cardinality": "one"
+          },
+          "unmanagedAssets": {
+            "typeRef": "input:UnmanagedAssets",
+            "cardinality": "one"
+          },
+          "workload": {
+            "typeRef": "input:Workload",
+            "cardinality": "one"
+          },
+          "memoryMeasure": {
+            "typeRef": "input:MemoryMeasure",
+            "cardinality": "one"
+          }
+        },
+        "requirements": [
+          {
+            "ref": "engineering:EngineeringRequirements",
+            "roleBindings": {
+              "project": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "project"
+                }
+              },
+              "kernel": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "componentPath": [
+                    "queryKernel"
+                  ]
+                }
+              },
+              "entry": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "componentPath": [
+                    "serviceEntry"
+                  ]
+                }
+              },
+              "data": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "componentPath": [
+                    "dataAccess"
+                  ]
+                }
+              },
+              "ui": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "ts",
+                    "rootId": "admin",
+                    "export": "AdminUI"
+                  },
+                  "componentPath": []
+                }
+              },
+              "budget": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "member",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "componentPath": [
+                    "dataAccess"
+                  ],
+                  "slot": "resourceParticipations",
+                  "useId": "serviceMemory"
+                }
+              },
+              "command": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "output-root",
+                  "target": "rust",
+                  "rootId": "command"
+                }
+              },
+              "querylib": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "output-root",
+                  "target": "rust",
+                  "rootId": "querylib"
+                }
+              },
+              "admin": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "output-root",
+                  "target": "ts",
+                  "rootId": "admin"
+                }
+              },
+              "serviceNode": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "deployment-node",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "command",
+                    "export": "CommandLine"
+                  },
+                  "nodeId": "entryNode"
+                }
+              },
+              "base": {
+                "source": "context",
+                "role": "base"
+              },
+              "business": {
+                "source": "context",
+                "role": "business"
+              },
+              "publicAPI": {
+                "source": "context",
+                "role": "publicAPI"
+              },
+              "unmanagedAssets": {
+                "source": "context",
+                "role": "unmanagedAssets"
+              },
+              "workload": {
+                "source": "context",
+                "role": "workload"
+              },
+              "memoryMeasure": {
+                "source": "context",
+                "role": "memoryMeasure"
+              }
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source": {
+              "instance": "queryKernel",
+              "portRef": "business:QueryPort"
+            },
+            "target": {
+              "instance": "serviceEntry",
+              "portRef": "business:QueryPort"
+            }
+          },
+          {
+            "source": {
+              "instance": "dataAccess",
+              "portRef": "business:IndexPort"
+            },
+            "target": {
+              "instance": "serviceEntry",
+              "portRef": "business:IndexPort"
+            }
+          }
+        ],
+        "publicEndpoints": [
+          {
+            "name": "service",
+            "source": {
+              "instance": "serviceEntry",
+              "portRef": "business:ServicePort"
+            },
+            "interfaceRef": "business:ServicePort"
+          }
+        ],
+        "externalRequirements": [
+          {
+            "target": {
+              "instance": "queryKernel",
+              "portRef": "business:StrategyPort"
+            }
+          }
+        ],
+        "deploymentRef": "local:ServiceDeployment"
+      }
+    },
+    "ServiceDeployment": {
+      "product:deployment": {
+        "nodes": [
+          {
+            "id": "kernelNode",
+            "instance": "queryKernel",
+            "placementRef": "ServiceProcess",
+            "replicas": 1
+          },
+          {
+            "id": "entryNode",
+            "instance": "serviceEntry",
+            "placementRef": "ServiceProcess",
+            "replicas": 1
+          },
+          {
+            "id": "dataNode",
+            "instance": "dataAccess",
+            "placementRef": "ServiceProcess",
+            "replicas": 1
+          }
+        ],
+        "environmentRef": "environment:ServiceEnvironment"
+      }
+    }
+  },
+  "exports": [
+    "CommandLine"
+  ]
+}

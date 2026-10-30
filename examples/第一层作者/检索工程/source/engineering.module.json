@@ -1,0 +1,1706 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:retrieval-engineering",
+  "imports": {
+    "sourceModel": {
+      "workspace": "module:source-model-subjects-v1"
+    },
+    "input": {
+      "workspace": "module:retrieval-input-subjects"
+    }
+  },
+  "definitions": {
+    "ProjectFormation": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "kernel": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact kernel binding as defined in retrieval-contract.md#inputs"
+          },
+          "entry": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact entry binding as defined in retrieval-contract.md#inputs"
+          },
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact data binding as defined in retrieval-contract.md#inputs"
+          },
+          "ui": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact ui binding as defined in retrieval-contract.md#inputs"
+          },
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "OutputRoot"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact command binding as defined in retrieval-contract.md#inputs"
+          },
+          "querylib": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "OutputRoot"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact querylib binding as defined in retrieval-contract.md#inputs"
+          },
+          "admin": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "OutputRoot"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact admin binding as defined in retrieval-contract.md#inputs"
+          },
+          "serviceNode": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "DeploymentNode"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact serviceNode binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "formation",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "BusinessCompatibility": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "base": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "OriginalProject"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact base binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          },
+          "publicAPI": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "PublicAPI"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact publicAPI binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "business-and-api",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "AssetPreservation": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "base": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "OriginalProject"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact base binding as defined in retrieval-contract.md#inputs"
+          },
+          "unmanagedAssets": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "UnmanagedAssets"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact unmanagedAssets binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "assets",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "KernelDependencyBoundary": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "kernel": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact kernel binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "dependencies",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "KernelRuntimeBoundary": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "kernel": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact kernel binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "runtime-boundary",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "IndexWriteOwnership": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact data binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "index-owner",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "SharedProcessBudget": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "kernel": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact kernel binding as defined in retrieval-contract.md#inputs"
+          },
+          "entry": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact entry binding as defined in retrieval-contract.md#inputs"
+          },
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact data binding as defined in retrieval-contract.md#inputs"
+          },
+          "budget": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "ResourceUse"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact budget binding as defined in retrieval-contract.md#inputs"
+          },
+          "serviceNode": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "DeploymentNode"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact serviceNode binding as defined in retrieval-contract.md#inputs"
+          },
+          "workload": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "Workload"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact workload binding as defined in retrieval-contract.md#inputs"
+          },
+          "memoryMeasure": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "MemoryMeasure"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact memoryMeasure binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "process-budget",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "CancellationSettlement": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "kernel": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact kernel binding as defined in retrieval-contract.md#inputs"
+          },
+          "entry": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact entry binding as defined in retrieval-contract.md#inputs"
+          },
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact data binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "cancellation",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "SharedIndexLifetime": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact data binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "shared-index",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "ConfirmedIndexUpgrade": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Project"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact project binding as defined in retrieval-contract.md#inputs"
+          },
+          "base": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "OriginalProject"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact base binding as defined in retrieval-contract.md#inputs"
+          },
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact data binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "upgrade",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "StrategyDiscipline": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "kernel": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact kernel binding as defined in retrieval-contract.md#inputs"
+          },
+          "budget": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "ResourceUse"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact budget binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "strategy",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "KernelInputContract": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "kernel": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact kernel binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "kernel-input",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "EntryInputContract": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "entry": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact entry binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "entry-input",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "DataInputContract": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact data binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "data-input",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "AdminInputContract": {
+      "req:rule": {
+        "strength": "require",
+        "fields": {
+          "ui": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "sourceModel",
+                    "export": "Component"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact ui binding as defined in retrieval-contract.md#inputs"
+          },
+          "business": {
+            "required": true,
+            "type": {
+              "kind": "subject",
+              "subjectKinds": [
+                {
+                  "decl": {
+                    "import": "input",
+                    "export": "BusinessContract"
+                  }
+                }
+              ]
+            },
+            "meaning": "Exact business binding as defined in retrieval-contract.md#inputs"
+          }
+        },
+        "semantics": {
+          "source": "../design/retrieval-contract.md",
+          "section": "admin-input",
+          "scope": "one-captured-project-and-exact-task-inputs"
+        },
+        "implementation": "unbound"
+      }
+    },
+    "ReplaceableQueryStrategy": {
+      "req:composite": {
+        "parameters": {},
+        "subjects": {
+          "kernel": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "budget": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "ResourceUse"
+              }
+            }
+          },
+          "business": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "BusinessContract"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "kernel": {
+            "subject": "kernel"
+          },
+          "budget": {
+            "subject": "budget"
+          },
+          "business": {
+            "subject": "business"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "definitionId": "StrategyDiscipline"
+            },
+            "fields": {
+              "kernel": {
+                "subject": "kernel"
+              },
+              "budget": {
+                "subject": "budget"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "KernelRequirements": {
+      "req:composite": {
+        "parameters": {},
+        "subjects": {
+          "kernel": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "business": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "BusinessContract"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "kernel": {
+            "subject": "kernel"
+          },
+          "business": {
+            "subject": "business"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "definitionId": "KernelInputContract"
+            },
+            "fields": {
+              "kernel": {
+                "subject": "kernel"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "EntryRequirements": {
+      "req:composite": {
+        "parameters": {},
+        "subjects": {
+          "entry": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "business": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "BusinessContract"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "entry": {
+            "subject": "entry"
+          },
+          "business": {
+            "subject": "business"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "definitionId": "EntryInputContract"
+            },
+            "fields": {
+              "entry": {
+                "subject": "entry"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "DataRequirements": {
+      "req:composite": {
+        "parameters": {},
+        "subjects": {
+          "data": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "business": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "BusinessContract"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "data": {
+            "subject": "data"
+          },
+          "business": {
+            "subject": "business"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "definitionId": "DataInputContract"
+            },
+            "fields": {
+              "data": {
+                "subject": "data"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "AdminRequirements": {
+      "req:composite": {
+        "parameters": {},
+        "subjects": {
+          "ui": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "business": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "BusinessContract"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "ui": {
+            "subject": "ui"
+          },
+          "business": {
+            "subject": "business"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "definitionId": "AdminInputContract"
+            },
+            "fields": {
+              "ui": {
+                "subject": "ui"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "EngineeringRequirements": {
+      "req:composite": {
+        "parameters": {},
+        "subjects": {
+          "project": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Project"
+              }
+            }
+          },
+          "kernel": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "entry": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "data": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "ui": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "Component"
+              }
+            }
+          },
+          "command": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "OutputRoot"
+              }
+            }
+          },
+          "querylib": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "OutputRoot"
+              }
+            }
+          },
+          "admin": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "OutputRoot"
+              }
+            }
+          },
+          "serviceNode": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "DeploymentNode"
+              }
+            }
+          },
+          "base": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "OriginalProject"
+              }
+            }
+          },
+          "business": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "BusinessContract"
+              }
+            }
+          },
+          "publicAPI": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "PublicAPI"
+              }
+            }
+          },
+          "unmanagedAssets": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "UnmanagedAssets"
+              }
+            }
+          },
+          "budget": {
+            "type": {
+              "ref": {
+                "import": "sourceModel",
+                "export": "ResourceUse"
+              }
+            }
+          },
+          "workload": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "Workload"
+              }
+            }
+          },
+          "memoryMeasure": {
+            "type": {
+              "ref": {
+                "import": "input",
+                "export": "MemoryMeasure"
+              }
+            }
+          }
+        },
+        "exposes": {
+          "project": {
+            "subject": "project"
+          },
+          "kernel": {
+            "subject": "kernel"
+          },
+          "entry": {
+            "subject": "entry"
+          },
+          "data": {
+            "subject": "data"
+          },
+          "ui": {
+            "subject": "ui"
+          },
+          "command": {
+            "subject": "command"
+          },
+          "querylib": {
+            "subject": "querylib"
+          },
+          "admin": {
+            "subject": "admin"
+          },
+          "serviceNode": {
+            "subject": "serviceNode"
+          },
+          "base": {
+            "subject": "base"
+          },
+          "business": {
+            "subject": "business"
+          },
+          "publicAPI": {
+            "subject": "publicAPI"
+          },
+          "unmanagedAssets": {
+            "subject": "unmanagedAssets"
+          },
+          "budget": {
+            "subject": "budget"
+          },
+          "workload": {
+            "subject": "workload"
+          },
+          "memoryMeasure": {
+            "subject": "memoryMeasure"
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "definitionId": "ProjectFormation"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "kernel": {
+                "subject": "kernel"
+              },
+              "entry": {
+                "subject": "entry"
+              },
+              "data": {
+                "subject": "data"
+              },
+              "ui": {
+                "subject": "ui"
+              },
+              "command": {
+                "subject": "command"
+              },
+              "querylib": {
+                "subject": "querylib"
+              },
+              "admin": {
+                "subject": "admin"
+              },
+              "serviceNode": {
+                "subject": "serviceNode"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "BusinessCompatibility"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "base": {
+                "subject": "base"
+              },
+              "business": {
+                "subject": "business"
+              },
+              "publicAPI": {
+                "subject": "publicAPI"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "AssetPreservation"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "base": {
+                "subject": "base"
+              },
+              "unmanagedAssets": {
+                "subject": "unmanagedAssets"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "KernelDependencyBoundary"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "kernel": {
+                "subject": "kernel"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "KernelRuntimeBoundary"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "kernel": {
+                "subject": "kernel"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "IndexWriteOwnership"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "data": {
+                "subject": "data"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "SharedProcessBudget"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "kernel": {
+                "subject": "kernel"
+              },
+              "entry": {
+                "subject": "entry"
+              },
+              "data": {
+                "subject": "data"
+              },
+              "budget": {
+                "subject": "budget"
+              },
+              "serviceNode": {
+                "subject": "serviceNode"
+              },
+              "workload": {
+                "subject": "workload"
+              },
+              "memoryMeasure": {
+                "subject": "memoryMeasure"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "CancellationSettlement"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "kernel": {
+                "subject": "kernel"
+              },
+              "entry": {
+                "subject": "entry"
+              },
+              "data": {
+                "subject": "data"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "SharedIndexLifetime"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "data": {
+                "subject": "data"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          },
+          {
+            "require": {
+              "definitionId": "ConfirmedIndexUpgrade"
+            },
+            "fields": {
+              "project": {
+                "subject": "project"
+              },
+              "base": {
+                "subject": "base"
+              },
+              "data": {
+                "subject": "data"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          },
+          {
+            "use": {
+              "definitionId": "ReplaceableQueryStrategy"
+            },
+            "arguments": {
+              "kernel": {
+                "subject": "kernel"
+              },
+              "budget": {
+                "subject": "budget"
+              },
+              "business": {
+                "subject": "business"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": [
+    "ProjectFormation",
+    "BusinessCompatibility",
+    "AssetPreservation",
+    "KernelDependencyBoundary",
+    "KernelRuntimeBoundary",
+    "IndexWriteOwnership",
+    "SharedProcessBudget",
+    "CancellationSettlement",
+    "SharedIndexLifetime",
+    "ConfirmedIndexUpgrade",
+    "StrategyDiscipline",
+    "KernelInputContract",
+    "EntryInputContract",
+    "DataInputContract",
+    "AdminInputContract",
+    "ReplaceableQueryStrategy",
+    "KernelRequirements",
+    "EntryRequirements",
+    "DataRequirements",
+    "AdminRequirements",
+    "EngineeringRequirements"
+  ]
+}

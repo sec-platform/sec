@@ -1,0 +1,15 @@
+[
+  {
+    "op": "test",
+    "path": "/definitions/ServiceMemory/resource:model/capacityLiteral",
+    "value": {
+      "magnitude": "512",
+      "unitRef": "unit:MiB"
+    }
+  },
+  {
+    "op": "replace",
+    "path": "/definitions/ServiceMemory/resource:model/capacityLiteral/magnitude",
+    "value": "256"
+  }
+]

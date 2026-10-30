@@ -1,0 +1,100 @@
+[
+  {
+    "op": "test",
+    "path": "/imports",
+    "value": {
+      "policy": {
+        "workspace": "module:shared-views-policy"
+      },
+      "boundary": {
+        "workspace": "module:passive-typescript-values"
+      },
+      "obs": {
+        "workspace": "module:component-call-observation"
+      },
+      "calls": {
+        "workspace": "module:retained-call"
+      },
+      "values": {
+        "workspace": "module:component-call-values"
+      }
+    }
+  },
+  {
+    "op": "test",
+    "path": "/definitions/ThresholdView/product:component/operationContracts/0/requirements/0",
+    "value": {
+      "ref": "local:ViewReadOwnFrame",
+      "callBinding": {
+        "at": "success",
+        "roles": {
+          "before": {
+            "source": "state",
+            "when": "before",
+            "cell": "threshold"
+          },
+          "after": {
+            "source": "state",
+            "when": "after",
+            "cell": "threshold"
+          }
+        }
+      }
+    }
+  },
+  {
+    "op": "test",
+    "path": "/definitions/ThresholdView/product:component/observationParticipations",
+    "value": [
+      {
+        "use": {
+          "ref": "obs:CallObservation",
+          "useId": "callFacts"
+        },
+        "role": "consume"
+      }
+    ]
+  },
+  {
+    "op": "add",
+    "path": "/imports/frames",
+    "value": {
+      "workspace": "module:controlled-value-frame"
+    }
+  },
+  {
+    "op": "add",
+    "path": "/definitions/ThresholdView/product:component/observationParticipations/-",
+    "value": {
+      "use": {
+        "ref": "frames:OwnStateObservation",
+        "useId": "ownFrame"
+      },
+      "role": "consume"
+    }
+  },
+  {
+    "op": "replace",
+    "path": "/definitions/ThresholdView/product:component/operationContracts/0/requirements/0",
+    "value": {
+      "ref": "frames:OwnCellsFrame",
+      "roleBindings": {
+        "allowedNames": {
+          "source": "literal",
+          "typeRef": "frames:CellNames",
+          "value": []
+        }
+      },
+      "callBinding": {
+        "at": "success",
+        "roles": {
+          "cut": {
+            "source": "observation",
+            "when": "after",
+            "useId": "ownFrame"
+          }
+        }
+      }
+    }
+  }
+]

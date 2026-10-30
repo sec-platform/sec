@@ -1,0 +1,27 @@
+{
+  "schema": "gift.control-file/design-converged",
+  "projectId": "example:retrieval-control",
+  "fileId": "retrieval-layout",
+  "records": [
+    {
+      "scopeRef": {
+        "kind": "module",
+        "moduleId": "module:retrieval-public"
+      },
+      "target": "rust",
+      "controlRef": "generation.structure-policy",
+      "mode": "require",
+      "value": "preserve"
+    },
+    {
+      "scopeRef": {
+        "kind": "module",
+        "moduleId": "module:retrieval-query-private"
+      },
+      "target": "rust",
+      "controlRef": "generation.structure-policy",
+      "mode": "require",
+      "value": "reorganize"
+    }
+  ]
+}

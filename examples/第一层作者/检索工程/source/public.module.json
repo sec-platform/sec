@@ -1,0 +1,165 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:retrieval-public",
+  "imports": {
+    "business": {
+      "workspace": "module:retrieval-business-input"
+    },
+    "sourceModel": {
+      "workspace": "module:source-model-subjects-v1"
+    },
+    "input": {
+      "workspace": "module:retrieval-input-subjects"
+    },
+    "resource": {
+      "workspace": "module:retrieval-resource"
+    },
+    "engineering": {
+      "workspace": "module:retrieval-engineering"
+    },
+    "kernel": {
+      "workspace": "module:retrieval-query-private"
+    }
+  },
+  "definitions": {
+    "ServiceEntry": {
+      "product:component": {
+        "provides": [
+          "business:ServicePort"
+        ],
+        "requires": [
+          "business:QueryPort",
+          "business:IndexPort"
+        ],
+        "requirements": [
+          {
+            "ref": "engineering:EntryRequirements",
+            "roleBindings": {
+              "entry": {
+                "source": "context",
+                "role": "self"
+              },
+              "business": {
+                "source": "context",
+                "role": "business"
+              }
+            }
+          }
+        ],
+        "contextRoles": {
+          "business": {
+            "typeRef": "input:BusinessContract",
+            "cardinality": "one"
+          },
+          "self": {
+            "typeRef": "sourceModel:Component",
+            "cardinality": "one"
+          }
+        }
+      }
+    },
+    "DataAccess": {
+      "product:component": {
+        "provides": [
+          "business:IndexPort"
+        ],
+        "requires": [],
+        "requirements": [
+          {
+            "ref": "engineering:DataRequirements",
+            "roleBindings": {
+              "data": {
+                "source": "context",
+                "role": "self"
+              },
+              "business": {
+                "source": "context",
+                "role": "business"
+              }
+            }
+          }
+        ],
+        "contextRoles": {
+          "business": {
+            "typeRef": "input:BusinessContract",
+            "cardinality": "one"
+          },
+          "self": {
+            "typeRef": "sourceModel:Component",
+            "cardinality": "one"
+          }
+        },
+        "resourceParticipations": [
+          {
+            "use": {
+              "useId": "serviceMemory",
+              "ref": "resource:ServiceMemory"
+            },
+            "role": "owner"
+          }
+        ]
+      }
+    },
+    "QueryLibrary": {
+      "product:system": {
+        "contextRoles": {
+          "business": {
+            "typeRef": "input:BusinessContract",
+            "cardinality": "one"
+          }
+        },
+        "components": [
+          {
+            "instance": "queryKernel",
+            "componentRef": "kernel:QueryKernel",
+            "contextBindings": {
+              "business": {
+                "source": "context",
+                "role": "business"
+              },
+              "self": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "component",
+                  "root": {
+                    "target": "rust",
+                    "rootId": "querylib",
+                    "export": "QueryLibrary"
+                  },
+                  "componentPath": [
+                    "queryKernel"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "connections": [],
+        "publicEndpoints": [
+          {
+            "name": "query",
+            "source": {
+              "instance": "queryKernel",
+              "portRef": "business:QueryPort"
+            },
+            "interfaceRef": "business:QueryPort"
+          }
+        ],
+        "externalRequirements": [
+          {
+            "target": {
+              "instance": "queryKernel",
+              "portRef": "business:StrategyPort"
+            }
+          }
+        ],
+        "requirements": []
+      }
+    }
+  },
+  "exports": [
+    "ServiceEntry",
+    "DataAccess",
+    "QueryLibrary"
+  ]
+}

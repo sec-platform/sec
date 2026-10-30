@@ -1,0 +1,208 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:controlled-value-frame",
+  "imports": {
+    "native": {
+      "workspace": "module:controlled-frame-observation"
+    }
+  },
+  "definitions": {
+    "Cut": {
+      "core:type": {
+        "tag": "nominal",
+        "ref": "native:FrameCut"
+      }
+    },
+    "Positions": {
+      "core:type": {
+        "tag": "set",
+        "item": {
+          "tag": "nominal",
+          "ref": "native:Position"
+        }
+      }
+    },
+    "CellNames": {
+      "core:type": {
+        "tag": "sequence",
+        "item": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "ordered": true
+      }
+    },
+    "ObserveCut": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "subject",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Cut"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Cut"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "var",
+          "name": "subject"
+        }
+      }
+    },
+    "UnchangedAt": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {
+            "name": "cut",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Cut"
+            },
+            "cardinality": "one"
+          },
+          {
+            "name": "position",
+            "type": {
+              "tag": "nominal",
+              "ref": "native:Position"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "native:UnchangedAt"
+      }
+    },
+    "ValueFrame": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {
+            "name": "cut",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Cut"
+            },
+            "cardinality": "one"
+          },
+          {
+            "name": "allowed",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Positions"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "formula": {
+          "quantify": {
+            "quantifier": "forall",
+            "binder": "position",
+            "domain": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "native:ProtectedPositions"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "cut"
+                },
+                {
+                  "op": "var",
+                  "name": "allowed"
+                }
+              ]
+            },
+            "predicate": {
+              "apply": {
+                "meaningRef": "local:UnchangedAt",
+                "arguments": {
+                  "cut": {
+                    "binding": "cut"
+                  },
+                  "position": {
+                    "binding": "position"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "OwnCellsFrame": {
+      "intent:goal": {
+        "roles": {
+          "cut": "local:Cut",
+          "allowedNames": "local:CellNames"
+        },
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "apply": {
+                "meaningRef": "local:ValueFrame",
+                "arguments": {
+                  "cut": {
+                    "binding": "cut"
+                  },
+                  "allowed": {
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "native:OwnCells"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "cut"
+                        },
+                        {
+                          "op": "var",
+                          "name": "allowedNames"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "OwnStateObservation": {
+      "observation:contract": {
+        "subjectRef": "native:FrameCut",
+        "observerRef": "local:ObserveCut",
+        "scopeRef": "scope:retained-own-state-frame",
+        "completeness": "closed"
+      }
+    }
+  },
+  "exports": [
+    "Cut",
+    "Positions",
+    "CellNames",
+    "ValueFrame",
+    "OwnCellsFrame",
+    "OwnStateObservation"
+  ]
+}

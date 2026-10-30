@@ -1,0 +1,136 @@
+[
+  {
+    "op": "test",
+    "path": "/targets/ts/profileRef",
+    "value": {
+      "id": "profile:shared-views-typescript-library",
+      "revision": "1"
+    }
+  },
+  {
+    "op": "test",
+    "path": "/sourceScopes",
+    "value": [
+      {
+        "root": "共享资料工程",
+        "kind": "semantic",
+        "include": [
+          "policy.module.json",
+          "call-values.module.json",
+          "observations.module.json",
+          "workspace.module.json"
+        ],
+        "editSource": {
+          "mode": "file"
+        }
+      },
+      {
+        "root": "序列派生",
+        "kind": "semantic",
+        "include": [
+          "sequence.module.json"
+        ],
+        "editSource": {
+          "mode": "file"
+        }
+      },
+      {
+        "root": "共享资料工程/supply",
+        "kind": "native",
+        "include": [
+          "boundary.d.ts",
+          "calls.d.ts"
+        ],
+        "editSource": {
+          "mode": "file"
+        }
+      },
+      {
+        "root": "共享资料工程/supply",
+        "kind": "design",
+        "include": [
+          "boundary.selection.json",
+          "declaration-profile.md",
+          "calls.selection.json",
+          "call-profile.md",
+          "target-design-profile.md"
+        ],
+        "editSource": {
+          "mode": "file"
+        }
+      },
+      {
+        "root": ".",
+        "kind": "design",
+        "include": [
+          "shared-views.control.json"
+        ],
+        "editSource": {
+          "mode": "file"
+        }
+      }
+    ]
+  },
+  {
+    "op": "add",
+    "path": "/sourceScopes/-",
+    "value": {
+      "root": "受控状态帧",
+      "kind": "semantic",
+      "include": [
+        "frame.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  },
+  {
+    "op": "add",
+    "path": "/sourceScopes/-",
+    "value": {
+      "root": "受控状态帧/supply",
+      "kind": "native",
+      "include": [
+        "frame.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  },
+  {
+    "op": "add",
+    "path": "/sourceScopes/-",
+    "value": {
+      "root": "受控状态帧/supply",
+      "kind": "design",
+      "include": [
+        "frame.selection.json",
+        "frame-profile.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  },
+  {
+    "op": "add",
+    "path": "/sourceScopes/-",
+    "value": {
+      "root": "受控状态帧",
+      "kind": "design",
+      "include": [
+        "target-profile-v2.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  },
+  {
+    "op": "replace",
+    "path": "/targets/ts/profileRef/revision",
+    "value": "2"
+  }
+]

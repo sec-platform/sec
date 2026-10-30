@@ -1,0 +1,19 @@
+[
+  {
+    "op": "test",
+    "path": "/definitions/ThresholdView/product:component/operationContracts/0/requirements/0/ref",
+    "value": "frames:OwnCellsFrame"
+  },
+  {
+    "op": "test",
+    "path": "/definitions/ThresholdView/product:component/operationContracts/0/requirements/0/roleBindings/allowedNames/value",
+    "value": []
+  },
+  {
+    "op": "replace",
+    "path": "/definitions/ThresholdView/product:component/operationContracts/0/requirements/0/roleBindings/allowedNames/value",
+    "value": [
+      "threshold"
+    ]
+  }
+]

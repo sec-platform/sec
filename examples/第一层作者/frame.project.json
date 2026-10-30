@@ -1,0 +1,37 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:controlled-value-frame",
+  "sourceScopes": [
+    {
+      "root": "受控状态帧",
+      "kind": "semantic",
+      "include": [
+        "frame.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "受控状态帧/supply",
+      "kind": "native",
+      "include": [
+        "frame.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "受控状态帧/supply",
+      "kind": "design",
+      "include": [
+        "frame.selection.json",
+        "frame-profile.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  ]
+}

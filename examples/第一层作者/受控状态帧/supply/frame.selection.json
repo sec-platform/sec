@@ -1,0 +1,33 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "module:controlled-frame-observation",
+  "language": "typescript",
+  "profileRef": "profile:controlled-value-frame:1",
+  "symbols": {
+    "FrameCut": {
+      "sourcePath": "受控状态帧/supply/frame.d.ts",
+      "nativeExport": "FrameCut",
+      "role": "type"
+    },
+    "Position": {
+      "sourcePath": "受控状态帧/supply/frame.d.ts",
+      "nativeExport": "Position",
+      "role": "type"
+    },
+    "OwnCells": {
+      "sourcePath": "受控状态帧/supply/frame.d.ts",
+      "nativeExport": "OwnCells",
+      "role": "callable"
+    },
+    "ProtectedPositions": {
+      "sourcePath": "受控状态帧/supply/frame.d.ts",
+      "nativeExport": "ProtectedPositions",
+      "role": "callable"
+    },
+    "UnchangedAt": {
+      "sourcePath": "受控状态帧/supply/frame.d.ts",
+      "nativeExport": "UnchangedAt",
+      "role": "predicate"
+    }
+  }
+}

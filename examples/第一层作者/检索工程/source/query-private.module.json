@@ -1,0 +1,58 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:retrieval-query-private",
+  "imports": {
+    "business": {
+      "workspace": "module:retrieval-business-input"
+    },
+    "sourceModel": {
+      "workspace": "module:source-model-subjects-v1"
+    },
+    "input": {
+      "workspace": "module:retrieval-input-subjects"
+    },
+    "engineering": {
+      "workspace": "module:retrieval-engineering"
+    }
+  },
+  "definitions": {
+    "QueryKernel": {
+      "product:component": {
+        "provides": [
+          "business:QueryPort"
+        ],
+        "requires": [
+          "business:StrategyPort"
+        ],
+        "requirements": [
+          {
+            "ref": "engineering:KernelRequirements",
+            "roleBindings": {
+              "kernel": {
+                "source": "context",
+                "role": "self"
+              },
+              "business": {
+                "source": "context",
+                "role": "business"
+              }
+            }
+          }
+        ],
+        "contextRoles": {
+          "business": {
+            "typeRef": "input:BusinessContract",
+            "cardinality": "one"
+          },
+          "self": {
+            "typeRef": "sourceModel:Component",
+            "cardinality": "one"
+          }
+        }
+      }
+    }
+  },
+  "exports": [
+    "QueryKernel"
+  ]
+}

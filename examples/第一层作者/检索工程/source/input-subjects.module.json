@@ -1,0 +1,45 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:retrieval-input-subjects",
+  "imports": {},
+  "definitions": {
+    "OriginalProject": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "BusinessContract": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "PublicAPI": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "UnmanagedAssets": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "Workload": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "MemoryMeasure": {
+      "req:subject": {
+        "roles": {}
+      }
+    }
+  },
+  "exports": [
+    "OriginalProject",
+    "BusinessContract",
+    "PublicAPI",
+    "UnmanagedAssets",
+    "Workload",
+    "MemoryMeasure"
+  ]
+}

@@ -1,0 +1,15 @@
+# 单位与有限部署环境解释
+
+unit:MiB在本工程是固定信息容量单位，1 MiB=1048576 byte；容量magnitude为精确十进制，512/256 MiB分别为536870912/268435456 byte。它不是已占用量、速率或已获额度；换算不得舍入，实际测量误差及覆盖由memoryMeasure承担。
+
+原product:deployment的environmentRef为Ref，placementRef为非空字符串，没有独立Environment Definition Kind。本例采用下面准确的专业解释，不将未知Kind、URI或环境名称当已安装供给，也不改变其他部署画像。
+
+source/environment.module.json定义闭、不可变ServiceEnvironmentSpec，只有processKey:Text；ServiceEnvironment为该名义类型的真实纯常量，值为ServiceProcess。environmentRef在assembly的ModuleUse中准确解析此core:constant及其名义类型，按本专业用途的纯常量资格取得值。它不把BusinessRoleActual.source:definition改成读取值，也不允许任意Ref隐式求值。
+
+processKey是本环境内非空、大小写敏感的逻辑进程容器键。当前deployment的每个node.placementRef必须匹配它；全部node仍按原字段唯一对应真实成员和各自replicas。相同键在另一环境/根不自动指同一实例。这里的键明确要求进程级共同驻留，不只是同Host；真实运行句柄另由执行owner取得。
+
+节点清单、副本数与UI排除不在环境常量再存一份：它们的唯一作者数据分别在实际deployment/Project中，工程Formation及目标合同要求CLI三成员、replicas=1，且UI根不进入服务进程。消费者联合核准确来源、完整集合及同一候选；缺/多/重复节点、错误成员、跨根混用或不满足共同进程均不能按空集合通过。QueryLibrary内核为另一产品根中的子发生，不因同Definition加入CLI预算或运行状态。
+
+ServiceEnvironmentSpec只声明逻辑拓扑，没有虚构已选机器、活PID、Host权限、真实网络端点或资源额度。实际运行仍需履行该拓扑、目标、workload/计量和业务合同的真实平台与能力；源常量不签这些事实。旧索引可读由base/business和升级Rule承担。改变节点/键/采用关系形成新修订并重评相交要求，不在执行时猜测。
+
+本专业解释补全原作者字段在此工程中的有限含义；生产部署consumer、source到runtime对应及实际执行未实现。源模型选择deployment-node只给出真实方案节点，不发生活进程，也不成为权限来源。

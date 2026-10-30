@@ -1,0 +1,100 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:retrieval-control",
+  "sourceScopes": [
+    {
+      "root": "检索工程/source",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "检索工程/selected-business",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "检索工程/design",
+      "kind": "design",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "检索工程/selected-assets",
+      "kind": "asset",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "semantic",
+      "include": [
+        "subjects.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "design",
+      "include": [
+        "README.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  ],
+  "targets": {
+    "rust": {
+      "profileRef": {
+        "id": "profile:retrieval-rust",
+        "revision": "1"
+      },
+      "outputRoots": [
+        {
+          "rootId": "command",
+          "moduleId": "module:retrieval-assembly",
+          "export": "CommandLine",
+          "contextBindings": {
+            "base": {"source": "context", "role": "base"},
+            "business": {"source": "context", "role": "business"},
+            "publicAPI": {"source": "context", "role": "publicAPI"},
+            "unmanagedAssets": {"source": "context", "role": "unmanagedAssets"},
+            "workload": {"source": "context", "role": "workload"},
+            "memoryMeasure": {"source": "context", "role": "memoryMeasure"}
+          }
+        },
+        {
+          "rootId": "querylib",
+          "moduleId": "module:retrieval-public",
+          "export": "QueryLibrary",
+          "contextBindings": {"business": {"source": "context", "role": "business"}}
+        }
+      ]
+    },
+    "ts": {
+      "profileRef": {
+        "id": "profile:retrieval-admin",
+        "revision": "1"
+      },
+      "outputRoots": [
+        {
+          "rootId": "admin",
+          "moduleId": "module:retrieval-admin",
+          "export": "AdminUI",
+          "contextBindings": {
+            "business": {"source": "context", "role": "business"},
+            "self": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+          }
+        }
+      ]
+    }
+  }
+}

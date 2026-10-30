@@ -1,0 +1,49 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:retrieval-environment",
+  "imports": {},
+  "definitions": {
+    "ServiceEnvironmentSpec": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "processKey": {
+            "type": {
+              "tag": "scalar",
+              "name": "text"
+            }
+          }
+        }
+      }
+    },
+    "ServiceEnvironment": {
+      "core:constant": {
+        "type": {
+          "tag": "nominal",
+          "ref": "local:ServiceEnvironmentSpec"
+        },
+        "value": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "processKey",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "ServiceProcess"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": [
+    "ServiceEnvironmentSpec",
+    "ServiceEnvironment"
+  ]
+}
