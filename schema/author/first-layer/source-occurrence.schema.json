@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:first-layer-source-occurrence",
+  "title": "Source occurrence actual; not a runtime object or evidence",
+  "$defs": {
+    "Root": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "rootId", "export"],
+      "properties": {
+        "target": {"type": "string", "minLength": 1},
+        "rootId": {"$ref": "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/rootId"},
+        "export": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"}
+      }
+    },
+    "Path": {"type": "array", "items": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"}},
+    "Selector": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["kind"],
+          "properties": {"kind": {"const": "project"}}
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["kind", "target", "rootId"],
+          "properties": {
+            "kind": {"const": "output-root"},
+            "target": {"type": "string", "minLength": 1},
+            "rootId": {"$ref": "urn:gift:design-schema:project-2#/$defs/OutputRoot/properties/rootId"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["kind"],
+          "properties": {"kind": {"const": "product-root"}, "root": {"$ref": "#/$defs/Root"}}
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["kind", "componentPath"],
+          "properties": {
+            "kind": {"const": "component"}, "root": {"$ref": "#/$defs/Root"},
+            "componentPath": {"$ref": "#/$defs/Path"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "componentPath", "slot", "useId"],
+          "properties": {
+            "kind": {"const": "member"}, "root": {"$ref": "#/$defs/Root"},
+            "componentPath": {"$ref": "#/$defs/Path"},
+            "slot": {"enum": ["stateParticipations", "dataAccesses", "eventParticipations", "protocolParticipations", "resourceParticipations", "uiParticipations", "observationParticipations", "concurrencyUses", "workflowUses", "policyUses", "qualityUses"]},
+            "useId": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["kind", "nodeId"],
+          "properties": {
+            "kind": {"const": "deployment-node"}, "root": {"$ref": "#/$defs/Root"},
+            "nodeId": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"}
+          }
+        }
+      ],
+      "description": "Finite source-owned addresses in the captured project. An omitted root uses exactly the current selected product-root occurrence. No JSONPath, array index, filesystem path or objectRef string parsing."
+    },
+    "PatternActual": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "selector"],
+      "properties": {
+        "source": {"$ref": "#/$defs/Actual/properties/source"},
+        "selector": {"$ref": "#/$defs/Actual/properties/selector"},
+        "typeRefinementRef": {"type": "string", "minLength": 1},
+        "identityEvidenceRef": {"type": "string", "minLength": 1}
+      },
+      "description": "Pattern-only original evidence locators accompany the same source selection. Locators do not issue refinement or identity qualification; other actual consumers reject these fields."
+    },
+    "Actual": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "selector"],
+      "properties": {"source": {"const": "occurrence"}, "selector": {"$ref": "#/$defs/Selector"}},
+      "description": "The qualified source-model interpretation derives a nominal SubjectSchema and origin from actual source nodes. No caller-supplied type, issuer or hash can mint that qualification."
+    }
+  }
+}

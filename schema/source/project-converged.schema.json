@@ -104,6 +104,7 @@
     },
     "BusinessRoleActual": {
       "oneOf": [
+        {"$ref": "urn:gift:design-schema:first-layer-source-occurrence#/$defs/Actual"},
         {
           "type": "object",
           "additionalProperties": false,

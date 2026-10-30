@@ -3,6 +3,13 @@
   "scope": "complete-candidate-structure-only",
   "resources": [
     {
+      "path": "schema/source/project-2.schema.json",
+      "id": "urn:gift:design-schema:project-2",
+      "sha256": "bf31c56f7df58c2531cb9155e514d2296d2026d44d1a8511a3cf3e3728153b01",
+      "candidateId": "urn:gift:design-schema:project-2-source-anchor-base",
+      "replacements": []
+    },
+    {
       "path": "schema/author/universal-author-module-2.schema.json",
       "id": "urn:gift:design-schema:universal-author-module-2",
       "sha256": "aef13ee04308879fbf19e148dd6815499be820dc6ab27410d15d82d3efe4b154",
@@ -2024,6 +2031,58 @@
       "candidateId": "urn:gift:design-schema:semantic-pattern-use-2-converged-base",
       "replacements": [
         {
+          "pointer": "/$defs/objectBinding",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "objectRef"
+            ],
+            "properties": {
+              "objectRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "typeRefinementRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "identityEvidenceRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "objectRef"
+                ],
+                "properties": {
+                  "objectRef": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "typeRefinementRef": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "identityEvidenceRef": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-source-occurrence#/$defs/PatternActual"
+              }
+            ]
+          }
+        },
+        {
           "pointer": "/$defs/definitionRef/oneOf/0/properties/definitionId",
           "expected": {
             "type": "string",
@@ -2195,6 +2254,11 @@
   ],
   "externals": [
     {
+      "path": "schema/author/first-layer/source-occurrence.schema.json",
+      "id": "urn:gift:design-schema:first-layer-source-occurrence",
+      "sha256": "cfb03759b975b235f745d8abbafea43661d5cc8877074ce922bd4ec94206aa37"
+    },
+    {
       "path": "schema/author/first-layer/names.schema.json",
       "id": "urn:gift:design-schema:first-layer-names",
       "sha256": "3cf91049891715aadeb0e9ab231ca62f89adedbb92a380f0b6bec26f5c6eb901"
@@ -2216,6 +2280,17 @@
     }
   ],
   "extensions": [
+    {
+      "resource": "urn:gift:design-schema:universal-author-module-2",
+      "pointer": "/$defs/BusinessRoleActual",
+      "keyword": "oneOf",
+      "expectedSha256": "a6de8037ee1ce8a01d6d49c691f5caa67ec8744a6416f7dbc667621ca05447fd",
+      "append": [
+        {
+          "$ref": "urn:gift:design-schema:first-layer-source-occurrence#/$defs/Actual"
+        }
+      ]
+    },
     {
       "resource": "urn:gift:design-schema:universal-author-module-2",
       "pointer": "/$defs/Definition",

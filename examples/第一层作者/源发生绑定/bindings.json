@@ -1,0 +1,16 @@
+{
+  "project": "../shared-views.project.json",
+  "selectedRoot": {"target": "ts", "rootId": "package", "export": "Workspace"},
+  "actuals": {
+    "project": {"source": "occurrence", "selector": {"kind": "project"}},
+    "output": {"source": "occurrence", "selector": {"kind": "output-root", "target": "ts", "rootId": "package"}},
+    "root": {"source": "occurrence", "selector": {"kind": "product-root"}},
+    "workspace": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}},
+    "main": {"source": "occurrence", "selector": {"kind": "component", "componentPath": ["main"]}},
+    "preview": {"source": "occurrence", "selector": {"kind": "component", "componentPath": ["preview"]}},
+    "mainFacts": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["main"], "slot": "observationParticipations", "useId": "callFacts"}},
+    "previewFacts": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["preview"], "slot": "observationParticipations", "useId": "callFacts"}}
+  },
+  "patternActual": {"kind": "one", "object": {"source": "occurrence", "selector": {"kind": "component", "componentPath": ["preview"]}}},
+  "forwardedActual": {"source": "context", "role": "preview"}
+}

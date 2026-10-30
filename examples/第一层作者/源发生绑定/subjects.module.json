@@ -1,0 +1,33 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:source-model-subjects-v1",
+  "definitions": {
+    "Project": {"req:subject": {"roles": {}}},
+    "OutputRoot": {"req:subject": {"roles": {
+      "project": {"type": {"decl": {"definitionId": "Project"}}}
+    }}},
+    "ProductRoot": {"req:subject": {"roles": {
+      "output": {"type": {"decl": {"definitionId": "OutputRoot"}}}
+    }}},
+    "Component": {"req:subject": {"roles": {
+      "root": {"type": {"decl": {"definitionId": "ProductRoot"}}}
+    }}},
+    "Member": {"req:subject": {"roles": {
+      "root": {"type": {"decl": {"definitionId": "ProductRoot"}}}
+    }}},
+    "EventUse": {"req:subject": {"roles": {
+      "component": {"type": {"decl": {"definitionId": "Component"}}}
+    }}},
+    "ResourceUse": {"req:subject": {"roles": {
+      "component": {"type": {"decl": {"definitionId": "Component"}}}
+    }}},
+    "ObservationUse": {"req:subject": {"roles": {
+      "component": {"type": {"decl": {"definitionId": "Component"}}}
+    }}},
+    "DeploymentNode": {"req:subject": {"roles": {
+      "root": {"type": {"decl": {"definitionId": "ProductRoot"}}},
+      "component": {"type": {"decl": {"definitionId": "Component"}}}
+    }}}
+  },
+  "exports": ["Project", "OutputRoot", "ProductRoot", "Component", "Member", "EventUse", "ResourceUse", "ObservationUse", "DeploymentNode"]
+}
