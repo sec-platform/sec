@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
+import { CodexDevelopmentChangedFilesFromRecords } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 
-import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -145,16 +146,19 @@ test('transition selection binds exact removed blobs, canonical records, and bas
 });
 
 test('tracked Git records preserve both endpoints and raw identity while rejecting malformed transport', () => {
-  expect(parseGitChangedFileOutput(utf8([
+  const transport = utf8([
     'D', 'docs/deleted.md',
     'T', 'platform/shared/type-changed.ts',
     'R100', 'docs/old-name.md', 'docs/new-name.md',
+    'M', 'docs/new-name.md',
+    'A', 'tests/copied.test.ts',
     'C75', 'tests/source.test.ts', 'tests/copied.test.ts',
     'M', 'docs\\work\\current-state.yaml',
     'R100', 'docs\\old.md', 'docs\\new.md',
     'U', 'path-u.ts', 'X', 'path-x.ts', 'B', 'path-b.ts',
     ''
-  ].join('\0')))).toEqual([
+  ].join('\0'));
+  const expectedPaths = [
     'docs/deleted.md',
     'docs/new-name.md',
     'docs/old-name.md',
@@ -167,7 +171,9 @@ test('tracked Git records preserve both endpoints and raw identity while rejecti
     'platform/shared/type-changed.ts',
     'tests/copied.test.ts',
     'tests/source.test.ts'
-  ]);
+  ];
+  expect(parseGitChangedFileOutput(transport)).toEqual(expectedPaths);
+  expect(CodexDevelopmentChangedFilesFromRecords(parseGitChangedRecordsOutput(transport))).toEqual(expectedPaths);
   expect(() => parseGitChangedFileOutput(utf8('M\0missing-terminator'))).toThrow('missing final NUL');
   expect(() => parseGitChangedFileOutput(utf8('Z\0path.ts\0'))).toThrow('unknown status');
   expect(() => parseGitChangedFileOutput(utf8('R100\0old.ts\0'))).toThrow('missing its second path');

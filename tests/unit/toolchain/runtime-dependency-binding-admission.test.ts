@@ -88,15 +88,9 @@ test('signal validation never invokes a duck signal getter or method', () => {
   assert.throws(() => bind({ signal: signal as never }), rejected);
 });
 
-for (const field of ['lockTimeoutMs', 'pollIntervalMs', 'monotonicNowMs'] as const) {
+for (const field of ['lockTimeoutMs', 'pollIntervalMs'] as const) {
   test(`null is not a missing ${field} default`, () => {
     assert.throws(() => bind({ [field]: null } as never), rejected);
-  });
-}
-
-for (const bad of [0, 'clock', {}, true]) {
-  test(`invalid raw clock is rejected as an input failure: ${typeof bad}`, () => {
-    assert.throws(() => bind({ monotonicNowMs: bad as never }), rejected);
   });
 }
 

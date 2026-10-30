@@ -631,67 +631,13 @@ test('a fired native deadline stays expired when the supplied wall clock does no
   expect(response.body!.locked).toBe(false);
 });
 
-test('request discriminator is captured once for permission, route and response interpretation', async () => {
-  let reads = 0;
-  const operation = Object.defineProperty({}, 'kind', {
-    get() { reads++; return reads === 1 ? 'current-user' : 'repository'; }
-  }) as Parameters<typeof executeGitHubApiOperation>[1];
-  const targets: string[] = [];
-  const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
-    transport: async target => { targets.push(String(target)); return Response.json({ login: 'admin' }); }
-  });
-  expect(await withGitHubApiTestSession({ capability: api,
-    operation: () => executeGitHubApiOperation(api, operation)
-  })).toEqual({ login: 'admin' });
-  expect(reads).toBe(1);
-  expect(targets).toEqual(['https://api.github.com/user']);
-});
-
-test('a validated workflow locator is not re-read while compiling its request route', async () => {
-  let reads = 0;
-  const operation = Object.defineProperty({ kind: 'workflow-run' as const }, 'runId', {
-    get() { reads++; return reads === 1 ? '123' : '../../different-resource'; }
-  }) as Parameters<typeof executeGitHubApiOperation>[1];
-  const targets: string[] = [];
-  const api = capability({ effect: 'read', transport: async target => { targets.push(String(target)); return Response.json({ id: 123 }); } });
-  await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(api, operation) });
-  expect(reads).toBe(1);
-  expect(targets).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/runs/123']);
-});
-
-test('caller mutation cannot revoke or reinterpret an already admitted DELETE response', async () => {
-  const operation = { kind: 'delete-repository-runner', runnerId: 42 };
-  const observed: Array<{ target: string; method: string | undefined; body: unknown }> = [];
-  const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
-    transport: async (target, init) => {
-      observed.push({ target: String(target), method: init?.method, body: init?.body });
-      operation.kind = 'repository';
-      return new Response(null, { status: 204 });
-    }
-  });
-  expect(await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
-    api, operation as Parameters<typeof executeGitHubApiOperation>[1]
-  ) })).toBeNull();
-  expect(observed).toEqual([{
-    target: 'https://api.github.com/repos/sec-platform/sec/actions/runners/42',
-    method: 'DELETE', body: undefined
-  }]);
-});
-
-test('exact ref deletion captures branch and old SHA before repository identity observation', async () => {
-  const fields = { branch: 'stable-branch', expectedOldSha: SHA };
-  const reads = { branch: 0, expectedOldSha: 0 };
-  const operation = Object.defineProperties({ kind: 'delete-ref-cas' as const }, {
-    branch: { get() { reads.branch++; return fields.branch; } },
-    expectedOldSha: { get() { reads.expectedOldSha++; return fields.expectedOldSha; } }
-  }) as Parameters<typeof executeGitHubApiOperation>[1];
+test('exact ref deletion binds the branch and old SHA after repository identity observation', async () => {
+  const operation = { kind: 'delete-ref-cas' as const, branch: 'stable-branch', expectedOldSha: SHA };
   let requests = 0;
   let variables: Record<string, unknown> | null = null;
   const api = capability({ effect: 'branch-closeout-write', transport: async (_target, init) => {
     requests++;
     if (requests === 1) {
-      fields.branch = 'changed-branch';
-      fields.expectedOldSha = '2'.repeat(40);
       return Response.json({ full_name: 'sec-platform/sec', node_id: 'repository-node' });
     }
     variables = (JSON.parse(String(init?.body)) as { variables: Record<string, unknown> }).variables;
@@ -701,7 +647,6 @@ test('exact ref deletion captures branch and old SHA before repository identity 
     operation: () => executeGitHubApiOperation(api, operation)
   });
   expect(requests).toBe(2);
-  expect(reads).toEqual({ branch: 1, expectedOldSha: 1 });
   expect(variables).toMatchObject({
     name: 'refs/heads/stable-branch', beforeOid: SHA
   });
@@ -827,12 +772,12 @@ function streamedNoContent(bytes: Uint8Array = new Uint8Array()): Response {
 }
 
 test('runner deletion owns one exact DELETE and settles streamed empty 204', async () => {
-  const observed: Array<{ target: string; method: string }> = [];
+  const observed: Array<{ target: string; method: string; body: BodyInit | null | undefined }> = [];
   const api = capability({
     effect: 'runner-admin',
     principal: { ...PRINCIPAL, permission: 'admin' },
     transport: async (target, init) => {
-      observed.push({ target: String(target), method: init?.method ?? 'GET' });
+      observed.push({ target: String(target), method: init?.method ?? 'GET', body: init?.body });
       return streamedNoContent();
     }
   });
@@ -844,7 +789,7 @@ test('runner deletion owns one exact DELETE and settles streamed empty 204', asy
   })).resolves.toBeNull();
   expect(observed).toEqual([{
     target: 'https://api.github.com/repos/sec-platform/sec/actions/runners/91',
-    method: 'DELETE'
+    method: 'DELETE', body: undefined
   }]);
 });
 

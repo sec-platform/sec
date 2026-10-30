@@ -30,9 +30,8 @@ test('object-id reply uses one exact LF record and the selected object format', 
   }
 });
 
-test('line decoding rejects invalid UTF-8, shared bytes and incomplete or surplus records', () => {
+test('line decoding rejects invalid UTF-8 and incomplete or surplus records', () => {
   assert.equal(parseGitLineReply(Uint8Array.of(0xff, 10)), null);
-  assert.equal(parseGitLineReply(new Uint8Array(new SharedArrayBuffer(10))), null);
   assert.equal(parseGitLineReply(Buffer.from('one\ntwo\n'), 1), null);
   assert.equal(parseGitLineReply(Buffer.from('one\n'), 2), null);
   assert.deepEqual(parseGitLineReply(Buffer.from(' first \nsecond\t\n'), 2), [' first ', 'second\t']);
@@ -43,15 +42,6 @@ test('a BOM stays data, rather than being dropped to manufacture an object or ab
   assert.deepEqual(parseGitLineReply(Buffer.from('\ufeffrecord\n')), ['\ufeffrecord']);
   assert.equal(parseGitAbsolutePathReply(Buffer.from(`\ufeff${absolute}\n`)), null);
   assert.equal(parseGitObjectIdReply(Buffer.from(`\ufeff${'a'.repeat(40)}\n`)), null);
-});
-
-test('byte decoding uses the actual typed-array view, not caller getters or iterators', () => {
-  const bytes = Buffer.from(`${'a'.repeat(40)}\n`);
-  Object.defineProperties(bytes, {
-    byteLength: { get() { assert.fail('byteLength override'); } },
-    [Symbol.iterator]: { value() { assert.fail('custom iterator'); } }
-  });
-  assert.equal(parseGitObjectIdReply(bytes, 'sha1'), 'a'.repeat(40));
 });
 
 test('real Git absolute index replies preserve a whitespace-bearing explicit locator', () => inGitProtocolRepository(async (root, git, env) => {

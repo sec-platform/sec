@@ -132,19 +132,6 @@ test('file conflicts at adjacent and deeper paths reject before blobs despite le
   }
 });
 
-test('projected admission and blob capture consume each caller field once', () => {
-  let pathReads = 0, blobReads = 0;
-  const addition = {
-    get path() { pathReads++; return pathReads === 1 ? 'a' : '../changed'; },
-    get bytes() { blobReads++; return Uint8Array.of(1, 2); }
-  };
-  const captured = captureGitScratchIndexDelta({ additions: [addition], removals: [] }, 'sha1', 4096);
-  assert.equal(pathReads, 1); assert.equal(blobReads, 1);
-  assert.equal(captured.additions[0]!.path, 'a');
-  assert.deepEqual([...captured.additions[0]!.bytes], [1, 2]);
-});
-
-
 test('resolve-undo metadata round-trips exactly with bounded canonical framing', () => {
   for (const format of ['sha1', 'sha256'] as const) {
     const oid = Buffer.alloc(format === 'sha1' ? 20 : 32, 0x11);

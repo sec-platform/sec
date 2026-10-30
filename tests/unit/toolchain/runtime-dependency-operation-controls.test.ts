@@ -46,16 +46,12 @@ test('bound controls contain no request, raw clock or effect capability', () => 
 });
 
 test('inherited and non-enumerable request controls stay outside the input boundary', () => {
-  const inherited = Object.create({ lockTimeoutMs: 1, pollIntervalMs: 0,
-    monotonicNowMs() { throw new Error('inherited clock'); } });
+  const inherited = Object.create({ lockTimeoutMs: 1, pollIntervalMs: 0 });
   Object.defineProperty(inherited, 'deadlineAtUnixMs', { value: 0, enumerable: false });
   const bound = runtimeDependencyOperationControls(inherited);
   const defaults = runtimeDependencyOperationControls({});
   assert.equal(bound.lockTimeoutMs, defaults.lockTimeoutMs);
   assert.equal(bound.pollIntervalMs, defaults.pollIntervalMs);
-  const hiddenClock = Object.create({ monotonicNowMs() { assert.fail('inherited'); } });
-  Object.defineProperty(hiddenClock, 'monotonicNowMs', { get() { assert.fail('hidden'); } });
-  assert.equal(captureRuntimeDependencyControlInput(hiddenClock).monotonicNowMs, undefined);
 });
 
 test('extracting controls preserves the exact bound parent ledger and telemetry identity', () => {

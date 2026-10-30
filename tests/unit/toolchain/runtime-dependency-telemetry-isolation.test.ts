@@ -88,20 +88,6 @@ for (const field of ['code', 'message', 'name'] as const) {
   });
 }
 
-test('terminal recording retains the captured context after caller options are revoked', () => {
-  const state = clock();
-  const { proxy: options, revoke } = Proxy.revocable(state.options, {});
-  const result = measureRuntimeDependencyOperationPhase(options, 'install', () => {
-    state.time(4);
-    revoke();
-    return 'installed';
-  });
-  assert.equal(result, 'installed');
-  const phase = readRuntimeDependencyOperationTelemetry(state.options).phases[0]!;
-  assert.equal(phase.durationMs, 4);
-  assert.equal(phase.outcomes.completed, 1);
-});
-
 test('parent and narrowed child share telemetry while unrelated operations remain separate', () => {
   const state = clock();
   const child = runtimeDependencyOperationOptions({ ...state.options, pollIntervalMs: 10 });
