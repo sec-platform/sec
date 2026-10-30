@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from '../../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from '../../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
@@ -12,12 +12,24 @@ import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '
 import { compilerRoot } from "../../../src/adapters/workspace-context.ts";
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
 
-const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const provider = testImpactFixture.provider;
-afterAll(() => testImpactFixture.dispose());
-const testInventory = provider.testInventory;
-const budgetProjection = compileTestBudgetProjection(testInventory);
-const baselineSuites = slowTestPrRiskBaselineSuiteIds(budgetProjection);
+// Source Program compilation and native fixture acquisition are a test
+// lifecycle effect, never a prerequisite for discovering these registrations.
+let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | undefined;
+let provider: NonNullable<typeof testImpactFixture>['provider'];
+let testInventory: typeof provider.testInventory;
+let budgetProjection: ReturnType<typeof compileTestBudgetProjection>;
+let baselineSuites: ReturnType<typeof slowTestPrRiskBaselineSuiteIds>;
+
+beforeAll(async () => {
+  const acquired = await acquireExactRepositoryTestImpactProviderFixture();
+  testImpactFixture = acquired;
+  provider = acquired.provider;
+  testInventory = provider.testInventory;
+  budgetProjection = compileTestBudgetProjection(testInventory);
+  baselineSuites = slowTestPrRiskBaselineSuiteIds(budgetProjection);
+});
+afterAll(() => testImpactFixture?.dispose());
+
 const selectSlowTestRiskClosure = (files: string[] | null) => (
   selectSlowTestClosureWithProvider(files, provider)
 );
