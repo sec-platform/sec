@@ -138,7 +138,10 @@ test('an undefined suite failure remains a failed worker result and never record
       suiteRoot: path.dirname(file),
       files: [file],
       onSuitePassed: () => { recorderCalls += 1; }
-    })).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
+    })).rejects.toMatchObject({
+      code: 'VERIFY-BUILD-007',
+      details: { failure: 'undefined' }
+    });
     expect(recorderCalls).toBe(0);
   });
 });
@@ -209,12 +212,15 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
          writeFileSync(source, 'export function runSuite() {}\\n');
        }`,
       async ({ root, file }) => {
+        const passed: string[] = [];
         await expect(runSuiteProcesses({
           workspaceRoot: root,
           suiteRoot: path.join(root, 'tests', 'unit'),
           files: [file],
-          workspaceInputMode: 'sealed-generation'
-        })).rejects.toThrow();
+          workspaceInputMode: 'sealed-generation',
+          onSuitePassed: value => { passed.push(value); }
+        })).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
+        expect(passed).toEqual([]);
       }
     );
   }
@@ -243,12 +249,15 @@ test.skipIf(process.platform !== 'linux')(
          }\n`,
         'utf8'
       );
+      const passed: string[] = [];
       await expect(runSuiteProcesses({
         workspaceRoot: root,
         suiteRoot,
         files: [file],
-        workspaceInputMode: 'sealed-generation'
+        workspaceInputMode: 'sealed-generation',
+        onSuitePassed: value => { passed.push(value); }
       })).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
+      expect(passed).toEqual([]);
     }, () => rm(outsideRoot, { recursive: true, force: true }));
     }, () => rm(root, { recursive: true, force: true }));
   }
@@ -263,12 +272,15 @@ test.skipIf(process.platform !== 'linux')(
          await writeFile(import.meta.file, 'export function runSuite() {}\\n');
        }`,
       async ({ root, file }) => {
+        const passed: string[] = [];
         await expect(runSuiteProcesses({
           workspaceRoot: root,
           suiteRoot: path.join(root, 'tests', 'unit'),
           files: [file],
-          workspaceInputMode: 'sealed-generation'
-        })).rejects.toThrow();
+          workspaceInputMode: 'sealed-generation',
+          onSuitePassed: value => { passed.push(value); }
+        })).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
+        expect(passed).toEqual([]);
       }
     );
   }
