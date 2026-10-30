@@ -22,7 +22,7 @@
   "private": true,
   "type": "module",
   "source": "./src/bootstrap/cli/cli.ts",
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.4",
   "bin": {
     "sec": "./dist/index.js"
   },
