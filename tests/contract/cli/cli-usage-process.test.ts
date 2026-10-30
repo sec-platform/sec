@@ -146,7 +146,10 @@ console.error('classification-reads=' + reads);`);
     expect(result.stderr).not.toContain('Invalid command arguments');
     // Previously, a missing or malformed error frame could pass these tests
     // just because the fixture printed classification-reads=0.
-    const frames = result.stderr.split(/\\r?\\n/u)
+    // Native CLI failure presentation is colorized by the process fixture;
+    // remove terminal formatting before inspecting the machine protocol frame.
+    const protocolStderr = result.stderr.replace(/\u001b\[[0-9;]*m/gu, '');
+    const frames = protocolStderr.split(/\r?\n/u)
       .filter(line => line.startsWith('{') && line.endsWith('}'));
     expect(frames).toHaveLength(1);
     expect(JSON.parse(frames[0]!)).toEqual({
