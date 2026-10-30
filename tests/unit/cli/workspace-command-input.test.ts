@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { registerWorkspaceCommands } from '../../../src/bootstrap/cli/register-workspace-commands.ts';
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
-  parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput
+  parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput, parseWorkspaceViewCommandInput
 } from '../../../src/entry/cli/workspace-command-input.ts';
 
 for (const value of [undefined, true]) {
@@ -48,6 +48,19 @@ test('later changes to raw flags do not change captured request or presentation'
   if (repair.kind === 'execute') {
     assert.deepEqual(repair.output, { json: true, compact: false });
     assert.equal(repair.request.dryRun, true);
+  }
+  // The same captured-output rule applies to both read and write views of
+  // Lock and Explain; the original input may change after selection.
+  for (const [command, mode] of [['lock', 'inspect'], ['explain', 'graph']] as const) {
+    const options = { json: true, compact: true };
+    const inspected = parseWorkspaceViewCommandInput(command, mode, options);
+    const executed = parseWorkspaceViewCommandInput(command, undefined, options);
+    options.json = false; options.compact = false;
+    assert.equal(inspected.kind, 'inspect');
+    assert.equal(executed.kind, 'execute');
+    for (const selection of [inspected, executed]) {
+      assert.deepEqual(selection.output, { json: true, compact: true });
+    }
   }
 });
 

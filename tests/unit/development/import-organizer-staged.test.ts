@@ -138,12 +138,10 @@ async function prepareSnapshotCandidate(
 }
 
 test('staged organizer fast sentinel preserves working bytes while normalizing the index', async () => {
-  const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-fast-'));
+  // This distinct native test now clones the same immutable Git source as
+  // other staged cases. Its long-path-specific commit remains test-owned.
+  const { repoRoot } = await copyOrganizerGitBase('sec-imports-fast-');
   await settleWorkspaceCallback(async () => {
-    git(repoRoot, ['init', '--quiet']);
-    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
-    git(repoRoot, ['config', 'core.autocrlf', 'false']);
     git(repoRoot, ['config', 'core.hooksPath', '.git/hooks']);
     const workPackageDirectory = path.join(repoRoot, 'config', 'repository', 'work-packages');
     await mkdir(workPackageDirectory, { recursive: true });
@@ -151,21 +149,10 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
       workPackageDirectory,
       `default-branch-health-repair-${'a'.repeat(120)}-${'b'.repeat(64)}.md`
     );
-    await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
-      compilerOptions: {
-        allowImportingTsExtensions: true,
-        module: 'ESNext',
-        moduleResolution: 'Bundler',
-        noEmit: true,
-        target: 'ES2022'
-      },
-      include: ['**/*.ts']
-    }, null, 2)}\n`, 'utf8');
-    await writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8');
-    await writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8');
+
     await writeFile(longCanonicalOwner, 'canonical owner fixture\n', 'utf8');
     git(repoRoot, ['-c', 'core.longpaths=true', 'add', '--all']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+    git(repoRoot, ['commit', '--quiet', '-m', 'long-path fixture']);
     const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
     const fixturePath = path.join(repoRoot, 'fixture.ts');
