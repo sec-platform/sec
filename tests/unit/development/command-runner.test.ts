@@ -143,6 +143,18 @@ test('observed execution forwards bounded UTF-8 tails and preserves a nonzero ex
   expect(Buffer.concat(stdoutWrites).byteLength).toBe(DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES + 5);
   expect(Buffer.concat(stderrWrites).byteLength).toBe(DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES + 7);
   expect(devCommandObservationExitCode(observation)).toBe(9);
+  // Reuse this real completed command observation to retain the existing
+  // exact integer-exit and observation-integrity input classes. No further
+  // native process is needed for synthetic terminal variations.
+  for (const exitCode of [0, 255, -1]) {
+    expect(devCommandObservationExitCode({
+      ...observation, terminal: { kind: 'exited', exitCode }
+    })).toBe(exitCode);
+  }
+  expect(devCommandObservationExitCode({
+    ...observation, terminal: { kind: 'exited', exitCode: 0 },
+    observationIntegrity: { kind: 'failed', error: 'lost' }
+  })).toBe(1);
 });
 
 test('unsupported executables and caller budget widening are rejected before execution', async () => {

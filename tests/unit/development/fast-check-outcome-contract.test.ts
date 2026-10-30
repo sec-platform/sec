@@ -115,9 +115,8 @@ test('ordinary completed failures retain documentation priority and successful r
   const successful = fixture();
   assert.equal(await executeFastCheckStages(successful.stages), 0);
   assert.deepEqual(successful.events, ['imports', 'documentation', 'types', 'tests']);
-});
-
-test('the final test stage must also return a valid outcome and preserve its real failure code', async () => {
-  const { stages } = fixture({ tests: async () => 3010 });
-  assert.equal(await executeFastCheckStages(stages), 3010);
+  // The terminal stage also forwards its actual wide failure code.
+  const terminal = fixture({ tests: async () => 3010 });
+  assert.equal(await executeFastCheckStages(terminal.stages), 3010);
+  assert.deepEqual(terminal.events, ['imports', 'documentation', 'types', 'tests']);
 });
