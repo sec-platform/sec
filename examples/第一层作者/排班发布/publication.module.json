@@ -1,0 +1,84 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:scheduling-publication",
+  "imports": {
+    "policy": {"workspace": "module:scheduling-policy"},
+    "confirm": {"workspace": "module:confirmation-session"},
+    "time": {"workspace": "module:event-time-ranges"}
+  },
+  "definitions": {
+    "SchedulingPublication": {
+      "product:system": {
+        "contextRoles": {"session": {"typeRef": "confirm:Session", "cardinality": "one"}},
+        "components": [
+          {
+            "instance": "publication",
+            "componentRef": "confirm:ConfirmationSession",
+            "argumentBindings": {"responseDelay": {"source": "literal", "typeRef": "time:Duration", "value": {"nanoseconds": 1000000000}}},
+            "contextBindings": {
+              "session": {"source": "context", "role": "session"},
+              "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": ["publication"]}},
+              "editsStream": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "eventParticipations", "useId": "edits"}
+              },
+              "editsView": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "observationParticipations", "useId": "editsView"}
+              },
+              "previewsStream": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "eventParticipations", "useId": "previews"}
+              },
+              "previewsView": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "observationParticipations", "useId": "previewsView"}
+              },
+              "confirmationsStream": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "eventParticipations", "useId": "confirmations"}
+              },
+              "confirmationsView": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "observationParticipations", "useId": "confirmationsView"}
+              },
+              "applicationsStream": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "eventParticipations", "useId": "applications"}
+              },
+              "applicationsView": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "observationParticipations", "useId": "applicationsView"}
+              }
+            }
+          }
+        ],
+        "requirements": [
+          {
+            "ref": "policy:FeasiblePublication",
+            "roleBindings": {
+              "dataset": {
+                "source": "literal",
+                "typeRef": "policy:Dataset",
+                "value": {
+                  "people": [1, 2],
+                  "shifts": [{"id": 11, "start": 0, "end": 240}, {"id": 12, "start": 240, "end": 480}],
+                  "availability": [{"person": 1, "shift": 11}, {"person": 1, "shift": 12}, {"person": 2, "shift": 11}, {"person": 2, "shift": 12}]
+                }
+              },
+              "edits": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "observationParticipations", "useId": "editsView"}
+              },
+              "previews": {
+                "source": "occurrence",
+                "selector": {"kind": "member", "componentPath": ["publication"], "slot": "observationParticipations", "useId": "previewsView"}
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": ["SchedulingPublication"]
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "op": "test",
+    "path": "/definitions/SchedulingPublication/product:system/requirements/0/roleBindings/dataset/typeRef",
+    "value": "policy:Dataset"
+  },
+  {
+    "op": "test",
+    "path": "/definitions/SchedulingPublication/product:system/requirements/0/roleBindings/dataset/value/availability/3",
+    "value": {"person": 2, "shift": 12}
+  },
+  {
+    "op": "remove",
+    "path": "/definitions/SchedulingPublication/product:system/requirements/0/roleBindings/dataset/value/availability/3"
+  }
+]

@@ -1,0 +1,519 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:scheduling-policy",
+  "imports": {"confirm": {"workspace": "module:confirmation-session"}, "sourceModel": {"workspace": "module:source-model-subjects-v1"}},
+  "definitions": {
+    "People": {"core:type": {"tag": "set", "item": {"tag": "scalar", "name": "int"}}},
+    "Shift": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "id": {"type": {"tag": "scalar", "name": "int"}},
+          "start": {"type": {"tag": "scalar", "name": "int"}},
+          "end": {"type": {"tag": "scalar", "name": "int"}}
+        }
+      }
+    },
+    "Shifts": {"core:type": {"tag": "set", "item": {"tag": "nominal", "ref": "local:Shift"}}},
+    "Availability": {"core:type": {"tag": "nominal", "ref": "confirm:Content"}},
+    "Dataset": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "people": {"type": {"tag": "nominal", "ref": "local:People"}},
+          "shifts": {"type": {"tag": "nominal", "ref": "local:Shifts"}},
+          "availability": {"type": {"tag": "nominal", "ref": "local:Availability"}}
+        }
+      }
+    },
+    "IntEqualBody": {
+      "core:function": {
+        "parameters": [{"name": "left", "type": {"tag": "scalar", "name": "int"}}, {"name": "right", "type": {"tag": "scalar", "name": "int"}}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "std:IntEq"},
+          "arguments": [{"op": "var", "name": "left"}, {"op": "var", "name": "right"}]
+        }
+      }
+    },
+    "IntLeBody": {
+      "core:function": {
+        "parameters": [{"name": "left", "type": {"tag": "scalar", "name": "int"}}, {"name": "right", "type": {"tag": "scalar", "name": "int"}}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:IntCompare"},
+            "arguments": [{"op": "var", "name": "left"}, {"op": "var", "name": "right"}]
+          },
+          "cases": [
+            {
+              "constructor": "Less",
+              "binding": "unused0",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Equal",
+              "binding": "unused1",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Greater",
+              "binding": "unused2",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            }
+          ]
+        }
+      }
+    },
+    "IntEqual": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:IntEqualBody"
+      }
+    },
+    "IntLe": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:IntLeBody"
+      }
+    },
+    "Contains": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "cardinality": "one"},
+          {"name": "person", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "shift", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "quantify": {
+            "quantifier": "exists",
+            "binder": "pair",
+            "domain": {"op": "var", "name": "content"},
+            "predicate": {
+              "all": [
+                {
+                  "apply": {
+                    "meaningRef": "local:IntEqual",
+                    "arguments": {
+                      "left": {"value": {"op": "field", "record": {"op": "var", "name": "pair"}, "name": "person"}},
+                      "right": {"value": {"op": "var", "name": "person"}}
+                    }
+                  }
+                },
+                {
+                  "apply": {
+                    "meaningRef": "local:IntEqual",
+                    "arguments": {
+                      "left": {"value": {"op": "field", "record": {"op": "var", "name": "pair"}, "name": "shift"}},
+                      "right": {"value": {"op": "var", "name": "shift"}}
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "DatasetWellFormed": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "dataset", "type": {"tag": "nominal", "ref": "local:Dataset"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "quantify": {
+                "quantifier": "exists",
+                "binder": "person",
+                "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "people"},
+                "predicate": {
+                  "apply": {
+                    "meaningRef": "local:IntEqual",
+                    "arguments": {"left": {"value": {"op": "var", "name": "person"}}, "right": {"value": {"op": "var", "name": "person"}}}
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "shift",
+                "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+                "predicate": {
+                  "not": {
+                    "apply": {
+                      "meaningRef": "local:IntLe",
+                      "arguments": {
+                        "left": {"value": {"op": "field", "record": {"op": "var", "name": "shift"}, "name": "end"}},
+                        "right": {"value": {"op": "field", "record": {"op": "var", "name": "shift"}, "name": "start"}}
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "left",
+                "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "forall",
+                    "binder": "right",
+                    "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+                    "predicate": {
+                      "implies": [
+                        {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "left"}, "name": "id"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "right"}, "name": "id"}}
+                            }
+                          }
+                        },
+                        {
+                          "all": [
+                            {
+                              "apply": {
+                                "meaningRef": "local:IntEqual",
+                                "arguments": {
+                                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "left"}, "name": "start"}},
+                                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "right"}, "name": "start"}}
+                                }
+                              }
+                            },
+                            {
+                              "apply": {
+                                "meaningRef": "local:IntEqual",
+                                "arguments": {
+                                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "left"}, "name": "end"}},
+                                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "right"}, "name": "end"}}
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "pair",
+                "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "availability"},
+                "predicate": {
+                  "all": [
+                    {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "person",
+                        "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "people"},
+                        "predicate": {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "var", "name": "person"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "pair"}, "name": "person"}}
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "shift",
+                        "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+                        "predicate": {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "shift"}, "name": "id"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "pair"}, "name": "shift"}}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ScheduleFeasible": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "local:Dataset"}, "cardinality": "one"},
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {"apply": {"meaningRef": "local:DatasetWellFormed", "arguments": {"dataset": {"value": {"op": "var", "name": "dataset"}}}}},
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "shift",
+                "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exactly",
+                    "binder": "person",
+                    "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "people"},
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "local:Contains",
+                        "arguments": {
+                          "content": {"value": {"op": "var", "name": "content"}},
+                          "person": {"value": {"op": "var", "name": "person"}},
+                          "shift": {"value": {"op": "field", "record": {"op": "var", "name": "shift"}, "name": "id"}}
+                        }
+                      }
+                    },
+                    "count": 1
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "pair",
+                "domain": {"op": "var", "name": "content"},
+                "predicate": {
+                  "apply": {
+                    "meaningRef": "local:Contains",
+                    "arguments": {
+                      "content": {"value": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "availability"}},
+                      "person": {"value": {"op": "field", "record": {"op": "var", "name": "pair"}, "name": "person"}},
+                      "shift": {"value": {"op": "field", "record": {"op": "var", "name": "pair"}, "name": "shift"}}
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "left",
+                "domain": {"op": "var", "name": "content"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "forall",
+                    "binder": "right",
+                    "domain": {"op": "var", "name": "content"},
+                    "predicate": {
+                      "implies": [
+                        {
+                          "all": [
+                            {
+                              "apply": {
+                                "meaningRef": "local:IntEqual",
+                                "arguments": {
+                                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "left"}, "name": "person"}},
+                                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "right"}, "name": "person"}}
+                                }
+                              }
+                            },
+                            {
+                              "not": {
+                                "apply": {
+                                  "meaningRef": "local:IntEqual",
+                                  "arguments": {
+                                    "left": {"value": {"op": "field", "record": {"op": "var", "name": "left"}, "name": "shift"}},
+                                    "right": {"value": {"op": "field", "record": {"op": "var", "name": "right"}, "name": "shift"}}
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "quantify": {
+                            "quantifier": "exists",
+                            "binder": "a",
+                            "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+                            "predicate": {
+                              "quantify": {
+                                "quantifier": "exists",
+                                "binder": "b",
+                                "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+                                "predicate": {
+                                  "all": [
+                                    {
+                                      "apply": {
+                                        "meaningRef": "local:IntEqual",
+                                        "arguments": {
+                                          "left": {"value": {"op": "field", "record": {"op": "var", "name": "a"}, "name": "id"}},
+                                          "right": {"value": {"op": "field", "record": {"op": "var", "name": "left"}, "name": "shift"}}
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "apply": {
+                                        "meaningRef": "local:IntEqual",
+                                        "arguments": {
+                                          "left": {"value": {"op": "field", "record": {"op": "var", "name": "b"}, "name": "id"}},
+                                          "right": {"value": {"op": "field", "record": {"op": "var", "name": "right"}, "name": "shift"}}
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "any": [
+                                        {
+                                          "apply": {
+                                            "meaningRef": "local:IntLe",
+                                            "arguments": {
+                                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "a"}, "name": "end"}},
+                                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "b"}, "name": "start"}}
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "apply": {
+                                            "meaningRef": "local:IntLe",
+                                            "arguments": {
+                                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "b"}, "name": "end"}},
+                                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "a"}, "name": "start"}}
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "EditFeasible": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "local:Dataset"}, "cardinality": "one"},
+          {"name": "edit", "type": {"tag": "nominal", "ref": "confirm:Edit"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "apply": {
+            "meaningRef": "local:ScheduleFeasible",
+            "arguments": {
+              "dataset": {"value": {"op": "var", "name": "dataset"}},
+              "content": {"value": {"op": "field", "record": {"op": "var", "name": "edit"}, "name": "content"}}
+            }
+          }
+        }
+      }
+    },
+    "PreviewFeasible": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "local:Dataset"}, "cardinality": "one"},
+          {"name": "preview", "type": {"tag": "nominal", "ref": "confirm:Preview"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "apply": {
+            "meaningRef": "local:ScheduleFeasible",
+            "arguments": {
+              "dataset": {"value": {"op": "var", "name": "dataset"}},
+              "content": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "content"}}
+            }
+          }
+        }
+      }
+    },
+    "FeasiblePublication": {
+      "intent:goal": {
+        "roles": {
+          "dataset": {"typeRef": "local:Dataset", "cardinality": "one"},
+          "edits": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "previews": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"}
+        },
+        "clauses": {
+          "validDataset": {
+            "maintain": {"apply": {"meaningRef": "local:DatasetWellFormed", "arguments": {"dataset": {"value": {"op": "var", "name": "dataset"}}}}}
+          },
+          "validContents": {
+            "maintain": {
+              "all": [
+                {
+                  "quantify": {
+                    "quantifier": "forall",
+                    "binder": "edit",
+                    "observedDomain": {"binding": "edits"},
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "local:EditFeasible",
+                        "arguments": {"dataset": {"value": {"op": "var", "name": "dataset"}}, "edit": {"value": {"op": "var", "name": "edit"}}}
+                      }
+                    }
+                  }
+                },
+                {
+                  "quantify": {
+                    "quantifier": "forall",
+                    "binder": "preview",
+                    "observedDomain": {"binding": "previews"},
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "local:PreviewFeasible",
+                        "arguments": {
+                          "dataset": {"value": {"op": "var", "name": "dataset"}},
+                          "preview": {"value": {"op": "var", "name": "preview"}}
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": ["Dataset", "ScheduleFeasible", "FeasiblePublication"]
+}
