@@ -1,0 +1,76 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:classical-bool-witness",
+  "definitions": {
+    "Booleans": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {"tag": "sequence", "item": {"tag": "scalar", "name": "bool"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {"op": "sequence", "items": [
+          {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false},
+          {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+        ]}
+      }
+    },
+    "EqualBody": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"},
+          {"name": "right", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {"op": "if", "condition": {"op": "var", "name": "left"},
+          "then": {"op": "var", "name": "right"},
+          "otherwise": {"op": "if", "condition": {"op": "var", "name": "right"},
+            "then": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false},
+            "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+          }
+        }
+      }
+    },
+    "Equal": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "bool"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "bool"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:EqualBody"
+      }
+    },
+    "Law": {
+      "intent:goal": {
+        "clauses": {
+          "nested": {
+            "achieve": {
+              "quantify": {"quantifier": "forall", "binder": "x", "domainRef": "local:Booleans", "predicate": {
+                "quantify": {"quantifier": "exists", "binder": "y", "domainRef": "local:Booleans", "predicate": {
+                  "all": [
+                    {"local:Equal": {"left": "x", "right": "y"}},
+                    {"any": [
+                      {"local:Equal": {"left": "x", "right": "x"}},
+                      {"not": {"local:Equal": {"left": "x", "right": "x"}}}
+                    ]},
+                    {"implies": [
+                      {"local:Equal": {"left": "x", "right": "y"}},
+                      {"local:Equal": {"left": "y", "right": "x"}}
+                    ]}
+                  ]
+                }}
+              }}
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": ["Law"]
+}
