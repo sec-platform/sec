@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { expectRecord } from '../../helpers/assertion-helpers.ts';
+import { expectRecord, recordFields } from '../../helpers/assertion-helpers.ts';
 import { projectReviewDiagnostics } from '../../../src/application/review-diagnostics-inspect.ts';
 import { formatReviewDiagnostics } from '../../../src/entry/cli/review-diagnostics-inspect.ts';
 
@@ -9,7 +9,7 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import type { ReviewSummaryInspectView } from '../../../src/application/review-summary-inspect.ts';
 import { formatReviewSummary } from '../../../src/entry/cli/review-summary-inspect.ts';
 import type { ReviewSummary } from '../../../src/assurance/verification/review/contract/types.ts';
-import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliSuccess, expectCliText } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 const baseView: ReviewSummaryInspectView = {
@@ -296,7 +296,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     // Protect the complete persisted JSON contract, not only representative fields.
     expect(reviewJson).toEqual(reviewSummary);
 
-    const diagnosticsText = await expectCliText(workspaceRoot, ['review', 'diagnostics'], [
+    const expectedDiagnosticLines = [
       'Review diagnostics attention; diagnostics=8; failures=2; risks=5; conflicts=1',
       `Artifacts: ${CI_ARTIFACT_FILES.policyReport}, a/report.json`,
       'Blocks: entity/customer-basic, tenant/basic-workspace',
@@ -308,8 +308,16 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       'Diagnostic regression-risk:3; kind=coverage-gap; block=none; Empty block',
       'Diagnostic regression-risk:4; kind=coverage-gap; block=entity/customer-basic; Duplicate block',
       'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
-    ]);
-    expect(diagnosticsText.stdout.trimEnd().split(/\r?\n/u)).toHaveLength(11);
+    ];
+    const diagnosticsText = await expectCliSuccess(workspaceRoot, ['review', 'diagnostics']);
+    const diagnosticLines = diagnosticsText.stdout.trimEnd().split(/\r?\n/u);
+    expect(diagnosticLines).toHaveLength(expectedDiagnosticLines.length);
+    for (const expectedLine of expectedDiagnosticLines) {
+      const fields = recordFields(expectedLine);
+      const matching = diagnosticLines.filter(line => recordFields(line).includes(fields[0]!));
+      expect(matching).toHaveLength(1);
+      expectRecord(matching[0], fields);
+    }
     const diagnosticsJson = await expectCliJson(
       workspaceRoot, ['review', 'diagnostics', '--json', '--compact'],
       undefined,
