@@ -294,7 +294,9 @@ async function prepareBridgeRecovery(root: string): Promise<Readonly<{ code: str
     platform: process.platform,
     runtimeMaterialization: null
   });
-  await Promise.all([
+  // Join all fixture writers, including failures, before a caller can
+  // inspect recovery state or retire its physical root.
+  const writes = await Promise.allSettled([
     writeFile(path.join(sourcePath, COMPILER_BINDING_FILE), `${JSON.stringify(binding)}\n`, 'utf8'),
     writeFile(path.join(root, '.bun-version'), `${pinnedBunVersion}\n`, 'utf8'),
     writeFile(path.join(root, 'bun.lock'), '', 'utf8'),
@@ -304,6 +306,13 @@ async function prepareBridgeRecovery(root: string): Promise<Readonly<{ code: str
       packageManager: `bun@${pinnedBunVersion}`
     })}\n`, 'utf8')
   ]);
+  const writeFailures = writes.flatMap(outcome =>
+    outcome.status === 'rejected' ? [outcome.reason] : []
+  );
+  if (writeFailures.length === 1) throw writeFailures[0];
+  if (writeFailures.length > 1) {
+    throw new AggregateError(writeFailures, 'Dependency bridge recovery fixture writes failed');
+  }
   const options = runtimeDependencyOperationOptions({ lockTimeoutMs: 30_000 });
   const sourceGeneration = await runtimeDependencySourceGeneration({
     binding,
