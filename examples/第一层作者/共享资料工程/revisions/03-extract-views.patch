@@ -1,7 +1,7 @@
 diff --git a/examples/第一层作者/共享资料工程/workspace.module.json b/examples/第一层作者/共享资料工程/workspace.module.json
 --- a/examples/第一层作者/共享资料工程/workspace.module.json
 +++ b/examples/第一层作者/共享资料工程/workspace.module.json
-@@ -664,20 +664,15 @@
+@@ -569,20 +569,15 @@
            "components": [
              {"instance": "store", "componentRef": "local:Store", "constructorArguments": {"initialRows": {"op": "var", "name": "initialRows"}}},
              {
@@ -29,57 +29,61 @@ diff --git a/examples/第一层作者/共享资料工程/workspace.module.json b
          },
          "operationContracts": [
            {
-@@ -1071,9 +1066,9 @@
+@@ -920,9 +915,9 @@
            "fields": [
              {
                "name": "componentPath",
 -              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "main"}]}
-+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
-             },
+-            },
 -            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}},
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
++            },
 +            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mainRead"}},
              {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}}
            ]
          }
-@@ -1087,9 +1082,9 @@
+@@ -936,9 +931,9 @@
            "fields": [
              {
                "name": "componentPath",
 -              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "preview"}]}
-+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
-             },
+-            },
 -            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}},
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
++            },
 +            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "previewRead"}},
              {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}}
            ]
          }
-@@ -1103,9 +1098,9 @@
+@@ -952,9 +947,9 @@
            "fields": [
              {
                "name": "componentPath",
 -              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "main"}]}
-+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
-             },
+-            },
 -            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}},
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
++            },
 +            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mainSet"}},
              {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}}
            ]
          }
-@@ -1119,9 +1114,9 @@
+@@ -968,9 +963,9 @@
            "fields": [
              {
                "name": "componentPath",
 -              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "preview"}]}
-+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
-             },
+-            },
 -            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}},
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
++            },
 +            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "previewSet"}},
              {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}}
            ]
          }
-@@ -1467,6 +1462,49 @@
-           }
-         }
+@@ -1223,6 +1218,49 @@
+         "roles": {"call": "obs:Call"},
+         "clauses": {"contract": {"achieve": {"all": [{"obs:NoMemberInteraction": {"call": "call"}}, {"obs:EntryCustodySettled": {"call": "call"}}]}}}
        }
 +    },
 +    "TwinViews": {

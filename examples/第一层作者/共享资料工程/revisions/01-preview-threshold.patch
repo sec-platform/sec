@@ -1,7 +1,7 @@
 diff --git a/examples/第一层作者/共享资料工程/workspace.module.json b/examples/第一层作者/共享资料工程/workspace.module.json
 --- a/examples/第一层作者/共享资料工程/workspace.module.json
 +++ b/examples/第一层作者/共享资料工程/workspace.module.json
-@@ -671,7 +671,7 @@
+@@ -576,7 +576,7 @@
              {
                "instance": "preview",
                "componentRef": "local:ThresholdView",

@@ -2,15 +2,15 @@
   "schema": "gift.author-module/design-converged",
   "moduleId": "module:shared-views",
   "imports": {
-    "policy": {"mode": "workspace", "moduleId": "module:shared-views-policy"},
-    "boundary": {"mode": "workspace", "moduleId": "module:passive-typescript-values"},
-    "obs": {"mode": "workspace", "moduleId": "module:component-call-observation"},
-    "calls": {"mode": "workspace", "moduleId": "module:retained-call"},
-    "values": {"mode": "workspace", "moduleId": "module:component-call-values"}
+    "policy": {"workspace": "module:shared-views-policy"},
+    "boundary": {"workspace": "module:passive-typescript-values"},
+    "obs": {"workspace": "module:component-call-observation"},
+    "calls": {"workspace": "module:retained-call"},
+    "values": {"workspace": "module:component-call-values"}
   },
   "definitions": {
-    "Bool": {"core:type": {"tag": "scalar", "name": "bool"}},
-    "Threshold": {"core:type": {"tag": "scalar", "name": "int"}},
+    "Bool": {"core:type": "bool"},
+    "Threshold": {"core:type": "int"},
     "InputError": {"core:type": {"tag": "variant", "cases": {"InvalidInput": {"tag": "scalar", "name": "unit"}}}},
     "AdmissionError": {
       "core:type": {"tag": "variant", "cases": {"InvalidInput": {"tag": "scalar", "name": "unit"}, "CapacityExceeded": {"tag": "scalar", "name": "unit"}}}
@@ -292,207 +292,112 @@
     },
     "StoreSnapshotOwnContract": {
       "intent:goal": {
-        "roles": {
-          "before": {"typeRef": "policy:Rows", "cardinality": "one"},
-          "after": {"typeRef": "policy:Rows", "cardinality": "one"},
-          "output": {"typeRef": "policy:Rows", "cardinality": "one"}
-        },
+        "roles": {"before": "policy:Rows", "after": "policy:Rows", "output": "policy:Rows"},
         "clauses": {
           "contract": {
-            "achieve": {
-              "all": [
-                {
-                  "apply": {
-                    "meaningRef": "policy:RowsEqual",
-                    "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
-                  }
-                },
-                {
-                  "apply": {
-                    "meaningRef": "policy:RowsEqual",
-                    "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "output"}}}
-                  }
-                }
-              ]
-            }
+            "achieve": {"all": [{"policy:RowsEqual": {"left": "before", "right": "after"}}, {"policy:RowsEqual": {"left": "before", "right": "output"}}]}
           }
         }
       }
     },
     "StoreReplaceErrorOwnFrame": {
       "intent:goal": {
-        "roles": {"before": {"typeRef": "policy:Rows", "cardinality": "one"}, "after": {"typeRef": "policy:Rows", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {
-              "apply": {
-                "meaningRef": "policy:RowsEqual",
-                "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
-              }
-            }
-          }
-        }
+        "roles": {"before": "policy:Rows", "after": "policy:Rows"},
+        "clauses": {"contract": {"achieve": {"policy:RowsEqual": {"left": "before", "right": "after"}}}}
       }
     },
     "ViewConstructedOwnContract": {
-      "intent:goal": {
-        "roles": {"threshold": {"typeRef": "local:Threshold", "cardinality": "one"}},
-        "clauses": {
-          "contract": {"achieve": {"apply": {"meaningRef": "policy:InScoreRange", "arguments": {"value": {"value": {"op": "var", "name": "threshold"}}}}}}
-        }
-      }
+      "intent:goal": {"roles": {"threshold": "local:Threshold"}, "clauses": {"contract": {"achieve": {"policy:InScoreRange": {"value": "threshold"}}}}}
     },
     "ViewReadOwnFrame": {
       "intent:goal": {
-        "roles": {"before": {"typeRef": "local:Threshold", "cardinality": "one"}, "after": {"typeRef": "local:Threshold", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {
-              "apply": {
-                "meaningRef": "policy:IntEqual",
-                "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
-              }
-            }
-          }
-        }
+        "roles": {"before": "local:Threshold", "after": "local:Threshold"},
+        "clauses": {"contract": {"achieve": {"policy:IntEqual": {"left": "before", "right": "after"}}}}
       }
     },
     "ViewSetSuccessOwnContract": {
       "intent:goal": {
-        "roles": {"raw": {"typeRef": "policy:Raw", "cardinality": "one"}, "after": {"typeRef": "local:Threshold", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {
-              "apply": {
-                "meaningRef": "policy:ThresholdRepresents",
-                "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}, "value": {"value": {"op": "var", "name": "after"}}}
-              }
-            }
-          }
-        }
+        "roles": {"raw": "policy:Raw", "after": "local:Threshold"},
+        "clauses": {"contract": {"achieve": {"policy:ThresholdRepresents": {"raw": "raw", "value": "after"}}}}
       }
     },
     "ViewSetErrorOwnContract": {
       "intent:goal": {
-        "roles": {
-          "raw": {"typeRef": "policy:Raw", "cardinality": "one"},
-          "before": {"typeRef": "local:Threshold", "cardinality": "one"},
-          "after": {"typeRef": "local:Threshold", "cardinality": "one"}
-        },
+        "roles": {"raw": "policy:Raw", "before": "local:Threshold", "after": "local:Threshold"},
         "clauses": {
           "contract": {
-            "achieve": {
-              "all": [
-                {"not": {"apply": {"meaningRef": "local:ThresholdInputValid", "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}}}}},
-                {
-                  "apply": {
-                    "meaningRef": "policy:IntEqual",
-                    "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
-                  }
-                }
-              ]
-            }
+            "achieve": {"all": [{"not": {"local:ThresholdInputValid": {"raw": "raw"}}}, {"policy:IntEqual": {"left": "before", "right": "after"}}]}
           }
         }
       }
     },
     "WorkspaceConstructedOwnContract": {
-      "intent:goal": {
-        "roles": {"closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedAfter"}}}}}}
-          }
+      "intent:goal": {"roles": {"closedAfter": "local:Bool"}, "clauses": {"contract": {"achieve": {"not": {"local:BoolHolds": {"value": "closedAfter"}}}}}}
+    },
+    "OpenOwnFrame": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "closedBefore", "type": {"tag": "nominal", "ref": "local:Bool"}, "cardinality": "one"},
+          {"name": "closedAfter", "type": {"tag": "nominal", "ref": "local:Bool"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {"all": [{"not": {"local:BoolHolds": {"value": "closedBefore"}}}, {"local:BoolSame": {"left": "closedBefore", "right": "closedAfter"}}]}
+      }
+    },
+    "ForwardWhileOpen": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "call", "type": {"tag": "nominal", "ref": "obs:Call"}, "cardinality": "one"},
+          {"name": "closedBefore", "type": {"tag": "nominal", "ref": "local:Bool"}, "cardinality": "one"},
+          {"name": "endpoint", "type": {"tag": "nominal", "ref": "values:Endpoint"}, "cardinality": "one"},
+          {"name": "errors", "type": {"tag": "nominal", "ref": "values:ErrorMap"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {"implies": [{"local:BoolHolds": {"value": "closedBefore"}}, {"obs:NoMemberInteraction": {"call": "call"}}]},
+            {
+              "implies": [
+                {"not": {"local:BoolHolds": {"value": "closedBefore"}}},
+                {"obs:Forwarded": {"call": "call", "endpoint": "endpoint", "errors": "errors"}}
+              ]
+            }
+          ]
         }
       }
     },
     "WorkspaceReadSuccessOwnFrame": {
       "intent:goal": {
-        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {
-              "all": [
-                {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}},
-                {
-                  "apply": {
-                    "meaningRef": "local:BoolSame",
-                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
-                  }
-                }
-              ]
-            }
-          }
-        }
+        "roles": {"closedBefore": "local:Bool", "closedAfter": "local:Bool"},
+        "clauses": {"contract": {"achieve": {"local:OpenOwnFrame": {"closedBefore": "closedBefore", "closedAfter": "closedAfter"}}}}
       }
     },
     "WorkspaceReadClosedOwnFrame": {
       "intent:goal": {
-        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "roles": {"closedBefore": "local:Bool", "closedAfter": "local:Bool"},
         "clauses": {
           "contract": {
-            "achieve": {
-              "all": [
-                {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                {
-                  "apply": {
-                    "meaningRef": "local:BoolSame",
-                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
-                  }
-                }
-              ]
-            }
+            "achieve": {"all": [{"local:BoolHolds": {"value": "closedBefore"}}, {"local:BoolSame": {"left": "closedBefore", "right": "closedAfter"}}]}
           }
         }
       }
     },
     "WorkspaceReplaceSuccessOwnFrame": {
       "intent:goal": {
-        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {
-              "all": [
-                {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}},
-                {
-                  "apply": {
-                    "meaningRef": "local:BoolSame",
-                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
-                  }
-                }
-              ]
-            }
-          }
-        }
+        "roles": {"closedBefore": "local:Bool", "closedAfter": "local:Bool"},
+        "clauses": {"contract": {"achieve": {"local:OpenOwnFrame": {"closedBefore": "closedBefore", "closedAfter": "closedAfter"}}}}
       }
     },
     "WorkspaceSetSuccessOwnFrame": {
       "intent:goal": {
-        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {
-              "all": [
-                {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}},
-                {
-                  "apply": {
-                    "meaningRef": "local:BoolSame",
-                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
-                  }
-                }
-              ]
-            }
-          }
-        }
+        "roles": {"closedBefore": "local:Bool", "closedAfter": "local:Bool"},
+        "clauses": {"contract": {"achieve": {"local:OpenOwnFrame": {"closedBefore": "closedBefore", "closedAfter": "closedAfter"}}}}
       }
     },
     "WorkspaceCloseOwnPost": {
-      "intent:goal": {
-        "roles": {"closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
-        "clauses": {
-          "contract": {"achieve": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedAfter"}}}}}}
-        }
-      }
+      "intent:goal": {"roles": {"closedAfter": "local:Bool"}, "clauses": {"contract": {"achieve": {"local:BoolHolds": {"value": "closedAfter"}}}}}
     },
     "Store": {
       "product:component": {
@@ -933,25 +838,13 @@
     },
     "AdmissionErrorContract": {
       "intent:goal": {
-        "roles": {"raw": {"typeRef": "policy:Raw", "cardinality": "one"}, "error": {"typeRef": "local:AdmissionError", "cardinality": "one"}},
+        "roles": {"raw": "policy:Raw", "error": "local:AdmissionError"},
         "clauses": {
           "contract": {
             "achieve": {
               "all": [
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:AdmissionIsInvalid", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}},
-                    {"not": {"apply": {"meaningRef": "policy:ValidRows", "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:AdmissionIsInvalid", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
-                    },
-                    {"apply": {"meaningRef": "policy:CapacityExceeded", "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}}}}
-                  ]
-                }
+                {"implies": [{"local:AdmissionIsInvalid": {"error": "error"}}, {"not": {"policy:ValidRows": {"raw": "raw"}}}]},
+                {"implies": [{"not": {"local:AdmissionIsInvalid": {"error": "error"}}}, {"policy:CapacityExceeded": {"raw": "raw"}}]}
               ]
             }
           }
@@ -960,35 +853,14 @@
     },
     "WorkspaceSetErrorOwnContract": {
       "intent:goal": {
-        "roles": {
-          "error": {"typeRef": "local:SetError", "cardinality": "one"},
-          "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"},
-          "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}
-        },
+        "roles": {"error": "local:SetError", "closedBefore": "local:Bool", "closedAfter": "local:Bool"},
         "clauses": {
           "contract": {
             "achieve": {
               "all": [
-                {
-                  "apply": {
-                    "meaningRef": "local:BoolSame",
-                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
-                  }
-                },
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                    {"apply": {"meaningRef": "local:SetIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
-                    },
-                    {"not": {"apply": {"meaningRef": "local:SetIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}}
-                  ]
-                }
+                {"local:BoolSame": {"left": "closedBefore", "right": "closedAfter"}},
+                {"implies": [{"local:BoolHolds": {"value": "closedBefore"}}, {"local:SetIsClosed": {"error": "error"}}]},
+                {"implies": [{"not": {"local:BoolHolds": {"value": "closedBefore"}}}, {"not": {"local:SetIsClosed": {"error": "error"}}}]}
               ]
             }
           }
@@ -997,37 +869,14 @@
     },
     "WorkspaceReplaceErrorOwnContract": {
       "intent:goal": {
-        "roles": {
-          "error": {"typeRef": "local:ReplaceError", "cardinality": "one"},
-          "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"},
-          "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}
-        },
+        "roles": {"error": "local:ReplaceError", "closedBefore": "local:Bool", "closedAfter": "local:Bool"},
         "clauses": {
           "contract": {
             "achieve": {
               "all": [
-                {
-                  "apply": {
-                    "meaningRef": "local:BoolSame",
-                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
-                  }
-                },
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                    {"apply": {"meaningRef": "local:ReplaceIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
-                    },
-                    {
-                      "not": {"apply": {"meaningRef": "local:ReplaceIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
-                    }
-                  ]
-                }
+                {"local:BoolSame": {"left": "closedBefore", "right": "closedAfter"}},
+                {"implies": [{"local:BoolHolds": {"value": "closedBefore"}}, {"local:ReplaceIsClosed": {"error": "error"}}]},
+                {"implies": [{"not": {"local:BoolHolds": {"value": "closedBefore"}}}, {"not": {"local:ReplaceIsClosed": {"error": "error"}}}]}
               ]
             }
           }
@@ -1036,7 +885,7 @@
     },
     "SourceEndpoint": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "type": "values:Endpoint",
         "value": {
           "op": "record",
           "fields": [
@@ -1049,7 +898,7 @@
     },
     "replaceEndpoint": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "type": "values:Endpoint",
         "value": {
           "op": "record",
           "fields": [
@@ -1065,7 +914,7 @@
     },
     "readMainEndpoint": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "type": "values:Endpoint",
         "value": {
           "op": "record",
           "fields": [
@@ -1081,7 +930,7 @@
     },
     "readPreviewEndpoint": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "type": "values:Endpoint",
         "value": {
           "op": "record",
           "fields": [
@@ -1097,7 +946,7 @@
     },
     "setMainThresholdEndpoint": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "type": "values:Endpoint",
         "value": {
           "op": "record",
           "fields": [
@@ -1113,7 +962,7 @@
     },
     "setPreviewThresholdEndpoint": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "type": "values:Endpoint",
         "value": {
           "op": "record",
           "fields": [
@@ -1127,10 +976,10 @@
         }
       }
     },
-    "ReadErrors": {"core:constant": {"type": {"tag": "nominal", "ref": "values:ErrorMap"}, "value": {"op": "sequence", "items": []}}},
+    "ReadErrors": {"core:constant": {"type": "values:ErrorMap", "value": {"op": "sequence", "items": []}}},
     "SetErrors": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:ErrorMap"},
+        "type": "values:ErrorMap",
         "value": {
           "op": "sequence",
           "items": [
@@ -1167,7 +1016,7 @@
     },
     "ReplaceErrors": {
       "core:constant": {
-        "type": {"tag": "nominal", "ref": "values:ErrorMap"},
+        "type": "values:ErrorMap",
         "value": {
           "op": "sequence",
           "items": [
@@ -1231,11 +1080,7 @@
     },
     "ViewReadSourceContract": {
       "intent:goal": {
-        "roles": {
-          "call": {"typeRef": "obs:Call", "cardinality": "one"},
-          "threshold": {"typeRef": "local:Threshold", "cardinality": "one"},
-          "output": {"typeRef": "policy:Rows", "cardinality": "one"}
-        },
+        "roles": {"call": "obs:Call", "threshold": "local:Threshold", "output": "policy:Rows"},
         "clauses": {
           "contract": {
             "achieve": {
@@ -1254,8 +1099,8 @@
                         "meaningRef": "policy:KeepByThreshold",
                         "arguments": {
                           "input": {"value": {"op": "var", "name": "rows"}},
-                          "threshold": {"value": {"op": "var", "name": "threshold"}},
-                          "output": {"value": {"op": "var", "name": "output"}}
+                          "threshold": {"binding": "threshold"},
+                          "output": {"binding": "output"}
                         }
                       }
                     }
@@ -1264,7 +1109,7 @@
                 {
                   "apply": {
                     "meaningRef": "obs:SourceBorrowSettled",
-                    "arguments": {"call": {"value": {"op": "var", "name": "call"}}, "endpoint": {"value": {"op": "symbol", "ref": "local:SourceEndpoint"}}}
+                    "arguments": {"call": {"binding": "call"}, "endpoint": {"value": {"op": "symbol", "ref": "local:SourceEndpoint"}}}
                   }
                 }
               ]
@@ -1275,35 +1120,19 @@
     },
     "replaceDispatchContract": {
       "intent:goal": {
-        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "roles": {"call": "obs:Call", "closedBefore": "local:Bool"},
         "clauses": {
           "contract": {
             "achieve": {
-              "all": [
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
-                    },
-                    {
-                      "apply": {
-                        "meaningRef": "obs:Forwarded",
-                        "arguments": {
-                          "call": {"value": {"op": "var", "name": "call"}},
-                          "endpoint": {"value": {"op": "symbol", "ref": "local:replaceEndpoint"}},
-                          "errors": {"value": {"op": "symbol", "ref": "local:ReplaceErrors"}}
-                        }
-                      }
-                    }
-                  ]
+              "apply": {
+                "meaningRef": "local:ForwardWhileOpen",
+                "arguments": {
+                  "call": {"binding": "call"},
+                  "endpoint": {"value": {"op": "symbol", "ref": "local:replaceEndpoint"}},
+                  "errors": {"value": {"op": "symbol", "ref": "local:ReplaceErrors"}},
+                  "closedBefore": {"binding": "closedBefore"}
                 }
-              ]
+              }
             }
           }
         }
@@ -1311,35 +1140,19 @@
     },
     "readMainDispatchContract": {
       "intent:goal": {
-        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "roles": {"call": "obs:Call", "closedBefore": "local:Bool"},
         "clauses": {
           "contract": {
             "achieve": {
-              "all": [
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
-                    },
-                    {
-                      "apply": {
-                        "meaningRef": "obs:Forwarded",
-                        "arguments": {
-                          "call": {"value": {"op": "var", "name": "call"}},
-                          "endpoint": {"value": {"op": "symbol", "ref": "local:readMainEndpoint"}},
-                          "errors": {"value": {"op": "symbol", "ref": "local:ReadErrors"}}
-                        }
-                      }
-                    }
-                  ]
+              "apply": {
+                "meaningRef": "local:ForwardWhileOpen",
+                "arguments": {
+                  "call": {"binding": "call"},
+                  "endpoint": {"value": {"op": "symbol", "ref": "local:readMainEndpoint"}},
+                  "errors": {"value": {"op": "symbol", "ref": "local:ReadErrors"}},
+                  "closedBefore": {"binding": "closedBefore"}
                 }
-              ]
+              }
             }
           }
         }
@@ -1347,35 +1160,19 @@
     },
     "readPreviewDispatchContract": {
       "intent:goal": {
-        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "roles": {"call": "obs:Call", "closedBefore": "local:Bool"},
         "clauses": {
           "contract": {
             "achieve": {
-              "all": [
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
-                    },
-                    {
-                      "apply": {
-                        "meaningRef": "obs:Forwarded",
-                        "arguments": {
-                          "call": {"value": {"op": "var", "name": "call"}},
-                          "endpoint": {"value": {"op": "symbol", "ref": "local:readPreviewEndpoint"}},
-                          "errors": {"value": {"op": "symbol", "ref": "local:ReadErrors"}}
-                        }
-                      }
-                    }
-                  ]
+              "apply": {
+                "meaningRef": "local:ForwardWhileOpen",
+                "arguments": {
+                  "call": {"binding": "call"},
+                  "endpoint": {"value": {"op": "symbol", "ref": "local:readPreviewEndpoint"}},
+                  "errors": {"value": {"op": "symbol", "ref": "local:ReadErrors"}},
+                  "closedBefore": {"binding": "closedBefore"}
                 }
-              ]
+              }
             }
           }
         }
@@ -1383,35 +1180,19 @@
     },
     "setMainThresholdDispatchContract": {
       "intent:goal": {
-        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "roles": {"call": "obs:Call", "closedBefore": "local:Bool"},
         "clauses": {
           "contract": {
             "achieve": {
-              "all": [
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
-                    },
-                    {
-                      "apply": {
-                        "meaningRef": "obs:Forwarded",
-                        "arguments": {
-                          "call": {"value": {"op": "var", "name": "call"}},
-                          "endpoint": {"value": {"op": "symbol", "ref": "local:setMainThresholdEndpoint"}},
-                          "errors": {"value": {"op": "symbol", "ref": "local:SetErrors"}}
-                        }
-                      }
-                    }
-                  ]
+              "apply": {
+                "meaningRef": "local:ForwardWhileOpen",
+                "arguments": {
+                  "call": {"binding": "call"},
+                  "endpoint": {"value": {"op": "symbol", "ref": "local:setMainThresholdEndpoint"}},
+                  "errors": {"value": {"op": "symbol", "ref": "local:SetErrors"}},
+                  "closedBefore": {"binding": "closedBefore"}
                 }
-              ]
+              }
             }
           }
         }
@@ -1419,35 +1200,19 @@
     },
     "setPreviewThresholdDispatchContract": {
       "intent:goal": {
-        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "roles": {"call": "obs:Call", "closedBefore": "local:Bool"},
         "clauses": {
           "contract": {
             "achieve": {
-              "all": [
-                {
-                  "implies": [
-                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
-                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
-                  ]
-                },
-                {
-                  "implies": [
-                    {
-                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
-                    },
-                    {
-                      "apply": {
-                        "meaningRef": "obs:Forwarded",
-                        "arguments": {
-                          "call": {"value": {"op": "var", "name": "call"}},
-                          "endpoint": {"value": {"op": "symbol", "ref": "local:setPreviewThresholdEndpoint"}},
-                          "errors": {"value": {"op": "symbol", "ref": "local:SetErrors"}}
-                        }
-                      }
-                    }
-                  ]
+              "apply": {
+                "meaningRef": "local:ForwardWhileOpen",
+                "arguments": {
+                  "call": {"binding": "call"},
+                  "endpoint": {"value": {"op": "symbol", "ref": "local:setPreviewThresholdEndpoint"}},
+                  "errors": {"value": {"op": "symbol", "ref": "local:SetErrors"}},
+                  "closedBefore": {"binding": "closedBefore"}
                 }
-              ]
+              }
             }
           }
         }
@@ -1455,17 +1220,8 @@
     },
     "CloseCustodyContract": {
       "intent:goal": {
-        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}},
-        "clauses": {
-          "contract": {
-            "achieve": {
-              "all": [
-                {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}},
-                {"apply": {"meaningRef": "obs:EntryCustodySettled", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
-              ]
-            }
-          }
-        }
+        "roles": {"call": "obs:Call"},
+        "clauses": {"contract": {"achieve": {"all": [{"obs:NoMemberInteraction": {"call": "call"}}, {"obs:EntryCustodySettled": {"call": "call"}}]}}}
       }
     }
   },
