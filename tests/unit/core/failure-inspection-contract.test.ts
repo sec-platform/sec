@@ -4,28 +4,12 @@ import { inspect } from 'node:util';
 import { failureMessage, getErrorCode, inspectFailureValue } from '../../../src/contracts/failure-inspection.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
-test('coded failures and ordinary errors use the canonical inspection owner', () => {
-  const failure = new CodedFailure('OWNER-INSPECTION-001', 'inspected failure');
-  assert.equal(getErrorCode(failure), 'OWNER-INSPECTION-001');
-  assert.match(inspectFailureValue(failure), /inspected failure/u);
-  assert.equal(failureMessage(failure), 'inspected failure');
-  assert.equal(failureMessage(new Error('ordinary')), 'ordinary');
-});
-
 test('all primitive failures preserve diagnostics without inventing codes', () => {
   for (const reason of [undefined, null, false, 0, 7n, Symbol('failure'), 'text']) {
     const context = `primitive: ${String(reason)}`;
     assert.equal(failureMessage(reason), String(reason), context);
     assert.equal(getErrorCode(reason), undefined, context);
   }
-});
-
-test('diagnostic projection invokes neither object conversion, custom inspect nor unrelated getters', () => {
-  let calls = 0;
-  const value = { toString() { calls++; throw new Error('conversion'); },
-    get content() { calls++; throw new Error('getter'); }, [inspect.custom]() { calls++; throw new Error('inspect'); } };
-  assert.equal(typeof failureMessage(value), 'string'); assert.equal(typeof inspectFailureValue(value), 'string');
-  assert.equal(calls, 0);
 });
 
 test('native Error accessor fields are never invoked, including when nested', () => {
@@ -45,17 +29,23 @@ test('native Error accessor fields are never invoked, including when nested', ()
 
 test('presentation keeps own data without inherited constructors or prototype setters', () => {
   let inheritedReads = 0;
+  let hooks = 0;
   const parent = Object.defineProperty({}, 'constructor', {
     get() { inheritedReads++; throw new Error('constructor'); }
   });
   const value = Object.create(parent) as Record<string, unknown>;
   Object.defineProperty(value, '__proto__', { value: 'retained', enumerable: true });
   value.self = value;
+  value.toString = () => { hooks++; throw new Error('conversion'); };
+  Object.defineProperty(value, 'content', { enumerable: true, get() { hooks++; throw new Error('getter'); } });
+  Object.defineProperty(value, inspect.custom, { value: () => { hooks++; throw new Error('inspect'); } });
   const rendered = inspectFailureValue(value);
   assert.match(rendered, /__proto__/u);
   assert.match(rendered, /retained/u);
   assert.match(rendered, /Circular reference/u);
+  assert.equal(failureMessage(value), rendered);
   assert.equal(inheritedReads, 0);
+  assert.equal(hooks, 0);
 });
 
 test('presentation bounds nested, wide and long diagnostic data', () => {
@@ -100,7 +90,8 @@ test('error codes read once, reject nonstrings, and do not throw through the pro
   const nonStringCode = { toString() { conversions++; throw new Error('must not run'); } };
   for (const code of [null, 0, nonStringCode, Symbol('code')]) assert.equal(getErrorCode({ code }), undefined);
   assert.equal(conversions, 0);
-  const error = new Error('original');
+  const error = new CodedFailure('OWNER-INSPECTION-001', 'original');
+  assert.equal(getErrorCode(error), 'OWNER-INSPECTION-001');
   Object.defineProperty(error, 'code', { get() { throw undefined; } });
   assert.equal(getErrorCode(error), undefined);
 });
@@ -129,6 +120,7 @@ test('nested native Error inspection never materializes its lazy stack', () => {
   try {
     Error.prepareStackTrace = () => { stackReads++; return 'rendered stack'; };
     const error = new Error('lazy original');
+    assert.equal(failureMessage(error), 'lazy original');
     const rendered = inspectFailureValue({ error });
     const observedReads = stackReads;
     assert.equal(observedReads, 0);

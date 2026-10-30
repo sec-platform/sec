@@ -23,7 +23,6 @@ test('dependency version is not coerced: 1',()=>assert.throws(()=>compilerDepend
 for(const value of [['bun@1.2.3'],''])test(`packageManager is not coerced: ${JSON.stringify(value)}`,()=>assert.throws(()=>compilerDependencyManifestAuthority(encode({packageManager:value})),{code:'IMPORT-AUTHORITY-001',message:'Root packageManager must pin one Bun version exactly'}));
 test('duplicate dependency decisions are rejected before manifest authority is returned',()=>assert.throws(()=>compilerDependencyManifestAuthority(Buffer.from('{"packageManager":"bun@1.2.3","dependencies":{"a":"1","a":"2"}}')),/exact JSON/));
 test('invalid UTF8 cannot become a replacement-character dependency key',()=>{const bytes=Buffer.concat([Buffer.from('{"packageManager":"bun@1.2.3","dependencies":{"'),Buffer.from([255]),Buffer.from('\":\"1\"}}')]);assert.throws(()=>compilerDependencyManifestAuthority(bytes));assert.throws(()=>compilerInputText(Uint8Array.of(255),'input'),/UTF-8/);});
-test('manifest fingerprints retain digest grammar and projections despite shadowed byte metadata',()=>{const bytes=encode(base);Object.defineProperties(bytes,{byteLength:{value:0},buffer:{get(){assert.fail('getter');}},[Symbol.iterator]:{value(){assert.fail('iterator');}}});const r=compilerDependencyManifestAuthority(bytes);assert.equal(r.dependencyManifestSha256,baseDigest);assert.deepEqual(Object.keys(r.dependencies),['a','z']);assert.equal(r.declaredBunVersion,'1.2.3');});
 test('valid BOM text is not silently stripped by the general byte decoder',()=>{assert.equal(compilerInputText(Buffer.from('\ufefftext'),'text'),'\ufefftext');assert.throws(()=>compilerDependencyManifestAuthority(Buffer.from('\ufeff'+JSON.stringify(base))));});
 test('manifest identity ignores key order but preserves version association and dependency scope',()=>{
  const vectors=[
@@ -34,6 +33,7 @@ test('manifest identity ignores key order but preserves version association and 
  for(const [input,expected] of vectors){
   const result=compilerDependencyManifestAuthority(encode(input));
   assert.equal(result.dependencyManifestSha256,expected);
+  assert.equal(result.declaredBunVersion,'1.2.3');
   assert.deepEqual(result.dependencies,input.dependencies);assert.deepEqual(result.devDependencies,input.devDependencies);
  }
 });

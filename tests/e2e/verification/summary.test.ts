@@ -12,6 +12,7 @@ import type { VerificationReport } from '../../../src/assurance/verification/con
 import { parseReviewSummaryJson } from '../../../src/assurance/verification/review/contract/summary.ts';
 import { verifyWorkspace } from '../../../src/bootstrap/engineering/cli.ts';
 import type { LockFile } from '../../../src/compiler/contract.ts';
+import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
 import {
   buildReviewInputs
@@ -112,6 +113,22 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
   );
 
   await expect(verifyWorkspace(workspaceRoot)).rejects.toThrow();
+
+  // Observe the actual failed policy report published by Verification, rather
+  // than repeating the same source mutation through a direct policy-only call.
+  const unprovenReport = await readJson<PolicyReport>(
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport)
+  );
+  expect(unprovenReport.status).toBe('failed');
+  expect(unprovenReport.violations).toHaveLength(1);
+  expect(unprovenReport.official.violations).toHaveLength(1);
+  expect(unprovenReport.project.violations).toEqual([]);
+  expect(unprovenReport.diagnostics).toHaveLength(1);
+  expect(unprovenReport.diagnostics?.[0]).toMatchObject({
+    id: 'tenant-scope-required',
+    evidenceClass: 'source-structure',
+    files: ['src/installed/entity/customer-service.ts']
+  });
 
   const { lock, provenance, report, coverage } = await readReviewInputs(workspaceRoot);
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);

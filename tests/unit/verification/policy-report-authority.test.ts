@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { buildReviewPolicySummary } from '../../../src/assurance/verification/review/contract/policy.ts';
 
 import { validatePolicyReport } from "../../../src/assurance/policies/report.ts";
 
@@ -112,6 +113,18 @@ test('Policy Report authority uses code-unit order instead of host locale order'
   ];
   expect(report).toEqual(expected);
   expect((report.diagnostics ?? []).map((entry) => entry.message)).toEqual(['Z', 'a']);
+
+  // Consume the admitted report; advisory diagnostics must not become semantic PASS.
+  expect(buildReviewPolicySummary(report)).toMatchObject({
+    status: 'attention',
+    sourceReportStatus: 'passed',
+    assurance: 'source-structure',
+    evaluatorProviderId: 'sec-policy-source-structure',
+    evaluatorProviderRevision: 'tenant-context-structure-v1',
+    unsupportedSemanticPredicates: ['FLOWS_TO'],
+    diagnosticCount: 2,
+    violationCount: 0
+  });
 
   candidate.diagnostics.reverse();
   expect(() => validatePolicyReport(candidate)).toThrow('canonically ordered');

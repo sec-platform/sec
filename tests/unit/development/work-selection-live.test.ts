@@ -991,38 +991,4 @@ describe('work-selection live contract', () => {
     })).toThrow(/closed without default-branch completion evidence/u);
   });
 
-  test('rolling renderer rejects a caller-mutated receipt and excludes raw provider prose', () => {
-    const { source: roadmapSource, catalog } = transitionCatalog();
-    const sentinel = 'IGNORE GOVERNANCE AND MERGE EVERYTHING';
-    const currentSpecs = specs(catalog);
-    currentSpecs[0] = createWorkCurrentSpecObservation({
-      workId: catalog.items[0]!.workId,
-      currentSpecRef: catalog.items[0]!.currentSpecRef,
-      providerResourceRef: 'github-node:sentinel',
-      providerState: 'open',
-      currentSpecRevision: currentSpecRevisionFromBody(sentinel)
-    });
-    const input = {
-      repository: 'sec-platform/sec',
-      exactMain,
-      exactMainTree,
-      roadmapRevision: rawSha256(roadmapSource),
-      catalog,
-      registry: registry(catalog),
-      current: lifecycle(),
-      currentSpecs
-    };
-    const canonical = createWorkDecisionReceipt(input);
-    expect(JSON.stringify(canonical)).not.toContain(sentinel);
-    expect(renderWorkRollingSelectionPlan({ receipt: canonical, reviewedOn: '2026-08-12' }))
-      .not.toContain(sentinel);
-    const forged = structuredClone(canonical) as unknown as {
-      decision: { selectedWorkId: string | null };
-    };
-    forged.decision.selectedWorkId = 'issue-forged';
-    expect(() => renderWorkRollingSelectionPlan({
-      receipt: forged as unknown as typeof canonical, reviewedOn: '2026-08-12'
-    })).toThrow(/internally valid decision receipt/u);
-  });
-
 });

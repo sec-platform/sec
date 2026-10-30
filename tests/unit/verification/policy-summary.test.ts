@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
 import { policiesRelativePath, resolveWorkspaceArtifactPath, srcRelativePath } from "../../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { buildReviewPolicySummary } from '../../../src/assurance/verification/review/contract/policy.ts';
 import { posixPath } from '../../../src/contracts/relative-path.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../../src/semantics/policies/rules.ts';
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
@@ -292,57 +291,4 @@ test('review summary preserves coverage, provenance and semantically assured pol
     ({ id, severity, sourceScope, sourcePath, files }))).toEqual([
     { id: 'tenant-scope-required', severity: 'error', sourceScope: 'official', sourcePath: 'catalog/policies/official/policy.spec.yaml', files: [CUSTOMER_SERVICE_TARGET] }
   ]);
-});
-
-test('review projects source-structure policy evidence as attention rather than passed', () => {
-  const report: PolicyReport = {
-    status: 'passed',
-    official: {
-      policies: ['tenant-scope-required'],
-      sources: [{
-        path: 'catalog/policies/official/policy.spec.yaml',
-        policyIds: ['tenant-scope-required']
-      }],
-      violations: []
-    },
-    project: { policies: [], sources: [], violations: [] },
-    merged: {
-      policies: [{
-        id: 'tenant-scope-required',
-        sourceScope: 'official',
-        sourcePath: 'catalog/policies/official/policy.spec.yaml',
-        targets: [CUSTOMER_SERVICE_TARGET]
-      }]
-    },
-    violations: [],
-    diagnostics: [{
-      id: 'tenant-scope-required',
-      severity: 'error',
-      appliesTo: ['entity/customer-basic'],
-      rule: TENANT_FLOW_RULE,
-      files: [CUSTOMER_SERVICE_TARGET],
-      message: 'Source structure is advisory only.',
-      sourceScope: 'official',
-      sourcePath: 'catalog/policies/official/policy.spec.yaml',
-      evidenceClass: 'source-structure'
-    }],
-    evaluation: {
-      providerId: 'sec-policy-source-structure',
-      providerRevision: 'tenant-context-structure-v1',
-      assurance: 'source-structure',
-      requiredSemanticPredicates: [TENANT_FLOW_PREDICATE],
-      unsupportedSemanticPredicates: [TENANT_FLOW_PREDICATE]
-    }
-  };
-
-  expect(buildReviewPolicySummary(report)).toMatchObject({
-    status: 'attention',
-    sourceReportStatus: 'passed',
-    assurance: 'source-structure',
-    evaluatorProviderId: 'sec-policy-source-structure',
-    evaluatorProviderRevision: 'tenant-context-structure-v1',
-    unsupportedSemanticPredicates: [TENANT_FLOW_PREDICATE],
-    diagnosticCount: 1,
-    violationCount: 0
-  });
 });
