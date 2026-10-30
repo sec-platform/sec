@@ -70,6 +70,17 @@ test('canonical arrays treat inherited values as missing and explicitly normaliz
   assert.deepEqual(actual, [null, null, null]);
   assert.equal(canonicalEquals(input, [null, null, null]), true);
 
+  // Mixed sparse arrays retain their own null slots without changing a
+  // populated neighbor; sparse-only and inherited-index cases are above.
+  const mixed: unknown[] = new Array(3);
+  mixed[1] = 'middle';
+  const normalized = canonicalJson(mixed) as unknown[];
+  assert.equal(Object.hasOwn(normalized, 0), true);
+  assert.equal(Object.hasOwn(normalized, 2), true);
+  assert.equal(normalized[0], null);
+  assert.equal(normalized[2], null);
+  assert.equal(JSON.stringify(normalized), '[null,"middle",null]');
+
   // Inherited data and inherited accessors must both be ignored as array members.
   {
     let reads = 0;

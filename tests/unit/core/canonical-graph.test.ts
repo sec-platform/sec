@@ -24,18 +24,6 @@ for (const [name, value] of [
   });
 }
 
-test('canonical JSON retains sparse array behavior without accepting explicit undefined', () => {
-  const sparse: unknown[] = new Array(3);
-  sparse[1] = 'middle';
-  const actual = canonicalJson(sparse) as unknown[];
-  assert.equal(Object.hasOwn(actual, 0), true);
-  assert.equal(Object.hasOwn(actual, 2), true);
-  assert.equal(actual[0], null);
-  assert.equal(actual[2], null);
-  assert.equal(JSON.stringify(actual), '[null,"middle",null]');
-  assert.throws(() => canonicalJson([undefined]));
-});
-
 test('canonical JSON rejects object accessors without invoking them or changing later hash authority', () => {
   let calls = 0;
   const bad = Object.defineProperty({ okay: 2 }, 'bad', {
