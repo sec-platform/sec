@@ -34,5 +34,11 @@ test('owned error fields are sampled only once and unrelated fields are not enum
   });
   const value = buildErrorProtocol(input);
   assert.deepEqual(reads, { code: 1, message: 1, details: 1 });
-  assert.equal(value.details, detail);
+  // A cloned diagnostic detail is equally correct; only its semantic content
+  // and the protected failure classification matter to protocol consumers.
+  assert.deepEqual(value.details, { cause: 'original' });
+  assert.equal(value.code, 'REPAIR-BLOCKED-001');
+  assert.equal(value.message, 'repair');
+  assert.equal(value.issueType, 'composition');
+  assert.equal(value.recoverable, true);
 });

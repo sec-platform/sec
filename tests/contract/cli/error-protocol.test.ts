@@ -102,6 +102,19 @@ test('error-contract CLI exposes the stable protocol boundary', async () => {
     }
   }
 
+  // These are catalog projection consistency checks, not a replacement for the
+  // fixed protocol expectations on individual real error codes above.
+  expect(contract.exampleCount).toBe(contract.examples.length);
+  const observedIssueTypes = new Set(contract.examples.map(({ output }) => output.issueType));
+  expect(new Set(contract.issueTypes)).toEqual(observedIssueTypes);
+  expect(contract.issueTypeCount).toBe(observedIssueTypes.size);
+  expect(contract.suggestedActionCount).toBe(new Set(
+    contract.examples.flatMap(({ output }) => output.suggestedActions)
+  ).size);
+  const observedArtifactPaths = new Set(contract.examples.flatMap(({ output }) => output.artifactPaths));
+  expect(new Set(contract.artifactPaths)).toEqual(observedArtifactPaths);
+  expect(contract.artifactPathCount).toBe(observedArtifactPaths.size);
+
   const rollback = contract.examples.find((example) => example.id === 'upgrade-rollback-error')!;
   const expectedDetails = {
     migrationId: 'mig-customer-normalizer-file',
@@ -114,4 +127,10 @@ test('error-contract CLI exposes the stable protocol boundary', async () => {
   const unexpected = contract.examples.find((example) => example.id === 'unexpected-error')!;
   expect(unexpected.input).not.toHaveProperty('code');
   expect(unexpected.input).not.toHaveProperty('details');
+  expect(unexpected.output).toMatchObject({
+    code: 'UNEXPECTED', message: 'Unexpected failure',
+    issueType: 'kernel', recoverable: false,
+    suggestedActions: ['inspect-cli-stack', 'collect-error-output'],
+    artifactPaths: []
+  });
 });

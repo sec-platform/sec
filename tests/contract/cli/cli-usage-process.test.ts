@@ -105,16 +105,37 @@ await runCli({ version: '1.2.3', register(program) {
   }, 10_000);
 }
 
-for (const failure of [
-  `{ code: 'commander.unknownOption', exitCode: 0, message: 'execution failure' }`,
-  // The existing application error contract may safely observe code/message.
-  // The transport must never read parser-shaped exitCode or inspect a prototype.
-  `new Proxy({}, { get(_target, key) { if (key === 'exitCode') reads++; throw new Error('getter trap'); }, getPrototypeOf() { reads++; throw new Error('prototype trap'); } })`,
-  `(() => { const proxy = Proxy.revocable({}, {}); proxy.revoke(); return proxy.proxy; })()`
-]) {
+// All three failures must remain actual native-process cases: a parser-shaped
+// ordinary object, a hostile Proxy and a revoked Proxy have distinct failure
+// inspection hazards. Their SEC protocol is independently fixed below.
+for (const { failure, expected } of [
+  {
+    failure: `{ code: 'commander.unknownOption', exitCode: 0, message: 'execution failure' }`,
+    expected: {
+      code: 'commander.unknownOption', message: 'execution failure',
+      issueType: 'kernel', recoverable: false,
+      suggestedActions: ['collect-error-output']
+    }
+  },
+  {
+    failure: `new Proxy({}, { get(_target, key) { if (key === 'exitCode') reads++; throw new Error('getter trap'); }, getPrototypeOf() { reads++; throw new Error('prototype trap'); } })`,
+    expected: {
+      code: 'UNEXPECTED', message: 'Unexpected failure',
+      issueType: 'kernel', recoverable: false,
+      suggestedActions: ['inspect-cli-stack', 'collect-error-output']
+    }
+  },
+  {
+    failure: `(() => { const proxy = Proxy.revocable({}, {}); proxy.revoke(); return proxy.proxy; })()`,
+    expected: {
+      code: 'UNEXPECTED', message: 'Unexpected failure',
+      issueType: 'kernel', recoverable: false,
+      suggestedActions: ['inspect-cli-stack', 'collect-error-output']
+    }
+  }
+] as const) {
   test(`transport does not classify an arbitrary execution failure as a parser exit: ${failure}`, async () => {
-    const result = await invoke(['execute', '--json'], `${fixtureImports}
-let reads = 0;
+    const result = await invoke(['execute', '--json'], `${fixtureImports}\nlet reads = 0;
 await runCli({ version: '1.2.3', register(program) {
   addJsonFlags(program.command('execute')).action(() => { throw ${failure}; });
 } });
@@ -123,6 +144,15 @@ console.error('classification-reads=' + reads);`);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('classification-reads=0');
     expect(result.stderr).not.toContain('Invalid command arguments');
+    // Previously, a missing or malformed error frame could pass these tests
+    // just because the fixture printed classification-reads=0.
+    const frames = result.stderr.split(/\\r?\\n/u)
+      .filter(line => line.startsWith('{') && line.endsWith('}'));
+    expect(frames).toHaveLength(1);
+    expect(JSON.parse(frames[0]!)).toEqual({
+      ...expected,
+      artifactPaths: []
+    });
   }, 10_000);
 }
 
