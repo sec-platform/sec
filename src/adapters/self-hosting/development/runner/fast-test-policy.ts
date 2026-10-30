@@ -135,6 +135,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/contract/cli/cli-usage-process.test.ts',
+    reason: 'native-bun-cli-process-and-actual-stream-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/contract/cli/usage.test.ts',
+    reason: 'native-bun-cli-process-and-retained-workspace-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/contract/cli/test-budget.test.ts',
     reason: 'repeated-repository-compilation-and-process-global-cli-context',
     resourceClass: 'independent-process'
