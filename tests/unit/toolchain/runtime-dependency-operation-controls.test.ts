@@ -91,9 +91,19 @@ for (const canceller of ['parent', 'child'] as const) {
     const bound = runtimeDependencyOperationOptions({ signal: parent.signal, monotonicNowMs: () => 0 });
     const narrowed = runtimeDependencyOperationControls({ ...bound, signal: child.signal });
     const retained = runtimeDependencyOperationControls({ ...narrowed, signal: undefined });
+    // A direct rebind of an already issued control view retains the same
+    // owner operation, just like the derived/options route above.
+    const rebound = runtimeDependencyOperationControls(retained);
+    assert.equal(runtimeDependencyOperationContext(rebound).operationId,
+      runtimeDependencyOperationContext(retained).operationId);
     const reason = Object.freeze({ canceller });
     (canceller === 'parent' ? parent : child).abort(reason);
-    assert.throws(() => runtimeDependencyOperationRemainingMs(retained, 'cancel'), (error: unknown) => error === reason);
+    for (const view of [retained, rebound]) {
+      assert.throws(() => runtimeDependencyOperationRemainingMs(view, 'cancel'),
+        (error: unknown) => error === reason);
+    }
+    assert.throws(() => runtimeDependencyOperationControls(rebound),
+      (error: unknown) => error === reason);
   });
 }
 

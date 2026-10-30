@@ -80,10 +80,3 @@ test('public request validation and internal coordinator accept the same three m
 });
 
 
-test('rebinding owner-issued controls preserves the operation and cancellation', () => {
-  const controller=new AbortController();
-  const initial=runtimeDependencyOperationControls({...controls(),signal:controller.signal});
-  const rebound=runtimeDependencyOperationControls(initial);
-  assert.equal(context(rebound).operationId,context(initial).operationId);
-  controller.abort('stop');assert.throws(()=>runtimeDependencyOperationControls(rebound),e=>e==='stop');
-});
