@@ -9,18 +9,35 @@ import { bindDocumentationVerificationGateInput, CodexDevelopmentBuildVerificati
 import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { parseGitChangedFileOutput } from '../../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../../helpers/test-impact-provider.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 
 let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | null = null;
 let testImpactProviderPromise: Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> | null = null;
-const testImpactProvider = () => {
-  testImpactProviderPromise ??= (async () => {
-    testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-    return bindDocumentationVerificationGateInput(
-      testImpactFixture.provider,
-      currentDocumentationVerificationBaseline()
-    );
+const testImpactProvider = (): Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> => {
+  if (testImpactProviderPromise !== null) return testImpactProviderPromise;
+  const pending = (async () => {
+    const acquired = await acquireExactRepositoryTestImpactProviderFixture();
+    try {
+      const bound = bindDocumentationVerificationGateInput(
+        acquired.provider,
+        currentDocumentationVerificationBaseline()
+      );
+      // Transfer the live lease to afterAll only after the binding is accepted.
+      testImpactFixture = acquired;
+      return bound;
+    } catch (error) {
+      // Failed binding must not strand the native compiler/tree fixture until
+      // the end of unrelated CI-plan cases. Preserve both failures.
+      settleResources({ primary: { label: 'CI TestImpact gate binding', error },
+        cleanup: [{ label: 'exact TestImpact fixture lease', settle: acquired.dispose }] });
+      throw error;
+    }
   })();
-  return testImpactProviderPromise;
+  testImpactProviderPromise = pending;
+  void pending.catch(() => {
+    if (testImpactProviderPromise === pending) testImpactProviderPromise = null;
+  });
+  return pending;
 };
 afterAll(() => testImpactFixture?.dispose());
 const testBudgetProjection = async () => compileTestBudgetProjection((await testImpactProvider()).testInventory);
