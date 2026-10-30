@@ -1,0 +1,745 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:confirmation-session",
+  "imports": {"time": {"workspace": "module:event-time-ranges"}, "sourceModel": {"workspace": "module:source-model-subjects-v1"}, "native": {"workspace": "module:confirmation-observations"}},
+  "definitions": {
+    "Pair": {"core:type": {"tag": "record", "open": false, "fields": {"person": {"type": {"tag": "scalar", "name": "int"}}, "shift": {"type": {"tag": "scalar", "name": "int"}}}}},
+    "Content": {"core:type": {"tag": "set", "item": {"tag": "nominal", "ref": "local:Pair"}}},
+    "Edit": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "id": {"type": {"tag": "scalar", "name": "int"}},
+          "ordinal": {"type": {"tag": "scalar", "name": "int"}},
+          "at": {"type": {"tag": "nominal", "ref": "time:SessionReading"}},
+          "revision": {"type": {"tag": "scalar", "name": "int"}},
+          "content": {"type": {"tag": "nominal", "ref": "local:Content"}}
+        }
+      }
+    },
+    "Preview": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "id": {"type": {"tag": "scalar", "name": "int"}},
+          "ordinal": {"type": {"tag": "scalar", "name": "int"}},
+          "at": {"type": {"tag": "nominal", "ref": "time:SessionReading"}},
+          "editId": {"type": {"tag": "scalar", "name": "int"}},
+          "revision": {"type": {"tag": "scalar", "name": "int"}},
+          "content": {"type": {"tag": "nominal", "ref": "local:Content"}}
+        }
+      }
+    },
+    "Confirmation": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "id": {"type": {"tag": "scalar", "name": "int"}},
+          "ordinal": {"type": {"tag": "scalar", "name": "int"}},
+          "at": {"type": {"tag": "nominal", "ref": "time:SessionReading"}},
+          "previewId": {"type": {"tag": "scalar", "name": "int"}}
+        }
+      }
+    },
+    "Application": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "id": {"type": {"tag": "scalar", "name": "int"}},
+          "ordinal": {"type": {"tag": "scalar", "name": "int"}},
+          "at": {"type": {"tag": "nominal", "ref": "time:SessionReading"}},
+          "confirmationId": {"type": {"tag": "scalar", "name": "int"}},
+          "revision": {"type": {"tag": "scalar", "name": "int"}},
+          "documentRevisionAfter": {"type": {"tag": "scalar", "name": "int"}}
+        }
+      }
+    },
+    "IntEqualBody": {
+      "core:function": {
+        "parameters": [{"name": "left", "type": {"tag": "scalar", "name": "int"}}, {"name": "right", "type": {"tag": "scalar", "name": "int"}}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {"op": "call", "callee": {"op": "symbol", "ref": "std:IntEq"}, "arguments": [{"op": "var", "name": "left"}, {"op": "var", "name": "right"}]}
+      }
+    },
+    "IntLeBody": {
+      "core:function": {
+        "parameters": [{"name": "left", "type": {"tag": "scalar", "name": "int"}}, {"name": "right", "type": {"tag": "scalar", "name": "int"}}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "call", "callee": {"op": "symbol", "ref": "std:IntCompare"}, "arguments": [{"op": "var", "name": "left"}, {"op": "var", "name": "right"}]},
+          "cases": [
+            {"constructor": "Less", "binding": "unused0", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}},
+            {"constructor": "Equal", "binding": "unused1", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}},
+            {"constructor": "Greater", "binding": "unused2", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}}
+          ]
+        }
+      }
+    },
+    "IntEqual": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "left", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}, {"name": "right", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:IntEqualBody"
+      }
+    },
+    "IntLe": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "left", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}, {"name": "right", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:IntLeBody"
+      }
+    },
+    "ContentEqual": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "nominal", "ref": "local:Content"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "nominal", "ref": "local:Content"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "l",
+                "domain": {"op": "var", "name": "left"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "r",
+                    "domain": {"op": "var", "name": "right"},
+                    "predicate": {
+                      "all": [
+                        {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "l"}, "name": "person"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "r"}, "name": "person"}}
+                            }
+                          }
+                        },
+                        {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "l"}, "name": "shift"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "r"}, "name": "shift"}}
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "r",
+                "domain": {"op": "var", "name": "right"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "l",
+                    "domain": {"op": "var", "name": "left"},
+                    "predicate": {
+                      "all": [
+                        {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "l"}, "name": "person"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "r"}, "name": "person"}}
+                            }
+                          }
+                        },
+                        {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "l"}, "name": "shift"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "r"}, "name": "shift"}}
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "PreviewMatches": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "edit", "type": {"tag": "nominal", "ref": "local:Edit"}, "cardinality": "one"},
+          {"name": "preview", "type": {"tag": "nominal", "ref": "local:Preview"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "apply": {
+                "meaningRef": "local:IntEqual",
+                "arguments": {
+                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "editId"}},
+                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "edit"}, "name": "id"}}
+                }
+              }
+            },
+            {
+              "apply": {
+                "meaningRef": "local:IntEqual",
+                "arguments": {
+                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "revision"}},
+                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "edit"}, "name": "revision"}}
+                }
+              }
+            },
+            {
+              "apply": {
+                "meaningRef": "local:ContentEqual",
+                "arguments": {
+                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "content"}},
+                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "edit"}, "name": "content"}}
+                }
+              }
+            },
+            {
+              "not": {
+                "apply": {
+                  "meaningRef": "local:IntLe",
+                  "arguments": {
+                    "left": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "ordinal"}},
+                    "right": {"value": {"op": "field", "record": {"op": "var", "name": "edit"}, "name": "ordinal"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ApplicationMatches": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "confirmation", "type": {"tag": "nominal", "ref": "local:Confirmation"}, "cardinality": "one"},
+          {"name": "preview", "type": {"tag": "nominal", "ref": "local:Preview"}, "cardinality": "one"},
+          {"name": "application", "type": {"tag": "nominal", "ref": "local:Application"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "apply": {
+                "meaningRef": "local:IntEqual",
+                "arguments": {
+                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "confirmation"}, "name": "previewId"}},
+                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "id"}}
+                }
+              }
+            },
+            {
+              "apply": {
+                "meaningRef": "local:IntEqual",
+                "arguments": {
+                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "application"}, "name": "confirmationId"}},
+                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "confirmation"}, "name": "id"}}
+                }
+              }
+            },
+            {
+              "apply": {
+                "meaningRef": "local:IntEqual",
+                "arguments": {
+                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "application"}, "name": "revision"}},
+                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "revision"}}
+                }
+              }
+            },
+            {
+              "apply": {
+                "meaningRef": "local:IntEqual",
+                "arguments": {
+                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "application"}, "name": "documentRevisionAfter"}},
+                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "revision"}}
+                }
+              }
+            },
+            {
+              "not": {
+                "apply": {
+                  "meaningRef": "local:IntLe",
+                  "arguments": {
+                    "left": {"value": {"op": "field", "record": {"op": "var", "name": "confirmation"}, "name": "ordinal"}},
+                    "right": {"value": {"op": "field", "record": {"op": "var", "name": "preview"}, "name": "ordinal"}}
+                  }
+                }
+              }
+            },
+            {
+              "not": {
+                "apply": {
+                  "meaningRef": "local:IntLe",
+                  "arguments": {
+                    "left": {"value": {"op": "field", "record": {"op": "var", "name": "application"}, "name": "ordinal"}},
+                    "right": {"value": {"op": "field", "record": {"op": "var", "name": "confirmation"}, "name": "ordinal"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "EditStream": {"event:stream": {"eventType": {"tag": "nominal", "ref": "local:Edit"}, "order": "total", "delivery": "at-most-once", "replay": "bounded", "latePolicy": "reconcile"}},
+    "EditObservation": {
+      "observation:contract": {
+        "subjectRef": "native:SessionCut",
+        "observerRef": "native:EditsAt",
+        "scopeRef": "scope:confirmation-prefix",
+        "clockRef": "time:SessionReading",
+        "completeness": "closed",
+        "contextRoles": {
+          "session": {"typeRef": "local:Session", "cardinality": "one"},
+          "stream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "sourceComponent": {"typeRef": "sourceModel:Component", "cardinality": "one"}
+        }
+      }
+    },
+    "PreviewStream": {"event:stream": {"eventType": {"tag": "nominal", "ref": "local:Preview"}, "order": "total", "delivery": "at-most-once", "replay": "bounded", "latePolicy": "reconcile"}},
+    "PreviewObservation": {
+      "observation:contract": {
+        "subjectRef": "native:SessionCut",
+        "observerRef": "native:PreviewsAt",
+        "scopeRef": "scope:confirmation-prefix",
+        "clockRef": "time:SessionReading",
+        "completeness": "closed",
+        "contextRoles": {
+          "session": {"typeRef": "local:Session", "cardinality": "one"},
+          "stream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "sourceComponent": {"typeRef": "sourceModel:Component", "cardinality": "one"}
+        }
+      }
+    },
+    "ConfirmationStream": {"event:stream": {"eventType": {"tag": "nominal", "ref": "local:Confirmation"}, "order": "total", "delivery": "at-most-once", "replay": "bounded", "latePolicy": "reconcile"}},
+    "ConfirmationObservation": {
+      "observation:contract": {
+        "subjectRef": "native:SessionCut",
+        "observerRef": "native:ConfirmationsAt",
+        "scopeRef": "scope:confirmation-prefix",
+        "clockRef": "time:SessionReading",
+        "completeness": "closed",
+        "contextRoles": {
+          "session": {"typeRef": "local:Session", "cardinality": "one"},
+          "stream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "sourceComponent": {"typeRef": "sourceModel:Component", "cardinality": "one"}
+        }
+      }
+    },
+    "ApplicationStream": {"event:stream": {"eventType": {"tag": "nominal", "ref": "local:Application"}, "order": "total", "delivery": "at-most-once", "replay": "bounded", "latePolicy": "reconcile"}},
+    "ApplicationObservation": {
+      "observation:contract": {
+        "subjectRef": "native:SessionCut",
+        "observerRef": "native:ApplicationsAt",
+        "scopeRef": "scope:confirmation-prefix",
+        "clockRef": "time:SessionReading",
+        "completeness": "closed",
+        "contextRoles": {
+          "session": {"typeRef": "local:Session", "cardinality": "one"},
+          "stream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "sourceComponent": {"typeRef": "sourceModel:Component", "cardinality": "one"}
+        }
+      }
+    },
+    "ConfirmationContract": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "edits", "type": {"tag": "nominal", "ref": "sourceModel:ObservationUse"}, "cardinality": "one"},
+          {"name": "previews", "type": {"tag": "nominal", "ref": "sourceModel:ObservationUse"}, "cardinality": "one"},
+          {"name": "confirmations", "type": {"tag": "nominal", "ref": "sourceModel:ObservationUse"}, "cardinality": "one"},
+          {"name": "applications", "type": {"tag": "nominal", "ref": "sourceModel:ObservationUse"}, "cardinality": "one"},
+          {"name": "delay", "type": {"tag": "nominal", "ref": "time:Duration"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "e",
+                "observedDomain": {"binding": "edits"},
+                "predicate": {
+                  "temporal": {
+                    "operator": "eventually",
+                    "clockRef": "time:SessionReading",
+                    "range": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "time:ClosedAfter"},
+                      "arguments": [{"op": "field", "record": {"op": "var", "name": "e"}, "name": "at"}, {"op": "var", "name": "delay"}]
+                    },
+                    "item": {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "v",
+                        "observedDomain": {"binding": "previews"},
+                        "predicate": {
+                          "apply": {"meaningRef": "local:PreviewMatches", "arguments": {"edit": {"value": {"op": "var", "name": "e"}}, "preview": {"value": {"op": "var", "name": "v"}}}}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "v",
+                "observedDomain": {"binding": "previews"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "e",
+                    "observedDomain": {"binding": "edits"},
+                    "predicate": {
+                      "apply": {"meaningRef": "local:PreviewMatches", "arguments": {"edit": {"value": {"op": "var", "name": "e"}}, "preview": {"value": {"op": "var", "name": "v"}}}}
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "c",
+                "observedDomain": {"binding": "confirmations"},
+                "predicate": {
+                  "temporal": {
+                    "operator": "eventually",
+                    "clockRef": "time:SessionReading",
+                    "range": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "time:ClosedAfter"},
+                      "arguments": [{"op": "field", "record": {"op": "var", "name": "c"}, "name": "at"}, {"op": "var", "name": "delay"}]
+                    },
+                    "item": {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "a",
+                        "observedDomain": {"binding": "applications"},
+                        "predicate": {
+                          "quantify": {
+                            "quantifier": "exists",
+                            "binder": "v",
+                            "observedDomain": {"binding": "previews"},
+                            "predicate": {
+                              "apply": {
+                                "meaningRef": "local:ApplicationMatches",
+                                "arguments": {
+                                  "confirmation": {"value": {"op": "var", "name": "c"}},
+                                  "preview": {"value": {"op": "var", "name": "v"}},
+                                  "application": {"value": {"op": "var", "name": "a"}}
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "a",
+                "observedDomain": {"binding": "applications"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "c",
+                    "observedDomain": {"binding": "confirmations"},
+                    "predicate": {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "v",
+                        "observedDomain": {"binding": "previews"},
+                        "predicate": {
+                          "apply": {
+                            "meaningRef": "local:ApplicationMatches",
+                            "arguments": {
+                              "confirmation": {"value": {"op": "var", "name": "c"}},
+                              "preview": {"value": {"op": "var", "name": "v"}},
+                              "application": {"value": {"op": "var", "name": "a"}}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "c",
+                "observedDomain": {"binding": "confirmations"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "atMost",
+                    "binder": "a",
+                    "observedDomain": {"binding": "applications"},
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "local:IntEqual",
+                        "arguments": {
+                          "left": {"value": {"op": "field", "record": {"op": "var", "name": "a"}, "name": "confirmationId"}},
+                          "right": {"value": {"op": "field", "record": {"op": "var", "name": "c"}, "name": "id"}}
+                        }
+                      }
+                    },
+                    "count": 1
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "a",
+                "observedDomain": {"binding": "applications"},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "forall",
+                    "binder": "b",
+                    "observedDomain": {"binding": "applications"},
+                    "predicate": {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "ca",
+                        "observedDomain": {"binding": "confirmations"},
+                        "predicate": {
+                          "quantify": {
+                            "quantifier": "exists",
+                            "binder": "cb",
+                            "observedDomain": {"binding": "confirmations"},
+                            "predicate": {
+                              "all": [
+                                {
+                                  "apply": {
+                                    "meaningRef": "local:IntEqual",
+                                    "arguments": {
+                                      "left": {"value": {"op": "field", "record": {"op": "var", "name": "a"}, "name": "confirmationId"}},
+                                      "right": {"value": {"op": "field", "record": {"op": "var", "name": "ca"}, "name": "id"}}
+                                    }
+                                  }
+                                },
+                                {
+                                  "apply": {
+                                    "meaningRef": "local:IntEqual",
+                                    "arguments": {
+                                      "left": {"value": {"op": "field", "record": {"op": "var", "name": "b"}, "name": "confirmationId"}},
+                                      "right": {"value": {"op": "field", "record": {"op": "var", "name": "cb"}, "name": "id"}}
+                                    }
+                                  }
+                                },
+                                {
+                                  "implies": [
+                                    {
+                                      "not": {
+                                        "apply": {
+                                          "meaningRef": "local:IntLe",
+                                          "arguments": {
+                                            "left": {"value": {"op": "field", "record": {"op": "var", "name": "cb"}, "name": "ordinal"}},
+                                            "right": {"value": {"op": "field", "record": {"op": "var", "name": "ca"}, "name": "ordinal"}}
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "not": {
+                                        "apply": {
+                                          "meaningRef": "local:IntLe",
+                                          "arguments": {
+                                            "left": {"value": {"op": "field", "record": {"op": "var", "name": "b"}, "name": "ordinal"}},
+                                            "right": {"value": {"op": "field", "record": {"op": "var", "name": "a"}, "name": "ordinal"}}
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ConfirmThenApply": {
+      "intent:goal": {
+        "roles": {
+          "edits": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "previews": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "confirmations": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "applications": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"}
+        },
+        "clauses": {
+          "interaction": {
+            "maintain": {
+              "apply": {
+                "meaningRef": "local:ConfirmationContract",
+                "arguments": {
+                  "edits": {"binding": "edits"},
+                  "previews": {"binding": "previews"},
+                  "confirmations": {"binding": "confirmations"},
+                  "applications": {"binding": "applications"},
+                  "delay": {"value": {"op": "symbol", "ref": "time:ResponseDelay"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "LocalDelay": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "time:Duration"},
+        "value": {"op": "record", "fields": [{"name": "nanoseconds", "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1000000000"}}]}
+      }
+    },
+    "LocalConfirmThenApply": {
+      "intent:goal": {
+        "roles": {
+          "edits": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "previews": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "confirmations": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "applications": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"}
+        },
+        "clauses": {
+          "interaction": {
+            "maintain": {
+              "apply": {
+                "meaningRef": "local:ConfirmationContract",
+                "arguments": {
+                  "edits": {"binding": "edits"},
+                  "previews": {"binding": "previews"},
+                  "confirmations": {"binding": "confirmations"},
+                  "applications": {"binding": "applications"},
+                  "delay": {"value": {"op": "symbol", "ref": "local:LocalDelay"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ConfirmationSession": {
+      "product:component": {
+        "providedPorts": {},
+        "requiredPorts": {},
+        "requirements": [
+          {
+            "ref": "local:LocalConfirmThenApply",
+            "roleBindings": {
+              "edits": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "editsView"}},
+              "previews": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "previewsView"}},
+              "confirmations": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "confirmationsView"}},
+              "applications": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "applicationsView"}}
+            }
+          }
+        ],
+        "constructor": {"parameters": [], "errors": {"tag": "scalar", "name": "never"}, "effects": [{"class": "alloc"}], "termination": "total", "requirements": []},
+        "eventParticipations": [
+          {"use": {"ref": "local:EditStream", "useId": "edits"}, "role": "subscribe"},
+          {"use": {"ref": "local:PreviewStream", "useId": "previews"}, "role": "publish"},
+          {"use": {"ref": "local:ConfirmationStream", "useId": "confirmations"}, "role": "subscribe"},
+          {"use": {"ref": "local:ApplicationStream", "useId": "applications"}, "role": "publish"}
+        ],
+        "observationParticipations": [
+          {
+            "use": {
+              "ref": "local:EditObservation",
+              "useId": "editsView",
+              "bindings": {
+                "session": {"source": "context", "role": "session"},
+                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "edits"}},
+                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+              }
+            },
+            "role": "consume"
+          },
+          {
+            "use": {
+              "ref": "local:PreviewObservation",
+              "useId": "previewsView",
+              "bindings": {
+                "session": {"source": "context", "role": "session"},
+                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "previews"}},
+                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+              }
+            },
+            "role": "consume"
+          },
+          {
+            "use": {
+              "ref": "local:ConfirmationObservation",
+              "useId": "confirmationsView",
+              "bindings": {
+                "session": {"source": "context", "role": "session"},
+                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "confirmations"}},
+                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+              }
+            },
+            "role": "consume"
+          },
+          {
+            "use": {
+              "ref": "local:ApplicationObservation",
+              "useId": "applicationsView",
+              "bindings": {
+                "session": {"source": "context", "role": "session"},
+                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "applications"}},
+                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+              }
+            },
+            "role": "consume"
+          }
+        ],
+        "contextRoles": {"session": {"typeRef": "local:Session", "cardinality": "one"}}
+      }
+    },
+    "Session": {"req:subject": {"roles": {}}}
+  },
+  "exports": ["ConfirmThenApply", "Content", "Edit", "Preview", "Confirmation", "Application", "Session", "ConfirmationSession"]
+}

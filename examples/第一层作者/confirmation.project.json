@@ -1,0 +1,80 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:confirmation-session",
+  "sourceScopes": [
+    {
+      "root": "持续确认",
+      "kind": "semantic",
+      "include": [
+        "confirmation.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "事件期限",
+      "kind": "semantic",
+      "include": [
+        "ranges.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "semantic",
+      "include": [
+        "subjects.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "design",
+      "include": ["README.md"],
+      "editSource": {"mode": "file"}
+    },
+    {
+      "root": "持续确认/supply",
+      "kind": "native",
+      "include": [
+        "observations.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "持续确认/supply",
+      "kind": "design",
+      "include": [
+        "observations.selection.json",
+        "observation-profile.md",
+        "target-profile.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  ],
+  "targets": {
+    "interactive": {
+      "profileRef": {
+        "id": "profile:confirmation-interactive-host",
+        "revision": "1"
+      },
+      "outputRoots": [
+        {
+          "moduleId": "module:confirmation-session",
+          "export": "ConfirmationSession",
+          "rootId": "session"
+        }
+      ]
+    }
+  },
+  "defaultTarget": "interactive"
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "module:confirmation-observations",
+  "language": "typescript",
+  "profileRef": "profile:confirmation-prefix-observation:1",
+  "symbols": {
+    "SessionCut": {
+      "sourcePath": "持续确认/supply/observations.d.ts",
+      "nativeExport": "SessionCut",
+      "role": "type"
+    },
+    "EditsAt": {
+      "sourcePath": "持续确认/supply/observations.d.ts",
+      "nativeExport": "EditsAt",
+      "role": "callable"
+    },
+    "PreviewsAt": {
+      "sourcePath": "持续确认/supply/observations.d.ts",
+      "nativeExport": "PreviewsAt",
+      "role": "callable"
+    },
+    "ConfirmationsAt": {
+      "sourcePath": "持续确认/supply/observations.d.ts",
+      "nativeExport": "ConfirmationsAt",
+      "role": "callable"
+    },
+    "ApplicationsAt": {
+      "sourcePath": "持续确认/supply/observations.d.ts",
+      "nativeExport": "ApplicationsAt",
+      "role": "callable"
+    }
+  }
+}

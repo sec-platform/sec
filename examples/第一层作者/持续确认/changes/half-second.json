@@ -1,0 +1,12 @@
+[
+  {
+    "op": "test",
+    "path": "/definitions/LocalDelay/core:constant/value/fields/0/value/value",
+    "value": "1000000000"
+  },
+  {
+    "op": "replace",
+    "path": "/definitions/LocalDelay/core:constant/value/fields/0/value/value",
+    "value": "500000000"
+  }
+]

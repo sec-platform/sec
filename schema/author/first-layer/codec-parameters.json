@@ -1880,6 +1880,9 @@
               },
               "domain": {
                 "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr"
+              },
+              "observedDomain": {
+                "$ref": "#/$defs/call/properties/arguments/additionalProperties/oneOf/0"
               }
             },
             "allOf": [
@@ -1937,6 +1940,11 @@
               {
                 "required": [
                   "domain"
+                ]
+              },
+              {
+                "required": [
+                  "observedDomain"
                 ]
               }
             ]

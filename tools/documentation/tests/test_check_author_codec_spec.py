@@ -280,6 +280,22 @@ class AuthorCodecSpec(TestCase):
         literal = {'literal': {'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data}}
         self.assertEqual(self.expansion.expression(literal)['value'], data)
 
+    def test_observed_domain_preserves_binding_and_exact_boundaries(self):
+        payload = {'quantifier': 'forall', 'binder': 'e',
+                   'observedDomain': {'binding': 'events'},
+                   'predicate': {'local:Accepted': {'event': 'e'}}}
+        expected = {'op': 'quantify', **copy.deepcopy(payload)}
+        expected['predicate'] = {'op': 'call', 'meaningRef': 'local:Accepted', 'bindings': {'event': 'e'}}
+        self.assertEqual(self.expansion.formula({'quantify': payload}), expected)
+        exact = {'op': 'quantify', **payload}
+        self.assertEqual(self.expansion.formula(exact), exact)
+        # Expansion does not infer a source occurrence or silently choose among domains.
+        mixed = {'quantify': {**payload, 'domainRef': 'local:Snapshot'}}
+        self.assertIn('domainRef', self.expansion.formula(mixed))
+        literal = {'literal': {'type': {'tag': 'scalar', 'name': 'text'},
+                               'value': {'quantify': payload}}}
+        self.assertEqual(self.expansion.expression(literal)['value'], literal['literal']['value'])
+
     def test_relation_formula_uses_the_existing_formula_slot_only(self):
         body = {'category': 'relation', 'parameters': [],
                 'result': {'tag': 'scalar', 'name': 'bool'},
