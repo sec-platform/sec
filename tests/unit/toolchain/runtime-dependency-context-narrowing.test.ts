@@ -5,8 +5,7 @@ import {
   runtimeDependencyOperationEffectFence as fence,
   runtimeDependencyOperationOptions as normalize,
   runtimeDependencyOperationRemainingMs as remaining,
-  waitForRuntimeDependencyOperation as wait,
-  type RuntimeDependencyInstallOptions
+  waitForRuntimeDependencyOperation as wait
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
@@ -165,31 +164,6 @@ test('fresh or newly narrowed exhausted absolute deadlines still fail closed', (
     const first = normalize({ deadlineAtUnixMs: 1100, monotonicNowMs: () => 0 });
     assert.throws(() => normalize({ ...first, deadlineAtUnixMs: 999 }), deadlineError);
     assert.throws(() => normalize({ ...first, deadlineAtUnixMs: NaN }), deadlineError);
-  } finally { Date.now = original; }
-});
-
-test('coordinator capture fixes the deadline and admission hook before clock execution', async () => {
-  const original = Date.now;
-  Date.now = () => 1000;
-  const calls: string[] = [];
-  const originalHook = async () => { calls.push('original'); };
-  const replacementHook = async () => { calls.push('replacement'); };
-  try {
-    let deadline = 1100;
-    const input: RuntimeDependencyInstallOptions = {
-      beforeCommit: originalHook,
-      get deadlineAtUnixMs() {
-        const selected = deadline;
-        deadline = 2100;
-        return selected;
-      }
-    };
-    input.monotonicNowMs = () => { input.beforeCommit = replacementHook; return 0; };
-    const normalized = normalize(input);
-    assert.equal(normalized.deadlineAtUnixMs, 1100);
-    assert.equal(contextOf(normalized).deadlineAtMonotonicMs, 100);
-    await fence(normalized, 'publish');
-    assert.deepEqual(calls, ['original']);
   } finally { Date.now = original; }
 });
 

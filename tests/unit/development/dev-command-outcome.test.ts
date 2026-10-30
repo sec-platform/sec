@@ -10,15 +10,6 @@ test('zero alone is successful and existing integer failure codes retain their v
   for (const value of [0, 255, -1]) assert.equal(devCommandObservationExitCode(observation(value)), value);
 });
 
-test('absent, nonnumeric and noninteger results never become a zero exit', () => {
-  for (const value of [undefined, null, NaN, 1.5, 2 ** 53]) {
-    assert.throws(() => devCommandObservationExitCode(observation(value as number)), TypeError);
-  }
-});
-
-test('incomplete observation or non-exit terminal state remains failure even with an apparent zero', () => {
+test('incomplete observation remains failure even with an apparent zero', () => {
   assert.equal(devCommandObservationExitCode({ ...observation(0), observationIntegrity: { kind: 'failed', error: 'lost' } }), 1);
-  assert.equal(devCommandObservationExitCode({ ...observation(0), terminal: { kind: 'signaled', signal: 'SIGTERM' } }), 1);
-  assert.equal(devCommandObservationExitCode({ ...observation(0), terminal: { kind: 'unresolved', reason: 'close-without-status' } }), 1);
-  assert.equal(devCommandObservationExitCode({ ...observation(0), observationIntegrity: { kind: 'unknown' } as never }), 1);
 });

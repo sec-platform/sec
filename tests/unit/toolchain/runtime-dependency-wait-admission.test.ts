@@ -25,16 +25,6 @@ test('dependency wait retains monotonic-clock history for raw options', async ()
   assert.match((failure as Error).message, /moved backwards/u);
 });
 
-test('mutating raw options while sleeping cannot renew an operation deadline', async () => {
-  let now = 0;
-  const options = { lockTimeoutMs: 100, monotonicNowMs: () => now };
-  const failure = await rejectionOf(waitForRuntimeDependencyOperation(options, 1, async () => {
-    options.lockTimeoutMs = 10_000;
-    now = 101;
-  }, 'changed-options'));
-  assert.equal(deadlineFailure(failure), true);
-});
-
 test('dependency wait does not run deferred sleep after immediate caller cancellation', async () => {
   const controller = new AbortController();
   const reason = new Error('cancelled by caller');

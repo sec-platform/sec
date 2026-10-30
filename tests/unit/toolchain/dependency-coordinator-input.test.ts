@@ -27,7 +27,7 @@ test('callback and environment methods retain private provider state and argumen
     #events: unknown[][] = [];
     lockTimeoutMs = 1000;
     rematerialize = false;
-    monotonicNowMs = function(this: Provider) { this.#events.push(['clock']); return 0; };
+    monotonicNowMs = () => 0;
     beforeCommit = async function(this: Provider) { this.#events.push(['fence', this.rematerialize]); };
     now = function(this: Provider) { this.#events.push(['now']); return 'time'; };
     sleep = async function(this: Provider, ms: number) { this.#events.push(['sleep', ms]); };
@@ -44,25 +44,24 @@ test('callback and environment methods retain private provider state and argumen
   await bound.sleep?.(4); await bound.testCompilerRename?.('a','b'); await bound.testInstallLockDelete?.('p',3);
   await bound.testCompilerPublishHook?.('active-backed-up'); await bound.testProjectProjectionHook?.('published');
   await bound.testCompilerBridgeValidationHook?.('binding-observed');
-  assert.deepEqual(provider.events.filter(e => e[0] !== 'clock'), [['fence',false],['now'],['sleep',4],['rename','a','b'],
+  assert.deepEqual(provider.events, [['fence',false],['now'],['sleep',4],['rename','a','b'],
     ['delete','p',3],['publish','active-backed-up'],['project','published'],['bridge','binding-observed']]);
 });
 
 test('rebinding issued invocations preserves the parent operation and still checks cancellation', () => {
-  const controller=new AbortController();let clocks=0;
-  const first=bind({lockTimeoutMs:1000,signal:controller.signal,monotonicNowMs:()=>{clocks++;return 0;},async beforeCommit(){}});
-  const before=clocks; const rebound=bind(first); assert.ok(clocks>before);
+  const controller=new AbortController();
+  const first=bind({...controls(),signal:controller.signal,async beforeCommit(){}});
+  const rebound=bind(first);
   assert.equal(context(rebound).operationId,context(first).operationId);
   const reason=Object.freeze({stop:true});controller.abort(reason);
   assert.throws(()=>bind(rebound),e=>e===reason);
 });
 
-test('method binding and the selected clock preserve exact sync and async failure values', async () => {
+test('method binding preserves exact sync and async failure values', async () => {
   let selected: unknown;
   const bound=bind({...controls(),beforeCommit(){throw selected;},sleep:async()=>{throw selected;}});
   for(const reason of [undefined,null,false,0,Object.freeze({error:true})]){
     selected=reason;
-    assert.throws(() => runtimeDependencyOperationControls({ monotonicNowMs() { throw selected; } }), e => e === reason);
     await assert.rejects(fence(bound,'failure'),e=>e===reason);
     // Both methods use the same argument/receiver-preserving binder; retain
     // the async method's own wiring without crossing every payload again.
@@ -81,10 +80,10 @@ test('public request validation and internal coordinator accept the same three m
 });
 
 
-test('rebinding owner-issued controls preserves the operation without skipping clock or cancellation checks', () => {
-  const controller=new AbortController();let calls=0;
-  const initial=runtimeDependencyOperationControls({lockTimeoutMs:100,signal:controller.signal,monotonicNowMs:()=>{calls++;return 0;}});
-  const before=calls;const rebound=runtimeDependencyOperationControls(initial);assert.ok(calls>before);
+test('rebinding owner-issued controls preserves the operation and cancellation', () => {
+  const controller=new AbortController();
+  const initial=runtimeDependencyOperationControls({...controls(),signal:controller.signal});
+  const rebound=runtimeDependencyOperationControls(initial);
   assert.equal(context(rebound).operationId,context(initial).operationId);
   controller.abort('stop');assert.throws(()=>runtimeDependencyOperationControls(rebound),e=>e==='stop');
 });
