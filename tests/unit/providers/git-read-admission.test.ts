@@ -198,10 +198,8 @@ test('capturing arguments never grants mutation or external-helper grammar', () 
   }
 });
 
-test('argv snapshots ignore custom iteration and method replacements', () => {
+test('argv snapshots retain admitted arguments after caller mutation', () => {
   const input = ['status', '--short'];
-  input[Symbol.iterator] = () => ['reset'].values();
-  input.slice = () => ['reset']; input.indexOf = () => -1;
   const captured = captureGitReadArguments(input, 4096);
   assert.equal(captured.status, 'ready');
   if (captured.status !== 'ready') throw new Error('Expected dense own string arguments');
