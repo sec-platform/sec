@@ -1,0 +1,324 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:sequence-author-queries",
+  "imports": {"sequence": {"mode": "workspace", "moduleId": "module:gift-sequence-values-v1"}},
+  "definitions": {
+    "Reading": {"core:type": {"record": {"score": "int"}, "open": false}},
+    "Rows": {"core:type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true}},
+    "Threshold": {"core:type": "int"},
+    "AtLeast": {
+      "core:function": {
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "mode": "in"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:IntCompare"},
+            "arguments": [{"op": "var", "name": "left"}, {"op": "var", "name": "right"}]
+          },
+          "cases": [
+            {
+              "constructor": "Less",
+              "binding": "below",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {
+              "constructor": "Equal",
+              "binding": "equal",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Greater",
+              "binding": "above",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            }
+          ]
+        }
+      }
+    },
+    "Select": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "threshold", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "comprehension": {
+            "yield": {"op": "var", "name": "row"},
+            "clauses": [
+              {"from": {"bind": "row", "in": {"op": "var", "name": "items"}}},
+              {
+                "where": {
+                  "call": {
+                    "callee": {"op": "symbol", "ref": "local:AtLeast"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "row"}, "name": "score"},
+                      {"op": "var", "name": "threshold"}
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "SelectedCount": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "threshold", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "call": {
+            "callee": {"op": "symbol", "ref": "sequence:Length"},
+            "arguments": [
+              {
+                "comprehension": {
+                  "yield": {"op": "var", "name": "row"},
+                  "clauses": [
+                    {"from": {"bind": "row", "in": {"op": "var", "name": "items"}}},
+                    {
+                      "where": {
+                        "call": {
+                          "callee": {"op": "symbol", "ref": "local:AtLeast"},
+                          "arguments": [
+                            {"op": "field", "record": {"op": "var", "name": "row"}, "name": "score"},
+                            {"op": "var", "name": "threshold"}
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "SelectedScoreSum": {"core:function": {
+      "parameters": [
+        {"name":"items","type":{"tag":"sequence","item":{"tag":"nominal","ref":"local:Reading"},"ordered":true},"mode":"in"},
+        {"name":"threshold","type":{"tag":"scalar","name":"int"},"mode":"in"}
+      ],
+      "returns":{"tag":"scalar","name":"int"},"effects":[],"termination":"total",
+      "body":{"call":{"callee":{"op":"symbol","ref":"sequence:SumInt"},"arguments":[
+        {"comprehension":{"yield":{"op":"field","record":{"op":"var","name":"row"},"name":"score"},"clauses":[
+          {"from":{"bind":"row","in":{"op":"var","name":"items"}}},
+          {"where":{"call":{"callee":{"op":"symbol","ref":"local:AtLeast"},"arguments":[
+            {"op":"field","record":{"op":"var","name":"row"},"name":"score"},{"op":"var","name":"threshold"}
+          ]}}}
+        ]}}
+      ]}}
+    }},
+    "PairSums": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "groups",
+            "type": {
+              "tag": "sequence",
+              "item": {"tag": "sequence", "item": {"tag": "scalar", "name": "int"}, "ordered": true},
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "scalar", "name": "int"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "comprehension": {
+            "yield": {
+              "call": {
+                "callee": {"op": "symbol", "ref": "std:IntAdd"},
+                "arguments": [{"op": "var", "name": "item"}, {"op": "var", "name": "size"}]
+              }
+            },
+            "clauses": [
+              {"from": {"bind": "group", "in": {"op": "var", "name": "groups"}}},
+              {
+                "let": {
+                  "bind": "size",
+                  "value": {
+                    "call": {
+                      "callee": {"op": "symbol", "ref": "sequence:Length"},
+                      "arguments": [{"op": "var", "name": "group"}]
+                    }
+                  }
+                }
+              },
+              {
+                "where": {
+                  "call": {
+                    "callee": {"op": "symbol", "ref": "local:AtLeast"},
+                    "arguments": [
+                      {"op": "var", "name": "size"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                    ]
+                  }
+                }
+              },
+              {"from": {"bind": "item", "in": {"op": "var", "name": "group"}}}
+            ]
+          }
+        }
+      }
+    },
+    "IndexedSelection": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "threshold", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "comprehension": {
+            "yield": {"op": "field", "record": {"op": "var", "name": "occurrence"}, "name": "value"},
+            "clauses": [
+              {
+                "from": {
+                  "bind": "occurrence",
+                  "in": {
+                    "call": {
+                      "callee": {"op": "symbol", "ref": "sequence:Enumerate"},
+                      "arguments": [{"op": "var", "name": "items"}]
+                    }
+                  }
+                }
+              },
+              {
+                "where": {
+                  "call": {
+                    "callee": {"op": "symbol", "ref": "local:AtLeast"},
+                    "arguments": [
+                      {
+                        "op": "field",
+                        "record": {"op": "field", "record": {"op": "var", "name": "occurrence"}, "name": "value"},
+                        "name": "score"
+                      },
+                      {"op": "var", "name": "threshold"}
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "NonEmptyWitness": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "empty",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {
+              "constructor": "Some",
+              "binding": "parts",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            }
+          ]
+        }
+      }
+    },
+    "NonEmpty": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true},
+            "cardinality": "one"
+          }
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:NonEmptyWitness"
+      }
+    },
+    "SelectionExists": {
+      "intent:goal": {
+        "roles": {"items": "local:Rows", "threshold": "local:Threshold"},
+        "clauses": {
+          "has_selection": {
+            "achieve": {
+              "apply": {
+                "meaningRef": "local:NonEmpty",
+                "arguments": {
+                  "items": {
+                    "value": {
+                      "comprehension": {
+                        "yield": {"op": "var", "name": "row"},
+                        "clauses": [
+                          {"from": {"bind": "row", "in": {"op": "var", "name": "items"}}},
+                          {
+                            "where": {
+                              "call": {
+                                "callee": {"op": "symbol", "ref": "local:AtLeast"},
+                                "arguments": [
+                                  {"op": "field", "record": {"op": "var", "name": "row"}, "name": "score"},
+                                  {"op": "var", "name": "threshold"}
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": ["Reading", "Rows", "Select", "SelectedCount", "SelectedScoreSum", "PairSums", "IndexedSelection", "SelectionExists"]
+}

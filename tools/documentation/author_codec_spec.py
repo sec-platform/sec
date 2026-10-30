@@ -58,7 +58,7 @@ def resolve(graph, node, resource=MODULE):
 
 
 class Expansion:
-    def __init__(self, graph):
+    def __init__(self, graph, *, sequence_collect_ref=None):
         self.graph = graph
         self.module = graph[MODULE]
         definitions = self.module['$defs']['Definition']['oneOf']
@@ -70,6 +70,106 @@ class Expansion:
         if len(scalar) != 1:
             reject('scalar Type owner is ambiguous')
         self.scalars = frozenset(scalar[0]['properties']['name']['enum'])
+        # Selected ordinary library binding, supplied by the qualified surface
+        # context. This pure spec does not implement import/Method qualification.
+        self.sequence_collect_ref = copy.deepcopy(sequence_collect_ref)
+        self.expr_nodes = {}
+        for branch in self.module['$defs']['Expr']['oneOf']:
+            node = resolve(graph, branch)
+            op = node.get('properties', {}).get('op', {}).get('const')
+            if isinstance(op, str):
+                self.expr_nodes.setdefault(op, []).append(node)
+
+    def branch_matches(self, node, value, resource=MODULE):
+        node = resolve(self.graph, node, resource)
+        for union in ('oneOf', 'anyOf'):
+            if union in node:
+                return any(self.branch_matches(branch, value, resource) for branch in node[union])
+        if not isinstance(value, dict):
+            return False
+        if not set(node.get('required', ())) <= set(value):
+            return False
+        return all('const' not in schema or value.get(key) == schema['const']
+                   for key, schema in node.get('properties', {}).items())
+
+    def expression_slots(self, node, value, resource=MODULE):
+        """Visit only Schema-owned Expr slots; literal data is never traversed."""
+        if not isinstance(node, dict):
+            return copy.deepcopy(value)
+        if '$ref' in node:
+            base, _, fragment = node['$ref'].partition('#')
+            resource = base or resource
+            if resource == MODULE and fragment == '/$defs/Expr':
+                return self.expression(value)
+            if resource == MODULE and fragment == '/$defs/ExecBody':
+                if isinstance(value, dict) and 'statements' in value:
+                    return copy.deepcopy(value)  # complete control body stays exact
+                return self.expression(value)
+            return self.expression_slots(locate(self.graph[resource], tokens(fragment)), value, resource)
+        union = 'oneOf' if 'oneOf' in node else 'anyOf' if 'anyOf' in node else None
+        if union is not None:
+            choices = [resolve(self.graph, b, resource) for b in node[union]]
+            choices = [b for b in choices if self.branch_matches(b, value, resource)]
+            if not choices:
+                return copy.deepcopy(value)  # malformed data stays for strict S4
+            results = [self.expression_slots(branch, value, resource) for branch in choices]
+            if any(result != results[0] for result in results[1:]):
+                reject('short Expr has ambiguous Schema-owned child slots')
+            return results[0]  # overlapping anyOf is safe only with the same expansion
+        if isinstance(value, dict) and 'properties' in node:
+            properties = node['properties']
+            return {k: self.expression_slots(properties[k], v, resource) if k in properties
+                    else copy.deepcopy(v) for k, v in value.items()}
+        if isinstance(value, list) and isinstance(node.get('items'), dict):
+            return [self.expression_slots(node['items'], v, resource) for v in value]
+        return copy.deepcopy(value)
+
+    def expression(self, value):
+        object_at(value, 'Expr')
+        if 'op' in value:
+            return copy.deepcopy(value)  # all descendants remain complete, not mixed short forms
+        if len(value) != 1:
+            reject('Expr: expected one short constructor')
+        key, payload = next(iter(value.items()))
+        if key == 'comprehension':
+            exactly(payload, ('yield', 'clauses'), 'sequence comprehension')
+            clauses = array_at(payload['clauses'], 'sequence qualifiers')
+            result = {'op': 'sequence', 'items': [self.expression(payload['yield'])]}
+            for clause in reversed(clauses):
+                object_at(clause, 'sequence qualifier')
+                if len(clause) != 1:
+                    reject('sequence qualifier: expected one discriminator')
+                mode, part = next(iter(clause.items()))
+                if mode == 'where':
+                    result = {'op': 'if', 'condition': self.expression(part), 'then': result,
+                              'otherwise': {'op': 'sequence', 'items': []}}
+                elif mode in ('from', 'let'):
+                    value_key = 'in' if mode == 'from' else 'value'
+                    exactly(part, ('bind', value_key), 'sequence ' + mode)
+                    name = part['bind']
+                    if not isinstance(name, str) or not re.fullmatch(self.module['$defs']['Identifier']['pattern'], name):
+                        reject('sequence binder: expected the existing lexical Identifier')
+                    expression = self.expression(part[value_key])
+                    if mode == 'from':
+                        if self.sequence_collect_ref is None:
+                            reject('sequence comprehension requires a qualified ordinary Collect binding')
+                        result = {'op': 'call', 'callee': {'op': 'symbol', 'ref': copy.deepcopy(self.sequence_collect_ref)},
+                                  'arguments': [expression, {'op': 'lambda', 'params': [{'name': name}], 'body': result}]}
+                    else:
+                        result = {'op': 'let', 'name': name, 'value': expression, 'body': result}
+                else:
+                    reject('sequence qualifier: unknown discriminator')
+            return result
+        if key not in self.expr_nodes:
+            reject('Expr: unknown short constructor')
+        object_at(payload, 'short Expr payload')
+        if 'op' in payload:
+            reject('short Expr payload cannot override op')
+        complete = {'op': key, **copy.deepcopy(payload)}
+        choices = [n for n in self.expr_nodes[key] if self.branch_matches(n, complete)]
+        if len(choices) != 1:
+            reject('short Expr requires one complete constructor branch')
+        return self.expression_slots(choices[0], complete)
 
     def type(self, value):
         if isinstance(value, str):
@@ -126,6 +226,17 @@ class Expansion:
         if len(value) != 1:
             reject('Formula: expected exactly one short discriminator')
         key, payload = next(iter(value.items()))
+        if key == 'apply':
+            exactly(payload, ('meaningRef', 'arguments'), 'short Meaning application')
+            arguments = object_at(payload['arguments'], 'named arguments')
+            result = copy.deepcopy(arguments)
+            for name, argument in arguments.items():
+                object_at(argument, 'Argument')
+                if set(argument) == {'value'}:
+                    result[name] = {'value': self.expression(argument['value'])}
+                elif set(argument) != {'binding'}:
+                    reject('Argument requires exactly binding or value')
+            return {'op': 'call', 'meaningRef': copy.deepcopy(payload['meaningRef']), 'arguments': result}
         if key in ('all', 'any'):
             return {'op': key, 'items': [self.formula(v) for v in array_at(payload, key)]}
         if key == 'not':
@@ -144,8 +255,11 @@ class Expansion:
             object_at(payload, key)
             if 'op' in payload:
                 reject(key + ': payload cannot override op')
-            # quantify.domain is already a full author Expr, kept verbatim.
+            # Only this explicit short quantify slot accepts short expressions.
+            # A complete op:quantify above remains exact through all children.
             result = {'op': key, **copy.deepcopy(payload)}
+            if key == 'quantify' and 'domain' in payload:
+                result['domain'] = self.expression(payload['domain'])
             for child in (('predicate',) if key == 'quantify' else ('item', 'boundary')):
                 if child in payload:
                     result[child] = self.formula(payload[child])
@@ -242,6 +356,12 @@ class Expansion:
                 if 'value' in body or 'type' not in body:
                     reject('constant literal requires type and excludes value')
                 body['value'] = {'op': 'literal', 'type': body['type'], 'value': body.pop('literal')}
+            elif 'value' in body:
+                body['value'] = self.expression(body['value'])
+        elif kind == 'core:function':
+            body = copy.deepcopy(object_at(body, 'function Body'))
+            if 'body' in body and not (isinstance(body['body'], dict) and 'statements' in body['body']):
+                body['body'] = self.expression(body['body'])
         elif kind == 'intent:goal':
             body = self.goal(body)
         elif kind == 'state:machine':

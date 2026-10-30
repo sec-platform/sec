@@ -1,0 +1,350 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:gift-sequence-values-v1",
+  "definitions": {
+    "Concat": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "suffix",
+            "type": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "empty", "body": {"op": "var", "name": "suffix"}},
+            {
+              "constructor": "Some",
+              "binding": "parts",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                "arguments": [
+                  {"op": "field", "record": {"op": "var", "name": "parts"}, "name": "head"},
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:Concat"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "parts"}, "name": "tail"},
+                      {"op": "var", "name": "suffix"}
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [{"name": "T"}]
+      }
+    },
+    "Collect": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+            "mode": "in"
+          },
+          {
+            "name": "project",
+            "type": {
+              "tag": "function",
+              "params": [{"tag": "param", "name": "T"}],
+              "returns": {"tag": "sequence", "item": {"tag": "param", "name": "U"}, "ordered": true},
+              "effects": [],
+              "callMode": "shared"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "sequence", "item": {"tag": "param", "name": "U"}, "ordered": true},
+        "effects": [],
+        "termination": "partial",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "empty", "body": {"op": "sequence", "items": []}},
+            {
+              "constructor": "Some",
+              "binding": "parts",
+              "body": {
+                "op": "let",
+                "name": "prefix",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "var", "name": "project"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "parts"}, "name": "head"}]
+                },
+                "body": {
+                  "op": "let",
+                  "name": "suffix",
+                  "value": {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:Collect"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "parts"}, "name": "tail"},
+                      {"op": "var", "name": "project"}
+                    ]
+                  },
+                  "body": {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:Concat"},
+                    "arguments": [{"op": "var", "name": "prefix"}, {"op": "var", "name": "suffix"}]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [{"name": "T"}, {"name": "U"}],
+        "parameterContracts": [{"position": 1, "retention": "noescape"}]
+      }
+    },
+    "FoldLeft": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "seed", "type": {"tag": "param", "name": "A"}, "mode": "in"},
+          {
+            "name": "step",
+            "type": {
+              "tag": "function",
+              "params": [{"tag": "param", "name": "A"}, {"tag": "param", "name": "T"}],
+              "returns": {"tag": "param", "name": "A"},
+              "effects": [],
+              "callMode": "shared"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "param", "name": "A"},
+        "effects": [],
+        "termination": "partial",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "empty", "body": {"op": "var", "name": "seed"}},
+            {
+              "constructor": "Some",
+              "binding": "parts",
+              "body": {
+                "op": "let",
+                "name": "next",
+                "value": {
+                  "op": "call",
+                  "callee": {"op": "var", "name": "step"},
+                  "arguments": [
+                    {"op": "var", "name": "seed"},
+                    {"op": "field", "record": {"op": "var", "name": "parts"}, "name": "head"}
+                  ]
+                },
+                "body": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:FoldLeft"},
+                  "arguments": [
+                    {"op": "field", "record": {"op": "var", "name": "parts"}, "name": "tail"},
+                    {"op": "var", "name": "next"},
+                    {"op": "var", "name": "step"}
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [{"name": "T"}, {"name": "A"}],
+        "parameterContracts": [{"position": 2, "retention": "noescape"}]
+      }
+    },
+    "EnumerateFrom": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+            "mode": "in"
+          },
+          {"name": "start", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "record",
+            "fields": {"index": {"type": {"tag": "scalar", "name": "int"}}, "value": {"type": {"tag": "param", "name": "T"}}},
+            "open": false
+          },
+          "ordered": true
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:SeqUncons"},
+            "arguments": [{"op": "var", "name": "items"}]
+          },
+          "cases": [
+            {"constructor": "None", "binding": "empty", "body": {"op": "sequence", "items": []}},
+            {
+              "constructor": "Some",
+              "binding": "parts",
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:SeqPrepend"},
+                "arguments": [
+                  {
+                    "op": "record",
+                    "fields": [
+                      {"name": "index", "value": {"op": "var", "name": "start"}},
+                      {
+                        "name": "value",
+                        "value": {"op": "field", "record": {"op": "var", "name": "parts"}, "name": "head"}
+                      }
+                    ]
+                  },
+                  {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "local:EnumerateFrom"},
+                    "arguments": [
+                      {"op": "field", "record": {"op": "var", "name": "parts"}, "name": "tail"},
+                      {
+                        "op": "call",
+                        "callee": {"op": "symbol", "ref": "std:IntAdd"},
+                        "arguments": [
+                          {"op": "var", "name": "start"},
+                          {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [{"name": "T"}]
+      }
+    },
+    "Enumerate": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "record",
+            "fields": {"index": {"type": {"tag": "scalar", "name": "int"}}, "value": {"type": {"tag": "param", "name": "T"}}},
+            "open": false
+          },
+          "ordered": true
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "local:EnumerateFrom"},
+          "arguments": [{"op": "var", "name": "items"}, {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}]
+        },
+        "typeParams": [{"name": "T"}]
+      }
+    },
+    "Length": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "param", "name": "T"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "local:FoldLeft"},
+          "arguments": [
+            {"op": "var", "name": "items"},
+            {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"},
+            {
+              "op": "lambda",
+              "params": [{"name": "n"}, {"name": "item"}],
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:IntAdd"},
+                "arguments": [{"op": "var", "name": "n"}, {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}]
+              }
+            }
+          ]
+        },
+        "typeParams": [{"name": "T"}]
+      }
+    },
+    "SumInt": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "int"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "local:FoldLeft"},
+          "arguments": [
+            {"op": "var", "name": "items"},
+            {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"},
+            {
+              "op": "lambda",
+              "params": [{"name": "n"}, {"name": "item"}],
+              "body": {
+                "op": "call",
+                "callee": {"op": "symbol", "ref": "std:IntAdd"},
+                "arguments": [{"op": "var", "name": "n"}, {"op": "var", "name": "item"}]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": ["Concat", "Collect", "FoldLeft", "Enumerate", "Length", "SumInt"]
+}

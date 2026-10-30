@@ -204,3 +204,63 @@ class AuthorCodecSpec(TestCase):
         self.assertEqual(self.expansion.formula(call), call)
         old = {'local:R': {'x': 'input'}}
         self.assertEqual(self.expansion.formula(old), {'op': 'call', 'meaningRef': 'local:R', 'bindings': {'x': 'input'}})
+
+    def test_sequence_surface_has_one_ordered_expansion_and_composes_inside_calls(self):
+        exp = Expansion(self.expansion.graph, sequence_collect_ref='sequence:Collect')
+        x, xs = {'op': 'var', 'name': 'x'}, {'op': 'var', 'name': 'xs'}
+        value, keep = {'op': 'var', 'name': 'value'}, {'op': 'var', 'name': 'keep'}
+        source = {'comprehension': {'yield': value, 'clauses': [
+            {'from': {'bind': 'x', 'in': xs}}, {'where': keep}, {'let': {'bind': 'value', 'value': x}}]}}
+        expected = {'op': 'call', 'callee': {'op': 'symbol', 'ref': 'sequence:Collect'}, 'arguments': [xs,
+            {'op': 'lambda', 'params': [{'name': 'x'}], 'body': {
+                'op': 'if', 'condition': keep, 'then': {'op': 'let', 'name': 'value', 'value': x,
+                    'body': {'op': 'sequence', 'items': [value]}}, 'otherwise': {'op': 'sequence', 'items': []}}}]}
+        before = copy.deepcopy(source)
+        self.assertEqual(exp.expression(source), expected)
+        self.assertEqual(source, before)
+        outer = {'call': {'callee': {'op': 'symbol', 'ref': 'sequence:Length'}, 'arguments': [source]}}
+        self.assertEqual(exp.expression(outer), {'op': 'call', 'callee': outer['call']['callee'], 'arguments': [expected]})
+        apply = {'apply': {'meaningRef': 'local:R', 'arguments': {'xs': {'value': outer}, 'x': {'binding': 'input'}}}}
+        self.assertEqual(exp.formula(apply)['arguments']['xs']['value']['arguments'], [expected])
+        self.assertEqual(exp.formula({'quantify': {'quantifier': 'forall', 'binder': 'r', 'domain': source,
+                                                  'predicate': {'local:R': {'x': 'r'}}}})['domain'], expected)
+
+    def test_short_expression_visits_only_schema_owned_slots_and_preserves_exact_op(self):
+        exp = Expansion(self.expansion.graph, sequence_collect_ref='sequence:Collect')
+        data = {'comprehension': {'clauses': [{'from': 'ordinary text'}]}, 'call': {'op': 'data'}}
+        source = {'literal': {'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data}}
+        self.assertEqual(exp.expression(source), {'op': 'literal', **source['literal']})
+        x = {'op': 'var', 'name': 'x'}
+        query = {'comprehension': {'yield': x, 'clauses': []}}
+        nested = {'record': {'fields': [{'name': 'x', 'value': query}]}}
+        self.assertEqual(exp.expression(nested), {'op': 'record', 'fields': [
+            {'name': 'x', 'value': {'op': 'sequence', 'items': [x]}}]})
+        exact = {'op': 'call', 'callee': {'op': 'symbol', 'ref': 'local:F'}, 'arguments': [query]}
+        self.assertEqual(exp.expression(exact), exact)  # remains invalid under full Schema
+        body = {'parameters': [], 'returns': {'tag': 'sequence', 'item': {'tag': 'scalar', 'name': 'int'}},
+                'effects': [], 'termination': 'total', 'body': query}
+        self.assertEqual(exp.definition({'core:function': body})['body']['body'], {'op': 'sequence', 'items': [x]})
+        self.assertEqual(exp.definition({'kind': 'core:function', 'body': body})['body']['body'], query)
+
+    def test_sequence_short_forms_reject_missing_basis_patterns_and_unknown_qualifiers(self):
+        x = {'op': 'var', 'name': 'x'}
+        query = {'comprehension': {'yield': x, 'clauses': [{'from': {'bind': 'x', 'in': x}}]}}
+        with self.assertRaises(ShortFormError): self.expansion.expression(query)
+        exp = Expansion(self.expansion.graph, sequence_collect_ref='sequence:Collect')
+        for clause in [{'from': {'bind': {'Some': 'x'}, 'in': x}}, {'where': x, 'let': {}},
+                       {'group': x}, {'let': {'bind': 'x', 'value': x, 'extra': True}}]:
+            with self.subTest(clause=clause), self.assertRaises(ShortFormError):
+                exp.expression({'comprehension': {'yield': x, 'clauses': [clause]}})
+        with self.assertRaises(ShortFormError):
+            exp.expression({'call': {'op': 'literal', 'callee': x, 'arguments': []}})
+
+    def test_static_argument_anyof_retains_its_actual_expression_slot(self):
+        literal = {'type': {'tag': 'scalar', 'name': 'int'}, 'value': '1'}
+        source = {'call': {'callee': {'op': 'symbol', 'ref': 'local:F'}, 'arguments': [],
+                           'semanticArguments': [{'value': {'literal': literal}}]}}
+        expected = {'op': 'call', **copy.deepcopy(source['call'])}
+        expected['semanticArguments'] = [{'value': {'op': 'literal', **literal}}]
+        self.assertEqual(self.expansion.expression(source), expected)
+        data = {'value': {'literal': literal}, 'region': 'ordinary data'}
+        encoded = {'literal': {'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data}}
+        self.assertEqual(self.expansion.expression(encoded), {'op': 'literal', **encoded['literal']})

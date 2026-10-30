@@ -1,0 +1,5 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:sequence-author-queries",
+  "sourceScopes": [{"root": ".", "kind": "semantic", "editSource": {"mode": "file"}, "include": ["*.module.json"]}]
+}
