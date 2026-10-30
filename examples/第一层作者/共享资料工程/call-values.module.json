@@ -1,0 +1,41 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:component-call-values",
+  "imports": {},
+  "definitions": {
+    "Endpoint": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "componentPath": {"type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true}},
+          "port": {"type": {"tag": "scalar", "name": "text"}},
+          "operation": {"type": {"tag": "scalar", "name": "text"}}
+        },
+        "open": false
+      }
+    },
+    "Constructor": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "moduleId": {"type": {"tag": "scalar", "name": "text"}},
+          "definition": {"type": {"tag": "scalar", "name": "text"}},
+          "constructor": {"type": {"tag": "scalar", "name": "text"}}
+        },
+        "open": false
+      }
+    },
+    "ErrorMap": {
+      "core:type": {
+        "tag": "sequence",
+        "item": {
+          "tag": "record",
+          "fields": {"from": {"type": {"tag": "nominal", "ref": "local:Constructor"}}, "to": {"type": {"tag": "nominal", "ref": "local:Constructor"}}},
+          "open": false
+        },
+        "ordered": true
+      }
+    }
+  },
+  "exports": ["Endpoint", "Constructor", "ErrorMap"]
+}

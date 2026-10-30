@@ -1,10 +1,19 @@
 {
   "schema": "gift.project/design-converged",
-  "projectId": "example:shared-views-policy",
+  "projectId": "example:shared-views",
   "sourceScopes": [
-    {"root": "共享资料工程", "kind": "semantic", "include": ["policy.module.json"], "editSource": {"mode": "file"}},
+    {"root": "共享资料工程", "kind": "semantic", "include": ["policy.module.json", "call-values.module.json", "observations.module.json", "workspace.module.json"], "editSource": {"mode": "file"}},
     {"root": "序列派生", "kind": "semantic", "include": ["sequence.module.json"], "editSource": {"mode": "file"}},
-    {"root": "共享资料工程/supply", "kind": "native", "include": ["boundary.d.ts"], "editSource": {"mode": "file"}},
-    {"root": "共享资料工程/supply", "kind": "design", "include": ["boundary.selection.json", "declaration-profile.md"], "editSource": {"mode": "file"}}
-  ]
+    {"root": "共享资料工程/supply", "kind": "native", "include": ["boundary.d.ts", "calls.d.ts"], "editSource": {"mode": "file"}},
+    {"root": "共享资料工程/supply", "kind": "design", "include": ["boundary.selection.json", "declaration-profile.md", "calls.selection.json", "call-profile.md", "target-design-profile.md"], "editSource": {"mode": "file"}},
+    {"root": ".", "kind": "design", "include": ["shared-views.control.json"], "editSource": {"mode": "file"}}
+  ],
+  "targets": {
+    "ts": {
+      "profileRef": {"id": "profile:shared-views-typescript-library", "revision": "1"},
+      "outputRoots": [{"moduleId": "module:shared-views", "export": "Workspace", "rootId": "package"}],
+      "parameters": {"packageName": "shared-views", "packageVersion": "0.1.0"}
+    }
+  },
+  "defaultTarget": "ts"
 }

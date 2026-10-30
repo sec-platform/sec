@@ -1,0 +1,24 @@
+diff --git a/examples/第一层作者/共享资料工程/policy.module.json b/examples/第一层作者/共享资料工程/policy.module.json
+--- a/examples/第一层作者/共享资料工程/policy.module.json
++++ b/examples/第一层作者/共享资料工程/policy.module.json
+@@ -91,7 +91,7 @@
+           "returns": {"tag": "scalar", "name": "bool"},
+           "effects": []
+         },
+-        "value": {"op": "symbol", "ref": "local:AtLeastBody"}
++        "value": {"op": "symbol", "ref": "local:AboveBody"}
+       }
+     },
+     "AtLeast": {
+diff --git a/examples/第一层作者/shared-views.project.json b/examples/第一层作者/shared-views.project.json
+--- a/examples/第一层作者/shared-views.project.json
++++ b/examples/第一层作者/shared-views.project.json
+@@ -12,7 +12,7 @@
+     "ts": {
+       "profileRef": {"id": "profile:shared-views-typescript-library", "revision": "1"},
+       "outputRoots": [{"moduleId": "module:shared-views", "export": "Workspace", "rootId": "package"}],
+-      "parameters": {"packageName": "shared-views", "packageVersion": "0.2.0"}
++      "parameters": {"packageName": "shared-views", "packageVersion": "0.3.0"}
+     }
+   },
+   "defaultTarget": "ts"

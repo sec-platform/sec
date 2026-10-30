@@ -1,0 +1,14 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "module:retained-call",
+  "language": "typescript",
+  "profileRef": "profile:retained-call:1",
+  "symbols": {
+    "RetainedCall": {"sourcePath": "共享资料工程/supply/calls.d.ts", "nativeExport": "RetainedCall", "role": "type"},
+    "SourceRows": {"sourcePath": "共享资料工程/supply/calls.d.ts", "nativeExport": "SourceRows", "role": "callable"},
+    "Forwarded": {"sourcePath": "共享资料工程/supply/calls.d.ts", "nativeExport": "Forwarded", "role": "predicate"},
+    "NoMemberInteraction": {"sourcePath": "共享资料工程/supply/calls.d.ts", "nativeExport": "NoMemberInteraction", "role": "predicate"},
+    "SourceBorrowSettled": {"sourcePath": "共享资料工程/supply/calls.d.ts", "nativeExport": "SourceBorrowSettled", "role": "predicate"},
+    "EntryCustodySettled": {"sourcePath": "共享资料工程/supply/calls.d.ts", "nativeExport": "EntryCustodySettled", "role": "predicate"}
+  }
+}

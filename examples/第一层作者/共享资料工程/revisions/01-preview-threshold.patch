@@ -1,0 +1,24 @@
+diff --git a/examples/第一层作者/共享资料工程/workspace.module.json b/examples/第一层作者/共享资料工程/workspace.module.json
+--- a/examples/第一层作者/共享资料工程/workspace.module.json
++++ b/examples/第一层作者/共享资料工程/workspace.module.json
+@@ -671,7 +671,7 @@
+             {
+               "instance": "preview",
+               "componentRef": "local:ThresholdView",
+-              "argumentBindings": {"initialThreshold": {"source": "literal", "typeRef": "local:Threshold", "value": 5}}
++              "argumentBindings": {"initialThreshold": {"source": "literal", "typeRef": "local:Threshold", "value": 8}}
+             }
+           ],
+           "connections": [
+diff --git a/examples/第一层作者/shared-views.project.json b/examples/第一层作者/shared-views.project.json
+--- a/examples/第一层作者/shared-views.project.json
++++ b/examples/第一层作者/shared-views.project.json
+@@ -12,7 +12,7 @@
+     "ts": {
+       "profileRef": {"id": "profile:shared-views-typescript-library", "revision": "1"},
+       "outputRoots": [{"moduleId": "module:shared-views", "export": "Workspace", "rootId": "package"}],
+-      "parameters": {"packageName": "shared-views", "packageVersion": "0.1.0"}
++      "parameters": {"packageName": "shared-views", "packageVersion": "0.2.0"}
+     }
+   },
+   "defaultTarget": "ts"

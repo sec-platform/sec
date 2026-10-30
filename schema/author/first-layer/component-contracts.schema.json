@@ -177,6 +177,9 @@
                 "$ref": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement"
               },
               "minItems": 0
+            },
+            "termination": {
+              "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/PortOperation/properties/termination"
             }
           }
         },

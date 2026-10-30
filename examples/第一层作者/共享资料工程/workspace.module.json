@@ -1,0 +1,1473 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:shared-views",
+  "imports": {
+    "policy": {"mode": "workspace", "moduleId": "module:shared-views-policy"},
+    "boundary": {"mode": "workspace", "moduleId": "module:passive-typescript-values"},
+    "obs": {"mode": "workspace", "moduleId": "module:component-call-observation"},
+    "calls": {"mode": "workspace", "moduleId": "module:retained-call"},
+    "values": {"mode": "workspace", "moduleId": "module:component-call-values"}
+  },
+  "definitions": {
+    "Bool": {"core:type": {"tag": "scalar", "name": "bool"}},
+    "Threshold": {"core:type": {"tag": "scalar", "name": "int"}},
+    "InputError": {"core:type": {"tag": "variant", "cases": {"InvalidInput": {"tag": "scalar", "name": "unit"}}}},
+    "AdmissionError": {
+      "core:type": {"tag": "variant", "cases": {"InvalidInput": {"tag": "scalar", "name": "unit"}, "CapacityExceeded": {"tag": "scalar", "name": "unit"}}}
+    },
+    "ReadError": {"core:type": {"tag": "variant", "cases": {"Closed": {"tag": "scalar", "name": "unit"}}}},
+    "SetError": {"core:type": {"tag": "variant", "cases": {"InvalidInput": {"tag": "scalar", "name": "unit"}, "Closed": {"tag": "scalar", "name": "unit"}}}},
+    "ReplaceError": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "InvalidInput": {"tag": "scalar", "name": "unit"},
+          "CapacityExceeded": {"tag": "scalar", "name": "unit"},
+          "Closed": {"tag": "scalar", "name": "unit"}
+        }
+      }
+    },
+    "Snapshot": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "snapshot",
+            "input": {"tag": "scalar", "name": "unit"},
+            "output": {"tag": "nominal", "ref": "policy:Rows"},
+            "errors": {"tag": "scalar", "name": "never"},
+            "effects": [{"class": "state-read"}],
+            "termination": "total"
+          }
+        ]
+      }
+    },
+    "Replace": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "replace",
+            "input": {"tag": "nominal", "ref": "policy:Raw"},
+            "output": {"tag": "scalar", "name": "unit"},
+            "errors": {"tag": "nominal", "ref": "local:AdmissionError"},
+            "effects": [{"class": "state-read"}, {"class": "state-write"}, {"class": "alloc"}],
+            "termination": "total"
+          }
+        ]
+      }
+    },
+    "Read": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "read",
+            "input": {"tag": "scalar", "name": "unit"},
+            "output": {"tag": "nominal", "ref": "policy:Rows"},
+            "errors": {"tag": "scalar", "name": "never"},
+            "effects": [{"class": "state-read"}, {"class": "alloc"}],
+            "termination": "total"
+          }
+        ]
+      }
+    },
+    "Set": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "set",
+            "input": {"tag": "nominal", "ref": "policy:Raw"},
+            "output": {"tag": "scalar", "name": "unit"},
+            "errors": {"tag": "nominal", "ref": "local:InputError"},
+            "effects": [{"class": "state-read"}, {"class": "state-write"}],
+            "termination": "total"
+          }
+        ]
+      }
+    },
+    "WorkspaceApi": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "replace",
+            "input": {"tag": "nominal", "ref": "policy:Raw"},
+            "output": {"tag": "scalar", "name": "unit"},
+            "errors": {"tag": "nominal", "ref": "local:ReplaceError"},
+            "effects": [{"class": "state-read"}, {"class": "state-write"}, {"class": "alloc"}],
+            "termination": "total"
+          },
+          {
+            "name": "readMain",
+            "input": {"tag": "scalar", "name": "unit"},
+            "output": {"tag": "nominal", "ref": "policy:Rows"},
+            "errors": {"tag": "nominal", "ref": "local:ReadError"},
+            "effects": [{"class": "state-read"}, {"class": "alloc"}],
+            "termination": "total"
+          },
+          {
+            "name": "readPreview",
+            "input": {"tag": "scalar", "name": "unit"},
+            "output": {"tag": "nominal", "ref": "policy:Rows"},
+            "errors": {"tag": "nominal", "ref": "local:ReadError"},
+            "effects": [{"class": "state-read"}, {"class": "alloc"}],
+            "termination": "total"
+          },
+          {
+            "name": "setMainThreshold",
+            "input": {"tag": "nominal", "ref": "policy:Raw"},
+            "output": {"tag": "scalar", "name": "unit"},
+            "errors": {"tag": "nominal", "ref": "local:SetError"},
+            "effects": [{"class": "state-read"}, {"class": "state-write"}],
+            "termination": "total"
+          },
+          {
+            "name": "setPreviewThreshold",
+            "input": {"tag": "nominal", "ref": "policy:Raw"},
+            "output": {"tag": "scalar", "name": "unit"},
+            "errors": {"tag": "nominal", "ref": "local:SetError"},
+            "effects": [{"class": "state-read"}, {"class": "state-write"}],
+            "termination": "total"
+          },
+          {
+            "name": "close",
+            "input": {"tag": "scalar", "name": "unit"},
+            "output": {"tag": "scalar", "name": "unit"},
+            "errors": {"tag": "scalar", "name": "never"},
+            "effects": [{"class": "state-read"}, {"class": "state-write"}],
+            "termination": "total"
+          }
+        ]
+      }
+    },
+    "BoolIdentityBody": {
+      "core:function": {
+        "parameters": [{"name": "value", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {"op": "var", "name": "value"}
+      }
+    },
+    "BoolSameBody": {
+      "core:function": {
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"},
+          {"name": "right", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {"op": "var", "name": "left"},
+          "then": {"op": "var", "name": "right"},
+          "otherwise": {"op": "call", "callee": {"op": "symbol", "ref": "std:BoolNot"}, "arguments": [{"op": "var", "name": "right"}]}
+        }
+      }
+    },
+    "BoolHolds": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "value", "type": {"tag": "scalar", "name": "bool"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:BoolIdentityBody"
+      }
+    },
+    "BoolSame": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "bool"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "bool"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:BoolSameBody"
+      }
+    },
+    "AdmissionIsInvalidBody": {
+      "core:function": {
+        "parameters": [{"name": "error", "type": {"tag": "nominal", "ref": "local:AdmissionError"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "var", "name": "error"},
+          "cases": [
+            {
+              "constructor": "InvalidInput",
+              "binding": "unused0",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "CapacityExceeded",
+              "binding": "unused1",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            }
+          ]
+        }
+      }
+    },
+    "AdmissionIsInvalid": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "error", "type": {"tag": "nominal", "ref": "local:AdmissionError"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:AdmissionIsInvalidBody"
+      }
+    },
+    "SetIsClosedBody": {
+      "core:function": {
+        "parameters": [{"name": "error", "type": {"tag": "nominal", "ref": "local:SetError"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "var", "name": "error"},
+          "cases": [
+            {
+              "constructor": "InvalidInput",
+              "binding": "unused0",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {"constructor": "Closed", "binding": "unused1", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}}
+          ]
+        }
+      }
+    },
+    "SetIsClosed": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "error", "type": {"tag": "nominal", "ref": "local:SetError"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:SetIsClosedBody"
+      }
+    },
+    "ReplaceIsClosedBody": {
+      "core:function": {
+        "parameters": [{"name": "error", "type": {"tag": "nominal", "ref": "local:ReplaceError"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "var", "name": "error"},
+          "cases": [
+            {
+              "constructor": "InvalidInput",
+              "binding": "unused0",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {
+              "constructor": "CapacityExceeded",
+              "binding": "unused1",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {"constructor": "Closed", "binding": "unused2", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}}
+          ]
+        }
+      }
+    },
+    "ReplaceIsClosed": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "error", "type": {"tag": "nominal", "ref": "local:ReplaceError"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:ReplaceIsClosedBody"
+      }
+    },
+    "ThresholdInputValid": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "raw", "type": {"tag": "nominal", "ref": "policy:Raw"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "quantify": {
+            "quantifier": "exists",
+            "binder": "candidateThreshold",
+            "domain": {"op": "call", "callee": {"op": "symbol", "ref": "boundary:NumberIntegers"}, "arguments": [{"op": "var", "name": "raw"}]},
+            "predicate": {"apply": {"meaningRef": "policy:InScoreRange", "arguments": {"value": {"value": {"op": "var", "name": "candidateThreshold"}}}}}
+          }
+        }
+      }
+    },
+    "StoreSnapshotOwnContract": {
+      "intent:goal": {
+        "roles": {
+          "before": {"typeRef": "policy:Rows", "cardinality": "one"},
+          "after": {"typeRef": "policy:Rows", "cardinality": "one"},
+          "output": {"typeRef": "policy:Rows", "cardinality": "one"}
+        },
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "apply": {
+                    "meaningRef": "policy:RowsEqual",
+                    "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
+                  }
+                },
+                {
+                  "apply": {
+                    "meaningRef": "policy:RowsEqual",
+                    "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "output"}}}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "StoreReplaceErrorOwnFrame": {
+      "intent:goal": {
+        "roles": {"before": {"typeRef": "policy:Rows", "cardinality": "one"}, "after": {"typeRef": "policy:Rows", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "apply": {
+                "meaningRef": "policy:RowsEqual",
+                "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "ViewConstructedOwnContract": {
+      "intent:goal": {
+        "roles": {"threshold": {"typeRef": "local:Threshold", "cardinality": "one"}},
+        "clauses": {
+          "contract": {"achieve": {"apply": {"meaningRef": "policy:InScoreRange", "arguments": {"value": {"value": {"op": "var", "name": "threshold"}}}}}}
+        }
+      }
+    },
+    "ViewReadOwnFrame": {
+      "intent:goal": {
+        "roles": {"before": {"typeRef": "local:Threshold", "cardinality": "one"}, "after": {"typeRef": "local:Threshold", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "apply": {
+                "meaningRef": "policy:IntEqual",
+                "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "ViewSetSuccessOwnContract": {
+      "intent:goal": {
+        "roles": {"raw": {"typeRef": "policy:Raw", "cardinality": "one"}, "after": {"typeRef": "local:Threshold", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "apply": {
+                "meaningRef": "policy:ThresholdRepresents",
+                "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}, "value": {"value": {"op": "var", "name": "after"}}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "ViewSetErrorOwnContract": {
+      "intent:goal": {
+        "roles": {
+          "raw": {"typeRef": "policy:Raw", "cardinality": "one"},
+          "before": {"typeRef": "local:Threshold", "cardinality": "one"},
+          "after": {"typeRef": "local:Threshold", "cardinality": "one"}
+        },
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {"not": {"apply": {"meaningRef": "local:ThresholdInputValid", "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}}}}},
+                {
+                  "apply": {
+                    "meaningRef": "policy:IntEqual",
+                    "arguments": {"left": {"value": {"op": "var", "name": "before"}}, "right": {"value": {"op": "var", "name": "after"}}}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceConstructedOwnContract": {
+      "intent:goal": {
+        "roles": {"closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedAfter"}}}}}}
+          }
+        }
+      }
+    },
+    "WorkspaceReadSuccessOwnFrame": {
+      "intent:goal": {
+        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}},
+                {
+                  "apply": {
+                    "meaningRef": "local:BoolSame",
+                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceReadClosedOwnFrame": {
+      "intent:goal": {
+        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                {
+                  "apply": {
+                    "meaningRef": "local:BoolSame",
+                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceReplaceSuccessOwnFrame": {
+      "intent:goal": {
+        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}},
+                {
+                  "apply": {
+                    "meaningRef": "local:BoolSame",
+                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceSetSuccessOwnFrame": {
+      "intent:goal": {
+        "roles": {"closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}, "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {"not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}},
+                {
+                  "apply": {
+                    "meaningRef": "local:BoolSame",
+                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceCloseOwnPost": {
+      "intent:goal": {
+        "roles": {"closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {"achieve": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedAfter"}}}}}}
+        }
+      }
+    },
+    "Store": {
+      "product:component": {
+        "providedPorts": {"snapshot": "local:Snapshot", "replace": "local:Replace"},
+        "requiredPorts": {},
+        "requirements": [],
+        "constructor": {
+          "parameters": [{"name": "initialRows", "type": {"tag": "nominal", "ref": "policy:Raw"}, "mode": "in"}],
+          "errors": {"tag": "nominal", "ref": "local:AdmissionError"},
+          "effects": [{"class": "alloc"}, {"class": "state-write"}],
+          "requirements": [
+            {
+              "ref": "policy:CreationRequirement",
+              "callBinding": {
+                "at": "success",
+                "roles": {"raw": {"source": "parameter", "name": "initialRows"}, "rows": {"source": "state", "when": "after", "cell": "rows"}}
+              }
+            },
+            {
+              "ref": "local:AdmissionErrorContract",
+              "callBinding": {"at": "error", "roles": {"raw": {"source": "parameter", "name": "initialRows"}, "error": {"source": "error"}}}
+            }
+          ],
+          "termination": "total"
+        },
+        "state": {"rows": {"type": {"tag": "nominal", "ref": "policy:Rows"}}},
+        "operationContracts": [
+          {
+            "port": "snapshot",
+            "operation": "snapshot",
+            "requirements": [
+              {
+                "ref": "local:StoreSnapshotOwnContract",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "before": {"source": "state", "when": "before", "cell": "rows"},
+                    "after": {"source": "state", "when": "after", "cell": "rows"},
+                    "output": {"source": "output"}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "port": "replace",
+            "operation": "replace",
+            "requirements": [
+              {
+                "ref": "policy:CreationRequirement",
+                "callBinding": {"at": "success", "roles": {"raw": {"source": "input"}, "rows": {"source": "state", "when": "after", "cell": "rows"}}}
+              },
+              {
+                "ref": "local:StoreReplaceErrorOwnFrame",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "before": {"source": "state", "when": "before", "cell": "rows"},
+                    "after": {"source": "state", "when": "after", "cell": "rows"}
+                  }
+                }
+              },
+              {
+                "ref": "local:AdmissionErrorContract",
+                "callBinding": {"at": "error", "roles": {"raw": {"source": "input"}, "error": {"source": "error"}}}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "ThresholdView": {
+      "product:component": {
+        "providedPorts": {"read": "local:Read", "set": "local:Set"},
+        "requiredPorts": {"source": "local:Snapshot"},
+        "requirements": [],
+        "parameters": [{"name": "initialThreshold", "contractRef": "local:Threshold", "cardinality": "one", "mode": "value", "required": true}],
+        "constructor": {
+          "parameters": [],
+          "errors": {"tag": "scalar", "name": "never"},
+          "effects": [{"class": "alloc"}, {"class": "state-write"}],
+          "requirements": [
+            {
+              "ref": "local:ViewConstructedOwnContract",
+              "callBinding": {"at": "success", "roles": {"threshold": {"source": "state", "when": "after", "cell": "threshold"}}}
+            }
+          ],
+          "termination": "total"
+        },
+        "state": {"threshold": {"type": {"tag": "nominal", "ref": "local:Threshold"}, "initial": {"op": "var", "name": "initialThreshold"}}},
+        "operationContracts": [
+          {
+            "port": "read",
+            "operation": "read",
+            "requirements": [
+              {
+                "ref": "local:ViewReadOwnFrame",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "before": {"source": "state", "when": "before", "cell": "threshold"},
+                    "after": {"source": "state", "when": "after", "cell": "threshold"}
+                  }
+                }
+              },
+              {
+                "ref": "local:ViewReadSourceContract",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "threshold": {"source": "state", "when": "before", "cell": "threshold"},
+                    "output": {"source": "output"}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "port": "set",
+            "operation": "set",
+            "requirements": [
+              {
+                "ref": "local:ViewSetSuccessOwnContract",
+                "callBinding": {"at": "success", "roles": {"raw": {"source": "input"}, "after": {"source": "state", "when": "after", "cell": "threshold"}}}
+              },
+              {
+                "ref": "local:ViewSetErrorOwnContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "raw": {"source": "input"},
+                    "before": {"source": "state", "when": "before", "cell": "threshold"},
+                    "after": {"source": "state", "when": "after", "cell": "threshold"}
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "observationParticipations": [{"use": {"ref": "obs:CallObservation", "useId": "callFacts"}, "role": "consume"}]
+      }
+    },
+    "Workspace": {
+      "product:component": {
+        "providedPorts": {"api": "local:WorkspaceApi"},
+        "requiredPorts": {},
+        "requirements": [],
+        "constructor": {
+          "parameters": [{"name": "initialRows", "type": {"tag": "nominal", "ref": "policy:Raw"}, "mode": "in"}],
+          "errors": {"tag": "nominal", "ref": "local:AdmissionError"},
+          "effects": [{"class": "alloc"}, {"class": "state-write"}],
+          "requirements": [
+            {
+              "ref": "local:WorkspaceConstructedOwnContract",
+              "callBinding": {"at": "success", "roles": {"closedAfter": {"source": "state", "when": "after", "cell": "closed"}}}
+            },
+            {
+              "ref": "local:AdmissionErrorContract",
+              "callBinding": {"at": "error", "roles": {"raw": {"source": "parameter", "name": "initialRows"}, "error": {"source": "error"}}}
+            }
+          ],
+          "termination": "total"
+        },
+        "state": {
+          "closed": {"type": {"tag": "scalar", "name": "bool"}, "initial": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}}
+        },
+        "composition": {
+          "components": [
+            {"instance": "store", "componentRef": "local:Store", "constructorArguments": {"initialRows": {"op": "var", "name": "initialRows"}}},
+            {
+              "instance": "main",
+              "componentRef": "local:ThresholdView",
+              "argumentBindings": {"initialThreshold": {"source": "literal", "typeRef": "local:Threshold", "value": 5}}
+            },
+            {
+              "instance": "preview",
+              "componentRef": "local:ThresholdView",
+              "argumentBindings": {"initialThreshold": {"source": "literal", "typeRef": "local:Threshold", "value": 5}}
+            }
+          ],
+          "connections": [
+            {"source": {"instancePath": ["store"], "port": "snapshot"}, "target": {"instancePath": ["main"], "port": "source"}},
+            {"source": {"instancePath": ["store"], "port": "snapshot"}, "target": {"instancePath": ["preview"], "port": "source"}}
+          ]
+        },
+        "operationContracts": [
+          {
+            "port": "api",
+            "operation": "replace",
+            "requirements": [
+              {
+                "ref": "local:WorkspaceReplaceSuccessOwnFrame",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:WorkspaceReplaceErrorOwnContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "error": {"source": "error"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:replaceDispatchContract",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:replaceDispatchContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "port": "api",
+            "operation": "readMain",
+            "requirements": [
+              {
+                "ref": "local:WorkspaceReadSuccessOwnFrame",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:WorkspaceReadClosedOwnFrame",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:readMainDispatchContract",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:readMainDispatchContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "port": "api",
+            "operation": "readPreview",
+            "requirements": [
+              {
+                "ref": "local:WorkspaceReadSuccessOwnFrame",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:WorkspaceReadClosedOwnFrame",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:readPreviewDispatchContract",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:readPreviewDispatchContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "port": "api",
+            "operation": "setMainThreshold",
+            "requirements": [
+              {
+                "ref": "local:WorkspaceSetSuccessOwnFrame",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:WorkspaceSetErrorOwnContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "error": {"source": "error"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:setMainThresholdDispatchContract",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:setMainThresholdDispatchContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "port": "api",
+            "operation": "setPreviewThreshold",
+            "requirements": [
+              {
+                "ref": "local:WorkspaceSetSuccessOwnFrame",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:WorkspaceSetErrorOwnContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "error": {"source": "error"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"},
+                    "closedAfter": {"source": "state", "when": "after", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:setPreviewThresholdDispatchContract",
+                "callBinding": {
+                  "at": "success",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              },
+              {
+                "ref": "local:setPreviewThresholdDispatchContract",
+                "callBinding": {
+                  "at": "error",
+                  "roles": {
+                    "call": {"source": "observation", "when": "after", "useId": "callFacts"},
+                    "closedBefore": {"source": "state", "when": "before", "cell": "closed"}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "port": "api",
+            "operation": "close",
+            "requirements": [
+              {
+                "ref": "local:WorkspaceCloseOwnPost",
+                "callBinding": {"at": "success", "roles": {"closedAfter": {"source": "state", "when": "after", "cell": "closed"}}}
+              },
+              {
+                "ref": "local:CloseCustodyContract",
+                "callBinding": {"at": "success", "roles": {"call": {"source": "observation", "when": "after", "useId": "callFacts"}}}
+              }
+            ]
+          }
+        ],
+        "observationParticipations": [{"use": {"ref": "obs:CallObservation", "useId": "callFacts"}, "role": "consume"}]
+      }
+    },
+    "AdmissionErrorContract": {
+      "intent:goal": {
+        "roles": {"raw": {"typeRef": "policy:Raw", "cardinality": "one"}, "error": {"typeRef": "local:AdmissionError", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:AdmissionIsInvalid", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}},
+                    {"not": {"apply": {"meaningRef": "policy:ValidRows", "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:AdmissionIsInvalid", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
+                    },
+                    {"apply": {"meaningRef": "policy:CapacityExceeded", "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}}}}
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceSetErrorOwnContract": {
+      "intent:goal": {
+        "roles": {
+          "error": {"typeRef": "local:SetError", "cardinality": "one"},
+          "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"},
+          "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}
+        },
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "apply": {
+                    "meaningRef": "local:BoolSame",
+                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
+                  }
+                },
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                    {"apply": {"meaningRef": "local:SetIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
+                    },
+                    {"not": {"apply": {"meaningRef": "local:SetIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}}
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceReplaceErrorOwnContract": {
+      "intent:goal": {
+        "roles": {
+          "error": {"typeRef": "local:ReplaceError", "cardinality": "one"},
+          "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"},
+          "closedAfter": {"typeRef": "local:Bool", "cardinality": "one"}
+        },
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "apply": {
+                    "meaningRef": "local:BoolSame",
+                    "arguments": {"left": {"value": {"op": "var", "name": "closedBefore"}}, "right": {"value": {"op": "var", "name": "closedAfter"}}}
+                  }
+                },
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                    {"apply": {"meaningRef": "local:ReplaceIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
+                    },
+                    {
+                      "not": {"apply": {"meaningRef": "local:ReplaceIsClosed", "arguments": {"error": {"value": {"op": "var", "name": "error"}}}}}
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "SourceEndpoint": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "value": {
+          "op": "record",
+          "fields": [
+            {"name": "componentPath", "value": {"op": "sequence", "items": []}},
+            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "source"}},
+            {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "snapshot"}}
+          ]
+        }
+      }
+    },
+    "replaceEndpoint": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "value": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "componentPath",
+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "store"}]}
+            },
+            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "replace"}},
+            {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "replace"}}
+          ]
+        }
+      }
+    },
+    "readMainEndpoint": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "value": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "componentPath",
+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "main"}]}
+            },
+            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}},
+            {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}}
+          ]
+        }
+      }
+    },
+    "readPreviewEndpoint": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "value": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "componentPath",
+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "preview"}]}
+            },
+            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}},
+            {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}}
+          ]
+        }
+      }
+    },
+    "setMainThresholdEndpoint": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "value": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "componentPath",
+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "main"}]}
+            },
+            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}},
+            {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}}
+          ]
+        }
+      }
+    },
+    "setPreviewThresholdEndpoint": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:Endpoint"},
+        "value": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "componentPath",
+              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "preview"}]}
+            },
+            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}},
+            {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}}
+          ]
+        }
+      }
+    },
+    "ReadErrors": {"core:constant": {"type": {"tag": "nominal", "ref": "values:ErrorMap"}, "value": {"op": "sequence", "items": []}}},
+    "SetErrors": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:ErrorMap"},
+        "value": {
+          "op": "sequence",
+          "items": [
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "from",
+                  "value": {
+                    "op": "record",
+                    "fields": [
+                      {"name": "moduleId", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "module:shared-views"}},
+                      {"name": "definition", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "InputError"}},
+                      {"name": "constructor", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "InvalidInput"}}
+                    ]
+                  }
+                },
+                {
+                  "name": "to",
+                  "value": {
+                    "op": "record",
+                    "fields": [
+                      {"name": "moduleId", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "module:shared-views"}},
+                      {"name": "definition", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "SetError"}},
+                      {"name": "constructor", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "InvalidInput"}}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ReplaceErrors": {
+      "core:constant": {
+        "type": {"tag": "nominal", "ref": "values:ErrorMap"},
+        "value": {
+          "op": "sequence",
+          "items": [
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "from",
+                  "value": {
+                    "op": "record",
+                    "fields": [
+                      {"name": "moduleId", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "module:shared-views"}},
+                      {"name": "definition", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "AdmissionError"}},
+                      {"name": "constructor", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "InvalidInput"}}
+                    ]
+                  }
+                },
+                {
+                  "name": "to",
+                  "value": {
+                    "op": "record",
+                    "fields": [
+                      {"name": "moduleId", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "module:shared-views"}},
+                      {"name": "definition", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ReplaceError"}},
+                      {"name": "constructor", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "InvalidInput"}}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "from",
+                  "value": {
+                    "op": "record",
+                    "fields": [
+                      {"name": "moduleId", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "module:shared-views"}},
+                      {"name": "definition", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "AdmissionError"}},
+                      {"name": "constructor", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "CapacityExceeded"}}
+                    ]
+                  }
+                },
+                {
+                  "name": "to",
+                  "value": {
+                    "op": "record",
+                    "fields": [
+                      {"name": "moduleId", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "module:shared-views"}},
+                      {"name": "definition", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ReplaceError"}},
+                      {"name": "constructor", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "CapacityExceeded"}}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ViewReadSourceContract": {
+      "intent:goal": {
+        "roles": {
+          "call": {"typeRef": "obs:Call", "cardinality": "one"},
+          "threshold": {"typeRef": "local:Threshold", "cardinality": "one"},
+          "output": {"typeRef": "policy:Rows", "cardinality": "one"}
+        },
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "rows",
+                    "domain": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "calls:SourceRows"},
+                      "arguments": [{"op": "var", "name": "call"}, {"op": "symbol", "ref": "local:SourceEndpoint"}]
+                    },
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "policy:KeepByThreshold",
+                        "arguments": {
+                          "input": {"value": {"op": "var", "name": "rows"}},
+                          "threshold": {"value": {"op": "var", "name": "threshold"}},
+                          "output": {"value": {"op": "var", "name": "output"}}
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "apply": {
+                    "meaningRef": "obs:SourceBorrowSettled",
+                    "arguments": {"call": {"value": {"op": "var", "name": "call"}}, "endpoint": {"value": {"op": "symbol", "ref": "local:SourceEndpoint"}}}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "replaceDispatchContract": {
+      "intent:goal": {
+        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
+                    },
+                    {
+                      "apply": {
+                        "meaningRef": "obs:Forwarded",
+                        "arguments": {
+                          "call": {"value": {"op": "var", "name": "call"}},
+                          "endpoint": {"value": {"op": "symbol", "ref": "local:replaceEndpoint"}},
+                          "errors": {"value": {"op": "symbol", "ref": "local:ReplaceErrors"}}
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "readMainDispatchContract": {
+      "intent:goal": {
+        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
+                    },
+                    {
+                      "apply": {
+                        "meaningRef": "obs:Forwarded",
+                        "arguments": {
+                          "call": {"value": {"op": "var", "name": "call"}},
+                          "endpoint": {"value": {"op": "symbol", "ref": "local:readMainEndpoint"}},
+                          "errors": {"value": {"op": "symbol", "ref": "local:ReadErrors"}}
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "readPreviewDispatchContract": {
+      "intent:goal": {
+        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
+                    },
+                    {
+                      "apply": {
+                        "meaningRef": "obs:Forwarded",
+                        "arguments": {
+                          "call": {"value": {"op": "var", "name": "call"}},
+                          "endpoint": {"value": {"op": "symbol", "ref": "local:readPreviewEndpoint"}},
+                          "errors": {"value": {"op": "symbol", "ref": "local:ReadErrors"}}
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "setMainThresholdDispatchContract": {
+      "intent:goal": {
+        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
+                    },
+                    {
+                      "apply": {
+                        "meaningRef": "obs:Forwarded",
+                        "arguments": {
+                          "call": {"value": {"op": "var", "name": "call"}},
+                          "endpoint": {"value": {"op": "symbol", "ref": "local:setMainThresholdEndpoint"}},
+                          "errors": {"value": {"op": "symbol", "ref": "local:SetErrors"}}
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "setPreviewThresholdDispatchContract": {
+      "intent:goal": {
+        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}, "closedBefore": {"typeRef": "local:Bool", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {
+                  "implies": [
+                    {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}},
+                    {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
+                  ]
+                },
+                {
+                  "implies": [
+                    {
+                      "not": {"apply": {"meaningRef": "local:BoolHolds", "arguments": {"value": {"value": {"op": "var", "name": "closedBefore"}}}}}
+                    },
+                    {
+                      "apply": {
+                        "meaningRef": "obs:Forwarded",
+                        "arguments": {
+                          "call": {"value": {"op": "var", "name": "call"}},
+                          "endpoint": {"value": {"op": "symbol", "ref": "local:setPreviewThresholdEndpoint"}},
+                          "errors": {"value": {"op": "symbol", "ref": "local:SetErrors"}}
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "CloseCustodyContract": {
+      "intent:goal": {
+        "roles": {"call": {"typeRef": "obs:Call", "cardinality": "one"}},
+        "clauses": {
+          "contract": {
+            "achieve": {
+              "all": [
+                {"apply": {"meaningRef": "obs:NoMemberInteraction", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}},
+                {"apply": {"meaningRef": "obs:EntryCustodySettled", "arguments": {"call": {"value": {"op": "var", "name": "call"}}}}}
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": ["Workspace"]
+}

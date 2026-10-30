@@ -790,12 +790,142 @@
           }
         },
         {
-          "pointer": "/$defs/PortOperation/properties/name",
+          "pointer": "/$defs/PortOperation",
           "expected": {
-            "$ref": "#/$defs/Identifier"
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "input",
+              "output",
+              "errors",
+              "effects"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "input": {
+                "$ref": "#/$defs/Type"
+              },
+              "output": {
+                "$ref": "#/$defs/Type"
+              },
+              "errors": {
+                "$ref": "#/$defs/Type"
+              },
+              "effects": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Effect"
+                    },
+                    "minItems": 0
+                  },
+                  {
+                    "$ref": "#/$defs/EffectRow"
+                  }
+                ],
+                "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
+              },
+              "idempotency": {
+                "enum": [
+                  "none",
+                  "keyed",
+                  "naturally-idempotent"
+                ]
+              },
+              "readbackRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "timeoutPolicyRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "callMode": {
+                "enum": [
+                  "shared",
+                  "exclusive",
+                  "consume"
+                ],
+                "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+              },
+              "parameterContracts": {
+                "$ref": "#/$defs/PortParameterContracts"
+              }
+            }
           },
           "replacement": {
-            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "input",
+              "output",
+              "errors",
+              "effects"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              "input": {
+                "$ref": "#/$defs/Type"
+              },
+              "output": {
+                "$ref": "#/$defs/Type"
+              },
+              "errors": {
+                "$ref": "#/$defs/Type"
+              },
+              "effects": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Effect"
+                    },
+                    "minItems": 0
+                  },
+                  {
+                    "$ref": "#/$defs/EffectRow"
+                  }
+                ],
+                "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
+              },
+              "idempotency": {
+                "enum": [
+                  "none",
+                  "keyed",
+                  "naturally-idempotent"
+                ]
+              },
+              "readbackRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "timeoutPolicyRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "callMode": {
+                "enum": [
+                  "shared",
+                  "exclusive",
+                  "consume"
+                ],
+                "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+              },
+              "parameterContracts": {
+                "$ref": "#/$defs/PortParameterContracts"
+              },
+              "termination": {
+                "enum": [
+                  "total",
+                  "partial",
+                  "assumed-total"
+                ],
+                "description": "Candidate call progress obligation, using the existing function termination meanings. Omission preserves the old unspecified contract; total is not a proof or a physical resource bound."
+              }
+            }
           }
         },
         {
@@ -1922,7 +2052,7 @@
     {
       "path": "schema/author/first-layer/component-contracts.schema.json",
       "id": "urn:gift:design-schema:first-layer-component-contracts",
-      "sha256": "9f8e3f6cdefca8aa7a3b13da6ef6821657ca72841df702e93bc46fa9e41bc847"
+      "sha256": "77a072aaea4b96871d7f78aa1518cbefb684249b7900d73892f691250be3f88a"
     }
   ],
   "extensions": [

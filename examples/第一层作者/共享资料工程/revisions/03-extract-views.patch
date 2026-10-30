@@ -1,0 +1,129 @@
+diff --git a/examples/第一层作者/共享资料工程/workspace.module.json b/examples/第一层作者/共享资料工程/workspace.module.json
+--- a/examples/第一层作者/共享资料工程/workspace.module.json
++++ b/examples/第一层作者/共享资料工程/workspace.module.json
+@@ -664,20 +664,15 @@
+           "components": [
+             {"instance": "store", "componentRef": "local:Store", "constructorArguments": {"initialRows": {"op": "var", "name": "initialRows"}}},
+             {
+-              "instance": "main",
+-              "componentRef": "local:ThresholdView",
+-              "argumentBindings": {"initialThreshold": {"source": "literal", "typeRef": "local:Threshold", "value": 5}}
+-            },
+-            {
+-              "instance": "preview",
+-              "componentRef": "local:ThresholdView",
+-              "argumentBindings": {"initialThreshold": {"source": "literal", "typeRef": "local:Threshold", "value": 8}}
++              "instance": "pair",
++              "componentRef": "local:TwinViews",
++              "argumentBindings": {
++                "mainInitial": {"source": "literal", "typeRef": "local:Threshold", "value": 5},
++                "previewInitial": {"source": "literal", "typeRef": "local:Threshold", "value": 8}
++              }
+             }
+           ],
+-          "connections": [
+-            {"source": {"instancePath": ["store"], "port": "snapshot"}, "target": {"instancePath": ["main"], "port": "source"}},
+-            {"source": {"instancePath": ["store"], "port": "snapshot"}, "target": {"instancePath": ["preview"], "port": "source"}}
+-          ]
++          "connections": [{"source": {"instancePath": ["store"], "port": "snapshot"}, "target": {"instancePath": ["pair"], "port": "source"}}]
+         },
+         "operationContracts": [
+           {
+@@ -1071,9 +1066,9 @@
+           "fields": [
+             {
+               "name": "componentPath",
+-              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "main"}]}
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
+             },
+-            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}},
++            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mainRead"}},
+             {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}}
+           ]
+         }
+@@ -1087,9 +1082,9 @@
+           "fields": [
+             {
+               "name": "componentPath",
+-              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "preview"}]}
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
+             },
+-            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}},
++            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "previewRead"}},
+             {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "read"}}
+           ]
+         }
+@@ -1103,9 +1098,9 @@
+           "fields": [
+             {
+               "name": "componentPath",
+-              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "main"}]}
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
+             },
+-            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}},
++            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mainSet"}},
+             {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}}
+           ]
+         }
+@@ -1119,9 +1114,9 @@
+           "fields": [
+             {
+               "name": "componentPath",
+-              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "preview"}]}
++              "value": {"op": "sequence", "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pair"}]}
+             },
+-            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}},
++            {"name": "port", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "previewSet"}},
+             {"name": "operation", "value": {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "set"}}
+           ]
+         }
+@@ -1467,6 +1462,49 @@
+           }
+         }
+       }
++    },
++    "TwinViews": {
++      "product:component": {
++        "providedPorts": {"mainRead": "local:Read", "previewRead": "local:Read", "mainSet": "local:Set", "previewSet": "local:Set"},
++        "requiredPorts": {"source": "local:Snapshot"},
++        "requirements": [],
++        "parameters": [
++          {"name": "mainInitial", "contractRef": "local:Threshold", "cardinality": "one", "mode": "value", "required": true},
++          {"name": "previewInitial", "contractRef": "local:Threshold", "cardinality": "one", "mode": "value", "required": true}
++        ],
++        "constructor": {
++          "parameters": [],
++          "errors": {"tag": "scalar", "name": "never"},
++          "effects": [{"class": "alloc"}, {"class": "state-write"}],
++          "requirements": [],
++          "termination": "total"
++        },
++        "composition": {
++          "components": [
++            {
++              "instance": "main",
++              "componentRef": "local:ThresholdView",
++              "argumentBindings": {"initialThreshold": {"source": "parameter", "parameter": "mainInitial"}}
++            },
++            {
++              "instance": "preview",
++              "componentRef": "local:ThresholdView",
++              "argumentBindings": {"initialThreshold": {"source": "parameter", "parameter": "previewInitial"}}
++            }
++          ],
++          "connections": [
++            {"source": {"boundaryPort": {"direction": "requires", "name": "source"}}, "target": {"instancePath": ["main"], "port": "source"}},
++            {"source": {"boundaryPort": {"direction": "requires", "name": "source"}}, "target": {"instancePath": ["preview"], "port": "source"}},
++            {"source": {"instancePath": ["main"], "port": "read"}, "target": {"boundaryPort": {"direction": "provides", "name": "mainRead"}}},
++            {
++              "source": {"instancePath": ["preview"], "port": "read"},
++              "target": {"boundaryPort": {"direction": "provides", "name": "previewRead"}}
++            },
++            {"source": {"instancePath": ["main"], "port": "set"}, "target": {"boundaryPort": {"direction": "provides", "name": "mainSet"}}},
++            {"source": {"instancePath": ["preview"], "port": "set"}, "target": {"boundaryPort": {"direction": "provides", "name": "previewSet"}}}
++          ]
++        }
++      }
+     }
+   },
+   "exports": ["Workspace"]

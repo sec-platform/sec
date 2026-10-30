@@ -613,10 +613,13 @@
         }
       }
     },
-    "CapacityValid": {
+    "CapacityWithinCounts": {
       "domain:meaning": {
         "category": "relation",
-        "parameters": [{"name": "input", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}],
+        "parameters": [
+          {"name": "count", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "scalarCount", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
         "result": {"tag": "scalar", "name": "bool"},
         "formula": {
           "all": [
@@ -625,7 +628,7 @@
                 "meaningRef": "local:AtLeast",
                 "arguments": {
                   "left": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "10000"}},
-                  "right": {"value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "input"}]}}
+                  "right": {"value": {"op": "var", "name": "count"}}
                 }
               }
             },
@@ -634,13 +637,27 @@
                 "meaningRef": "local:AtLeast",
                 "arguments": {
                   "left": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "100000"}},
-                  "right": {
-                    "value": {"op": "call", "callee": {"op": "symbol", "ref": "local:ScalarTotal"}, "arguments": [{"op": "var", "name": "input"}]}
-                  }
+                  "right": {"value": {"op": "var", "name": "scalarCount"}}
                 }
               }
             }
           ]
+        }
+      }
+    },
+    "CapacityValid": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "input", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "apply": {
+            "meaningRef": "local:CapacityWithinCounts",
+            "arguments": {
+              "count": {"value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "input"}]}},
+              "scalarCount": {"value": {"op": "call", "callee": {"op": "symbol", "ref": "local:ScalarTotal"}, "arguments": [{"op": "var", "name": "input"}]}}
+            }
+          }
         }
       }
     },
@@ -707,6 +724,86 @@
           }
         }
       }
+    },
+    "RawScalarTotal": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "elements",
+            "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "ordered": true},
+            "mode": "in"
+          }
+        ],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "call": {
+            "callee": {"op": "symbol", "ref": "sequence:SumInt"},
+            "arguments": [
+              {
+                "comprehension": {
+                  "yield": {"call": {"callee": {"op": "symbol", "ref": "boundary:ScalarLength"}, "arguments": [{"op": "var", "name": "text"}]}},
+                  "clauses": [
+                    {"from": {"bind": "row", "in": {"op": "var", "name": "elements"}}},
+                    {
+                      "from": {
+                        "bind": "rawText",
+                        "in": {
+                          "call": {
+                            "callee": {"op": "symbol", "ref": "boundary:FieldValues"},
+                            "arguments": [{"op": "var", "name": "row"}, {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "text"}]
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "from": {
+                        "bind": "text",
+                        "in": {"call": {"callee": {"op": "symbol", "ref": "boundary:ScalarTexts"}, "arguments": [{"op": "var", "name": "rawText"}]}}
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "CapacityExceeded": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "raw", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "op": "all",
+          "items": [
+            {"op": "call", "meaningRef": "local:ValidRows", "bindings": {"raw": "raw"}},
+            {
+              "op": "quantify",
+              "quantifier": "exists",
+              "binder": "elements",
+              "domain": {"op": "call", "callee": {"op": "symbol", "ref": "boundary:DenseArrays"}, "arguments": [{"op": "var", "name": "raw"}]},
+              "predicate": {
+                "op": "not",
+                "item": {
+                  "op": "call",
+                  "meaningRef": "local:CapacityWithinCounts",
+                  "arguments": {
+                    "count": {
+                      "value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "elements"}]}
+                    },
+                    "scalarCount": {
+                      "value": {"op": "call", "callee": {"op": "symbol", "ref": "local:RawScalarTotal"}, "arguments": [{"op": "var", "name": "elements"}]}
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
     }
   },
   "exports": [
@@ -722,6 +819,11 @@
     "CapacityValid",
     "ThresholdRepresents",
     "CreateAccepted",
-    "CreationRequirement"
+    "CreationRequirement",
+    "RowsEqual",
+    "InScoreRange",
+    "IntEqual",
+    "CapacityWithinCounts",
+    "CapacityExceeded"
   ]
 }

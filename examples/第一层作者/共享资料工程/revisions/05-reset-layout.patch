@@ -1,0 +1,19 @@
+diff --git a/examples/第一层作者/shared-views.control.json b/examples/第一层作者/shared-views.control.json
+--- a/examples/第一层作者/shared-views.control.json
++++ b/examples/第一层作者/shared-views.control.json
+@@ -1,14 +1 @@
+-{
+-  "schema": "gift.control-file/1",
+-  "projectId": "example:shared-views",
+-  "fileId": "engineering-controls",
+-  "records": [
+-    {
+-      "scopeRef": {"kind": "definition", "moduleId": "module:shared-views-policy", "definitionId": "KeepByThreshold"},
+-      "target": "ts",
+-      "controlRef": "generation.definition-file",
+-      "mode": "require",
+-      "value": {"placements": [{"rootId": "package", "path": "src/filter.ts"}]}
+-    }
+-  ]
+-}
++{"schema": "gift.control-file/1", "projectId": "example:shared-views", "fileId": "engineering-controls", "records": []}

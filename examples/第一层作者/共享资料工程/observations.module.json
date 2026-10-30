@@ -1,0 +1,68 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:component-call-observation",
+  "imports": {
+    "calls": {"mode": "workspace", "moduleId": "module:retained-call"},
+    "values": {"mode": "workspace", "moduleId": "module:component-call-values"}
+  },
+  "definitions": {
+    "Call": {"core:type": {"tag": "nominal", "ref": "calls:RetainedCall"}},
+    "ObserveCall": {
+      "core:function": {
+        "parameters": [{"name": "subject", "type": {"tag": "nominal", "ref": "local:Call"}}],
+        "returns": {"tag": "nominal", "ref": "local:Call"},
+        "effects": [],
+        "termination": "total",
+        "body": {"op": "var", "name": "subject"}
+      }
+    },
+    "CallObservation": {
+      "observation:contract": {
+        "subjectRef": "calls:RetainedCall",
+        "observerRef": "local:ObserveCall",
+        "scopeRef": "scope:retained-enclosing-call",
+        "completeness": "closed"
+      }
+    },
+    "Forwarded": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "call", "type": {"tag": "nominal", "ref": "local:Call"}, "cardinality": "one"},
+          {"name": "endpoint", "type": {"tag": "nominal", "ref": "values:Endpoint"}, "cardinality": "one"},
+          {"name": "errors", "type": {"tag": "nominal", "ref": "values:ErrorMap"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "calls:Forwarded"
+      }
+    },
+    "NoMemberInteraction": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "call", "type": {"tag": "nominal", "ref": "local:Call"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "calls:NoMemberInteraction"
+      }
+    },
+    "SourceBorrowSettled": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "call", "type": {"tag": "nominal", "ref": "local:Call"}, "cardinality": "one"},
+          {"name": "endpoint", "type": {"tag": "nominal", "ref": "values:Endpoint"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "calls:SourceBorrowSettled"
+      }
+    },
+    "EntryCustodySettled": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "call", "type": {"tag": "nominal", "ref": "local:Call"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "calls:EntryCustodySettled"
+      }
+    }
+  },
+  "exports": ["Call", "CallObservation", "Forwarded", "NoMemberInteraction", "SourceBorrowSettled", "EntryCustodySettled"]
+}
