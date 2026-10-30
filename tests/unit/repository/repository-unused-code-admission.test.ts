@@ -56,23 +56,35 @@ async function verificationFailure(entries: Readonly<Record<string, string>>, su
   }, 'sec-unused-admission-');
 }
 
-async function rejectsUnused(source: string, surface: 'src' | 'tests', binding: string, column: number): Promise<void> {
-  const failure = await verificationFailure({ 'entry.ts': source }, surface);
+async function rejectsUnused(surface: 'src' | 'tests'): Promise<void> {
+  // One native TypeScript program observes both distinct unused-declaration
+  // diagnostics. Keep their source paths and precise code locations independent.
+  const cases = [
+    { file: 'unused-local.ts', source: 'const discarded = 1; export const result = 2;', binding: 'discarded', column: 7 },
+    { file: 'unused-parameter.ts', source: 'export function evaluate(unused: number) { return 1; }', binding: 'unused', column: 26 }
+  ] as const;
+  const failure = await verificationFailure(
+    Object.fromEntries(cases.map(({ file, source }) => [file, source])),
+    surface
+  );
   assert.ok(failure, 'Unused code must reject project verification');
   assert.match(failure.message, /\bTS6133:/u);
-  // Each negative fixture has exactly one unused binding. Checking the entire
-  // diagnostic list prevents a primary unused error hiding an unrelated error.
-  assert.ok(Array.isArray(failure.details));
-  assert.equal(failure.details.length, 1, 'The fixture must not fail for another reason');
-  assert.equal(typeof failure.details[0], 'string');
-  assert.ok(failure.details[0].includes(`/${surface}/entry.ts:1:${column} `));
-  assert.ok(failure.details[0].includes(`'${binding}'`));
+  const details = failure.details;
+  assert.ok(Array.isArray(details));
+  assert.equal(details.length, cases.length, 'The fixture must report exactly both independent unused declarations');
+  for (const { file, binding, column } of cases) {
+    const matched = details.filter((detail): detail is string => (
+      typeof detail === 'string' && detail.includes(`/${surface}/${file}:1:${column} `)
+    ));
+    assert.equal(matched.length, 1, `Expected one unused-declaration diagnostic for ${surface}/${file}`);
+    assert.match(matched[0]!, /\bTS6133:/u);
+    assert.ok(matched[0]!.includes(`'${binding}'`));
+  }
 }
 
 for (const surface of ['src', 'tests'] as const) {
   test(`${surface} rejects unused locals and parameters through repository policy`, async () => {
-    await rejectsUnused('const discarded = 1; export const result = 2;', surface, 'discarded', 7);
-    await rejectsUnused('export function evaluate(unused: number) { return 1; }', surface, 'unused', 26);
+    await rejectsUnused(surface);
   });
 
   test(`${surface} keeps used declarations, deliberate callback positions and public contracts`, async () => {

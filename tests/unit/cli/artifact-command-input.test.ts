@@ -43,7 +43,6 @@ test('later caller mutation cannot alter the admitted path and filter selection'
 
 test('canonical kinds resist mutation and public artifact flags select the requested view', async () => {
   assert.ok(Object.isFrozen(CI_ARTIFACT_KINDS));
-  assert.equal(Reflect.set(CI_ARTIFACT_KINDS, '0', 'other'), false);
   const program = new Command().name('sec').exitOverride();
   const selections: unknown[] = [];
   registerAdvancedWorkspaceCommands(program, {
