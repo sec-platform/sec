@@ -25,6 +25,15 @@ describe('Document Control Plane GitHub request identity', () => {
     expect(parseGitHubRepositoryIdentityFromRemoteUrl(
       'git@github.com:sec-platform/sec.git'
     )).toBe(REPOSITORY);
-    expect(parseGitHubRepositoryIdentityFromRemoteUrl('D:/fixtures/sec.git')).toBeNull();
+    expect(parseGitHubRepositoryIdentityFromRemoteUrl(
+      'ssh://git@github.com/sec-platform/sec.git'
+    )).toBe(REPOSITORY);
+    for (const invalid of [
+      'D:/fixtures/sec.git',
+      'https://attacker.invalid/github.com/sec-platform/sec.git',
+      'https://github.com/sec-platform/sec/extra'
+    ]) {
+      expect(parseGitHubRepositoryIdentityFromRemoteUrl(invalid)).toBeNull();
+    }
   });
 });

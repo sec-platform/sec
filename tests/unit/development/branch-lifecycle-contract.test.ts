@@ -65,15 +65,11 @@ test('lifecycle inventory retains live PRs and only exact physical historical he
   ]).map(({ number }) => number)).toEqual([1, 2]);
 });
 
-test('GitHub repository identity parser accepts only exact supported remote forms', () => {
-  expect(parseRepositoryFullName('https://github.com/sec-platform/sec.git')).toBe('sec-platform/sec');
-  expect(parseRepositoryFullName('git@github.com:sec-platform/sec.git')).toBe('sec-platform/sec');
-  expect(parseRepositoryFullName('ssh://git@github.com/sec-platform/sec.git')).toBe('sec-platform/sec');
-  expect(parseRepositoryFullName('https://attacker.invalid/github.com/sec-platform/sec.git')).toBeNull();
-  expect(parseRepositoryFullName('https://github.com/sec-platform/sec/extra')).toBeNull();
-});
-
 test('GitHub remote observation binds canonical URL and ignores every ambient Git config scope', () => {
+  // The branch inventory's forwarded parser must use the same canonical
+  // GitHub URL identity as this remote observer; the grammar lives with its
+  // source owner in document-control-plane-github-observation.test.ts.
+  expect(parseRepositoryFullName('https://github.com/sec-platform/sec.git')).toBe('sec-platform/sec');
   const hostileEnvironment = {
     [process.platform === 'win32' ? 'Path' : 'PATH']: 'trusted-path',
     HOME: 'hostile-global-home',
@@ -614,12 +610,10 @@ test('dirty worktree is formally protected-pending instead of an active feature 
   expect(report.status).toBe('protected');
 });
 
-test('path containment is segment-safe', () => {
+test('closeout keeps remote CAS, local appearance, divergent recovery and registered worktree boundaries independent', () => {
+  // Recovery containment uses full path segments, never a parent-name prefix.
   expect(isPathWithin('/workspace/sec/.tmp/recovery.bundle', '/workspace/sec')).toBe(true);
   expect(isPathWithin('/workspace/sec-recovery/recovery.bundle', '/workspace/sec')).toBe(false);
-});
-
-test('closeout keeps remote CAS, local appearance, divergent recovery and registered worktree boundaries independent', () => {
   const before = inventory({
     localBranches: [
       { branch: 'main', sha: MAIN_SHA },
