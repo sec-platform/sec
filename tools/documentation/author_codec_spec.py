@@ -120,7 +120,9 @@ class Expansion:
     def formula(self, value):
         object_at(value, 'Formula')
         if 'op' in value:
-            return copy.deepcopy(value)  # exact op never triggers short children
+            # Includes call.arguments and its full author Expr descendants.
+            # Their op encoding never triggers Formula or shared-tag guessing.
+            return copy.deepcopy(value)
         if len(value) != 1:
             reject('Formula: expected exactly one short discriminator')
         key, payload = next(iter(value.items()))
@@ -142,6 +144,7 @@ class Expansion:
             object_at(payload, key)
             if 'op' in payload:
                 reject(key + ': payload cannot override op')
+            # quantify.domain is already a full author Expr, kept verbatim.
             result = {'op': key, **copy.deepcopy(payload)}
             for child in (('predicate',) if key == 'quantify' else ('item', 'boundary')):
                 if child in payload:

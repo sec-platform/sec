@@ -1,0 +1,83 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:dependent_score_thresholds",
+  "definitions": {
+    "Reading": {"core:type": {"record": {"score": "int"}, "open": false}},
+    "Bounds": {"core:type": {"record": {"lower": "int", "upper": "int"}, "open": false}},
+    "Group": {"core:type": {"record": {
+      "bounds": "local:Bounds",
+      "readings": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Reading"}, "ordered": true}
+    }, "open": false}},
+    "Dataset": {"core:type": {"record": {
+      "groups": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Group"}, "ordered": true},
+      "offset": "int"
+    }, "open": false}},
+    "WithinBoundsWitness": {"core:function": {
+      "parameters": [
+        {"name": "reading", "type": {"tag": "nominal", "ref": "local:Reading"}, "mode": "in"},
+        {"name": "bounds", "type": {"tag": "nominal", "ref": "local:Bounds"}, "mode": "in"}
+      ],
+      "returns": {"tag": "scalar", "name": "bool"},
+      "effects": [],
+      "termination": "total",
+      "body": {"op": "let", "name": "lower_ok",
+        "value": {"op": "match",
+          "value": {"op": "call", "callee": {"op": "symbol", "ref": "std:IntCompare"}, "arguments": [
+            {"op": "field", "record": {"op": "var", "name": "reading"}, "name": "score"},
+            {"op": "field", "record": {"op": "var", "name": "bounds"}, "name": "lower"}
+          ]},
+          "cases": [
+            {"constructor": "Less", "binding": "below", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}},
+            {"constructor": "Equal", "binding": "at_lower", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}},
+            {"constructor": "Greater", "binding": "above", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}}
+          ]
+        },
+        "body": {"op": "if", "condition": {"op": "var", "name": "lower_ok"},
+          "then": {"op": "match",
+            "value": {"op": "call", "callee": {"op": "symbol", "ref": "std:IntCompare"}, "arguments": [
+              {"op": "field", "record": {"op": "var", "name": "reading"}, "name": "score"},
+              {"op": "field", "record": {"op": "var", "name": "bounds"}, "name": "upper"}
+            ]},
+            "cases": [
+              {"constructor": "Less", "binding": "inside", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}},
+              {"constructor": "Equal", "binding": "at_upper", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}},
+              {"constructor": "Greater", "binding": "outside", "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}}
+            ]
+          },
+          "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+        }
+      }
+    }},
+    "WithinBounds": {"domain:meaning": {
+      "category": "relation",
+      "parameters": [
+        {"name": "reading", "type": {"tag": "nominal", "ref": "local:Reading"}, "cardinality": "one"},
+        {"name": "bounds", "type": {"tag": "nominal", "ref": "local:Bounds"}, "cardinality": "one"}
+      ],
+      "result": {"tag": "scalar", "name": "bool"},
+      "interpretationRef": "local:WithinBoundsWitness"
+    }},
+    "EachGroupHasEligibleReading": {"intent:goal": {
+      "roles": {"dataset": "local:Dataset"},
+      "clauses": {"each_group_has_reading_in_shifted_bounds": {"achieve": {
+        "quantify": {"quantifier": "forall", "binder": "group",
+          "domain": {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "groups"},
+          "predicate": {"quantify": {"quantifier": "exists", "binder": "reading",
+            "domain": {"op": "field", "record": {"op": "var", "name": "group"}, "name": "readings"},
+            "predicate": {"op": "call", "meaningRef": "local:WithinBounds", "arguments": {
+              "reading": {"binding": "reading"},
+              "bounds": {"value": {"op": "record", "fields": [
+                {"name": "lower", "value": {"op": "call", "callee": {"op": "symbol", "ref": "std:IntAdd"}, "arguments": [
+                  {"op": "field", "record": {"op": "field", "record": {"op": "var", "name": "group"}, "name": "bounds"}, "name": "lower"},
+                  {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "offset"}
+                ]}},
+                {"name": "upper", "value": {"op": "field", "record": {"op": "field", "record": {"op": "var", "name": "group"}, "name": "bounds"}, "name": "upper"}}
+              ]}}
+            }}
+          }}
+        }
+      }}}
+    }}
+  },
+  "exports": ["Reading", "Bounds", "Group", "Dataset", "WithinBounds", "EachGroupHasEligibleReading"]
+}

@@ -151,3 +151,56 @@ class AuthorCodecSpec(TestCase):
         self.assertEqual(result['body']['value'], {'op': 'literal', 'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data})
         with self.assertRaises(ShortFormError):
             self.expansion.definition({'core:constant': {'type': 'bool', 'literal': True, 'value': {}}})
+
+    def test_symbolic_arguments_and_dependent_domain_keep_exact_expression_boundary(self):
+        field = {'op': 'field', 'record': {'op': 'var', 'name': 'outer'}, 'name': 'items'}
+        call = {'op': 'call', 'meaningRef': 'local:R', 'arguments': {
+            'x': {'binding': 'item'}, 'ys': {'value': field}}}
+        domain = {'op': 'call', 'callee': {'op': 'symbol', 'ref': {'space': 'local', 'definition': '域'}},
+                  'arguments': [field]}
+        source = {'quantify': {'quantifier': 'forall', 'binder': 'item', 'domain': domain,
+                              'predicate': {'not': call}}}
+        expected = {'op': 'quantify', 'quantifier': 'forall', 'binder': 'item', 'domain': domain,
+                    'predicate': {'op': 'not', 'item': call}}
+        original = copy.deepcopy(source)
+        self.assertEqual(self.expansion.formula(source), expected)
+        self.assertEqual(source, original)
+        # Full author Expr is not another Formula or shared-tag short-form slot.
+        malformed = copy.deepcopy(call)
+        malformed['arguments']['ys']['value'] = {'op': 'field', 'record': {'local:R': {}}, 'name': 'items'}
+        self.assertEqual(self.expansion.formula(malformed), malformed)
+        legacy = {'local:R': {'arguments': {'x': {'value': field}}}}
+        self.assertEqual(self.expansion.formula(legacy), {
+            'op': 'call', 'meaningRef': 'local:R', 'bindings': legacy['local:R']})
+        # Both malformed results are left for strict Schema rejection.
+
+    def test_symbolic_call_reachable_through_logic_temporal_and_goal_slots(self):
+        call = {'op': 'call', 'meaningRef': 'local:R', 'arguments': {'x': {'value': {'op': 'var', 'name': 'input'}}}}
+        source = {'all': [{'any': [call, {'not': call}]}, {'implies': [call, call]},
+                          {'temporal': {'operator': 'until', 'clockRef': 'clock:1', 'item': call, 'boundary': call}}]}
+        expected = {'op': 'all', 'items': [
+            {'op': 'any', 'items': [call, {'op': 'not', 'item': call}]},
+            {'op': 'implies', 'if': call, 'then': call},
+            {'op': 'temporal', 'operator': 'until', 'clockRef': 'clock:1', 'item': call, 'boundary': call}]}
+        self.assertEqual(self.expansion.formula(source), expected)
+        for mode in ('achieve', 'maintain', 'avoid'):
+            actual = self.expansion.goal({'clauses': {'c': {mode: source}}})
+            self.assertEqual(actual, {'clauses': [{'id': 'c', 'modality': mode, 'formula': expected}]})
+        obligation = {'actorRole': 'input', 'trigger': source, 'fulfilment': call, 'temporalMode': 'open-ended'}
+        self.assertEqual(self.expansion.clause('c', {'oblige': obligation}), {
+            'id': 'c', 'modality': 'oblige', **obligation, 'trigger': expected})
+        assumption = {'id': 'a', 'formula': source}
+        self.assertEqual(self.expansion.goal({'assumptions': [assumption]}), {
+            'assumptions': [{'id': 'a', 'formula': expected}]})
+        full_clauses = [{'id': 'c', 'modality': 'achieve', 'formula': source}]
+        self.assertEqual(self.expansion.goal({'clauses': full_clauses}), {'clauses': full_clauses})
+
+    def test_symbolic_expression_data_lambda_and_existing_binding_form_are_not_reinterpreted(self):
+        data = {'op': 'all', 'arguments': {'value': 'ordinary'}, 'domain': {'local:R': {}}}
+        value = {'op': 'record', 'fields': [
+            {'name': 'data', 'value': {'op': 'literal', 'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data}},
+            {'name': 'function', 'value': {'op': 'lambda', 'params': [], 'body': {'op': 'var', 'name': 'input'}}}]}
+        call = {'op': 'call', 'meaningRef': 'local:R', 'arguments': {'x': {'value': value}}}
+        self.assertEqual(self.expansion.formula(call), call)
+        old = {'local:R': {'x': 'input'}}
+        self.assertEqual(self.expansion.formula(old), {'op': 'call', 'meaningRef': 'local:R', 'bindings': {'x': 'input'}})

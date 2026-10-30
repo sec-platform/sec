@@ -501,24 +501,6 @@
           }
         },
         {
-          "pointer": "/$defs/call/properties/meaningRef",
-          "expected": {
-            "type": "string",
-            "minLength": 1
-          },
-          "replacement": {
-            "oneOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
-              }
-            ]
-          }
-        },
-        {
           "pointer": "/$defs/observation/properties/meaningRef",
           "expected": {
             "type": "string",
@@ -647,64 +629,6 @@
           }
         },
         {
-          "pointer": "/$defs/quantifier/properties/domainRef",
-          "expected": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Ref to a typed enumerated domain, query, pure collection-producing function or qualified domain Provider; its allowed Kind/element type and identity scope are checked by the corresponding Owner."
-          },
-          "replacement": {
-            "oneOf": [
-              {
-                "type": "string",
-                "minLength": 1,
-                "description": "Ref to a typed enumerated domain, query, pure collection-producing function or qualified domain Provider; its allowed Kind/element type and identity scope are checked by the corresponding Owner."
-              },
-              {
-                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
-              }
-            ]
-          }
-        },
-        {
-          "pointer": "/$defs/quantifier/properties/scopeRef",
-          "expected": {
-            "type": "string",
-            "minLength": 1
-          },
-          "replacement": {
-            "oneOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
-              }
-            ]
-          }
-        },
-        {
-          "pointer": "/$defs/quantifier/properties/completenessRef",
-          "expected": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Optional source assertion about domain completeness; its presence does not establish completeness. For unqualified open-world forall/count, truth stays undetermined."
-          },
-          "replacement": {
-            "oneOf": [
-              {
-                "type": "string",
-                "minLength": 1,
-                "description": "Optional source assertion about domain completeness; its presence does not establish completeness. For unqualified open-world forall/count, truth stays undetermined."
-              },
-              {
-                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
-              }
-            ]
-          }
-        },
-        {
           "pointer": "/$defs/temporal/properties/clockRef",
           "expected": {
             "type": "string",
@@ -756,6 +680,341 @@
               },
               {
                 "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/call",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "meaningRef",
+              "bindings"
+            ],
+            "properties": {
+              "op": {
+                "const": "call"
+              },
+              "meaningRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "bindings": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "meaningRef"
+            ],
+            "properties": {
+              "op": {
+                "const": "call"
+              },
+              "meaningRef": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                  }
+                ]
+              },
+              "bindings": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "arguments": {
+                "type": "object",
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "binding"
+                      ],
+                      "properties": {
+                        "binding": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "value"
+                      ],
+                      "properties": {
+                        "value": {
+                          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "bindings"
+                ]
+              },
+              {
+                "required": [
+                  "arguments"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/quantifier",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "quantifier",
+              "binder",
+              "domainRef",
+              "predicate"
+            ],
+            "properties": {
+              "op": {
+                "const": "quantify"
+              },
+              "quantifier": {
+                "enum": [
+                  "forall",
+                  "exists",
+                  "exactly",
+                  "atLeast",
+                  "atMost"
+                ]
+              },
+              "binder": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+              },
+              "domainRef": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Ref to a typed enumerated domain, query, pure collection-producing function or qualified domain Provider; its allowed Kind/element type and identity scope are checked by the corresponding Owner."
+              },
+              "predicate": {
+                "$ref": "#/$defs/formula"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Exact nonnegative mathematical count k, not an array index. Decode and validate raw JSON numeric decimal lexeme before IEEE754 conversion; retain unbounded value via exact integer type. Finite observation/domain bounds and computation budget restrict evidence, not what author can express."
+              },
+              "scopeRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "completenessRef": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional source assertion about domain completeness; its presence does not establish completeness. For unqualified open-world forall/count, truth stays undetermined."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "quantifier": {
+                      "enum": [
+                        "exactly",
+                        "atLeast",
+                        "atMost"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "quantifier"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "count"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "quantifier": {
+                      "enum": [
+                        "forall",
+                        "exists"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "quantifier"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "count"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Scoped binder for a typed domain; do not use domain name or an unresolved ref as evidence of set enumeration/closure."
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "quantifier",
+              "binder",
+              "predicate"
+            ],
+            "properties": {
+              "op": {
+                "const": "quantify"
+              },
+              "quantifier": {
+                "enum": [
+                  "forall",
+                  "exists",
+                  "exactly",
+                  "atLeast",
+                  "atMost"
+                ]
+              },
+              "binder": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+              },
+              "domainRef": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Ref to a typed enumerated domain, query, pure collection-producing function or qualified domain Provider; its allowed Kind/element type and identity scope are checked by the corresponding Owner."
+                  },
+                  {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                  }
+                ]
+              },
+              "predicate": {
+                "$ref": "#/$defs/formula"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Exact nonnegative mathematical count k, not an array index. Decode and validate raw JSON numeric decimal lexeme before IEEE754 conversion; retain unbounded value via exact integer type. Finite observation/domain bounds and computation budget restrict evidence, not what author can express."
+              },
+              "scopeRef": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                  }
+                ]
+              },
+              "completenessRef": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Optional source assertion about domain completeness; its presence does not establish completeness. For unqualified open-world forall/count, truth stays undetermined."
+                  },
+                  {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                  }
+                ]
+              },
+              "domain": {
+                "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "quantifier": {
+                      "enum": [
+                        "exactly",
+                        "atLeast",
+                        "atMost"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "quantifier"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "count"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "quantifier": {
+                      "enum": [
+                        "forall",
+                        "exists"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "quantifier"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "count"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Scoped binder for a typed domain; do not use domain name or an unresolved ref as evidence of set enumeration/closure.",
+            "oneOf": [
+              {
+                "required": [
+                  "domainRef"
+                ]
+              },
+              {
+                "required": [
+                  "domain"
+                ]
               }
             ]
           }
