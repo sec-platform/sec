@@ -88,6 +88,8 @@ function publicationLock() {
 
 test('Verification artifact rejects duplicate, blank and noncanonical fast inventories', () => {
   const candidate = blockedArtifactSet();
+  // A rejecting mutation is a real witness only if its original artifact is valid.
+  expect(isCanonicalVerificationArtifactSet(candidate)).toBe(true);
   for (const inventory of [
     ['unit/z.test.ts', 'unit/a.test.ts'],
     ['unit/a.test.ts', 'unit/a.test.ts'],
@@ -100,6 +102,7 @@ test('Verification artifact rejects duplicate, blank and noncanonical fast inven
 
 test('Verification artifact applies canonical inventory admission to runtime reports', () => {
   const candidate = blockedArtifactSet();
+  expect(isCanonicalVerificationArtifactSet(candidate)).toBe(true);
   const inventory = ['tests/runtime/z.test.ts', 'tests/runtime/a.test.ts'];
   candidate.verificationReport.runtime.unit.passed = inventory;
   expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);

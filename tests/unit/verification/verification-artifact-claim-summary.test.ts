@@ -308,6 +308,10 @@ function expectNonCanonical(candidate: SemanticMutationIsolatedVerificationArtif
 }
 
 test('canonical artifacts require coherent child exit and semantic evidence for their public outcomes', () => {
+  // The negative cases below clone these fixed passed baselines. Without an
+  // admitted positive, every rejection could pass vacuously.
+  expect(isCanonicalVerificationArtifactSet(mutablePassedArtifact())).toBe(true);
+  expect(isCanonicalVerificationArtifactSet(mutablePassedArtifact(shadowedPolicyReport()))).toBe(true);
   const failed = artifactSet('failed');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(failed)).toBe('failed');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet({ ...failed, childExitCode: 0 }))
