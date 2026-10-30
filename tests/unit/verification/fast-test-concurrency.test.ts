@@ -6,6 +6,7 @@ import {
   DEFAULT_FAST_TEST_MAX_CONCURRENCY,
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET,
+  partitionFastTestFiles,
   resolveFastTestConcurrencyBudget,
   resolveManagedFastTestConcurrency
 } from '../../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
@@ -97,6 +98,20 @@ test('default concurrent tests receive the canonical inner budget', () => {
     '--max-concurrency',
     String(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.bunTestMaxConcurrency),
     'tests/unit/example.test.ts'
+  ]);
+  // The separate harness also launches native fast-suite worker children;
+  // it must share the managed resource class rather than join unbounded files.
+  const selected = partitionFastTestFiles([
+    'tests/unit/verification/verification-suite-harness.test.ts',
+    'tests/unit/verification/verification-suite-process.test.ts',
+    'tests/unit/verification/testkit-template-preparation.test.ts'
+  ]);
+  expect(selected.resourceQueues['independent-process']).toEqual([
+    'tests/unit/verification/verification-suite-harness.test.ts',
+    'tests/unit/verification/verification-suite-process.test.ts'
+  ]);
+  expect(selected.concurrent).toEqual([
+    'tests/unit/verification/testkit-template-preparation.test.ts'
   ]);
 });
 

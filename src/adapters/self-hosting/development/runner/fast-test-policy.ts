@@ -390,6 +390,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/verification/verification-suite-harness.test.ts',
+    reason: 'native-fast-suite-children-and-worker-failure-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/verification/verification-suite-process.test.ts',
     reason: 'process-global-environment-and-suite-child-lifecycle',
     resourceClass: 'independent-process'
