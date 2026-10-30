@@ -104,11 +104,13 @@ test('default concurrent tests receive the canonical inner budget', () => {
   const selected = partitionFastTestFiles([
     'tests/unit/verification/verification-suite-harness.test.ts',
     'tests/unit/verification/verification-suite-process.test.ts',
+    'tests/unit/verification/testkit-workspace-files.test.ts',
     'tests/unit/verification/testkit-template-preparation.test.ts'
   ]);
   expect(selected.resourceQueues['independent-process']).toEqual([
     'tests/unit/verification/verification-suite-harness.test.ts',
-    'tests/unit/verification/verification-suite-process.test.ts'
+    'tests/unit/verification/verification-suite-process.test.ts',
+    'tests/unit/verification/testkit-workspace-files.test.ts'
   ]);
   expect(selected.concurrent).toEqual([
     'tests/unit/verification/testkit-template-preparation.test.ts'
