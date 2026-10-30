@@ -390,6 +390,41 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/workspace/runtime-scaffold-publication.test.ts',
+    reason: 'process-global-template-renderer-and-cwd-during-publication',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/workspace/workspace-copy-lifecycle.test.ts',
+    reason: 'process-global-cwd-and-filesystem-monkeypatches-during-copy',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/workspace/workspace-root-capture.test.ts',
+    reason: 'process-global-cwd-during-multi-workspace-async-capture',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-environment-observation.test.ts',
+    reason: 'process-global-cwd-and-filesystem-observation-mocks',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-ledger-storage.test.ts',
+    reason: 'process-global-cwd-during-commit-fence',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-migration-boundaries.test.ts',
+    reason: 'process-global-cwd-during-legacy-migration-fence',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-rollover-recovery.test.ts',
+    reason: 'process-global-cwd-during-native-recovery-fence',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/workspace/project-baseline-phase.test.ts',
     reason: 'physical-project-baseline-and-workspace-publication',
     resourceClass: 'independent-process'

@@ -108,6 +108,13 @@ test('default concurrent tests receive the canonical inner budget', () => {
     'tests/unit/development/import-organizer-selection.test.ts',
     'tests/unit/development/import-organizer-staged.test.ts',
     'tests/unit/verification/verification-artifact-canonical-inventory.test.ts',
+    'tests/unit/workspace/runtime-scaffold-publication.test.ts',
+    'tests/unit/workspace/workspace-copy-lifecycle.test.ts',
+    'tests/unit/workspace/workspace-root-capture.test.ts',
+    'tests/unit/toolchain/dependency-environment-observation.test.ts',
+    'tests/unit/toolchain/dependency-ledger-storage.test.ts',
+    'tests/unit/toolchain/dependency-migration-boundaries.test.ts',
+    'tests/unit/toolchain/dependency-rollover-recovery.test.ts',
     'tests/unit/verification/testkit-template-preparation.test.ts',
     'tests/contract/cli/error-protocol-isolation.test.ts'
   ]);
@@ -117,7 +124,14 @@ test('default concurrent tests receive the canonical inner budget', () => {
     'tests/unit/verification/testkit-workspace-files.test.ts',
     'tests/unit/development/import-organizer-selection.test.ts',
     'tests/unit/development/import-organizer-staged.test.ts',
-    'tests/unit/verification/verification-artifact-canonical-inventory.test.ts'
+    'tests/unit/verification/verification-artifact-canonical-inventory.test.ts',
+    'tests/unit/workspace/runtime-scaffold-publication.test.ts',
+    'tests/unit/workspace/workspace-copy-lifecycle.test.ts',
+    'tests/unit/workspace/workspace-root-capture.test.ts',
+    'tests/unit/toolchain/dependency-environment-observation.test.ts',
+    'tests/unit/toolchain/dependency-ledger-storage.test.ts',
+    'tests/unit/toolchain/dependency-migration-boundaries.test.ts',
+    'tests/unit/toolchain/dependency-rollover-recovery.test.ts'
   ]);
   expect(selected.concurrent).toEqual([
     'tests/unit/verification/testkit-template-preparation.test.ts',
