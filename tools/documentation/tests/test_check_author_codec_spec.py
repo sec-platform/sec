@@ -265,6 +265,21 @@ class AuthorCodecSpec(TestCase):
         encoded = {'literal': {'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data}}
         self.assertEqual(self.expansion.expression(encoded), {'op': 'literal', **encoded['literal']})
 
+    def test_temporal_interval_value_preserves_exact_and_literal_boundaries(self):
+        item = {'local:Observed': {'event': 'e'}}
+        payload = {'operator': 'eventually', 'clockRef': 'clock:model',
+                   'range': {'field': {'record': {'var': {'name': 'e'}}, 'name': 'window'}},
+                   'item': item}
+        expanded = self.expansion.formula({'temporal': payload})
+        self.assertEqual(expanded['range'], {'op': 'field', 'record': {'op': 'var', 'name': 'e'}, 'name': 'window'})
+        exact = {'op': 'temporal', **payload}
+        self.assertEqual(self.expansion.formula(exact), exact)
+        mixed = {'temporal': {**payload, 'rangeRef': 'range:old'}}
+        self.assertIn('rangeRef', self.expansion.formula(mixed))
+        data = {'temporal': payload}
+        literal = {'literal': {'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data}}
+        self.assertEqual(self.expansion.expression(literal)['value'], data)
+
     def test_relation_formula_uses_the_existing_formula_slot_only(self):
         body = {'category': 'relation', 'parameters': [],
                 'result': {'tag': 'scalar', 'name': 'bool'},

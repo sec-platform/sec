@@ -1,0 +1,14 @@
+{
+  "op": "temporal",
+  "operator": "eventually",
+  "clockRef": "clock:session-model",
+  "range": {
+    "op": "call",
+    "callee": {"op": "symbol", "ref": "local:ClosedAfter"},
+    "arguments": [
+      {"op": "field", "record": {"op": "var", "name": "e"}, "name": "at"},
+      {"op": "symbol", "ref": "local:ResponseDelay"}
+    ]
+  },
+  "item": {"op": "call", "meaningRef": "model:Responded", "bindings": {"event": "e"}}
+}

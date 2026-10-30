@@ -255,11 +255,13 @@ class Expansion:
             object_at(payload, key)
             if 'op' in payload:
                 reject(key + ': payload cannot override op')
-            # Only this explicit short quantify slot accepts short expressions.
-            # A complete op:quantify above remains exact through all children.
+            # Only explicit short value slots accept short expressions here.
+            # A complete op node above remains exact through all children.
             result = {'op': key, **copy.deepcopy(payload)}
             if key == 'quantify' and 'domain' in payload:
                 result['domain'] = self.expression(payload['domain'])
+            if key == 'temporal' and 'range' in payload:
+                result['range'] = self.expression(payload['range'])
             for child in (('predicate',) if key == 'quantify' else ('item', 'boundary')):
                 if child in payload:
                     result[child] = self.formula(payload[child])

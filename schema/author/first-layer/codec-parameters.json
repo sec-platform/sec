@@ -1385,59 +1385,219 @@
           }
         },
         {
-          "pointer": "/$defs/temporal/properties/clockRef",
+          "pointer": "/$defs/temporal",
           "expected": {
-            "type": "string",
-            "minLength": 1
-          },
-          "replacement": {
-            "oneOf": [
-              {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "operator",
+              "item",
+              "clockRef"
+            ],
+            "properties": {
+              "op": {
+                "const": "temporal"
+              },
+              "operator": {
+                "enum": [
+                  "always",
+                  "eventually",
+                  "until",
+                  "since",
+                  "next"
+                ]
+              },
+              "item": {
+                "$ref": "#/$defs/formula"
+              },
+              "boundary": {
+                "$ref": "#/$defs/formula",
+                "description": "Required right-hand boundary condition for until/since; its event-time/execution semantics are owned by Time/Meaning."
+              },
+              "clockRef": {
                 "type": "string",
                 "minLength": 1
               },
-              {
-                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
-              }
-            ]
-          }
-        },
-        {
-          "pointer": "/$defs/temporal/properties/rangeRef",
-          "expected": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Typed temporal interval/scope ref; if absent the modality/outer horizon decides the range. No implicit wall-clock or UTC assumption."
-          },
-          "replacement": {
-            "oneOf": [
-              {
+              "rangeRef": {
                 "type": "string",
                 "minLength": 1,
                 "description": "Typed temporal interval/scope ref; if absent the modality/outer horizon decides the range. No implicit wall-clock or UTC assumption."
               },
-              {
-                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
-              }
-            ]
-          }
-        },
-        {
-          "pointer": "/$defs/temporal/properties/completenessRef",
-          "expected": {
-            "type": "string",
-            "minLength": 1
-          },
-          "replacement": {
-            "oneOf": [
-              {
+              "completenessRef": {
                 "type": "string",
                 "minLength": 1
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "operator": {
+                      "enum": [
+                        "until",
+                        "since"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "operator"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "boundary"
+                  ]
+                }
               },
               {
-                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                "if": {
+                  "properties": {
+                    "operator": {
+                      "enum": [
+                        "always",
+                        "eventually",
+                        "next"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "operator"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "boundary"
+                    ]
+                  }
+                }
               }
-            ]
+            ],
+            "description": "Temporal logic on a declared clock and observation domain, not evidence of completed physical action."
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "operator",
+              "item",
+              "clockRef"
+            ],
+            "properties": {
+              "op": {
+                "const": "temporal"
+              },
+              "operator": {
+                "enum": [
+                  "always",
+                  "eventually",
+                  "until",
+                  "since",
+                  "next"
+                ]
+              },
+              "item": {
+                "$ref": "#/$defs/formula"
+              },
+              "boundary": {
+                "$ref": "#/$defs/formula",
+                "description": "Required right-hand boundary condition for until/since; its event-time/execution semantics are owned by Time/Meaning."
+              },
+              "clockRef": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                  }
+                ]
+              },
+              "rangeRef": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Typed temporal interval/scope ref; if absent the modality/outer horizon decides the range. No implicit wall-clock or UTC assumption."
+                  },
+                  {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                  }
+                ]
+              },
+              "completenessRef": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+                  }
+                ]
+              },
+              "range": {
+                "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr",
+                "description": "Pure typed interval value in the current lexical environment, fixed before temporal traversal. The selected Time interpretation qualifies its clock, unit, endpoints and domain. Mutually exclusive with rangeRef; neither preserves the original outer horizon rule."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "operator": {
+                      "enum": [
+                        "until",
+                        "since"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "operator"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "boundary"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "operator": {
+                      "enum": [
+                        "always",
+                        "eventually",
+                        "next"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "operator"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "boundary"
+                    ]
+                  }
+                }
+              },
+              {
+                "not": {
+                  "required": [
+                    "rangeRef",
+                    "range"
+                  ]
+                }
+              }
+            ],
+            "description": "Temporal logic on a declared clock and observation domain, not evidence of completed physical action."
           }
         },
         {

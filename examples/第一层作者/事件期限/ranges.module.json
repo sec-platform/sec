@@ -1,0 +1,35 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:event-time-ranges",
+  "definitions": {
+    "SessionReading": {"core:type": {"record": {"clock": "text", "nanoseconds": "int"}, "open": false}},
+    "Duration": {"core:type": {"record": {"nanoseconds": "int"}, "open": false}},
+    "IntervalValue": {"core:type": {"record": {"start": "local:SessionReading", "end": "local:SessionReading"}, "open": false}},
+    "ClosedAfter": {"core:function": {
+      "parameters": [
+        {"name": "start", "type": {"tag": "nominal", "ref": "local:SessionReading"}},
+        {"name": "span", "type": {"tag": "nominal", "ref": "local:Duration"}}
+      ],
+      "returns": {"tag": "nominal", "ref": "local:IntervalValue"},
+      "effects": [],
+      "termination": "total",
+      "body": {"op": "record", "fields": [
+        {"name": "start", "value": {"op": "var", "name": "start"}},
+        {"name": "end", "value": {"op": "record", "fields": [
+          {"name": "clock", "value": {"op": "field", "record": {"op": "var", "name": "start"}, "name": "clock"}},
+          {"name": "nanoseconds", "value": {"op": "call", "callee": {"op": "symbol", "ref": "std:IntAdd"}, "arguments": [
+            {"op": "field", "record": {"op": "var", "name": "start"}, "name": "nanoseconds"},
+            {"op": "field", "record": {"op": "var", "name": "span"}, "name": "nanoseconds"}
+          ]}}
+        ]}}
+      ]}
+    }},
+    "ResponseDelay": {"core:constant": {
+      "type": {"tag": "nominal", "ref": "local:Duration"},
+      "value": {"op": "record", "fields": [
+        {"name": "nanoseconds", "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1000000000"}}
+      ]}
+    }}
+  },
+  "exports": ["SessionReading", "Duration", "IntervalValue", "ClosedAfter", "ResponseDelay"]
+}
