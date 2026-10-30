@@ -1,6 +1,6 @@
-# 第一层意图源码的当前入口
+# ripgrep 作者候选与语言检验入口
 
-第一版整体候选从 [PRODUCT](PRODUCT.md)进入；完整作者操作、现有字段分工、固定编译、失败与再次修改设计在 [WHOLE-PRODUCT](WHOLE-PRODUCT.md#v1-development-surface)。下列 JSON 仍是相应局部语义，不能将它们的长度或数量当作第一版作者面；完整机器源与全工程等价尚未完成。
+本案例候选从 [PRODUCT](PRODUCT.md)进入；作者操作、字段分工、固定编译、失败与再次修改在 [WHOLE-PRODUCT](WHOLE-PRODUCT.md#case-development-surface)。通用产品的设计在 [第一层语言](../../../../docs/作者/第一层语言.md#intent-language-product)，本目录用于检验它。下列 JSON 是局部语义，不能凭其长度、数量或正确性认定语言版本已完成；本案例完整机器源与全工程等价也尚未完成。
 
 根部 [gift.project.json](../gift.project.json) 选择 `intent/` 和 `library/` 中的候选结构作者模块，采用 `design-converged`。设计源选择 [rg 一次调用的产品合同](COMMAND.md)、[帮助与补全合同](CLI-DOCUMENTATION.md)及 [globset 规范正文](../library/globset-contract.md)，原格式资产选择 [许可文本、公开说明及原生模板](../assets/README.md)。当前有退出决定、[参数来源合同](ARGUMENT-SOURCES.md)、[部分路径选择](PATH-SELECTION.md)，以及绑定真实规范来源的 [globset 要求根](globset.module.json)。这是整个 ripgrep 第一层工程的进行中草稿；完整 CLI、九库公开合同、资产交付和生成 Target 尚未形成。
 

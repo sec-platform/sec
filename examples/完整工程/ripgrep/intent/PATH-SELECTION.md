@@ -1,6 +1,6 @@
 # 路径选择的产品决定
 
-本页以固定 P `4c2362d359d9913c7a5e391ccd79cb4da22bc89b` 为对照保存路径选择合同：哪些路径能够成为结果、规则冲突怎样决定、公开来源与错误怎样保留，以及回调和增量查询的可观察区别。名称拒绝条件以本修订的唯一政策条款为准。产品作者修改这些独立行为；阶段拆分、内部中间值和实际遍历实现由系统承担。此前的 `path-selection.module.json` 将 AfterOverride、StartWalkEntry 等阶段函数暴露为作者输入，现已被 Project 的 semantic 范围排除，原文件只作本地未采用草稿保全，不随 V1 设计检查点交付，也不是继续开发的顶层入口。
+本页以固定 P `4c2362d359d9913c7a5e391ccd79cb4da22bc89b` 为对照保存路径选择合同：哪些路径能够成为结果、规则冲突怎样决定、公开来源与错误怎样保留，以及回调和增量查询的可观察区别。名称拒绝条件以本修订的唯一政策条款为准。产品作者修改这些独立行为；阶段拆分、内部中间值和实际遍历实现由系统承担。此前的 `path-selection.module.json` 将 AfterOverride、StartWalkEntry 等阶段函数暴露为作者输入，现已被 Project 的 semantic 范围排除，原文件只作本地未采用草稿保全，不随案例设计检查点交付，也不是继续开发的顶层入口。
 
 公开 `ignore::Match<T>` 的 `None`、`Ignore(T)`、`Whitelist(T)` 保留无匹配、忽略、允许及其实际载荷；原公开查询、`inner`、`map`、`invert`、clone/debug 等合同随 API 保留（`crates/ignore/src/lib.rs:416` 起）。草稿的 `RuleMatch` 没有因此取得该公开类型的身份。接合时保持真实原始对象与借用关系：override 的匹配或 unmatched、ignore 文件 glob 的来源路径和原始/实际 glob、类型匹配或 unmatched，以及 hidden 来源各自不同，不压成无来源的布尔值或字符串。这些生产者和其公共 API 仍需真实定义。下表中的匹配属于同一候选路径和对应目录/配置，来自实际匹配器；类型合法不能证明来源、目录、配置或规则已经正确生产。
 
