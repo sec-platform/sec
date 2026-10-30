@@ -14,17 +14,17 @@ import { parsePipelineCompileOptions } from '../../../src/entry/cli/pipeline-com
 import { registerPipelineCommands } from '../../../src/entry/cli/register-pipeline-commands.ts';
 import { parseVerifyCommandInput } from '../../../src/entry/cli/workspace-command-input.ts';
 
-for (const [lane, runFast, runtimeMode, scope] of [
-  ['fast', true, 'service', 'partial'], ['runtime', false, 'service', 'partial'], ['all', true, 'full', 'complete']
-] as const) {
-  test(`${lane} keeps its actual fast/runtime execution and completion scope`, () => {
+test('each verification lane preserves execution and completion scope', () => {
+  for (const [lane, runFast, runtimeMode, scope] of [
+    ['fast', true, 'service', 'partial'], ['runtime', false, 'service', 'partial'], ['all', true, 'full', 'complete']
+  ] as const) {
     const profile = verificationLaneProfile(lane);
-    assert.deepEqual(profile, { runFast, runtimeMode, scope });
-    assert.equal(shouldExecuteRuntimeVerification(profile, true), true);
-    assert.equal(shouldExecuteRuntimeVerification(profile, false), !runFast);
-    assert.ok(Object.isFrozen(profile));
-  });
-}
+    assert.deepEqual(profile, { runFast, runtimeMode, scope }, lane);
+    assert.equal(shouldExecuteRuntimeVerification(profile, true), true, lane);
+    assert.equal(shouldExecuteRuntimeVerification(profile, false), !runFast, lane);
+    assert.ok(Object.isFrozen(profile), lane);
+  }
+});
 
 test('standalone captures each lane and the independent output and timing choices', () => {
   for (const [lane, flags, expectedOutput] of [

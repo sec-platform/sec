@@ -8,8 +8,8 @@ import {
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput, parseWorkspaceViewCommandInput
 } from '../../../src/entry/cli/workspace-command-input.ts';
 
-for (const value of [undefined, true]) {
-  test(`write commands capture default and explicit boolean ${value}`, () => {
+test('write commands preserve default and explicit boolean captures', () => {
+  for (const value of [undefined, true]) {
     assert.deepEqual(parseComposeCommandInput({ lock: value }), { lock: value ?? false });
     const repair = parseRepairCommandInput(undefined, { dryRun: value });
     const upgrade = parseUpgradeCommandInput('block', '1', { dryRun: value }, 'sec upgrade');
@@ -18,11 +18,11 @@ for (const value of [undefined, true]) {
       assert.deepEqual(repair.request, { dryRun: value ?? false });
       assert.deepEqual(upgrade.request, { dryRun: value ?? false });
     }
-  });
-}
+  }
+});
 
-for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as const) {
-  test(`${mode} selects inspection without retaining a write request`, () => {
+test('every inspection mode omits a write request', () => {
+  for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as const) {
     const options = { json: true, compact: false, dryRun: true };
     const input = mode === 'repair-plan' ? parseRepairCommandInput('plan', options)
       : parseUpgradeCommandInput(mode === 'upgrade-plan' ? 'plan' : 'diagnostics', undefined, options, 'sec upgrade');
@@ -30,9 +30,8 @@ for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as con
     assert.equal('request' in input, false);
     assert.equal('subject' in input, false);
     assert.deepEqual(input.output, { json: true, compact: false });
-  });
-}
-
+  }
+});
 
 test('later changes to raw flags do not change captured request or presentation', () => {
   const raw = { json: true, compact: true, dryRun: false };
@@ -64,13 +63,13 @@ test('later changes to raw flags do not change captured request or presentation'
   }
 });
 
-for (const subject of ['plan', 'diagnostics']) {
-  test(`${subject} with an explicit target remains a block upgrade, not inspection`, () => {
+test('explicit block targets never select read-only inspection', () => {
+  for (const subject of ['plan', 'diagnostics']) {
     const input = parseUpgradeCommandInput(subject, '1', { dryRun: true }, 'sec upgrade');
     assert.equal(input.kind, 'execute');
     if (input.kind === 'execute') { assert.equal(input.subject, subject); assert.equal(input.targetVersion, '1'); }
-  });
-}
+  }
+});
 
 test('field definitions drive actual Commander registration', () => {
   const root = new Command().name('sec'); registerWorkspaceCommands(root);
