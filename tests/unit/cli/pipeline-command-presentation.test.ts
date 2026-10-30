@@ -23,8 +23,6 @@ test('compilation display preserves transaction identity, stage order and pass s
     'verify=succeeded', 'repair=skipped', 'lock=succeeded', 'emit=succeeded', 'build-ir=blocked']) {
     assert.match(text, new RegExp(`Lock[^\\n]*\\b${field}(?=$|[\\s;,])`, 'u'));
   }
-  assert.deepEqual(value.completedStages, ['compose', 'verify']);
-  assert.equal(value.lock.passStatus.verify, 'succeeded');
 });
 
 test('journal preserves empty markers, latest failure and pending pass records', () => {

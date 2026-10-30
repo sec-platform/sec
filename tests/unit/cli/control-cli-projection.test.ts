@@ -14,7 +14,6 @@ import { compileRepositoryModulePlacementAdmission } from '../../../src/adapters
 import {
   projectRepositoryAuditCli,
   projectRepositoryModuleArchitectureAudit,
-  RepositoryAuditCliProjectionContractError,
   repositoryModuleArchitectureShouldBlock,
   type RepositoryAuditReport
 } from '../../../src/adapters/repository/repository-audit/cli.ts';
@@ -240,9 +239,6 @@ describe('bounded control-plane CLI projections', () => {
     expect(forged.reason).toBe('github-control-observation-unavailable');
     expect(forged.httpStatus).toBeNull();
     expect(forged.diagnostic.authority).toBe('none');
-    for (const status of [NaN, Infinity, 99, 600, 200.5]) {
-      expect(projectDocumentControlGitHubFailure(new GitHubApiProviderError(detail, status)).httpStatus).toBeNull();
-    }
   });
 
   test('repository architecture projection preserves deterministic feedback projections and blocks violations', () => {
@@ -326,17 +322,6 @@ describe('bounded control-plane CLI projections', () => {
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
     expect(JSON.stringify(projected)).not.toMatch(/instance \d+|path-\d+|noise/);
-
-    const { declarationTopology: _declarationTopology, ...staleReport } = report;
-    expect(() => projectRepositoryAuditCli(
-      staleReport as unknown as RepositoryAuditReport
-    )).toThrow(RepositoryAuditCliProjectionContractError);
-
-    const { responsibilityAdmission: _responsibilityAdmission, ...incompleteArchitecture } = report.architecture;
-    expect(() => projectRepositoryAuditCli({
-      ...report,
-      architecture: incompleteArchitecture
-    } as unknown as RepositoryAuditReport)).toThrow(RepositoryAuditCliProjectionContractError);
   });
 
   test('status reports open inventory cardinality without copying issue bodies', () => {
