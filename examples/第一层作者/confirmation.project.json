@@ -35,8 +35,12 @@
     {
       "root": "源发生绑定",
       "kind": "design",
-      "include": ["README.md"],
-      "editSource": {"mode": "file"}
+      "include": [
+        "README.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
     },
     {
       "root": "持续确认/supply",
@@ -54,6 +58,7 @@
       "include": [
         "observations.selection.json",
         "observation-profile.md",
+        "target-profile-v2.md",
         "target-profile.md"
       ],
       "editSource": {
@@ -65,13 +70,107 @@
     "interactive": {
       "profileRef": {
         "id": "profile:confirmation-interactive-host",
-        "revision": "1"
+        "revision": "2"
       },
       "outputRoots": [
         {
           "moduleId": "module:confirmation-session",
           "export": "ConfirmationSession",
-          "rootId": "session"
+          "rootId": "session",
+          "argumentBindings": {
+            "responseDelay": {
+              "source": "literal",
+              "typeRef": "time:Duration",
+              "value": {
+                "nanoseconds": 1000000000
+              }
+            }
+          },
+          "contextBindings": {
+            "session": {
+              "source": "context",
+              "role": "activatedSession"
+            },
+            "sourceComponent": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "component",
+                "componentPath": []
+              }
+            },
+            "editsStream": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "eventParticipations",
+                "useId": "edits"
+              }
+            },
+            "editsView": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "observationParticipations",
+                "useId": "editsView"
+              }
+            },
+            "previewsStream": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "eventParticipations",
+                "useId": "previews"
+              }
+            },
+            "previewsView": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "observationParticipations",
+                "useId": "previewsView"
+              }
+            },
+            "confirmationsStream": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "eventParticipations",
+                "useId": "confirmations"
+              }
+            },
+            "confirmationsView": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "observationParticipations",
+                "useId": "confirmationsView"
+              }
+            },
+            "applicationsStream": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "eventParticipations",
+                "useId": "applications"
+              }
+            },
+            "applicationsView": {
+              "source": "occurrence",
+              "selector": {
+                "kind": "member",
+                "componentPath": [],
+                "slot": "observationParticipations",
+                "useId": "applicationsView"
+              }
+            }
+          }
         }
       ]
     }

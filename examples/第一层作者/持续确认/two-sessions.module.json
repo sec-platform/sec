@@ -1,0 +1,50 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:confirmation-two-sessions",
+  "imports": {"confirm": {"workspace": "module:confirmation-session"}, "time": {"workspace": "module:event-time-ranges"}},
+  "definitions": {
+    "TwoSessions": {
+      "product:system": {
+        "contextRoles": {"mainSession": {"typeRef": "confirm:Session", "cardinality": "one"}, "previewSession": {"typeRef": "confirm:Session", "cardinality": "one"}},
+        "components": [
+          {
+            "instance": "mainSession",
+            "componentRef": "confirm:ConfirmationSession",
+            "argumentBindings": {"responseDelay": {"source": "literal", "typeRef": "time:Duration", "value": {"nanoseconds": 1000000000}}},
+            "contextBindings": {
+              "session": {"source": "context", "role": "mainSession"},
+              "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": ["mainSession"]}},
+              "editsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "eventParticipations", "useId": "edits"}},
+              "editsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "observationParticipations", "useId": "editsView"}},
+              "previewsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "eventParticipations", "useId": "previews"}},
+              "previewsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "observationParticipations", "useId": "previewsView"}},
+              "confirmationsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "eventParticipations", "useId": "confirmations"}},
+              "confirmationsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "observationParticipations", "useId": "confirmationsView"}},
+              "applicationsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "eventParticipations", "useId": "applications"}},
+              "applicationsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["mainSession"], "slot": "observationParticipations", "useId": "applicationsView"}}
+            }
+          },
+          {
+            "instance": "previewSession",
+            "componentRef": "confirm:ConfirmationSession",
+            "argumentBindings": {"responseDelay": {"source": "literal", "typeRef": "time:Duration", "value": {"nanoseconds": 500000000}}},
+            "contextBindings": {
+              "session": {"source": "context", "role": "previewSession"},
+              "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": ["previewSession"]}},
+              "editsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "eventParticipations", "useId": "edits"}},
+              "editsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "observationParticipations", "useId": "editsView"}},
+              "previewsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "eventParticipations", "useId": "previews"}},
+              "previewsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "observationParticipations", "useId": "previewsView"}},
+              "confirmationsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "eventParticipations", "useId": "confirmations"}},
+              "confirmationsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "observationParticipations", "useId": "confirmationsView"}},
+              "applicationsStream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "eventParticipations", "useId": "applications"}},
+              "applicationsView": {"source": "occurrence", "selector": {"kind": "member", "componentPath": ["previewSession"], "slot": "observationParticipations", "useId": "applicationsView"}}
+            }
+          }
+        ],
+        "requirements": []
+      }
+    }
+  },
+  "exports": ["TwoSessions"]
+}

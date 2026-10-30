@@ -296,6 +296,16 @@ class AuthorCodecSpec(TestCase):
                                'value': {'quantify': payload}}}
         self.assertEqual(self.expansion.expression(literal)['value'], literal['literal']['value'])
 
+    def test_requirement_static_literals_are_not_expression_or_formula_slots(self):
+        payload = {'quantify': {'binder': 'data'}, 'var': {'name': 'ordinary data'}}
+        body = {'provides': [], 'requires': [], 'requirements': [
+            {'ref': 'local:G', 'roleBindings': {
+                'data': {'source': 'literal', 'typeRef': 'local:Data', 'value': payload},
+                'delay': {'source': 'parameter', 'parameter': 'responseDelay'}}}]}
+        expanded = self.expansion.definition({'product:component': body})
+        self.assertEqual(expanded, {'kind': 'product:component', 'body': body})
+        self.assertEqual(expanded['body']['requirements'][0]['roleBindings']['data']['value'], payload)
+
     def test_relation_formula_uses_the_existing_formula_slot_only(self):
         body = {'category': 'relation', 'parameters': [],
                 'result': {'tag': 'scalar', 'name': 'bool'},

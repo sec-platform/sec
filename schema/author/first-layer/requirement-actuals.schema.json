@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:first-layer-requirement-actuals",
+  "title": "Static value transfer into a requirement adoption; candidate design only",
+  "$defs": {
+    "StaticParameterActual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "parameter"],
+      "properties": {
+        "source": {"const": "parameter"},
+        "parameter": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"}
+      }
+    },
+    "RequirementActual": {
+      "oneOf": [
+        {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessRoleActual"},
+        {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/StaticValueActual"},
+        {"$ref": "#/$defs/StaticParameterActual"}
+      ],
+      "description": "Requirement-only operand. Literal and static parameter branches bind ordinary value roles. A parameter requires the enclosing component's already-bound mode=value parameter, never a constructor value, context name, state or another instance. Preserve old BusinessRoleActual meanings and independently check the complete callee signature."
+    },
+    "RootArgumentActual": {
+      "oneOf": [
+        {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"},
+        {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/StaticValueActual"}
+      ],
+      "description": "Reuse original static component actuals. A product root has no parent template parameter environment; parameter forwarding is not admitted here."
+    },
+    "RootArguments": {
+      "type": "object",
+      "propertyNames": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ComponentUse/properties/argumentBindings/propertyNames"},
+      "additionalProperties": {"$ref": "#/$defs/RootArgumentActual"}
+    }
+  }
+}

@@ -612,7 +612,8 @@
           "edits": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
           "previews": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
           "confirmations": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
-          "applications": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"}
+          "applications": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
+          "delay": {"typeRef": "time:Duration", "cardinality": "one"}
         },
         "clauses": {
           "interaction": {
@@ -624,39 +625,7 @@
                   "previews": {"binding": "previews"},
                   "confirmations": {"binding": "confirmations"},
                   "applications": {"binding": "applications"},
-                  "delay": {"value": {"op": "symbol", "ref": "time:ResponseDelay"}}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "LocalDelay": {
-      "core:constant": {
-        "type": {"tag": "nominal", "ref": "time:Duration"},
-        "value": {"op": "record", "fields": [{"name": "nanoseconds", "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1000000000"}}]}
-      }
-    },
-    "LocalConfirmThenApply": {
-      "intent:goal": {
-        "roles": {
-          "edits": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
-          "previews": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
-          "confirmations": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"},
-          "applications": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one", "bindingLevel": "object"}
-        },
-        "clauses": {
-          "interaction": {
-            "maintain": {
-              "apply": {
-                "meaningRef": "local:ConfirmationContract",
-                "arguments": {
-                  "edits": {"binding": "edits"},
-                  "previews": {"binding": "previews"},
-                  "confirmations": {"binding": "confirmations"},
-                  "applications": {"binding": "applications"},
-                  "delay": {"value": {"op": "symbol", "ref": "local:LocalDelay"}}
+                  "delay": {"binding": "delay"}
                 }
               }
             }
@@ -670,12 +639,13 @@
         "requiredPorts": {},
         "requirements": [
           {
-            "ref": "local:LocalConfirmThenApply",
+            "ref": "local:ConfirmThenApply",
             "roleBindings": {
-              "edits": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "editsView"}},
-              "previews": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "previewsView"}},
-              "confirmations": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "confirmationsView"}},
-              "applications": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "observationParticipations", "useId": "applicationsView"}}
+              "edits": {"source": "context", "role": "editsView"},
+              "previews": {"source": "context", "role": "previewsView"},
+              "confirmations": {"source": "context", "role": "confirmationsView"},
+              "applications": {"source": "context", "role": "applicationsView"},
+              "delay": {"source": "parameter", "parameter": "responseDelay"}
             }
           }
         ],
@@ -693,8 +663,8 @@
               "useId": "editsView",
               "bindings": {
                 "session": {"source": "context", "role": "session"},
-                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "edits"}},
-                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+                "sourceComponent": {"source": "context", "role": "sourceComponent"},
+                "stream": {"source": "context", "role": "editsStream"}
               }
             },
             "role": "consume"
@@ -705,8 +675,8 @@
               "useId": "previewsView",
               "bindings": {
                 "session": {"source": "context", "role": "session"},
-                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "previews"}},
-                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+                "sourceComponent": {"source": "context", "role": "sourceComponent"},
+                "stream": {"source": "context", "role": "previewsStream"}
               }
             },
             "role": "consume"
@@ -717,8 +687,8 @@
               "useId": "confirmationsView",
               "bindings": {
                 "session": {"source": "context", "role": "session"},
-                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "confirmations"}},
-                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+                "sourceComponent": {"source": "context", "role": "sourceComponent"},
+                "stream": {"source": "context", "role": "confirmationsStream"}
               }
             },
             "role": "consume"
@@ -729,14 +699,26 @@
               "useId": "applicationsView",
               "bindings": {
                 "session": {"source": "context", "role": "session"},
-                "stream": {"source": "occurrence", "selector": {"kind": "member", "componentPath": [], "slot": "eventParticipations", "useId": "applications"}},
-                "sourceComponent": {"source": "occurrence", "selector": {"kind": "component", "componentPath": []}}
+                "sourceComponent": {"source": "context", "role": "sourceComponent"},
+                "stream": {"source": "context", "role": "applicationsStream"}
               }
             },
             "role": "consume"
           }
         ],
-        "contextRoles": {"session": {"typeRef": "local:Session", "cardinality": "one"}}
+        "contextRoles": {
+          "session": {"typeRef": "local:Session", "cardinality": "one"},
+          "sourceComponent": {"typeRef": "sourceModel:Component", "cardinality": "one"},
+          "editsStream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "editsView": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one"},
+          "previewsStream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "previewsView": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one"},
+          "confirmationsStream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "confirmationsView": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one"},
+          "applicationsStream": {"typeRef": "sourceModel:EventUse", "cardinality": "one"},
+          "applicationsView": {"typeRef": "sourceModel:ObservationUse", "cardinality": "one"}
+        },
+        "parameters": [{"name": "responseDelay", "mode": "value", "contractRef": "time:Duration", "cardinality": "one", "required": true}]
       }
     },
     "Session": {"req:subject": {"roles": {}}}

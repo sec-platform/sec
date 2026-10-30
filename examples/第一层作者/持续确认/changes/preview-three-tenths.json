@@ -1,0 +1,5 @@
+[
+  {"op": "test", "path": "/definitions/TwoSessions/product:system/components/1/instance", "value": "previewSession"},
+  {"op": "test", "path": "/definitions/TwoSessions/product:system/components/1/argumentBindings/responseDelay/value/nanoseconds", "value": 500000000},
+  {"op": "replace", "path": "/definitions/TwoSessions/product:system/components/1/argumentBindings/responseDelay/value/nanoseconds", "value": 300000000}
+]

@@ -90,6 +90,9 @@
         "export": {
           "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
         },
+        "argumentBindings": {
+          "$ref": "urn:gift:design-schema:first-layer-requirement-actuals#/$defs/RootArguments"
+        },
         "contextBindings": {
           "type": "object",
           "propertyNames": {
@@ -100,7 +103,14 @@
           },
           "description": "Context role binder names retain their existing domain. SourceRef positions alone use the candidate reference grammar; runtime object identity and Grant qualification remain external."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {"required": ["argumentBindings"]},
+          "then": {"required": ["export"]}
+        }
+      ],
+      "description": "Static root arguments require one explicitly selected component export and its exact terminal ModuleUse environment. No broadcast to an omitted export set or parent-parameter lookup. Source arguments do not construct a runtime instance."
     },
     "BusinessRoleActual": {
       "oneOf": [

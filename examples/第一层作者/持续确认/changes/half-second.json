@@ -1,12 +1,22 @@
 [
   {
     "op": "test",
-    "path": "/definitions/LocalDelay/core:constant/value/fields/0/value/value",
-    "value": "1000000000"
+    "path": "/targets/interactive/outputRoots/0/rootId",
+    "value": "session"
+  },
+  {
+    "op": "test",
+    "path": "/targets/interactive/outputRoots/0/export",
+    "value": "ConfirmationSession"
+  },
+  {
+    "op": "test",
+    "path": "/targets/interactive/outputRoots/0/argumentBindings/responseDelay/value/nanoseconds",
+    "value": 1000000000
   },
   {
     "op": "replace",
-    "path": "/definitions/LocalDelay/core:constant/value/fields/0/value/value",
-    "value": "500000000"
+    "path": "/targets/interactive/outputRoots/0/argumentBindings/responseDelay/value/nanoseconds",
+    "value": 500000000
   }
 ]

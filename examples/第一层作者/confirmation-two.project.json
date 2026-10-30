@@ -1,0 +1,96 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:confirmation-two-sessions",
+  "sourceScopes": [
+    {
+      "root": "持续确认",
+      "kind": "semantic",
+      "include": [
+        "confirmation.module.json",
+        "two-sessions.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "事件期限",
+      "kind": "semantic",
+      "include": [
+        "ranges.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "semantic",
+      "include": [
+        "subjects.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "design",
+      "include": [
+        "README.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "持续确认/supply",
+      "kind": "native",
+      "include": [
+        "observations.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "持续确认/supply",
+      "kind": "design",
+      "include": [
+        "observations.selection.json",
+        "observation-profile.md",
+        "target-profile-v2.md",
+        "target-profile.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  ],
+  "targets": {
+    "interactive": {
+      "profileRef": {
+        "id": "profile:confirmation-interactive-host",
+        "revision": "2"
+      },
+      "outputRoots": [
+        {
+          "moduleId": "module:confirmation-two-sessions",
+          "export": "TwoSessions",
+          "rootId": "twoSessions",
+          "contextBindings": {
+            "mainSession": {
+              "source": "context",
+              "role": "activatedMainSession"
+            },
+            "previewSession": {
+              "source": "context",
+              "role": "activatedPreviewSession"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "defaultTarget": "interactive"
+}

@@ -513,20 +513,7 @@
                       "$ref": "#/$defs/StaticValueActual"
                     },
                     {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": [
-                        "source",
-                        "parameter"
-                      ],
-                      "properties": {
-                        "source": {
-                          "const": "parameter"
-                        },
-                        "parameter": {
-                          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
-                        }
-                      }
+                      "$ref": "urn:gift:design-schema:first-layer-requirement-actuals#/$defs/StaticParameterActual"
                     }
                   ]
                 },
@@ -1052,6 +1039,15 @@
               }
             },
             "description": "Existing name and constraintRefs are retained. Omitted kind is Type and omitted binding is argument. fresh is limited to Region/Scope at a method-qualified real introduction; callback-local binders follow the original restricted rule. Shape does not establish kind, freshness or constraint qualification. The candidate traitBounds contributes qualified trait-instance and associated-type equality obligations to the same complete generic environment; constraintRefs is unchanged."
+          }
+        },
+        {
+          "pointer": "/$defs/RequirementLink/properties/roleBindings/additionalProperties",
+          "expected": {
+            "$ref": "#/$defs/BusinessRoleActual"
+          },
+          "replacement": {
+            "$ref": "urn:gift:design-schema:first-layer-requirement-actuals#/$defs/RequirementActual"
           }
         }
       ]
@@ -2285,6 +2281,11 @@
       "path": "schema/author/first-layer/component-contracts.schema.json",
       "id": "urn:gift:design-schema:first-layer-component-contracts",
       "sha256": "77a072aaea4b96871d7f78aa1518cbefb684249b7900d73892f691250be3f88a"
+    },
+    {
+      "path": "schema/author/first-layer/requirement-actuals.schema.json",
+      "id": "urn:gift:design-schema:first-layer-requirement-actuals",
+      "sha256": "2859547bb7d69f0a7f0af9e08e775b0f695364b7f95d0a9c110ec1d5e832249d"
     }
   ],
   "extensions": [

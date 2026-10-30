@@ -6,9 +6,22 @@
 
 ## 从新建到准确采用
 
-工程入口是[confirmation.project.json](../confirmation.project.json)，实际源为[confirmation.module.json](confirmation.module.json)。[观察供给](supply/observation-profile.md)配有真实声明及选择文件，[目标设计](supply/target-profile.md)固定激活、界面与文档作用责任。输入Session是目标激活的有型上下文，静态源不伪造一个已经运行的会话。这是机器可核设计样稿，尚未声称人类编辑成本已经实测降低。
+单根入口是[confirmation.project.json](../confirmation.project.json)，双实例入口是[confirmation-two.project.json](../confirmation-two.project.json)，两者消费同一[确认组件](confirmation.module.json)。[双实例装配](two-sessions.module.json)只决定两个采用处的参数和对象绑定。[观察供给](supply/observation-profile.md)与原生声明保持修订1；[目标修订2](supply/target-profile-v2.md)明确激活、组合及界面责任，并捕获其继承的修订1。输入Session是目标激活的有型上下文，静态源不伪造已经运行的会话。这是机器可核设计样稿，尚未声称人类编辑成本已经实测降低。
 
-本例内容采用有限的人员—班次配对集合，便于与排班例对接；此处只保持给定内容，不替作者求排班。`ConfirmationContract`是可复用的非递归Formula关系，四个观察Subject与一个普通Duration形参共同决定本次要求。`ConfirmThenApply`传入公共1秒值；`LocalConfirmThenApply`传入本模块的LocalDelay，两者引用同一关系体，没有复制一份交互算法。
+本例内容采用有限的人员—班次配对集合，便于与排班例对接；此处只保持给定内容，不替作者求排班。`ConfirmationContract`是可复用的非递归Formula关系，四个观察Subject与一个普通Duration形参共同决定本次要求。唯一`ConfirmThenApply`显式声明delay角色；组件的responseDelay静态参数经Requirement.roleBindings传入它，再经原Formula绑定进入关系。旧LocalDelay与LocalConfirmThenApply不再是当前源的竞争值源；公共时间库的ResponseDelay保持原值，但本工程不暗取它作为缺省。
+
+单根在原export/rootId上显式给一秒，未用额外System改变原根身份；双实例分别给一秒和半秒：
+
+```json
+"argumentBindings": {
+  "responseDelay": {
+    "source": "literal", "typeRef": "time:Duration",
+    "value": {"nanoseconds": 500000000}
+  }
+}
+```
+
+根的typeRef沿终端组件所属ModuleUse解释；ComponentUse的typeRef沿其装配模块解释，两者必须取得同一真实Duration声明。根无父模板，拒绝parameter转传。组件内部唯一要求采用写`"delay":{"source":"parameter","parameter":"responseDelay"}`，不会按同名捕获构造参数或context，也不让观察器读取settings。该静态record codec与Expr Int的十进制字符串编码各有原定义，不能混用。
 
 量词中的准确新槽只有：
 
@@ -17,6 +30,8 @@
 ```
 
 `previews`是已经绑定的观察角色，不是模块名、成员useId、数组或任意能取数据的函数。具体采用使用原RequirementLink.roleBindings、contextBindings与source:occurrence选择真实ObservationUse；该Use再以原bindings选定事件来源及真实会话。源模型组件只能提供结构身份，运行会话由原激活/合格模型提供，两者不可互换。具体供给解释须连同模块读取。
+
+组件模板现在没有任何selector。十个context角色分别为真实session、源组件、四条事件Use、四条观察Use；单根在`[]`绑定它们，双实例在`[mainSession]`和`[previewSession]`分别绑定。内部只转传已绑定context；相同useId不合并发生。先收实际成员头取得源身份，再完成参数/context及联合资格，不要求已经运行observer才能指向其源码，也不把无来源context环当成绑定。目标修订2负责取得两个真实、独立的Session/文档；把一个Session复制到两个名字不满足该组合。
 
 每个外层编辑e保持当时的发生身份与内容；时间范围`ClosedAfter(e.at, delay)`只形成一次。在后来的评价点进入内层预览量词，取得同一预览Use的新前缀。普通序列不会自动刷新，期限也不会滑动成“从现在再等一秒”。同点并列域共用切面；跨Temporal的外层e与内层v可以来自两个明确不同的评价点。
 
@@ -45,8 +60,10 @@
 
 ## 修改与剩余边界
 
-修改本处反馈期限应改变本处LocalDelay及它的实际采用，保持公共ResponseDelay、共享ConfirmationContract和其他采用。把“允许旧预览”改为“只准最新预览”则是输入接受关系及正常拒绝行为的实质改变，不能只加一个禁止后让原合法确认永久悬空。复制/抽取组件须同步真实采用地址，通用关系体不重写；源发生选择以所选产品根为基准，不能把空componentPath暗读为任意当前嵌套组件。
+修改反馈期限只改变准确采用处的responseDelay，保持公共ResponseDelay、共享ConfirmationContract和其他采用。把“允许旧预览”改为“只准最新预览”则是输入接受关系及正常拒绝行为的实质改变，不能只加一个禁止后让原合法确认永久悬空。复制/抽取组件须同步真实采用地址，通用关系体不重写；源发生选择以所选产品根为基准，不能把空componentPath暗读为任意当前嵌套组件。
 
-[half-second.json](changes/half-second.json)是先test原值再replace的准确JSON Patch：只将LocalDelay的十进制Int值`1000000000`改为`500000000`。这里的“本处”准确指该局部Goal定义的采用；**同一个组件定义的两个ComponentUse各自传入不同期限尚未接合**。原RequirementLink不接受普通Expr值，不能用source:definition冒充取常量；这项缺口须沿已有组件参数与要求实例化统一解决，不能靠复制整个组件掩盖。
+[half-second.json](changes/half-second.json)现在作用于单根Project：先核rootId/export/一秒原值，再将该根的responseDelay改为半秒。旧版指向LocalDelay的补丁只属于旧前像，不继续作为当前编辑入口。[preview-three-tenths.json](changes/preview-three-tenths.json)作用于双实例模块：先核第二实例身份与半秒原值，再仅将其改为0.3秒；主实例仍为1秒，共享Goal/关系/模板、各自会话和四项事件合同保持。补丁下标只是固定前像上的位置，发生身份仍由instance/selector决定。
+
+0.75秒响应对主实例满足范围、对预览实例违反范围，不能为了复用组件而选较宽的共同期限。双实例可实现性也不能只拼两个孤立的资源证明：一个保守充分见证是把两侧输入共同排序，在前述全局交付/间距/服务模型满足`ℓ+p≤min(Δmain,Δpreview)`时沿同一因果策略服务，再投影回各自Session。它保留各侧确认次序和期限；实际调度、联合负载、共享宿主资源与两个真实Session仍需方法资格，不由此数学前提自动获得。
 
 本例不宣称原排班发布台已完成机器级组合：人员、班次、可到场的真实输入及硬关系还须接到每个预览的准确content；只给Content一个配对集合类型不证明排班合法。真实Reader、类型/来源资格、观察producer、目标降低、构建运行与物理期限验证也未执行。这里的关系、切面合同和条件证明是可检查的设计内容，不能替这些后续事实签完成。
