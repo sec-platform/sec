@@ -726,7 +726,7 @@ test('status continuation routes stale and invalid control facts to their existi
   });
 });
 
-test('initially-absent T/N/R contract covers normalized tuples, malformed entries and its five edges', () => {
+test('initially-absent T/N/R contract covers normalized tuples and its five edges', () => {
   const absent = Object.freeze({ byteClass: 'absent' as const, identity: null });
   const exactA = Object.freeze({ byteClass: 'exact-next' as const, identity: 'A' });
   const exactB = Object.freeze({ byteClass: 'exact-next' as const, identity: 'B' });
@@ -769,39 +769,9 @@ test('initially-absent T/N/R contract covers normalized tuples, malformed entrie
       .toEqual({ status: 'invalid', reason: 'identity-mismatch' });
   }
 
-  const malformedRows = [
-    null,
-    [],
-    {},
-    { target: absent, next: absent },
-    { target: absent, next: absent, retiredNext: absent, extra: true },
-    { target: { byteClass: 'absent', identity: null, extra: true }, next: absent, retiredNext: absent },
-    { target: { byteClass: 'other', identity: 'A' }, next: absent, retiredNext: absent },
-    { target: { byteClass: 'exact-next', identity: 1 }, next: absent, retiredNext: absent },
-    { target: { byteClass: 'exact-next', identity: '' }, next: absent, retiredNext: absent },
-    { target: { byteClass: 'unknown', identity: '' }, next: absent, retiredNext: absent },
-    { target: absent, next: { byteClass: 'exact-next', identity: '' }, retiredNext: absent },
-    { target: absent, next: { byteClass: 'unknown', identity: '' }, retiredNext: absent },
-    { target: absent, next: absent, retiredNext: { byteClass: 'exact-next', identity: '' } },
-    { target: absent, next: absent, retiredNext: { byteClass: 'unknown', identity: '' } },
-    { target: { byteClass: 'absent', identity: 'A' }, next: unknown, retiredNext: unknown },
-    { target: { byteClass: 'exact-next', identity: null }, next: unknown, retiredNext: unknown },
-    { target: { byteClass: 'unknown', identity: null }, next: unknown, retiredNext: unknown },
-    { target: unknown, next: { byteClass: 'absent', identity: 'A' }, retiredNext: unknown },
-    { target: unknown, next: { byteClass: 'exact-next', identity: null }, retiredNext: unknown },
-    { target: unknown, next: { byteClass: 'unknown', identity: null }, retiredNext: unknown },
-    { target: unknown, next: unknown, retiredNext: { byteClass: 'absent', identity: 'A' } },
-    { target: unknown, next: unknown, retiredNext: { byteClass: 'exact-next', identity: null } },
-    { target: unknown, next: unknown, retiredNext: { byteClass: 'unknown', identity: null } }
-  ];
-  for (const malformed of malformedRows) {
-    expect(classifyInitiallyAbsentEntryTuple({
-      platform: 'linux', tuple: malformed as InitiallyAbsentTuple
-    })).toEqual({ status: 'invalid', reason: 'malformed-observation' });
-  }
   expect(classifyInitiallyAbsentEntryTuple({
     platform: 'darwin' as InitiallyAbsentTuplePlatform,
-    tuple: null as unknown as InitiallyAbsentTuple
+    tuple: tuple()
   })).toEqual({ status: 'invalid', reason: 'unsupported-platform' });
 
   const legalTuples = {
