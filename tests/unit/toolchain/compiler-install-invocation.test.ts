@@ -4,6 +4,9 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runBunInstall } from '../../../src/adapters/toolchain/dependencies/runtime/compiler-install-process.ts';
+import {
+  COMPILER_DEPENDENCY_INSTALL_ARGS, compilerInstallConfigSha256
+} from '../../../src/adapters/toolchain/dependencies/runtime/compiler-materialization-input.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../../../src/adapters/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
@@ -21,6 +24,13 @@ const budgetFailure = (error: unknown) => (error as { code: string }).code === '
 
 test('the install entrypoint forwards canonical arguments and its absolute staging root', async () => fixture(async root => {
   const args = Object.freeze(['install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile']);
+  // Exact compiler installation policy: no scripts, frozen lock, copyfile
+  // backend and independently fixed identity input bytes.
+  assert.deepEqual(COMPILER_DEPENDENCY_INSTALL_ARGS, [...args]);
+  assert.ok(Object.isFrozen(COMPILER_DEPENDENCY_INSTALL_ARGS));
+  // SHA-256 of {"argv":["install","--frozen-lockfile","--ignore-scripts","--backend=copyfile"],"install":null}.
+  assert.equal(compilerInstallConfigSha256(null),
+    '7adc8f65376e6b966462784612b15f4c749f3c522ba6df29b1182563a5bb2495');
   let count = 0, commitCount = 0;
   const result = await runBunInstall(root, {
     monotonicNowMs: () => 0,

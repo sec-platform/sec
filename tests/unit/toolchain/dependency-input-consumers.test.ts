@@ -21,6 +21,27 @@ test('public request, coordinator, process binder and effect use one captured pr
     get calls(){return this.#calls;}
   }
   const provider=new Provider();const request=capture(provider);
+  // The public request is a bounded decision snapshot, not a vehicle for
+  // coordinator-only clock providers or a writable signal replacement.
+  const signal = new AbortController().signal;
+  const selected = capture({
+    deadlineAtUnixMs: 5000, installMode: 'offline-copy-only' as const,
+    lockTimeoutMs: 100, rematerialize: true, signal,
+    monotonicNowMs: () => 0
+  });
+  assert.deepEqual(selected, {
+    beforeCommit: undefined, deadlineAtUnixMs: 5000,
+    installMode: 'offline-copy-only', lockTimeoutMs: 100, rematerialize: true, signal
+  });
+  assert.strictEqual(selected.signal, signal);
+  assert.ok(Object.isFrozen(selected));
+
+  // The effect-only boundary strips install decisions before executing the
+  // shared admitted effect. Check its entire key set, not only missing keys.
+  const stripped = effect(bind({ ...controls(), installMode: 'offline-copy-only', rematerialize: true }));
+  assert.deepEqual(Object.keys(stripped).sort(), ['deadlineAtUnixMs', 'lockTimeoutMs', 'pollIntervalMs', 'signal']);
+  assert.equal(remaining(stripped, 'test'), 1000);
+  assert.ok(Object.isFrozen(stripped));
   let now=0;
   const bound=bind({...controls(),monotonicNowMs:()=>now,...request});const process=bindCompilerInstallInvocation(bound);
   const parent=context(bound);
