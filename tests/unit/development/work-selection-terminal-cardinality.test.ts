@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
 
+import { compileOperationDemandGraph } from '../../../src/adapters/self-hosting/control/operation/demand.ts';
+import { projectWorkSelectionCli } from '../../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { parseRollingPlan } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import type { CurrentWorkLifecycle } from '../../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
@@ -13,7 +15,8 @@ import {
   currentSpecRevisionFromBody,
   parseRoadmapWorkCatalog,
   renderWorkRollingProposalPlan,
-  renderWorkRollingSelectionPlan
+  renderWorkRollingSelectionPlan,
+  resolvedWorkSelectionLiveResult
 } from '../../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { rawSha256, sha256 } from '../../../src/contracts/canonical.ts';
 
@@ -78,7 +81,7 @@ test('one live work can be selected without manufacturing successor candidates',
     providerState: 'open',
     currentSpecRevision: currentSpecRevisionFromBody('one live current spec')
   });
-  const receipt = createWorkDecisionReceipt({
+  const receiptInput = {
     repository: 'sec-platform/sec',
     exactMain,
     exactMainTree,
@@ -90,10 +93,44 @@ test('one live work can be selected without manufacturing successor candidates',
     }),
     current: currentLifecycle(),
     currentSpecs: [currentSpec]
-  });
+  };
+  const receipt = createWorkDecisionReceipt(receiptInput);
 
   expect(receipt.decision.status).toBe('select-next');
   expect(receipt.decision.selectedWorkId).toBe('issue-1');
+
+  const demand = compileOperationDemandGraph({ operation: 'work-selection-observe', terminalWorkIds: [] });
+  const unresolvedSource = source.replace('"scopeClosure": "closed"', '"scopeClosure": "unresolved"')
+    .replace('"rootCauseState": "not-repeated"', '"rootCauseState": "unresolved"');
+  const unresolvedReceipt = createWorkDecisionReceipt({
+    ...receiptInput, roadmapRevision: rawSha256(unresolvedSource),
+    catalog: parseRoadmapWorkCatalog(unresolvedSource)
+  });
+  for (const [current, status, selectedWorkId, preconditions] of [
+    [receipt, 'select-next', 'issue-1', 0],
+    [unresolvedReceipt, 'unresolved', null, 2]
+  ] as const) {
+    const result = resolvedWorkSelectionLiveResult(current, demand);
+    const projected = projectWorkSelectionCli(result);
+    expect(Object.keys(projected).sort()).toEqual([
+      'decision', 'demandGraph', 'exactMain', 'exactMainTree', 'receiptDigest',
+      'resultDigest', 'schema', 'status', 'terminalCompaction'
+    ]);
+    expect(projected).toMatchObject({
+      schema: 'sec-work-selection-cli-projection-v1', status: 'resolved',
+      exactMain, exactMainTree, resultDigest: result.resultDigest,
+      receiptDigest: current.receiptDigest, terminalCompaction: null,
+      decision: { status, selectedWorkId, requiredPreconditions: preconditions }
+    });
+    expect('decision' in projected).toBe(true);
+    if ('decision' in projected) expect(Object.keys(projected.decision).sort()).toEqual([
+      'blockedCandidateRefs', 'decisionDigest', 'reasonCodes', 'requiredPreconditions',
+      'selectedCandidateRef', 'selectedWorkId', 'status'
+    ]);
+    expect(projected).not.toHaveProperty('receipt');
+    expect(projected).not.toHaveProperty('catalog');
+    expect(JSON.stringify(projected)).not.toContain('fixture:priority');
+  }
 
   const rendered = renderWorkRollingSelectionPlan({ receipt, reviewedOn: '2026-10-07' });
   expect(parseRollingPlan(rendered)).toEqual({

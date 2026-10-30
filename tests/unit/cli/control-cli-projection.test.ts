@@ -26,9 +26,6 @@ import { observeGitHubControlFacts, projectDocumentControlGitHubFailure } from '
 import {
   projectDocumentControlPlaneStatusCli
 } from '../../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
-import { compileOperationDemandGraph } from '../../../src/adapters/self-hosting/control/operation/demand.ts';
-import type { WorkSelectionLiveResult } from '../../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
-import { projectWorkSelectionCli } from '../../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { formatImportRecoveryCommand, shouldReportDevRunnerSuccess } from '../../../src/adapters/self-hosting/development/runner/cli.ts';
 import { rawSha256 } from '../../../src/contracts/canonical.ts';
 
@@ -340,35 +337,6 @@ describe('bounded control-plane CLI projections', () => {
       ...report,
       architecture: incompleteArchitecture
     } as unknown as RepositoryAuditReport)).toThrow(RepositoryAuditCliProjectionContractError);
-  });
-
-  test('work selection keeps authority identity and the actionable decision only', () => {
-    const result = {
-      status: 'resolved', resultDigest: 'sha256:result',
-      demandGraph: compileOperationDemandGraph({
-        operation: 'work-selection-observe',
-        terminalWorkIds: []
-      }),
-      terminalCompaction: null,
-      receipt: {
-        exactMain: 'a'.repeat(40), exactMainTree: 'b'.repeat(40),
-        receiptDigest: 'sha256:receipt',
-        catalog: { items: Array.from({ length: 2 }, (_, index) => ({ index, body: 'unprojected-catalog-body' })) },
-        decision: {
-          status: 'select-next', selectedWorkId: 'issue-346',
-          selectedCandidateRef: 'operation-read-plan-authority-canary-v1',
-          decisionDigest: 'sha256:decision', reasonCodes: ['candidate-selected'],
-          blockedCandidateRefs: ['issue-999'], requiredPreconditions: [{}, {}]
-        }
-      }
-    } as unknown as WorkSelectionLiveResult;
-    const projected = projectWorkSelectionCli(result);
-    expect(projected).toMatchObject({
-      status: 'resolved', exactMain: 'a'.repeat(40),
-      decision: { selectedWorkId: 'issue-346', requiredPreconditions: 2 }
-    });
-    expect(projected).not.toHaveProperty('receipt.catalog');
-    expect(JSON.stringify(projected)).not.toContain('unprojected-catalog-body');
   });
 
   test('status reports open inventory cardinality without copying issue bodies', () => {
