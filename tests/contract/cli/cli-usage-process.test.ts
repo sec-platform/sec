@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,7 +44,10 @@ async function invoke(args: readonly string[], fixtureSource?: string) {
               stderr = new Response(child.stderr).text();
               stderrSettled = false;
               const [code, out, err] = await Promise.all([child.exited, stdout, stderr]);
-              return { code, stdout: out, stderr: err };
+              // Preserve the empty-root observation of root help while
+              // reusing the current native CLI process and its owned scope.
+              const workspaceEntries = await readdir(cwd);
+              return { code, stdout: out, stderr: err, workspaceEntries };
             },
             release: async child => {
               await settleResourcesAsync({ cleanup: [
@@ -151,6 +154,12 @@ for (const args of [[], ['--help'], ['verify', '--help'], ['verify', '--version'
     expect(result.stderr).toBe('');
     if (args.includes('--version')) expect(result.stdout.trim()).toBe(packageMetadata.version);
     else expect(result.stdout).toContain('Usage: sec');
+    if (args.length === 0) {
+      for (const marker of ['init', 'resolve', 'compose', 'verify']) {
+        expect(result.stdout).toContain(marker);
+      }
+      expect(result.workspaceEntries).toEqual([]);
+    }
   }, 10_000);
 }
 

@@ -48,18 +48,6 @@ function errorProtocol(stderr: string): Record<string, unknown> {
   return protocol;
 }
 
-test('CLI prints its real help for missing commands', async () => {
-  await withRetainedBunTestWorkspace('engineering-compiler-test-', async (workspaceRoot, run) => {
-    const result = await runEntry(run, workspaceRoot, []);
-    expect(result.status).toBe(0);
-    expect(result.stderr).toBe('');
-    for (const marker of ['Usage: sec', 'init', 'resolve', 'compose', 'verify']) {
-      expect(result.stdout).toContain(marker);
-    }
-    expect(await readdir(workspaceRoot)).toEqual([]);
-  });
-}, 10_000);
-
 for (const args of [['unknown']]) {
   test(`CLI rejects unknown invocation: ${args.join(' ')}`, async () => {
     await withRetainedBunTestWorkspace('engineering-compiler-test-', async (workspaceRoot, run) => {
