@@ -150,6 +150,16 @@ test('Read Plan compiles deterministically while referencing rather than redefin
   expect(decision.status).toBe('applicable');
   expect(decision.selectedSkillId).toBe('worker-development');
   expect(decision.quarantinePaths).toEqual(['AGENTS.md']);
+  expect(decision).toMatchObject({
+    role: 'worker', operationKind: 'implement', goalDigest: digest('b'),
+    trustedRevision: '6b7f1a3f54b0b4bdd8eef4c065e1e83607f6bbcb',
+    targetCandidate: 'ef922744393d451a037349197fe4dd57d6ae8497',
+    workPackageProposalRef: 'config/repository/work-packages/task-capsule-compiler-v1.md',
+    taskCapsuleRef: 'urn:sec:task-capsule:issue-346',
+    taskCapsuleDigest: first.taskCapsule.digest,
+    taskCapsuleRevision: TASK_CAPSULE_REVISION,
+    candidateSkillIds: ['repository-audit', 'worker-development']
+  });
   expect('scopeConflicts' in decision).toBeFalse();
   expect(() => parseOperationReadPlan({
     ...first,

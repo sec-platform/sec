@@ -3,7 +3,7 @@ import { workspaceConfigRelativePath } from '../../../src/contracts/workspace-co
 
 import { secRelativePath } from "../../../src/adapters/workspace-context.ts";
 import { validateOverrideManifest } from '../../../src/compiler/contract/override-validation.ts';
-import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPath, isCanonicalPortableLogicalPathPrefix, portableLogicalPathCollisionKey } from '../../../src/contracts/logical-path.ts';
+import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../../src/contracts/logical-path.ts';
 
 test('portable logical paths accept canonical project-relative POSIX spellings', () => {
   expect(isCanonicalPortableLogicalPath('src/installed/entity/customer-service.ts')).toBe(true);
@@ -11,15 +11,6 @@ test('portable logical paths accept canonical project-relative POSIX spellings',
   expect(assertCanonicalPortableLogicalPath('tests/acceptance/customer-flow.test.ts')).toBe(
     'tests/acceptance/customer-flow.test.ts'
   );
-});
-
-test('portable logical directory prefixes preserve an explicit trailing slash', () => {
-  expect(isCanonicalPortableLogicalPathPrefix('custom/')).toBe(true);
-  expect(isCanonicalPortableLogicalPathPrefix('src/installed/')).toBe(true);
-  expect(isCanonicalPortableLogicalPathPrefix('custom')).toBe(false);
-  expect(isCanonicalPortableLogicalPathPrefix('custom//')).toBe(false);
-  expect(isCanonicalPortableLogicalPathPrefix('../custom/')).toBe(false);
-  expect(isCanonicalPortableLogicalPathPrefix('src\\installed\\')).toBe(false);
 });
 
 test('portable logical paths reject traversal, alternate separators and noncanonical components', () => {

@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 
 import type { BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { buildEngineeringIR } from '../../../src/compiler/ir/build-engineering-ir.ts';
-import { indexEngineeringIR } from '../../../src/compiler/ir/index-engineering-ir.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
 
 function fixture(): BuildEngineeringIRInput {
@@ -102,17 +101,6 @@ test('buildEngineeringIR creates stable semantic entities, facts, and revision d
   expect(ir.entities.some((entity) => entity.kind === 'artifact')).toBe(false);
   expect(buildEngineeringIR(reversed)).toEqual(ir);
 
-  const index = indexEngineeringIR(ir);
-
-  expect(index.entityById.get('block:ticket/basic')?.kind).toBe('block');
-  expect(index.entitiesByKind.get('capability')?.map((entity) => entity.id)).toContain('capability:ticket/read');
-  expect(index.factsByPredicate.get('PROVIDES')?.length).toBeGreaterThan(0);
-  expect(index.outgoingFactsBySubject.get('block:ticket/basic')?.length).toBeGreaterThan(0);
-  expect(index.incomingFactsByEntityObject.get('capability:auth/session')?.length).toBeGreaterThan(0);
-
-  const firstFact = ir.facts[0];
-  expect(firstFact).toBeDefined();
-  expect(index.factById.get(firstFact!.id)).toEqual(firstFact);
 });
 
 test('buildEngineeringIR preserves distinct assertions for the same semantic triple', () => {

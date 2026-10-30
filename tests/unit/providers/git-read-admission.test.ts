@@ -19,6 +19,10 @@ const pathCommands = [
 // Expected command forms and forbidden mutations are independent protocol
 // vectors, not generated from the implementation's sets or regular expressions.
 const accepted = [
+  // Session-level grammar vectors live at this shared admission owner.
+  ['status','--porcelain=v1','-z','--untracked-files=all'],
+  ['rev-parse','--absolute-git-dir'],
+  ['rev-list','--first-parent','--ancestry-path','--reverse','HEAD'],
   ['--version'], ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'],
   ['-c', 'core.fsmonitor=false', 'status', '--short'], ['branch', '--show-current'],
   ['cat-file', '--batch'], ['cat-file', '-t', 'HEAD'], ['show', 'HEAD:package.json'],
@@ -58,6 +62,18 @@ const accepted = [
   ['rev-parse', '--revs-only', '--end-of-options', `${head}^{tree}`, `${head}:manifest.md`]
 ];
 const forbidden = [
+  // Session-level grammar vectors live at this shared admission owner.
+  ['write-tree'],
+  ['hash-object','-w','--stdin'],
+  ['update-index','-z','--index-info'],
+  ['config','user.name','unauthorized-writer'],
+  ['branch','unauthorized-writer'],
+  ['symbolic-ref','--delete','HEAD'],
+  ['-c','core.hooksPath=unauthorized','status'],
+  ['diff','--textconv'],
+  ['cat-file','--filters','HEAD:package.json'],
+  ['rev-list','--use-bitmap-index','--filter=blob:none','HEAD'],
+  ['show','--format=%(trailers:only,unfold,key=SEC,separator=%x00)','HEAD'],
   [], ['reset', '--hard'], ['checkout', 'main'], ['clean', '-fd'], ['branch', '-D', 'main'],
   ['config', 'core.hooksPath', '/other'], ['worktree', 'remove', '/other'],
   ['remote', 'add', 'other', '/other'], ['symbolic-ref', 'HEAD', 'refs/heads/other'],

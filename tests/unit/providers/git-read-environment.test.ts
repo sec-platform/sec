@@ -117,56 +117,26 @@ test('the explicit host test route rejects aggregate argument overflow before st
   });
 });
 
-test('Git read grammar admits exact observations and terminally rejects mutation or helper execution', async () => {
-  const cases = [
-    { args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'], permitted: true },
-    { args: ['rev-parse', '--verify', 'HEAD^{commit}'], permitted: true },
-    { args: ['rev-parse', '--absolute-git-dir'], permitted: true },
-    { args: ['rev-list', '--first-parent', '--ancestry-path', '--reverse', 'HEAD'], permitted: true },
-    { args: ['write-tree'], permitted: false },
-    { args: ['hash-object', '-w', '--stdin'], permitted: false },
-    { args: ['update-index', '-z', '--index-info'], permitted: false },
-    { args: ['config', 'user.name', 'unauthorized-writer'], permitted: false },
-    { args: ['branch', 'unauthorized-writer'], permitted: false },
-    { args: ['symbolic-ref', '--delete', 'HEAD'], permitted: false },
-    { args: ['-c', 'core.hooksPath=unauthorized', 'status'], permitted: false },
-    { args: ['diff', '--ext-diff'], permitted: false },
-    { args: ['diff', '--textconv'], permitted: false },
-    { args: ['cat-file', '--filters', 'HEAD:package.json'], permitted: false },
-    { args: ['rev-list', '--use-bitmap-index', '--filter=blob:none', 'HEAD'], permitted: false },
-    { args: ['show', '--format=%(trailers:only,unfold,key=SEC,separator=%x00)', 'HEAD'], permitted: false }
-  ] as const;
-  for (const testCase of cases) {
-    await withHostGitSession({ cwd: process.cwd() }, async session => {
-      const result = await session.run(testCase.args);
-      if (testCase.permitted) {
-        expect(result.kind).toBe('completed');
+test('terminal host-session admission failures cannot execute or consume additional records', async () => {
+  for (const reason of ['argument-budget-exhausted', 'operation-not-permitted'] as const) {
+    await withHostGitSession({
+      cwd: process.cwd(),
+      ...(reason === 'argument-budget-exhausted' ? { budget: { maxTotalArgumentBytes: 1 } } : {})
+    }, async session => {
+      if (reason === 'operation-not-permitted') {
+        expect((await session.run(['status', '--porcelain=v1', '-z', '--untracked-files=all'])).kind).toBe('completed');
         expect(session.processCount).toBe(1);
-      } else {
-        if (result.kind === 'completed') throw new Error('Forbidden Git grammar unexpectedly executed.');
-        expect(result).toMatchObject({
-          kind: 'unresolved-git-read-session',
-          reason: 'operation-not-permitted'
-        });
-        expect(session.processCount).toBe(0);
-        expect(session.failure).toBe(result);
       }
+      const processesBefore = session.processCount;
+      const commandFailure = await session.run(reason === 'argument-budget-exhausted' ? ['status'] : ['write-tree']);
+      expect(commandFailure).toMatchObject({ kind: 'unresolved-git-read-session', reason });
+      expect(session.processCount).toBe(processesBefore);
+      expect(session.failure).toBe(commandFailure);
+      const recordsBefore = session.recordCount;
+      expect(session.consumeRecords(1)).toBe(commandFailure);
+      expect(session.recordCount).toBe(recordsBefore);
     });
   }
-});
-
-test('a terminal host-session failure cannot be consumed as additional records', async () => {
-  await withHostGitSession({
-    cwd: process.cwd(),
-    budget: { maxTotalArgumentBytes: 1 }
-  }, async session => {
-    const commandFailure = await session.run(['status']);
-    const recordsBefore = session.recordCount;
-    const recordFailure = session.consumeRecords(1);
-    expect(commandFailure.kind).toBe('unresolved-git-read-session');
-    expect(recordFailure).toBe(session.failure);
-    expect(session.recordCount).toBe(recordsBefore);
-  });
 });
 
 test('test sessions cannot cross the production GitRead issuer boundary', async () => {

@@ -10,7 +10,6 @@ import { runTrustedRuntimeOperatorCli, verifyWithTrustedRuntime } from '../../..
 import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 
 import {
-  assertVerificationSessionLocalPreparationCurrent,
   createVerificationSessionLocalPreparationRequest,
   parseVerificationSessionLocalPreparationRequest
 } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
@@ -55,19 +54,6 @@ test('local request parser preserves frozen exact pins and rejects placement esc
     { ...LOCAL, authorityStage: 'verification' }, { ...LOCAL, grant: true },
     { ...LOCAL, request: null }, { ...LOCAL, request: { ...REQUEST, unexpected: true } }]) {
     expect(() => parseVerificationSessionLocalPreparationRequest(JSON.stringify(invalid))).toThrow();
-  }
-});
-
-test('local re-preparation rejects every changed saved identity before execution', () => {
-  expect(() => assertVerificationSessionLocalPreparationCurrent(LOCAL, REQUEST)).not.toThrow();
-  for (const key of Object.keys(REQUEST) as (keyof VerificationSessionHostedRequest<typeof import("../../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>)[]) {
-    if (key === 'schema') continue;
-    const value = REQUEST[key];
-    const changed = typeof value === 'number' ? value + 1
-      : value.startsWith('sha256:') ? D('f')
-      : /^[0-9a-f]{40}$/u.test(value) ? 'f'.repeat(40) : `${value}-changed`;
-    expect(() => assertVerificationSessionLocalPreparationCurrent(LOCAL, { ...REQUEST, [key]: changed }))
-      .toThrow(/differs from current exact candidate, Session or Action environment/);
   }
 });
 

@@ -84,38 +84,21 @@ function view(capabilities: ReturnType<typeof fact>[]) {
   return index({ files: [], declarations: [], entrypoints: [],
     entrypointClosures: [], references: [], capabilities });
 }
-const paths = new Set(['src/a.ts']);
-
-for (const [observationClass, transport, observedKinds, hasUnknown] of [
-  ['observed', 'native-runtime', ['filesystem'], false],
-  ['derived', 'unknown', ['filesystem'], true],
-  ['unknown', 'native-runtime', [], true]
-] as const) {
-  test(`summary preserves ${observationClass} observation with ${transport} transport`, () => {
-    const result = view([fact({ observationClass, transport })]).capabilitySummaryForPaths(paths);
-    assert.deepEqual(result.observedKinds, observedKinds);
-    assert.equal(result.hasUnknown, hasUnknown);
-  });
-}
-
-test('unrequested paths and non-production facts cannot contribute effects or unknown status', () => {
-  const result = view([fact(), fact({ path: 'src/b.ts', capability: 'network', transport: 'unknown' }),
-    fact({ surface: 'test', capability: 'process', observationClass: 'unknown' })])
-    .capabilitySummaryForPaths(paths);
-  assert.deepEqual(result, { observedKinds: ['filesystem'], hasUnknown: false });
-});
-
-test('cross-path union preserves kind membership and unknowns across duplicates', () => {
+test('capability summaries preserve selected kind union and distinguish each unknown source', () => {
   const known = fact();
   const capabilities = [known, known,
     fact({ capability: 'process', observationClass: 'derived' }),
     fact({ path: 'src/b.ts', capability: 'network' }),
-    fact({ surface: 'test', capability: 'excluded', observationClass: 'unknown' })];
-  for (const hasUnknown of [false, true]) {
-    const records = hasUnknown ? [...capabilities,
-      fact({ capability: 'unresolved', observationClass: 'unknown' }),
-      fact({ transport: 'unknown' })] : capabilities;
-    const result = view(records).capabilitySummaryForPaths(new Set(['src/a.ts', 'src/b.ts']));
+    fact({ path: 'src/outside.ts', capability: 'excluded-path', observationClass: 'unknown', transport: 'unknown' }),
+    fact({ surface: 'test', capability: 'excluded-surface', observationClass: 'unknown', transport: 'unknown' })];
+  // Keep both unknown mechanisms independently observable. Combining them
+  // would allow either dropped uncertainty source to hide behind the other.
+  for (const [records, hasUnknown] of [
+    [capabilities, false],
+    [[...capabilities, fact({ capability: 'unresolved', observationClass: 'unknown' })], true],
+    [capabilities.map(entry => entry.capability === 'network' ? { ...entry, transport: 'unknown' } : entry), true]
+  ] as const) {
+    const result = view([...records]).capabilitySummaryForPaths(new Set(['src/a.ts', 'src/b.ts']));
     assert.deepEqual(new Set(result.observedKinds), new Set(['filesystem', 'network', 'process']));
     assert.equal(result.observedKinds.length, 3);
     assert.equal(result.hasUnknown, hasUnknown);

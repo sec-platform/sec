@@ -1279,21 +1279,24 @@ describe('test-obligations scoped audit facts', () => {
       detail: 'new unknown disposition', span: null, disposition: null };
     const regression = { ...full, ...syntheticTestFindingComparison(full, [finding]),
       testDisposition: { ...full.testDisposition, findings: [finding] }, blockingTestFindings: [finding] };
-    const variants: CompileWholeSourceProgramAuditOperationInput[] = [full, unresolved, regression,
-      { ...full, testRetirement: { ...full.testRetirement, proofs: [{ status: 'blocked' }] } },
-      { ...full, supersession: { ...full.supersession, status: 'owner-decision-required' } },
-      { ...full, supersession: { ...full.supersession, status: 'author-decision-conditional' } }
+    const variants: readonly [CompileWholeSourceProgramAuditOperationInput, readonly string[], number][] = [
+      [full, [], 0],
+      [unresolved, ['test-finding-reconciliation-unresolved'], 1],
+      [regression, ['test-value-finding-regression'], 1],
+      [{ ...full, testRetirement: { ...full.testRetirement, proofs: [{ status: 'blocked' }] } },
+        ['test-retirement-blocked'], 1],
+      [{ ...full, supersession: { ...full.supersession, status: 'owner-decision-required' } },
+        ['supersession-owner-decision'], 1],
+      [{ ...full, supersession: { ...full.supersession, status: 'author-decision-conditional' } },
+        ['test-author-qualification-required'], 1]
     ];
-    for (const variant of variants) {
-      const legacy = compileSourceProgramAuditOperationInput(variant);
-      const scoped = compileSourceProgramAuditOperationInput(scopedTestFacts(variant));
-      assert.deepEqual(scoped.blockingReasons, legacy.blockingReasons);
-      assert.equal(compileSourceProgramAuditOperation(scoped).exitCode, compileSourceProgramAuditOperation(legacy).exitCode);
-      if (variant === unresolved) {
-        assert.ok(scoped.blockingReasons.includes('test-finding-reconciliation-unresolved'));
-      }
-      if (variant === regression) {
-        assert.ok(scoped.blockingReasons.includes('test-value-finding-regression'));
+    for (const [variant, reasons, exitCode] of variants) {
+      // Both scopes must satisfy the independent decision contract; agreement
+      // between two calls to the same implementation cannot establish it.
+      for (const facts of [variant, scopedTestFacts(variant)]) {
+        const request = compileSourceProgramAuditOperationInput(facts);
+        assert.deepEqual(request.blockingReasons, reasons);
+        assert.equal(compileSourceProgramAuditOperation(request).exitCode, exitCode);
       }
     }
   });

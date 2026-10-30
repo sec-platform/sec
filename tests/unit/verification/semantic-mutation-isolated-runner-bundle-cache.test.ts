@@ -20,20 +20,23 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve };
 }
 
-test('isolated runner bundle loader single-flights and returns defensive bytes', async () => {
+test('isolated runner bundle loader retires failure before single-flight retry and defensive cached bytes', async () => {
   const release = deferred();
   let builds = 0;
   const load = createSemanticMutationIsolatedRunnerBundleLoaderForTests(async () => {
     builds += 1;
+    if (builds === 1) throw new Error('injected bundle build failure');
     await release.promise;
     return new Uint8Array([1, 2, 3]);
   });
 
+  await expect(load()).rejects.toThrow('injected bundle build failure');
+  expect(builds).toBe(1);
   const first = load();
   const second = load();
   try {
     await Promise.resolve();
-    expect(builds).toBe(1);
+    expect(builds).toBe(2);
   } finally {
     release.resolve();
     await Promise.allSettled([first, second]);
@@ -44,20 +47,6 @@ test('isolated runner bundle loader single-flights and returns defensive bytes',
   expect(secondBytes).toEqual(new Uint8Array([1, 2, 3]));
   firstBytes[0] = 9;
   expect(await load()).toEqual(new Uint8Array([1, 2, 3]));
-  expect(builds).toBe(1);
-});
-
-test('isolated runner bundle loader evicts a failed attempt', async () => {
-  let builds = 0;
-  const load = createSemanticMutationIsolatedRunnerBundleLoaderForTests(async () => {
-    builds += 1;
-    if (builds === 1) throw new Error('injected bundle build failure');
-    return new Uint8Array([4]);
-  });
-
-  await expect(load()).rejects.toThrow('injected bundle build failure');
-  expect(await load()).toEqual(new Uint8Array([4]));
-  expect(await load()).toEqual(new Uint8Array([4]));
   expect(builds).toBe(2);
 });
 

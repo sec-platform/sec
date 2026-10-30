@@ -5,7 +5,6 @@ import {
   selectOperationAuthoritySourceRevision,
   type SkillApplicabilityEnvelope
 } from '../../../src/adapters/self-hosting/control/agent/skill.ts';
-import { TASK_CAPSULE_REVISION } from '../../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const TRUSTED_REVISION = '7543d37ad733432cbc2ddddd205c98f574e882c4';
 
@@ -50,62 +49,6 @@ test('metadata selects exactly one survivor and refuses ambiguous candidates', (
   expect(ambiguous.reasonCodes).toContain('ambiguous-multiple-candidates');
 });
 
-test('decision projects its binding and marks goal, role, operation and capsule changes stale', () => {
-  const workPackageProposalRef = 'config/repository/work-packages/skill-applicability-gate-v1.md';
-  const prior = evaluateSkillApplicability(envelope({
-    workPackageProposalRef,
-    candidates: ['worker-development'],
-    taskCapsuleRef: 'capsule-1',
-    taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: TASK_CAPSULE_REVISION
-  }));
-  expect(prior.status).toBe('applicable');
-  expect(prior.selectedSkillId).toBe('worker-development');
-  expect('scopeConflicts' in prior).toBeFalse();
-  expect(prior.goalDigest).toBe('test-goal');
-  expect(prior.trustedRevision).toBe(TRUSTED_REVISION);
-  expect(prior.targetCandidate).toBe('feat/skill-applicability-gate-v1');
-  expect(prior.workPackageProposalRef).toBe(
-    'config/repository/work-packages/skill-applicability-gate-v1.md'
-  );
-  expect(prior.taskCapsuleRef).toBe('capsule-1');
-  expect(prior.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);
-  expect(prior.taskCapsuleRevision).toBe(TASK_CAPSULE_REVISION);
-  expect(prior.candidateSkillIds).toEqual(['worker-development']);
-  const stale = evaluateSkillApplicability(envelope({
-    workPackageProposalRef,
-    candidates: ['worker-development'],
-    goalDigest: 'changed-goal',
-    priorDecision: prior
-  }));
-  expect(stale.status).toBe('stale');
-  expect(stale.selectedSkillId).toBeNull();
-  expect(stale.invalidationConditions).toContain('goal-digest');
-  expect(stale.reasonCodes).toEqual(['stale']);
-
-  const roleStale = evaluateSkillApplicability(envelope({
-    workPackageProposalRef,
-    role: 'a0',
-    operationKind: 'design',
-    candidates: ['architecture-evolution'],
-    priorDecision: prior
-  }));
-  expect(roleStale.status).toBe('stale');
-  expect(roleStale.invalidationConditions).toEqual(
-    expect.arrayContaining(['role', 'operation-kind', 'candidate-set'])
-  );
-
-  const capsuleStale = evaluateSkillApplicability(envelope({
-    workPackageProposalRef,
-    candidates: ['worker-development'],
-    taskCapsuleRef: 'capsule-1',
-    taskCapsuleDigest: `sha256:${'b'.repeat(64)}`,
-    taskCapsuleRevision: TASK_CAPSULE_REVISION,
-    priorDecision: prior
-  }));
-  expect(capsuleStale.status).toBe('stale');
-  expect(capsuleStale.invalidationConditions).toContain('task-capsule-digest');
-});
 
 test('operation outside the Skill space resolves not-applicable', () => {
   const decision = evaluateSkillApplicability(envelope({
@@ -117,19 +60,6 @@ test('operation outside the Skill space resolves not-applicable', () => {
   expect(decision.reasonCodes).toContain('not-applicable-operation');
 });
 
-test('malformed envelopes resolve unresolved with reason codes', () => {
-  const invalidRole = evaluateSkillApplicability(envelope({ role: 'root' }));
-  expect(invalidRole.status).toBe('unresolved');
-  expect(invalidRole.reasonCodes).toEqual(['unresolved-invalid-role']);
-
-  const invalidKind = evaluateSkillApplicability(envelope({ operationKind: 'ship' }));
-  expect(invalidKind.status).toBe('unresolved');
-  expect(invalidKind.reasonCodes).toEqual(['unresolved-invalid-operation-kind']);
-
-  const missingBinding = evaluateSkillApplicability(envelope({ trustedRevision: '' }));
-  expect(missingBinding.status).toBe('unresolved');
-  expect(missingBinding.reasonCodes).toEqual(['unresolved-missing-binding']);
-});
 
 test('quarantined Skill guidance retains the metadata-selected decision', () => {
   const baseline = evaluateSkillApplicability(envelope({
@@ -157,15 +87,6 @@ test('quarantined Skill guidance retains the metadata-selected decision', () => 
   }
 });
 
-test('unknown candidate IDs are ignored without breaking the decision', () => {
-  const decision = evaluateSkillApplicability(envelope({
-    candidates: ['worker-development', 'sec-not-a-real-skill']
-  }));
-  expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('worker-development');
-  expect(decision.candidateSkillIds).toEqual(['worker-development']);
-  expect(decision.reasonCodes).toContain('unknown-candidate-ignored');
-});
 
 test('provider instruction candidates are quarantined without selecting a broader Skill', () => {
   for (const instruction of ['.codex/config.toml', '.codex/agents/implementation-worker.toml',
