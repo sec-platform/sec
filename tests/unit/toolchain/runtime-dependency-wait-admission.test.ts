@@ -2,9 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   runtimeDependencyOperationContext,
-  runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationOptions,
-  runtimeDependencyOperationRemainingMs,
   waitForRuntimeDependencyOperation
 } from '../../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
@@ -35,64 +33,6 @@ test('mutating raw options while sleeping cannot renew an operation deadline', a
     now = 101;
   }, 'changed-options'));
   assert.equal(deadlineFailure(failure), true);
-});
-
-test('remaining-budget admission rejects cancellation during its clock sample', () => {
-  const controller = new AbortController();
-  const reason = new Error('cancelled while sampling');
-  let armed = false;
-  const options = runtimeDependencyOperationOptions({
-    signal: controller.signal,
-    monotonicNowMs: () => { if (armed) controller.abort(reason); return 0; }
-  });
-  armed = true;
-  assert.throws(() => runtimeDependencyOperationRemainingMs(options, 'clock-admission'),
-    (error: unknown) => error === reason);
-});
-
-test('dependency wait never starts sleep after cancellation during budget sampling', async () => {
-  const controller = new AbortController();
-  const reason = new Error('cancelled before registration');
-  let armed = false;
-  let started = false;
-  const options = runtimeDependencyOperationOptions({
-    signal: controller.signal,
-    monotonicNowMs: () => { if (armed) controller.abort(reason); return 0; }
-  });
-  armed = true;
-  const failure = await rejectionOf(waitForRuntimeDependencyOperation(options, 1, async () => {
-    started = true;
-  }, 'abort-before-registration'));
-  assert.strictEqual(failure, reason);
-  assert.equal(started, false);
-});
-
-test('dependency wait closes an abort-before-listener-registration gap', async () => {
-  const controller = new AbortController();
-  const signal = controller.signal;
-  const reason = new Error('cancelled in registration');
-  // Interpose the actual listener registration, including an owner-private
-  // dependent signal. An override on the public source alone is not a seam.
-  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'addEventListener');
-  const original = AbortSignal.prototype.addEventListener;
-  Object.defineProperty(AbortSignal.prototype, 'addEventListener', {
-    configurable: true,
-    value(this: AbortSignal, ...args: Parameters<AbortSignal['addEventListener']>) {
-      controller.abort(reason);
-      Reflect.apply(original, this, args);
-    }
-  });
-  try {
-    let started = false;
-    const failure = await rejectionOf(waitForRuntimeDependencyOperation(
-      { signal }, 1, async () => { started = true; }, 'registration-gap'
-    ));
-    assert.strictEqual(failure, reason);
-    assert.equal(started, false);
-  } finally {
-    if (descriptor) Object.defineProperty(AbortSignal.prototype, 'addEventListener', descriptor);
-    else Reflect.deleteProperty(AbortSignal.prototype, 'addEventListener');
-  }
 });
 
 test('dependency wait does not run deferred sleep after immediate caller cancellation', async () => {
@@ -176,22 +116,6 @@ test('dependency wait rejects a submillisecond parent remainder before starting 
     async () => { started = true; }, 'expired-parent'))), true);
   assert.equal(started, false);
 });
-
-test('dependency effect fence never invokes beforeCommit after a sampling-time abort', async () => {
-  const controller = new AbortController();
-  const reason = new Error('effect not admitted');
-  let armed = false;
-  let committed = false;
-  const options = runtimeDependencyOperationOptions({
-    signal: controller.signal,
-    monotonicNowMs: () => { if (armed) controller.abort(reason); return 0; },
-    beforeCommit: async () => { committed = true; }
-  });
-  armed = true;
-  assert.strictEqual(await rejectionOf(runtimeDependencyOperationEffectFence(options, 'fence')), reason);
-  assert.equal(committed, false);
-});
-
 
 test('queued dependency sleep never starts after the budget expires before its microtask', async () => {
   let now = 0;

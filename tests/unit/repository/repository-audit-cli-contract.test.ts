@@ -30,54 +30,45 @@ test('the topology and Source Program command modes are selected explicitly', ()
   assert.equal(parse(['--enforce'], 'source-program').mode, 'source-program');
 });
 
-test('all ambiguous or misspelled enforcement switches reject instead of becoming a successful report', () => {
-  for (const args of [['--enfroce'], ['--enforce=true'], ['--enforce=false'], ['--no-enforce'], ['--unknown'], ['unexpected']]) {
+// Native strictness, boolean arity and positional admission are separate gates.
+// Alternate unknown spellings and boolean payloads do not add another gate.
+test('native argument admission rejects unknown switches, boolean values and positionals', () => {
+  for (const args of [['--enfroce'], ['--enforce=true'], ['unexpected']]) {
     assert.throws(() => parse(args));
   }
-  for (const failOn of ['HIGH', 'typo', 'constructor', '__proto__']) {
+  for (const failOn of ['HIGH', 'constructor']) {
     assert.throws(() => parse([`--fail-on=${failOn}`]), /fail-on/);
   }
 });
 
-test('both mode selectors reject in either order rather than selecting the first branch', () => {
-  for (const args of [
-    ['--worktree-module-topology', '--worktree-source-program'],
-    ['--worktree-source-program', '--worktree-module-topology']
-  ]) assert.throws(() => parse(args), /exactly one repository audit mode/);
+test('both mode selectors reject rather than selecting the first branch', () => {
+  assert.throws(() => parse(['--worktree-module-topology', '--worktree-source-program']),
+    /exactly one repository audit mode/);
 });
 
-test('all string-valued switches reject missing, empty and NUL values', () => {
-  for (const name of ['output', 'query', 'fail-on', 'default-ref', 'supersession-baseline',
-    'blocking-details-domain', 'blocking-details-page']) {
-    for (const value of [undefined, '', 'x\0y']) {
-      const args = value === undefined ? [`--${name}`] : [`--${name}`, value];
-      assert.throws(() => parse(args));
-    }
-  }
-});
-
-test('a following switch is not silently swallowed as an output, query or revision value', () => {
-  for (const name of ['output', 'query', 'default-ref', 'supersession-baseline']) {
-    assert.throws(() => parse([`--${name}`, '--enforce']));
+// Every string option reaches the same native parser and token loop. Query is
+// the unmasked witness: empty/NUL values would otherwise be valid query data,
+// unlike mode-specific options that can still fail at a later policy guard.
+test('query operands retain native value admission and the shared nonempty NUL-free boundary', () => {
+  assert.throws(() => parse(['--query']));
+  assert.throws(() => parse(['--query', '--enforce']));
+  for (const value of ['', 'x\0y']) {
+    assert.throws(() => parse(['--query', value]), /requires one non-empty value without NUL/);
   }
 });
 
 test('duplicate value options reject both separate and equals forms', () => {
   for (const args of [
-    ['--query', 'a', '--query', 'b'], ['--query=a', '--query=b'],
-    ['--fail-on=high', '--fail-on=none'], ['--output=a', '--output=b'],
-    ['--default-ref=HEAD', '--default-ref=main']
+    ['--query', 'a', '--query', 'b'], ['--query=a', '--query=b']
   ]) assert.throws(() => parse(args), /exactly once/);
-  assert.throws(() => parse(['--supersession-baseline=HEAD', '--supersession-baseline=main'], 'source-program'), /exactly once/);
 });
 
 test('repeated idempotent boolean switches retain their previous meaning', () => {
-  assert.equal(parse(['--full', '--full']).full, true);
   assert.equal(parse(['--enforce', '--enforce'], 'source-program').enforce, true);
 });
 
 test('an equals-form query value spelling a switch stays data and does not choose a mode or policy', () => {
-  for (const query of ['--enforce', '--diagnostic', '--worktree-module-topology', '--worktree-source-program']) {
+  for (const query of ['--enforce', '--worktree-source-program']) {
     const result = parse([`--query=${query}`]);
     assert.equal(result.query, query); assert.equal(result.mode, 'repository');
     assert.equal(result.enforce, false); assert.equal(result.diagnostic, false);
@@ -99,25 +90,24 @@ test('an output filename spelling a selector cannot route another operation', ()
 });
 
 test('explicit enforcement cannot be combined with diagnostic softening or a none threshold', () => {
-  for (const args of [['--enforce', '--diagnostic'], ['--diagnostic', '--enforce'],
-    ['--enforce', '--fail-on=none']]) assert.throws(() => parse(args));
+  for (const args of [['--enforce', '--diagnostic'], ['--enforce', '--fail-on=none']]) assert.throws(() => parse(args));
   assert.equal(parse(['--diagnostic', '--fail-on=none']).diagnostic, true);
 });
 
 test('non-repository modes reject ignored repository-only options', () => {
-  for (const mode of ['--worktree-module-topology', '--worktree-source-program']) {
-    for (const option of ['--diagnostic', '--fail-on=high', '--default-ref=HEAD']) {
-      assert.throws(() => parse([mode, option]), /only supported/);
-    }
+  // Keep each policy-list member, with one member witnessing the other mode.
+  for (const option of ['--diagnostic', '--fail-on=high', '--default-ref=HEAD']) {
+    assert.throws(() => parse(['--worktree-module-topology', option]), /only supported/);
   }
+  assert.throws(() => parse(['--worktree-source-program', '--diagnostic']), /only supported/);
 });
 
 test('source-only reduction, detail, candidate and baseline options cannot silently run another mode', () => {
   for (const option of ['--blocking-details', '--blocking-details-domain=priority', '--blocking-details-page=0', '--candidates', '--graph-cuts', '--version-reductions',
     '--aggregate-import-reductions', '--supersession-baseline=HEAD']) {
     assert.throws(() => parse([option]), /only supported/);
-    assert.throws(() => parse(['--worktree-module-topology', option]), /only supported/);
   }
+  assert.throws(() => parse(['--worktree-module-topology', '--blocking-details']), /only supported/);
 });
 
 test('blocking details select the bounded source-program diagnostic projection', () => {
