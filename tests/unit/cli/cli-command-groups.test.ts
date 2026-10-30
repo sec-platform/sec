@@ -51,12 +51,10 @@ for (const name of ['verify', 'repair', 'upgrade', 'lock', 'artifacts', 'policy'
   });
 }
 
-test('verification rejects an unknown lane before loading its executor', async () => {
-  const { command } = program();
-  await assert.rejects(command.parseAsync(['verify', '--lane', 'unknown'], { from: 'user' }),
-    (error: unknown) => (error as { code?: string }).code === 'CLI-USAGE-001');
-});
-
+// The shared verify lane parser is already covered by
+// tests/unit/verification/verification-lane-policy.test.ts; native invalid
+// lane CLI transport is covered by tests/contract/cli/usage.test.ts.
+// This suite keeps distinct Commander registrations, not another echo.
 // Shared inspection/named-query rejection is exercised at its actual registrar;
 // lock/explain are one loop. Keep the independent mutation/manifest grammars.
 for (const [args, expectedCode] of [
