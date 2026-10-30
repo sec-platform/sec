@@ -1,0 +1,13 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:finite-set-values",
+  "sourceScopes": [
+    {"root":"集合值形成","kind":"semantic","include":["*.module.json"],"editSource":{"mode":"file"}},
+    {"root":"集合值形成","kind":"design","include":["README.md","changes/*.json"],"editSource":{"mode":"file"}},
+    {"root":"序列派生","kind":"semantic","include":["sequence.module.json"],"editSource":{"mode":"file"}},
+    {"root":"序列派生","kind":"design","include":["README.md"],"editSource":{"mode":"file"}},
+    {"root":"有限集合聚合/supply","kind":"native","include":["finite-set.d.ts"],"editSource":{"mode":"file"}},
+    {"root":"有限集合聚合/supply","kind":"design","include":["finite-set.selection.json"],"editSource":{"mode":"file"}},
+    {"root":"有限集合聚合","kind":"design","include":["README.md"],"editSource":{"mode":"file"}}
+  ]
+}

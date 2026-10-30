@@ -1,0 +1,567 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:finite-set-values",
+  "imports": {
+    "sets": {
+      "workspace": "module:finite-set-fold-map"
+    },
+    "sequence": {
+      "workspace": "module:gift-sequence-values-v1"
+    }
+  },
+  "definitions": {
+    "UniqueNonzeroCount": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "int"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "sets:FoldMap"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "sets:FromSequenceWith"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "sequence:Collect"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "items"
+                    },
+                    {
+                      "op": "lambda",
+                      "params": [
+                        {
+                          "name": "x"
+                        }
+                      ],
+                      "body": {
+                        "op": "if",
+                        "condition": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "std:IntEq"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "x"
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "int"
+                              },
+                              "value": "0"
+                            }
+                          ]
+                        },
+                        "then": {
+                          "op": "sequence",
+                          "items": []
+                        },
+                        "otherwise": {
+                          "op": "sequence",
+                          "items": [
+                            {
+                              "op": "var",
+                              "name": "x"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "op": "symbol",
+                  "ref": "std:IntEq"
+                }
+              ]
+            },
+            {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              },
+              "value": "0"
+            },
+            {
+              "op": "symbol",
+              "ref": "std:IntAdd"
+            },
+            {
+              "op": "lambda",
+              "params": [
+                {
+                  "name": "member"
+                }
+              ],
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                },
+                "value": "1"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "NonzeroFromSet": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "items",
+            "type": {
+              "tag": "set",
+              "equalityRef": "std:IntEq",
+              "item": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "set",
+          "item": {
+            "tag": "scalar",
+            "name": "int"
+          }
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "sets:FoldMap"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "items"
+            },
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "sets:FromSequenceWith"
+              },
+              "arguments": [
+                {
+                  "op": "sequence",
+                  "items": []
+                },
+                {
+                  "op": "symbol",
+                  "ref": "std:IntEq"
+                }
+              ]
+            },
+            {
+              "op": "lambda",
+              "params": [
+                {
+                  "name": "left"
+                },
+                {
+                  "name": "right"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "sets:UnionWith"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "left"
+                  },
+                  {
+                    "op": "var",
+                    "name": "right"
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "std:IntEq"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "lambda",
+              "params": [
+                {
+                  "name": "x"
+                }
+              ],
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "std:IntEq"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "x"
+                    },
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "int"
+                      },
+                      "value": "0"
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "sets:FromSequenceWith"
+                  },
+                  "arguments": [
+                    {
+                      "op": "sequence",
+                      "items": []
+                    },
+                    {
+                      "op": "symbol",
+                      "ref": "std:IntEq"
+                    }
+                  ]
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "sets:FromSequenceWith"
+                  },
+                  "arguments": [
+                    {
+                      "op": "sequence",
+                      "items": [
+                        {
+                          "op": "var",
+                          "name": "x"
+                        }
+                      ]
+                    },
+                    {
+                      "op": "symbol",
+                      "ref": "std:IntEq"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "MixedDistinct": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "groups",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "record",
+                "fields": {
+                  "bias": {
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    }
+                  },
+                  "values": {
+                    "type": {
+                      "tag": "set",
+                      "item": {
+                        "tag": "scalar",
+                        "name": "int"
+                      }
+                    }
+                  }
+                },
+                "open": false
+              },
+              "ordered": true
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "set",
+          "item": {
+            "tag": "scalar",
+            "name": "int"
+          }
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "sequence:FoldLeft"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "groups"
+            },
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "sets:FromSequenceWith"
+              },
+              "arguments": [
+                {
+                  "op": "sequence",
+                  "items": []
+                },
+                {
+                  "op": "symbol",
+                  "ref": "std:IntEq"
+                }
+              ]
+            },
+            {
+              "op": "lambda",
+              "params": [
+                {
+                  "name": "acc"
+                },
+                {
+                  "name": "group"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "sets:UnionWith"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "acc"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "sets:FoldMap"
+                    },
+                    "arguments": [
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "group"
+                        },
+                        "name": "values"
+                      },
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "sets:FromSequenceWith"
+                        },
+                        "arguments": [
+                          {
+                            "op": "sequence",
+                            "items": []
+                          },
+                          {
+                            "op": "symbol",
+                            "ref": "std:IntEq"
+                          }
+                        ]
+                      },
+                      {
+                        "op": "lambda",
+                        "params": [
+                          {
+                            "name": "left"
+                          },
+                          {
+                            "name": "right"
+                          }
+                        ],
+                        "body": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "sets:UnionWith"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "left"
+                            },
+                            {
+                              "op": "var",
+                              "name": "right"
+                            },
+                            {
+                              "op": "symbol",
+                              "ref": "std:IntEq"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "op": "lambda",
+                        "params": [
+                          {
+                            "name": "x"
+                          }
+                        ],
+                        "body": {
+                          "op": "if",
+                          "condition": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "std:IntEq"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "x"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "int"
+                                },
+                                "value": "0"
+                              }
+                            ]
+                          },
+                          "then": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "sets:FromSequenceWith"
+                            },
+                            "arguments": [
+                              {
+                                "op": "sequence",
+                                "items": []
+                              },
+                              {
+                                "op": "symbol",
+                                "ref": "std:IntEq"
+                              }
+                            ]
+                          },
+                          "otherwise": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "sets:FromSequenceWith"
+                            },
+                            "arguments": [
+                              {
+                                "op": "sequence",
+                                "items": [
+                                  {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "std:IntAdd"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "field",
+                                        "record": {
+                                          "op": "var",
+                                          "name": "group"
+                                        },
+                                        "name": "bias"
+                                      },
+                                      {
+                                        "op": "var",
+                                        "name": "x"
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "symbol",
+                                "ref": "std:IntEq"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "std:IntEq"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": [
+    "UniqueNonzeroCount",
+    "NonzeroFromSet",
+    "MixedDistinct"
+  ]
+}

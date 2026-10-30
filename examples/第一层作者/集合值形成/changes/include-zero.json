@@ -1,0 +1,56 @@
+[
+  {
+    "op": "test",
+    "path": "/definitions/UniqueNonzeroCount/core:function/body/arguments/0/arguments/0/arguments/1/body",
+    "value": {
+      "op": "if",
+      "condition": {
+        "op": "call",
+        "callee": {
+          "op": "symbol",
+          "ref": "std:IntEq"
+        },
+        "arguments": [
+          {
+            "op": "var",
+            "name": "x"
+          },
+          {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "int"
+            },
+            "value": "0"
+          }
+        ]
+      },
+      "then": {
+        "op": "sequence",
+        "items": []
+      },
+      "otherwise": {
+        "op": "sequence",
+        "items": [
+          {
+            "op": "var",
+            "name": "x"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "op": "replace",
+    "path": "/definitions/UniqueNonzeroCount/core:function/body/arguments/0/arguments/0/arguments/1/body",
+    "value": {
+      "op": "sequence",
+      "items": [
+        {
+          "op": "var",
+          "name": "x"
+        }
+      ]
+    }
+  }
+]
