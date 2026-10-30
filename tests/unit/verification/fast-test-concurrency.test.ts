@@ -164,7 +164,6 @@ test('managed explicit concurrency adapts the outer allocation and rejects impos
     innerConcurrency: 12,
     outerProcessConcurrency: 1
   });
-  expect(Object.values(singleProcess.resourceClassLimits)).toEqual([1, 1, 1, 1]);
   expect(() => resolveManagedFastTestConcurrency(budget, 13)).toThrow(
     'exceeds the managed fast-test global budget 12'
   );

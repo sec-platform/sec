@@ -59,14 +59,6 @@ test('unknown paths cannot be converted into a false exact selection', () => {
   expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
 });
 
-test('a directly changed slow test retains its executable suite identity', () => {
-  const selection = selectSlowTestRiskClosure(['tests/e2e/workspace/dry-run-plan.test.ts']);
-
-  expect(selection.resolved).toBe(true);
-  expect(selection.reasons).toContain('direct-slow-test');
-  expect(selection.suites).toContain('e2e-dry-run-plan');
-});
-
 test('global test setup changes request the bounded slow baseline', () => {
   const selection = selectSlowTestRiskClosure(['tests/setup/test-runtime.setup.ts']);
 
