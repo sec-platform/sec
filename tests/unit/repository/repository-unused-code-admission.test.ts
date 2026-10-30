@@ -77,7 +77,7 @@ async function rejectsUnused(surface: 'src' | 'tests'): Promise<void> {
       typeof detail === 'string' && detail.includes(`/${surface}/${file}:1:${column} `)
     ));
     assert.equal(matched.length, 1, `Expected one unused-declaration diagnostic for ${surface}/${file}`);
-    assert.match(matched[0]!, /\bTS6133:/u);
+    assert.match(matched[0]!, /is declared but its value is never read/u);
     assert.ok(matched[0]!.includes(`'${binding}'`));
   }
 }
