@@ -633,11 +633,11 @@ test('a fired native deadline stays expired when the supplied wall clock does no
 
 test('exact ref deletion binds the branch and old SHA after repository identity observation', async () => {
   const operation = { kind: 'delete-ref-cas' as const, branch: 'stable-branch', expectedOldSha: SHA };
-  let requests = 0;
+  const requests: Array<{ target: string; method: string | undefined }> = [];
   let variables: Record<string, unknown> | null = null;
-  const api = capability({ effect: 'branch-closeout-write', transport: async (_target, init) => {
-    requests++;
-    if (requests === 1) {
+  const api = capability({ effect: 'branch-closeout-write', transport: async (target, init) => {
+    requests.push({ target: String(target), method: init?.method });
+    if (requests.length === 1) {
       return Response.json({ full_name: 'sec-platform/sec', node_id: 'repository-node' });
     }
     variables = (JSON.parse(String(init?.body)) as { variables: Record<string, unknown> }).variables;
@@ -646,9 +646,13 @@ test('exact ref deletion binds the branch and old SHA after repository identity 
   await withGitHubApiTestSession({ capability: api,
     operation: () => executeGitHubApiOperation(api, operation)
   });
-  expect(requests).toBe(2);
-  expect(variables).toMatchObject({
-    name: 'refs/heads/stable-branch', beforeOid: SHA
+  expect(requests).toEqual([
+    { target: 'https://api.github.com/repos/sec-platform/sec', method: 'GET' },
+    { target: 'https://api.github.com/graphql', method: 'POST' }
+  ]);
+  expect(variables).toEqual({
+    repositoryId: 'repository-node', name: 'refs/heads/stable-branch',
+    beforeOid: SHA, afterOid: '0'.repeat(40)
   });
 });
 
