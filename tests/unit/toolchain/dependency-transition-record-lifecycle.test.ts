@@ -12,6 +12,7 @@ import { dependencyTransitionNamespacePaths } from '../../../src/adapters/toolch
 import { runtimeDependencyOperationControls } from '../../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { runtimeDependencySourceGeneration } from '../../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import { settleResources } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 // Repository execution uses actual source compilation and retained state owners.
 // Local replay explicitly replaces physical/namespace/migration/rollover/digest
@@ -37,7 +38,11 @@ function request(f: Awaited<ReturnType<typeof fixture>>) {
     bindingDigest: f.sourceGeneration.bindingDigest, options: f.options };
 }
 async function using(run: (f: Awaited<ReturnType<typeof fixture>>) => Promise<void>) {
-  const f = await fixture(); try { await run(f); } finally { rmSync(f.root, { recursive: true, force: true }); }
+  const f = await fixture();
+  return settleWorkspaceCallback(
+    () => run(f),
+    () => rmSync(f.root, { recursive: true, force: true })
+  );
 }
 
 function assertDeepFrozen(value: unknown): void {
