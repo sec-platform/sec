@@ -1,0 +1,51 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:schedule-preference",
+  "imports": {
+    "schedule": {"workspace": "module:scheduling-policy"},
+    "confirm": {"workspace": "module:confirmation-session"},
+    "workload": {"workspace": "module:schedule-workload-measurement"}
+  },
+  "definitions": {
+    "BalancedWorkload": {
+      "quality:contract": {
+        "terms": [{"termId": "peak", "metricRef": "workload:PeakMinutes", "strength": "soft", "objective": "minimize"}],
+        "comparisonPolicy": "pareto"
+      }
+    },
+    "SuggestSchedule": {
+      "intent:goal": {
+        "roles": {"dataset": "schedule:Dataset", "candidate": "confirm:Content"},
+        "clauses": {
+          "feasible": {"achieve": {"apply": {"meaningRef": "schedule:ScheduleFeasible", "arguments": {
+            "dataset": {"binding": "dataset"}, "content": {"binding": "candidate"}
+          }}}},
+          "lowerPeak": {"prefer": {
+            "qualityRef": "local:BalancedWorkload", "direction": "minimize",
+            "metricArguments": {"peak": {"dataset": {"binding": "dataset"}, "content": {"binding": "candidate"}}}
+          }}
+        }
+      }
+    },
+    "CompareBasis": {
+      "intent:goal": {
+        "roles": {"primary": "schedule:Dataset", "backup": "schedule:Dataset", "candidate": "confirm:Content"},
+        "clauses": {
+          "feasibleBoth": {"achieve": {"all": [
+            {"apply": {"meaningRef": "schedule:ScheduleFeasible", "arguments": {
+              "dataset": {"binding": "primary"}, "content": {"binding": "candidate"}
+            }}},
+            {"apply": {"meaningRef": "schedule:ScheduleFeasible", "arguments": {
+              "dataset": {"binding": "backup"}, "content": {"binding": "candidate"}
+            }}}
+          ]}},
+          "lowerPeak": {"prefer": {
+            "qualityRef": "local:BalancedWorkload", "direction": "minimize",
+            "metricArguments": {"peak": {"dataset": {"binding": "primary"}, "content": {"binding": "candidate"}}}
+          }}
+        }
+      }
+    }
+  },
+  "exports": ["BalancedWorkload", "SuggestSchedule", "CompareBasis"]
+}

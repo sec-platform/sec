@@ -306,6 +306,26 @@ class AuthorCodecSpec(TestCase):
         self.assertEqual(expanded, {'kind': 'product:component', 'body': body})
         self.assertEqual(expanded['body']['requirements'][0]['roleBindings']['data']['value'], payload)
 
+    def test_preference_arguments_share_value_expansion_without_capturing_data(self):
+        data = {'var': {'name': 'not a binding'}}
+        source = {'prefer': {'qualityRef': 'local:Quality', 'direction': 'minimize',
+                             'metricArguments': {'peak': {
+                                 'dataset': {'binding': 'primary'},
+                                 'candidate': {'value': {'var': {'name': 'selected'}}},
+                                 'data': {'value': {'literal': {'type': 'text', 'value': data}}}}}}}
+        expanded = self.expansion.clause('lower', source)
+        self.assertEqual(expanded['metricArguments']['peak']['candidate'],
+                         {'value': {'op': 'var', 'name': 'selected'}})
+        self.assertEqual(expanded['metricArguments']['peak']['dataset'], {'binding': 'primary'})
+        self.assertEqual(expanded['metricArguments']['peak']['data']['value']['value'], data)
+        exact = {'kind': 'intent:goal', 'body': {'clauses': [expanded]}}
+        self.assertEqual(self.expansion.definition(exact), exact)
+        for invalid in ({'binding': 'x', 'value': {'var': {'name': 'x'}}}, {'var': 'x'}):
+            broken = copy.deepcopy(source)
+            broken['prefer']['metricArguments']['peak']['dataset'] = invalid
+            with self.assertRaises(ValueError):
+                self.expansion.clause('lower', broken)
+
     def test_relation_formula_uses_the_existing_formula_slot_only(self):
         body = {'category': 'relation', 'parameters': [],
                 'result': {'tag': 'scalar', 'name': 'bool'},

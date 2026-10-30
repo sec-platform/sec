@@ -1,0 +1,7 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "module:finite-set-fold-map",
+  "language": "typescript",
+  "profileRef": "profile:finite-set-fold-map:1",
+  "symbols": {"FoldMap": {"sourcePath": "有限集合聚合/supply/finite-set.d.ts", "nativeExport": "FoldMap", "role": "callable"}}
+}

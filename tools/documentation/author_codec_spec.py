@@ -217,6 +217,17 @@ class Expansion:
             return {**copy.deepcopy(value), 'type': self.type(value['type'])}
         return {'type': self.type(value)}
 
+    def arguments(self, value):
+        arguments = object_at(value, 'named arguments')
+        result = copy.deepcopy(arguments)
+        for name, argument in arguments.items():
+            object_at(argument, 'Argument')
+            if set(argument) == {'value'}:
+                result[name] = {'value': self.expression(argument['value'])}
+            elif set(argument) != {'binding'}:
+                reject('Argument requires exactly binding or value')
+        return result
+
     def formula(self, value):
         object_at(value, 'Formula')
         if 'op' in value:
@@ -228,15 +239,7 @@ class Expansion:
         key, payload = next(iter(value.items()))
         if key == 'apply':
             exactly(payload, ('meaningRef', 'arguments'), 'short Meaning application')
-            arguments = object_at(payload['arguments'], 'named arguments')
-            result = copy.deepcopy(arguments)
-            for name, argument in arguments.items():
-                object_at(argument, 'Argument')
-                if set(argument) == {'value'}:
-                    result[name] = {'value': self.expression(argument['value'])}
-                elif set(argument) != {'binding'}:
-                    reject('Argument requires exactly binding or value')
-            return {'op': 'call', 'meaningRef': copy.deepcopy(payload['meaningRef']), 'arguments': result}
+            return {'op': 'call', 'meaningRef': copy.deepcopy(payload['meaningRef']), 'arguments': self.arguments(payload['arguments'])}
         if key in ('all', 'any'):
             return {'op': key, 'items': [self.formula(v) for v in array_at(payload, key)]}
         if key == 'not':
@@ -293,6 +296,11 @@ class Expansion:
                 for child in ('trigger', 'fulfilment'):
                     if child in payload:
                         result[child] = self.formula(payload[child])
+            if mode == 'prefer' and 'metricArguments' in payload:
+                result['metricArguments'] = {
+                    term: self.arguments(arguments)
+                    for term, arguments in object_at(payload['metricArguments'], 'metric arguments').items()
+                }
         return {'id': identity, 'modality': mode, **result}
 
     def goal(self, value):

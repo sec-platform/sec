@@ -1,0 +1,5 @@
+[
+  {"op":"test","path":"/definitions/CompareBasis/intent:goal/clauses/lowerPeak/prefer/qualityRef","value":"local:BalancedWorkload"},
+  {"op":"test","path":"/definitions/CompareBasis/intent:goal/clauses/lowerPeak/prefer/metricArguments/peak/dataset","value":{"binding":"primary"}},
+  {"op":"replace","path":"/definitions/CompareBasis/intent:goal/clauses/lowerPeak/prefer/metricArguments/peak/dataset","value":{"binding":"backup"}}
+]

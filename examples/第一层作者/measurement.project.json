@@ -1,0 +1,139 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:parameterized-measurement",
+  "sourceScopes": [
+    {
+      "root": "持续确认",
+      "kind": "semantic",
+      "include": [
+        "confirmation.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "事件期限",
+      "kind": "semantic",
+      "include": [
+        "ranges.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "semantic",
+      "include": [
+        "subjects.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "源发生绑定",
+      "kind": "design",
+      "include": [
+        "README.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "持续确认/supply",
+      "kind": "native",
+      "include": [
+        "observations.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "持续确认/supply",
+      "kind": "design",
+      "include": [
+        "observations.selection.json",
+        "observation-profile.md",
+        "target-profile-v2.md",
+        "target-profile.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "排班发布",
+      "kind": "semantic",
+      "include": [
+        "schedule.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "排班发布",
+      "kind": "design",
+      "include": [
+        "README.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "有参测量",
+      "kind": "semantic",
+      "include": [
+        "*.module.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "有参测量",
+      "kind": "design",
+      "include": [
+        "measurement-profile.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "有限集合聚合/supply",
+      "kind": "native",
+      "include": [
+        "finite-set.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "有限集合聚合/supply",
+      "kind": "design",
+      "include": [
+        "finite-set.selection.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "有限集合聚合",
+      "kind": "design",
+      "include": [
+        "README.md"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  ]
+}

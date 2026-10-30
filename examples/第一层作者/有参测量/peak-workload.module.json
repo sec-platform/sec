@@ -1,0 +1,226 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:schedule-workload-measurement",
+  "imports": {"schedule": {"workspace": "module:scheduling-policy"}, "confirm": {"workspace": "module:confirmation-session"}, "native": {"workspace": "module:finite-set-fold-map"}},
+  "definitions": {
+    "JoinAny": {
+      "core:function": {
+        "parameters": [{"name": "left", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}, {"name": "right", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {"op": "var", "name": "left"},
+          "then": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true},
+          "otherwise": {"op": "var", "name": "right"}
+        }
+      }
+    },
+    "JoinMaximum": {
+      "core:function": {
+        "parameters": [
+          {"name": "left", "type": {"tag": "option", "inner": {"tag": "scalar", "name": "int"}}, "mode": "in"},
+          {"name": "right", "type": {"tag": "option", "inner": {"tag": "scalar", "name": "int"}}, "mode": "in"}
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "scalar", "name": "int"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "var", "name": "left"},
+          "cases": [
+            {"constructor": "None", "binding": "emptyLeft", "body": {"op": "var", "name": "right"}},
+            {
+              "constructor": "Some",
+              "binding": "a",
+              "body": {
+                "op": "match",
+                "value": {"op": "var", "name": "right"},
+                "cases": [
+                  {"constructor": "None", "binding": "emptyRight", "body": {"op": "var", "name": "left"}},
+                  {
+                    "constructor": "Some",
+                    "binding": "b",
+                    "body": {
+                      "op": "match",
+                      "value": {"op": "call", "callee": {"op": "symbol", "ref": "std:IntCompare"}, "arguments": [{"op": "var", "name": "a"}, {"op": "var", "name": "b"}]},
+                      "cases": [
+                        {"constructor": "Less", "binding": "less", "body": {"op": "var", "name": "right"}},
+                        {"constructor": "Equal", "binding": "equal", "body": {"op": "var", "name": "left"}},
+                        {"constructor": "Greater", "binding": "greater", "body": {"op": "var", "name": "left"}}
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Assigned": {
+      "core:function": {
+        "parameters": [
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "mode": "in"},
+          {"name": "person", "type": {"tag": "scalar", "name": "int"}, "mode": "in"},
+          {"name": "shift", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "native:FoldMap"},
+          "arguments": [
+            {"op": "var", "name": "content"},
+            {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false},
+            {"op": "symbol", "ref": "local:JoinAny"},
+            {
+              "op": "lambda",
+              "params": [{"name": "pair"}],
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:IntEq"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "pair"}, "name": "person"}, {"op": "var", "name": "person"}]
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:IntEq"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "pair"}, "name": "shift"}, {"op": "var", "name": "shift"}]
+                },
+                "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "PersonWorkload": {
+      "core:function": {
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "schedule:Dataset"}, "mode": "in"},
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "mode": "in"},
+          {"name": "person", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "native:FoldMap"},
+          "arguments": [
+            {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "shifts"},
+            {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"},
+            {"op": "symbol", "ref": "std:IntAdd"},
+            {
+              "op": "lambda",
+              "params": [{"name": "shift"}],
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:Assigned"},
+                  "arguments": [{"op": "var", "name": "content"}, {"op": "var", "name": "person"}, {"op": "field", "record": {"op": "var", "name": "shift"}, "name": "id"}]
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "std:IntSub"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "shift"}, "name": "end"}, {"op": "field", "record": {"op": "var", "name": "shift"}, "name": "start"}]
+                },
+                "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "PeakOptional": {
+      "core:function": {
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "schedule:Dataset"}, "mode": "in"},
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "mode": "in"}
+        ],
+        "returns": {"tag": "option", "inner": {"tag": "scalar", "name": "int"}},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {"op": "symbol", "ref": "native:FoldMap"},
+          "arguments": [
+            {"op": "field", "record": {"op": "var", "name": "dataset"}, "name": "people"},
+            {"op": "variant", "constructor": "None", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}},
+            {"op": "symbol", "ref": "local:JoinMaximum"},
+            {
+              "op": "lambda",
+              "params": [{"name": "person"}],
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:PersonWorkload"},
+                  "arguments": [{"op": "var", "name": "dataset"}, {"op": "var", "name": "content"}, {"op": "var", "name": "person"}]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "PeakOrZero": {
+      "core:function": {
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "schedule:Dataset"}, "mode": "in"},
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {"op": "call", "callee": {"op": "symbol", "ref": "local:PeakOptional"}, "arguments": [{"op": "var", "name": "dataset"}, {"op": "var", "name": "content"}]},
+          "cases": [
+            {"constructor": "None", "binding": "noPeople", "body": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}},
+            {"constructor": "Some", "binding": "peak", "body": {"op": "var", "name": "peak"}}
+          ]
+        }
+      }
+    },
+    "Minutes": {"core:type": {"tag": "record", "open": false, "fields": {"count": {"type": {"tag": "scalar", "name": "int"}}}}},
+    "PeakMinutesValue": {
+      "core:function": {
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "schedule:Dataset"}, "mode": "in"},
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:Minutes"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "count",
+              "value": {"op": "call", "callee": {"op": "symbol", "ref": "local:PeakOrZero"}, "arguments": [{"op": "var", "name": "dataset"}, {"op": "var", "name": "content"}]}
+            }
+          ]
+        }
+      }
+    },
+    "PeakMinutes": {
+      "domain:meaning": {
+        "category": "measurement",
+        "parameters": [
+          {"name": "dataset", "type": {"tag": "nominal", "ref": "schedule:Dataset"}, "cardinality": "one"},
+          {"name": "content", "type": {"tag": "nominal", "ref": "confirm:Content"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "nominal", "ref": "local:Minutes"},
+        "interpretationRef": "local:PeakMinutesValue"
+      }
+    }
+  },
+  "exports": ["Minutes", "PeakOptional", "PeakMinutes"]
+}
