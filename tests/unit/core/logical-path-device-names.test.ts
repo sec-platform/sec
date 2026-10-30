@@ -4,16 +4,14 @@ import { isCanonicalCiArtifactPath } from '../../../src/assurance/verification/c
 import { isWindowsReservedLogicalComponent } from '../../../src/contracts/logical-path-component.ts';
 import { isCanonicalPortableLogicalPath } from '../../../src/contracts/logical-path.ts';
 
-test('Win32 COM/LPT superscript device aliases and their extensions are rejected', () => {
+test('ordinary and superscript Windows device stems stay forbidden', () => {
   // Preserve each stem/digit pair; casing and extensions share the same owner rule.
   for (const component of ['COM¹', 'com².txt', 'COM³.tar.gz', 'lpt¹', 'LPT².tar.gz', 'lpt³.txt']) {
     assert.equal(isWindowsReservedLogicalComponent(component), true, component);
   }
   assert.equal(isCanonicalPortableLogicalPath('nested/COM¹.txt'), false);
   assert.equal(isCanonicalCiArtifactPath('.sec/artifacts/COM¹.txt'), false);
-});
-
-test('ordinary reserved device stems remain rejected with mixed case and extensions', () => {
+  // Ordinary names are another input class of the same reserved-name guard.
   for (const value of ['CON', 'prn', 'Aux', 'NUL.txt', 'com1', 'Com9.log', 'Lpt1', 'lpt9.tar.gz']) {
     assert.equal(isWindowsReservedLogicalComponent(value), true, value);
   }

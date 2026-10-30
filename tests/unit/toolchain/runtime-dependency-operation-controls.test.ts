@@ -107,8 +107,8 @@ for (const canceller of ['parent', 'child'] as const) {
   });
 }
 
-for (const lockTimeoutMs of [undefined, 1, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS]) {
-  test(`control projection and install binding admit the same budget ${lockTimeoutMs}`, () => {
+test('all admitted control budget boundaries bind one operation', () => {
+  for (const lockTimeoutMs of [undefined, 1, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS]) {
     const input = { lockTimeoutMs, monotonicNowMs: () => 0 };
     const control = runtimeDependencyOperationControls(input);
     const install = runtimeDependencyOperationOptions(input);
@@ -121,11 +121,11 @@ for (const lockTimeoutMs of [undefined, 1, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS])
     assert.equal(control.lockTimeoutMs, install.lockTimeoutMs);
     assert.equal(runtimeDependencyOperationContext(control).deadlineAtMonotonicMs,
       runtimeDependencyOperationContext(install).deadlineAtMonotonicMs);
-  });
-}
+  }
+});
 
-for (const lockTimeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS + 1]) {
-  test(`invalid budget ${lockTimeoutMs} cannot reach the environment clock`, () => {
+test('invalid control budgets reject before reading the environment clock', () => {
+  for (const lockTimeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS + 1]) {
     const input = { lockTimeoutMs, monotonicNowMs: () => { assert.fail('clock ran before admission'); } };
     assert.throws(() => runtimeDependencyOperationControls(input),
       (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003');
@@ -135,5 +135,6 @@ for (const lockTimeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, M
       assert.throws(() => runtimeDependencyOperationOptions(input),
         (error: unknown) => (error as { code: string }).code === 'RUNTIME-DEPS-003');
     }
-  });
-}
+  }
+});
+

@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { isSecRepositoryTestModulePath } from './repository-test-path.ts';
 
-test('repository test identity preserves dotted suffixes and portable path spellings', () => {
+test('repository executable-test identity admits dotted, underscored and portable script paths', () => {
   for (const file of [
     'tests/unit/example.test.ts',
     'tests/integration/example.spec.mts',
@@ -14,9 +14,7 @@ test('repository test identity preserves dotted suffixes and portable path spell
   ]) {
     assert.equal(isSecRepositoryTestModulePath(file), true, file);
   }
-});
-
-test('underscore test and spec files use the same executable-test identity across script extensions', () => {
+  // Underscored names preserve the same admission grammar across extensions.
   for (const file of [
     'src/nested/example_test.ts',
     'tests/nested/example_spec.tsx',
