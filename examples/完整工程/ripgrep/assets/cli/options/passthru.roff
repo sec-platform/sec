@@ -1,0 +1,13 @@
+
+Print both matching and non-matching lines.
+.sp
+Another way to achieve a similar effect is by modifying your pattern to match
+the empty string. For example, if you are searching using \fBrg\fP \fIfoo\fP,
+then using \fBrg\fP \fB'^|\fP\fIfoo\fP\fB'\fP instead will emit every line in
+every file searched, but only occurrences of \fIfoo\fP will be highlighted.
+This flag enables the same behavior without needing to modify the pattern.
+.sp
+An alternative spelling for this flag is \fB\-\-passthrough\fP.
+.sp
+This overrides the \flag{context}, \flag{after-context} and
+\flag{before-context} flags.

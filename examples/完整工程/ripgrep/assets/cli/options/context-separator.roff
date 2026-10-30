@@ -1,0 +1,9 @@
+
+The string used to separate non-contiguous context lines in the output. This is
+only used when one of the context flags is used (that is, \flag{after-context},
+\flag{before-context} or \flag{context}). Escape sequences like \fB\\x7F\fP or
+\fB\\t\fP may be used. The default value is \fB\-\-\fP.
+.sp
+When the context separator is set to an empty string, then a line break
+is still inserted. To completely disable context separators, use the
+\flag-negate{context-separator} flag.

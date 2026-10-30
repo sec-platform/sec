@@ -1,0 +1,13 @@
+
+Search for patterns from the given file, with one pattern per line. When this
+flag is used multiple times or in combination with the \flag{regexp} flag, then
+all patterns provided are searched. Empty pattern lines will match all input
+lines, and the newline is not counted as part of the pattern.
+.sp
+A line is printed if and only if it matches at least one of the patterns.
+.sp
+When \fIPATTERNFILE\fP is \fB-\fP, then \fBstdin\fP will be read for the
+patterns.
+.sp
+When \flag{file} or \flag{regexp} is used, then ripgrep treats all positional
+arguments as files or directories to search.

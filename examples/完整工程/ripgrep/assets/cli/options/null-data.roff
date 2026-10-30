@@ -1,0 +1,14 @@
+
+Enabling this flag causes ripgrep to use \fBNUL\fP as a line terminator instead
+of the default of \fP\\n\fP.
+.sp
+This is useful when searching large binary files that would otherwise have
+very long lines if \fB\\n\fP were used as the line terminator. In particular,
+ripgrep requires that, at a minimum, each line must fit into memory. Using
+\fBNUL\fP instead can be a useful stopgap to keep memory requirements low and
+avoid OOM (out of memory) conditions.
+.sp
+This is also useful for processing NUL delimited data, such as that emitted
+when using ripgrep's \flag{null} flag or \fBfind\fP's \fB\-\-print0\fP flag.
+.sp
+Using this flag implies \flag{text}. It also overrides \flag{crlf}.

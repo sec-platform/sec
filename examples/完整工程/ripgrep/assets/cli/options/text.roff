@@ -1,0 +1,15 @@
+
+This flag instructs ripgrep to search binary files as if they were text. When
+this flag is present, ripgrep's binary file detection is disabled. This means
+that when a binary file is searched, its contents may be printed if there is
+a match. This may cause escape codes to be printed that alter the behavior of
+your terminal.
+.sp
+When binary file detection is enabled, it is imperfect. In general, it uses
+a simple heuristic. If a \fBNUL\fP byte is seen during search, then the file
+is considered binary and searching stops (unless this flag is present).
+Alternatively, if the \flag{binary} flag is used, then ripgrep will only quit
+when it sees a \fBNUL\fP byte after it sees a match (or searches the entire
+file).
+.sp
+This flag overrides the \flag{binary} flag.

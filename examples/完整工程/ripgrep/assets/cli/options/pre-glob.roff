@@ -1,0 +1,24 @@
+
+This flag works in conjunction with the \flag{pre} flag. Namely, when one or
+more \flag{pre-glob} flags are given, then only files that match the given set
+of globs will be handed to the command specified by the \flag{pre} flag. Any
+non-matching files will be searched without using the preprocessor command.
+.sp
+This flag is useful when searching many files with the \flag{pre} flag.
+Namely, it provides the ability to avoid process overhead for files that
+don't need preprocessing. For example, given the following shell script,
+\fIpre-pdftotext\fP:
+.sp
+.EX
+    #!/bin/sh
+    pdftotext "$1" -
+.EE
+.sp
+then it is possible to use \fB\-\-pre\fP \fIpre-pdftotext\fP
+\fB\-\-pre\-glob\fP '\fI*.pdf\fP' to make it so ripgrep only executes
+the \fIpre-pdftotext\fP command on files with a \fI.pdf\fP extension.
+.sp
+Multiple \flag{pre-glob} flags may be used. Globbing rules match
+\fBgitignore\fP globs. Precede a glob with a \fB!\fP to exclude it.
+.sp
+This flag has no effect if the \flag{pre} flag is not used.

@@ -1,0 +1,46 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:ripgrep-first-layer",
+  "sourceScopes": [
+    {
+      "root": "intent",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "*.module.json"
+      ],
+      "exclude": ["path-selection.module.json"]
+    },
+    {
+      "root": "intent",
+      "kind": "design",
+      "editSource": {"mode": "file"},
+      "include": ["PRODUCT.md", "WHOLE-PRODUCT.md", "ENGINEERING.md", "COMMAND.md", "ARGUMENT-SOURCES.md", "CLI-OPTIONS.md", "CLI-DOCUMENTATION.md", "flag-vocabulary.json", "PATH-SELECTION.md", "README.md"]
+    },
+    {
+      "root": "library",
+      "kind": "semantic",
+      "editSource": {"mode": "file"},
+      "include": ["*.module.json"]
+    },
+    {
+      "root": "library",
+      "kind": "design",
+      "editSource": {"mode": "file"},
+      "include": ["globset-contract.md", "MATCHER-CONTRACT.md", "SEARCH-CONTRACT.md", "ENGINE-CONTRACT.md", "PRINT-CONTRACT.md", "IGNORE-CONTRACT.md", "CLI-LIBRARY-CONTRACT.md", "DEFAULT-FILE-TYPES.md", "JSON-OUTPUT.md", "json-output.schema.json", "hyperlink-aliases.json"]
+    },
+    {
+      "root": "assets",
+      "kind": "asset",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "legal/**",
+        "cli/**"
+      ]
+    }
+  ]
+}

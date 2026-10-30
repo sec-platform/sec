@@ -1,0 +1,21 @@
+
+A pattern to search for. This option can be provided multiple times, where
+all patterns given are searched, in addition to any patterns provided by
+\flag{file}. Lines matching at least one of the provided patterns are printed.
+This flag can also be used when searching for patterns that start with a dash.
+.sp
+For example, to search for the literal \fB\-foo\fP:
+.sp
+.EX
+    rg \-e \-foo
+.EE
+.sp
+You can also use the special \fB\-\-\fP delimiter to indicate that no more
+flags will be provided. Namely, the following is equivalent to the above:
+.sp
+.EX
+    rg \-\- \-foo
+.EE
+.sp
+When \flag{file} or \flag{regexp} is used, then ripgrep treats all positional
+arguments as files or directories to search.

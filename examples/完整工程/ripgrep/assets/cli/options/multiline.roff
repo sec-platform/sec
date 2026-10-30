@@ -1,0 +1,36 @@
+
+This flag enables searching across multiple lines.
+.sp
+When multiline mode is enabled, ripgrep will lift the restriction that a
+match cannot include a line terminator. For example, when multiline mode
+is not enabled (the default), then the regex \fB\\p{any}\fP will match any
+Unicode codepoint other than \fB\\n\fP. Similarly, the regex \fB\\n\fP is
+explicitly forbidden, and if you try to use it, ripgrep will return an error.
+However, when multiline mode is enabled, \fB\\p{any}\fP will match any Unicode
+codepoint, including \fB\\n\fP, and regexes like \fB\\n\fP are permitted.
+.sp
+An important caveat is that multiline mode does not change the match semantics
+of \fB.\fP. Namely, in most regex matchers, a \fB.\fP will by default match any
+character other than \fB\\n\fP, and this is true in ripgrep as well. In order
+to make \fB.\fP match \fB\\n\fP, you must enable the "dot all" flag inside the
+regex. For example, both \fB(?s).\fP and \fB(?s:.)\fP have the same semantics,
+where \fB.\fP will match any character, including \fB\\n\fP. Alternatively, the
+\flag{multiline-dotall} flag may be passed to make the "dot all" behavior the
+default. This flag only applies when multiline search is enabled.
+.sp
+There is no limit on the number of the lines that a single match can span.
+.sp
+\fBWARNING\fP: Because of how the underlying regex engine works, multiline
+searches may be slower than normal line-oriented searches, and they may also
+use more memory. In particular, when multiline mode is enabled, ripgrep
+requires that each file it searches is laid out contiguously in memory (either
+by reading it onto the heap or by memory-mapping it). Things that cannot be
+memory-mapped (such as \fBstdin\fP) will be consumed until EOF before searching
+can begin. In general, ripgrep will only do these things when necessary.
+Specifically, if the \flag{multiline} flag is provided but the regex does
+not contain patterns that would match \fB\\n\fP characters, then ripgrep
+will automatically avoid reading each file into memory before searching it.
+Nevertheless, if you only care about matches spanning at most one line, then it
+is always better to disable multiline mode.
+.sp
+This overrides the \flag{stop-on-nonmatch} flag.

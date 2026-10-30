@@ -1,0 +1,13 @@
+[
+  {"name": "cursor", "description": "Cursor scheme (cursor://)", "format": "cursor://file{path}:{line}:{column}", "displayPriority": null},
+  {"name": "default", "description": "RFC 8089 scheme (file://) (platform-aware)", "format": {"windows": "file://{path}", "nonWindows": "file://{host}{path}"}, "displayPriority": 0},
+  {"name": "file", "description": "RFC 8089 scheme (file://) with host", "format": "file://{host}{path}", "displayPriority": null},
+  {"name": "grep+", "description": "grep+ scheme (grep+://)", "format": "grep+://{path}:{line}", "displayPriority": null},
+  {"name": "kitty", "description": "kitty-style RFC 8089 scheme (file://) with line number", "format": "file://{host}{path}#{line}", "displayPriority": null},
+  {"name": "macvim", "description": "MacVim scheme (mvim://)", "format": "mvim://open?url=file://{path}&line={line}&column={column}", "displayPriority": null},
+  {"name": "none", "description": "disable hyperlinks", "format": "", "displayPriority": 1},
+  {"name": "textmate", "description": "TextMate scheme (txmt://)", "format": "txmt://open?url=file://{path}&line={line}&column={column}", "displayPriority": null},
+  {"name": "vscode", "description": "VS Code scheme (vscode://)", "format": "vscode://file{path}:{line}:{column}", "displayPriority": null},
+  {"name": "vscode-insiders", "description": "VS Code Insiders scheme (vscode-insiders://)", "format": "vscode-insiders://file{path}:{line}:{column}", "displayPriority": null},
+  {"name": "vscodium", "description": "VSCodium scheme (vscodium://)", "format": "vscodium://file{path}:{line}:{column}", "displayPriority": null}
+]

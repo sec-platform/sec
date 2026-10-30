@@ -1,0 +1,11 @@
+
+Do not search files matching \fITYPE\fP. Multiple \flag{type-not} flags may be
+provided. Use the \flag{type-list} flag to list all available types.
+.sp
+This flag supports the special value \fBall\fP, which will behave
+as if \flag{type-not} was provided for every file type supported by
+ripgrep (including any custom file types). The end result is that
+\fB\-\-type\-not=all\fP causes ripgrep to search in "blacklist" mode, where it
+will only search files that are unrecognized by its type definitions.
+.sp
+To see the list of available file types, use the \flag{type-list} flag.

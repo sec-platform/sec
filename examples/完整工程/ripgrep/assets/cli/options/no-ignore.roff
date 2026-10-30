@@ -1,0 +1,12 @@
+
+When set, ignore files such as \fB.gitignore\fP, \fB.ignore\fP and
+\fB.rgignore\fP will not be respected. This implies \flag{no-ignore-dot},
+\flag{no-ignore-exclude}, \flag{no-ignore-global}, \flag{no-ignore-parent} and
+\flag{no-ignore-vcs}.
+.sp
+This does not imply \flag{no-ignore-files}, since \flag{ignore-file} is
+specified explicitly as a command line argument.
+.sp
+When given only once, the \flag{unrestricted} flag is identical in
+behavior to this flag and can be considered an alias. However, subsequent
+\flag{unrestricted} flags have additional effects.

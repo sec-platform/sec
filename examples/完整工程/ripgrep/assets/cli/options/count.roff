@@ -1,0 +1,25 @@
+
+This flag suppresses normal output and shows the number of lines that match
+the given patterns for each file searched. Each file containing a match has
+its path and count printed on each line. Note that unless \flag{multiline} is
+enabled and the pattern(s) given can match over multiple lines, this reports
+the number of lines that match and not the total number of matches. When
+multiline mode is enabled and the pattern(s) given can match over multiple
+lines, \flag{count} is equivalent to \flag{count-matches}.
+.sp
+If only one file is given to ripgrep, then only the count is printed if there
+is a match. The \flag{with-filename} flag can be used to force printing the
+file path in this case. If you need a count to be printed regardless of whether
+there is a match, then use \flag{include-zero}.
+.sp
+Note that it is possible for this flag to have results inconsistent with
+the output of \flag{files-with-matches}. Notably, by default, ripgrep tries
+to avoid searching files with binary data. With this flag, ripgrep needs to
+search the entire content of files, which may include binary data. But with
+\flag{files-with-matches}, ripgrep can stop as soon as a match is observed,
+which may come well before any binary data. To avoid this inconsistency without
+disabling binary detection, use the \flag{binary} flag.
+.sp
+This overrides the \flag{count-matches} flag. Note that when \flag{count}
+is combined with \flag{only-matching}, then ripgrep behaves as if
+\flag{count-matches} was given.

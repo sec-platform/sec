@@ -1,0 +1,8 @@
+
+Show \fINUM\fP lines before and after each match. This is equivalent to
+providing both the \flag{before-context} and \flag{after-context} flags with
+the same value.
+.sp
+This overrides the \flag{passthru} flag. The \flag{after-context} and
+\flag{before-context} flags both partially override this flag, regardless of
+the order. For example, \fB\-A2 \-C1\fP is equivalent to \fB\-A2 \-B1\fP.

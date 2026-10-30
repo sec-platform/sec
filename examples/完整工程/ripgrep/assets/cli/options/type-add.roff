@@ -1,0 +1,34 @@
+
+This flag adds a new glob for a particular file type. Only one glob can be
+added at a time. Multiple \flag{type-add} flags can be provided. Unless
+\flag{type-clear} is used, globs are added to any existing globs defined inside
+of ripgrep.
+.sp
+Note that this must be passed to every invocation of ripgrep. Type settings are
+not persisted. See \fBCONFIGURATION FILES\fP for a workaround.
+.sp
+Example:
+.sp
+.EX
+    rg \-\-type\-add 'foo:*.foo' -tfoo \fIPATTERN\fP
+.EE
+.sp
+This flag can also be used to include rules from other types with the special
+include directive. The include directive permits specifying one or more other
+type names (separated by a comma) that have been defined and its rules will
+automatically be imported into the type specified. For example, to create a
+type called src that matches C++, Python and Markdown files, one can use:
+.sp
+.EX
+    \-\-type\-add 'src:include:cpp,py,md'
+.EE
+.sp
+Additional glob rules can still be added to the src type by using this flag
+again:
+.sp
+.EX
+    \-\-type\-add 'src:include:cpp,py,md' \-\-type\-add 'src:*.foo'
+.EE
+.sp
+Note that type names must consist only of Unicode letters or numbers.
+Punctuation characters are not allowed.

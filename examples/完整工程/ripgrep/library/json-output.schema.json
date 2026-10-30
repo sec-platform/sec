@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:example:ripgrep:json-output-1",
+  "title": "ripgrep P JSON output: shared message value shape",
+  "$comment": "Fixed P 4c2362d359d9913c7a5e391ccd79cb4da22bc89b. A structural projection of the output contract in JSON-OUTPUT.md, not a parser, printer, stream-order checker or proof of reachability. Validate exact integers without conversion through binary64. Library messages are begin/end/match/context; summary is added by the CLI.",
+  "type": "object",
+  "required": ["type", "data"],
+  "additionalProperties": false,
+  "properties": {"type": {"enum": ["begin", "end", "match", "context", "summary"]}, "data": {}},
+  "oneOf": [
+    {"properties": {"type": {"const": "begin"}, "data": {"$ref": "#/$defs/Begin"}}},
+    {"properties": {"type": {"const": "end"}, "data": {"$ref": "#/$defs/End"}}},
+    {"properties": {"type": {"const": "match"}, "data": {"$ref": "#/$defs/LocatedLines"}}},
+    {"properties": {"type": {"const": "context"}, "data": {"$ref": "#/$defs/LocatedLines"}}},
+    {"properties": {"type": {"const": "summary"}, "data": {"$ref": "#/$defs/Summary"}}}
+  ],
+  "$defs": {
+    "CommandMessage": {
+      "allOf": [
+        {"$ref": "#"},
+        {"if": {"properties": {"type": {"enum": ["begin", "end", "match", "context"]}}},
+          "then": {"properties": {"data": {"properties": {"path": {"$ref": "#/$defs/Data"}}}}}}
+      ]
+    },
+    "PrinterMessage": {
+      "allOf": [{"$ref": "#"}, {"properties": {"type": {"enum": ["begin", "end", "match", "context"]}}}]
+    },
+    "U64": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615},
+    "NullableU64": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/U64"}]},
+    "Data": {
+      "oneOf": [
+        {"type": "object", "required": ["text"], "additionalProperties": false,
+          "properties": {"text": {"type": "string"}}},
+        {"type": "object", "required": ["bytes"], "additionalProperties": false,
+          "properties": {"bytes": {
+            "type": "string", "contentEncoding": "base64", "minLength": 4,
+            "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?(?![\\s\\S])",
+            "$comment": "Standard padded Base64 with canonical zero pad bits. Whether decoded bytes are non-UTF-8 and correspond to this observation is a semantic condition, not established by contentEncoding."
+          }}}
+      ]
+    },
+    "NullableData": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/Data"}]},
+    "Duration": {
+      "type": "object", "required": ["secs", "nanos", "human"], "additionalProperties": false,
+      "properties": {
+        "secs": {"$ref": "#/$defs/U64"},
+        "nanos": {"type": "integer", "minimum": 0, "maximum": 999999999},
+        "human": {"type": "string", "$comment": "Human-readable duration; upstream does not specify its text format. P uses six decimal places, which is a version fact rather than a general compatibility requirement."}
+      }
+    },
+    "Stats": {
+      "type": "object", "additionalProperties": false,
+      "required": ["elapsed", "searches", "searches_with_match", "bytes_searched", "bytes_printed", "matched_lines", "matches"],
+      "properties": {
+        "elapsed": {"$ref": "#/$defs/Duration"},
+        "searches": {"$ref": "#/$defs/U64"},
+        "searches_with_match": {"$ref": "#/$defs/U64"},
+        "bytes_searched": {"$ref": "#/$defs/U64"},
+        "bytes_printed": {"$ref": "#/$defs/U64"},
+        "matched_lines": {"$ref": "#/$defs/U64"},
+        "matches": {"$ref": "#/$defs/U64"}
+      }
+    },
+    "Begin": {
+      "type": "object", "required": ["path"], "additionalProperties": false,
+      "properties": {"path": {"$ref": "#/$defs/NullableData"}}
+    },
+    "End": {
+      "type": "object", "required": ["path", "binary_offset", "stats"], "additionalProperties": false,
+      "properties": {
+        "path": {"$ref": "#/$defs/NullableData"},
+        "binary_offset": {"$ref": "#/$defs/NullableU64"},
+        "stats": {"$ref": "#/$defs/Stats"}
+      }
+    },
+    "Submatch": {
+      "type": "object", "required": ["match", "start", "end"], "additionalProperties": false,
+      "properties": {
+        "match": {"$ref": "#/$defs/Data"},
+        "replacement": {"$ref": "#/$defs/Data"},
+        "start": {"$ref": "#/$defs/U64"},
+        "end": {"$ref": "#/$defs/U64"}
+      }
+    },
+    "LocatedLines": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "lines", "line_number", "absolute_offset", "submatches"],
+      "properties": {
+        "path": {"$ref": "#/$defs/NullableData"},
+        "lines": {"$ref": "#/$defs/Data"},
+        "line_number": {"$ref": "#/$defs/NullableU64"},
+        "absolute_offset": {"$ref": "#/$defs/U64"},
+        "submatches": {"type": "array", "items": {"$ref": "#/$defs/Submatch"}}
+      }
+    },
+    "Summary": {
+      "type": "object", "required": ["elapsed_total", "stats"], "additionalProperties": false,
+      "properties": {"elapsed_total": {"$ref": "#/$defs/Duration"}, "stats": {"$ref": "#/$defs/Stats"}}
+    }
+  }
+}

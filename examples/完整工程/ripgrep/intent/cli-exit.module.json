@@ -1,0 +1,136 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:ripgrep-cli-exit",
+  "definitions": {
+    "SearchOrFilesResult": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "SelectedQuiet": {"tag": "scalar", "name": "unit"},
+          "SelectedNonQuiet": {"tag": "scalar", "name": "bool"},
+          "Unselected": {"tag": "scalar", "name": "bool"}
+        }
+      }
+    },
+    "ExitReason": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "SearchOrFiles": {"tag": "nominal", "ref": "local:SearchOrFilesResult"},
+          "Types": {"tag": "scalar", "name": "bool"},
+          "Generation": {"tag": "scalar", "name": "unit"},
+          "HelpOrVersion": {"tag": "scalar", "name": "unit"},
+          "Pcre2Version": {"tag": "scalar", "name": "bool"},
+          "PropagatedBrokenPipe": {"tag": "scalar", "name": "unit"},
+          "PropagatedErrorReported": {"tag": "scalar", "name": "unit"},
+          "DiagnosticWriteFailure": {"tag": "scalar", "name": "bool"}
+        }
+      }
+    },
+    "ExitRequest": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "Return": {"tag": "scalar", "name": "int"},
+          "DirectExit": {"tag": "scalar", "name": "int"}
+        }
+      }
+    },
+    "RequestedExit": {
+      "core:function": {
+        "parameters": [
+          {"name": "reason", "type": {"tag": "nominal", "ref": "local:ExitReason"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:ExitRequest"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match", "value": {"op": "var", "name": "reason"},
+          "cases": [
+            {
+              "constructor": "SearchOrFiles", "binding": "result",
+              "body": {
+                "op": "variant", "constructor": "Return",
+                "payload": {
+                  "op": "match", "value": {"op": "var", "name": "result"},
+                  "cases": [
+                    {
+                      "constructor": "SelectedQuiet", "binding": "completed",
+                      "body": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+                    },
+                    {
+                      "constructor": "SelectedNonQuiet", "binding": "errorRecorded",
+                      "body": {
+                        "op": "if", "condition": {"op": "var", "name": "errorRecorded"},
+                        "then": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "2"},
+                        "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}
+                      }
+                    },
+                    {
+                      "constructor": "Unselected", "binding": "errorRecorded",
+                      "body": {
+                        "op": "if", "condition": {"op": "var", "name": "errorRecorded"},
+                        "then": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "2"},
+                        "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Types", "binding": "hadTypes",
+              "body": {
+                "op": "variant", "constructor": "Return",
+                "payload": {
+                  "op": "if", "condition": {"op": "var", "name": "hadTypes"},
+                  "then": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"},
+                  "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                }
+              }
+            },
+            {
+              "constructor": "Generation", "binding": "completed",
+              "body": {"op": "variant", "constructor": "Return", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}}
+            },
+            {
+              "constructor": "HelpOrVersion", "binding": "completed",
+              "body": {"op": "variant", "constructor": "Return", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}}
+            },
+            {
+              "constructor": "Pcre2Version", "binding": "pcre2Feature",
+              "body": {
+                "op": "variant", "constructor": "Return",
+                "payload": {
+                  "op": "if", "condition": {"op": "var", "name": "pcre2Feature"},
+                  "then": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"},
+                  "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}
+                }
+              }
+            },
+            {
+              "constructor": "PropagatedBrokenPipe", "binding": "classified",
+              "body": {"op": "variant", "constructor": "Return", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}}
+            },
+            {
+              "constructor": "PropagatedErrorReported", "binding": "reported",
+              "body": {"op": "variant", "constructor": "Return", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "2"}}
+            },
+            {
+              "constructor": "DiagnosticWriteFailure", "binding": "isBrokenPipe",
+              "body": {
+                "op": "variant", "constructor": "DirectExit",
+                "payload": {
+                  "op": "if", "condition": {"op": "var", "name": "isBrokenPipe"},
+                  "then": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"},
+                  "otherwise": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "2"}
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": ["SearchOrFilesResult", "ExitReason", "ExitRequest", "RequestedExit"]
+}

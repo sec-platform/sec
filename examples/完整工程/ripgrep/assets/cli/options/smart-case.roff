@@ -1,0 +1,16 @@
+
+This flag instructs ripgrep to searches case insensitively if the pattern is
+all lowercase. Otherwise, ripgrep will search case sensitively.
+.sp
+A pattern is considered all lowercase if both of the following rules hold:
+.sp
+.IP \(bu 3n
+First, the pattern contains at least one literal character. For example,
+\fBa\\w\fP contains a literal (\fBa\fP) but just \fB\\w\fP does not.
+.sp
+.IP \(bu 3n
+Second, of the literals in the pattern, none of them are considered to be
+uppercase according to Unicode. For example, \fBfoo\\pL\fP has no uppercase
+literals but \fBFoo\\pL\fP does.
+.PP
+This overrides the \flag{case-sensitive} and \flag{ignore-case} flags.

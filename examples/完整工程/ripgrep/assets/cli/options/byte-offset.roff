@@ -1,0 +1,8 @@
+
+Print the 0-based byte offset within the input file before each line of output.
+If \flag{only-matching} is specified, print the offset of the matched text
+itself.
+.sp
+If ripgrep does transcoding, then the byte offset is in terms of the result
+of transcoding and not the original data. This applies similarly to other
+transformations on the data, such as decompression or a \flag{pre} filter.

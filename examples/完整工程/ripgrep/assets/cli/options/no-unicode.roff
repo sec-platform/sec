@@ -1,0 +1,30 @@
+
+This flag disables Unicode mode for all patterns given to ripgrep.
+.sp
+By default, ripgrep will enable "Unicode mode" in all of its regexes. This has
+a number of consequences:
+.sp
+.IP \(bu 3n
+\fB.\fP will only match valid UTF-8 encoded Unicode scalar values.
+.sp
+.IP \(bu 3n
+Classes like \fB\\w\fP, \fB\\s\fP, \fB\\d\fP are all Unicode aware and much
+bigger than their ASCII only versions.
+.sp
+.IP \(bu 3n
+Case insensitive matching will use Unicode case folding.
+.sp
+.IP \(bu 3n
+A large array of classes like \fB\\p{Emoji}\fP are available. (Although the
+specific set of classes available varies based on the regex engine. In general,
+the default regex engine has more classes available to it.)
+.sp
+.IP \(bu 3n
+Word boundaries (\fB\\b\fP and \fB\\B\fP) use the Unicode definition of a word
+character.
+.PP
+In some cases it can be desirable to turn these things off. This flag will do
+exactly that. For example, Unicode mode can sometimes have a negative impact
+on performance, especially when things like \fB\\w\fP are used frequently
+(including via bounded repetitions like \fB\\w{100}\fP) when only their ASCII
+interpretation is needed.

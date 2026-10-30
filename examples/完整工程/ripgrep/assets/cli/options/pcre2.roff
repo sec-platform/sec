@@ -1,0 +1,20 @@
+
+When this flag is present, ripgrep will use the PCRE2 regex engine instead of
+its default regex engine.
+.sp
+This is generally useful when you want to use features such as look-around
+or backreferences.
+.sp
+Using this flag is the same as passing \fB\-\-engine=pcre2\fP. Users may
+instead elect to use \fB\-\-engine=auto\fP to ask ripgrep to automatically
+select the right regex engine based on the patterns given. This flag and the
+\flag{engine} flag override one another.
+.sp
+Note that PCRE2 is an optional ripgrep feature. If PCRE2 wasn't included in
+your build of ripgrep, then using this flag will result in ripgrep printing
+an error message and exiting. PCRE2 may also have worse user experience in
+some cases, since it has fewer introspection APIs than ripgrep's default
+regex engine. For example, if you use a \fB\\n\fP in a PCRE2 regex without
+the \flag{multiline} flag, then ripgrep will silently fail to match anything
+instead of reporting an error immediately (like it does with the default regex
+engine).

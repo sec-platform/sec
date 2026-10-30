@@ -1,0 +1,13 @@
+
+This flag suppresses normal output and shows the number of individual matches
+of the given patterns for each file searched. Each file containing matches has
+its path and match count printed on each line. Note that this reports the total
+number of individual matches and not the number of lines that match.
+.sp
+If only one file is given to ripgrep, then only the count is printed if there
+is a match. The \flag{with-filename} flag can be used to force printing the
+file path in this case.
+.sp
+This overrides the \flag{count} flag. Note that when \flag{count} is combined
+with \flag{only-matching}, then ripgrep behaves as if \flag{count-matches} was
+given.

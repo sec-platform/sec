@@ -1,0 +1,14 @@
+
+When enabled, ripgrep will treat CRLF (\fB\\r\\n\fP) as a line terminator
+instead of just \fB\\n\fP.
+.sp
+Principally, this permits the line anchor assertions \fB^\fP and \fB$\fP in
+regex patterns to treat CRLF, CR or LF as line terminators instead of just LF.
+Note that they will never match between a CR and a LF. CRLF is treated as one
+single line terminator.
+.sp
+When using the default regex engine, CRLF support can also be enabled inside
+the pattern with the \fBR\fP flag. For example, \fB(?R:$)\fP will match just
+before either CR or LF, but never between CR and LF.
+.sp
+This flag overrides \flag{null-data}.

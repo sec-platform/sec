@@ -1,0 +1,48 @@
+
+This flag controls when to use colors. The default setting is \fBauto\fP, which
+means ripgrep will try to guess when to use colors. For example, if ripgrep is
+printing to a tty, then it will use colors, but if it is redirected to a file
+or a pipe, then it will suppress color output.
+.sp
+ripgrep will suppress color output by default in some other circumstances as
+well. These include, but are not limited to:
+.sp
+.IP \(bu 3n
+When the \fBTERM\fP environment variable is not set or set to \fBdumb\fP.
+.sp
+.IP \(bu 3n
+When the \fBNO_COLOR\fP environment variable is set (regardless of value).
+.sp
+.IP \(bu 3n
+When flags that imply no use for colors are given. For example,
+\flag{vimgrep} and \flag{json}.
+.
+.PP
+The possible values for this flag are:
+.sp
+.IP \fBnever\fP 10n
+Colors will never be used.
+.sp
+.IP \fBauto\fP 10n
+The default. ripgrep tries to be smart.
+.sp
+.IP \fBalways\fP 10n
+Colors will always be used regardless of where output is sent.
+.sp
+.IP \fBansi\fP 10n
+Like 'always', but emits ANSI escapes (even in a Windows console).
+.
+.PP
+This flag also controls whether hyperlinks are emitted. For example, when
+a hyperlink format is specified, hyperlinks won't be used when color is
+suppressed. If one wants to emit hyperlinks but no colors, then one must use
+the \flag{colors} flag to manually set all color styles to \fBnone\fP:
+.sp
+.EX
+    \-\-colors 'path:none' \\
+    \-\-colors 'line:none' \\
+    \-\-colors 'column:none' \\
+    \-\-colors 'match:none' \\
+    \-\-colors 'highlight:none'
+.EE
+.sp

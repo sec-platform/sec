@@ -1,0 +1,14 @@
+
+This flag reduces the level of "smart" filtering. Repeated uses (up to 3) reduces
+the filtering even more. When repeated three times, ripgrep will search every
+file in a directory tree.
+.sp
+A single \flag{unrestricted} flag is equivalent to \flag{no-ignore}. Two
+\flag{unrestricted} flags is equivalent to \flag{no-ignore} \flag{hidden}.
+Three \flag{unrestricted} flags is equivalent to \flag{no-ignore} \flag{hidden}
+\flag{binary}.
+.sp
+The only filtering ripgrep still does when \fB-uuu\fP is given is to skip
+symbolic links and to avoid printing matches from binary files. Symbolic links
+can be followed via the \flag{follow} flag, and binary files can be treated as
+text files via the \flag{text} flag.

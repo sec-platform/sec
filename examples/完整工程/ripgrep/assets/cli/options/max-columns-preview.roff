@@ -1,0 +1,10 @@
+
+Prints a preview for lines exceeding the configured max column limit.
+.sp
+When the \flag{max-columns} flag is used, ripgrep will by default completely
+replace any line that is too long with a message indicating that a matching
+line was removed. When this flag is combined with \flag{max-columns}, a preview
+of the line (corresponding to the limit size) is shown instead, where the part
+of the line exceeding the limit is not shown.
+.sp
+If the \flag{max-columns} flag is not set, then this has no effect.

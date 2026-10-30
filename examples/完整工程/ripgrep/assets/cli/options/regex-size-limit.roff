@@ -1,0 +1,12 @@
+
+The size limit of the compiled regex, where the compiled regex generally
+corresponds to a single object in memory that can match all of the patterns
+provided to ripgrep. The default limit is generous enough that most reasonable
+patterns (or even a small number of them) should fit.
+.sp
+This useful to change when you explicitly want to let ripgrep spend potentially
+much more time and/or memory building a regex matcher.
+.sp
+The input format accepts suffixes of \fBK\fP, \fBM\fP or \fBG\fP which
+correspond to kilobytes, megabytes and gigabytes, respectively. If no suffix is
+provided the input is treated as bytes.

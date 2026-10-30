@@ -1,0 +1,32 @@
+
+Replaces every match with the text given when printing results. Neither this
+flag nor any other ripgrep flag will modify your files.
+.sp
+Capture group indices (e.g., \fB$\fP\fI5\fP) and names (e.g., \fB$\fP\fIfoo\fP)
+are supported in the replacement string. Capture group indices are numbered
+based on the position of the opening parenthesis of the group, where the
+leftmost such group is \fB$\fP\fI1\fP. The special \fB$\fP\fI0\fP group
+corresponds to the entire match.
+.sp
+The name of a group is formed by taking the longest string of letters, numbers
+and underscores (i.e. \fB[_0-9A-Za-z]\fP) after the \fB$\fP. For example,
+\fB$\fP\fI1a\fP will be replaced with the group named \fI1a\fP, not the
+group at index \fI1\fP. If the group's name contains characters that aren't
+letters, numbers or underscores, or you want to immediately follow the group
+with another string, the name should be put inside braces. For example,
+\fB${\fP\fI1\fP\fB}\fP\fIa\fP will take the content of the group at index
+\fI1\fP and append \fIa\fP to the end of it.
+.sp
+If an index or name does not refer to a valid capture group, it will be
+replaced with an empty string.
+.sp
+In shells such as Bash and zsh, you should wrap the pattern in single quotes
+instead of double quotes. Otherwise, capture group indices will be replaced by
+expanded shell variables which will most likely be empty.
+.sp
+To write a literal \fB$\fP, use \fB$$\fP.
+.sp
+Note that the replacement by default replaces each match, and not the entire
+line. To replace the entire line, you should match the entire line.
+.sp
+This flag can be used with the \flag{only-matching} flag.

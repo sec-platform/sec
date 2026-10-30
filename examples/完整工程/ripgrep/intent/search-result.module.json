@@ -1,0 +1,101 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:ripgrep-search-result",
+  "definitions": {
+    "SearchMode": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "Standard": {"tag": "scalar", "name": "unit"},
+          "JSON": {"tag": "scalar", "name": "unit"},
+          "Count": {"tag": "scalar", "name": "unit"},
+          "CountMatches": {"tag": "scalar", "name": "unit"},
+          "FilesWithMatches": {"tag": "scalar", "name": "unit"},
+          "FilesWithoutMatch": {"tag": "scalar", "name": "unit"}
+        }
+      }
+    },
+    "SearchPresentation": {
+      "core:type": {
+        "tag": "variant",
+        "cases": {
+          "Standard": {"tag": "scalar", "name": "bool"},
+          "JSON": {"tag": "scalar", "name": "unit"},
+          "Count": {"tag": "scalar", "name": "bool"},
+          "CountMatches": {"tag": "scalar", "name": "bool"},
+          "PathsWithMatches": {"tag": "scalar", "name": "bool"},
+          "PathsWithoutMatch": {"tag": "scalar", "name": "bool"},
+          "QuietWithMatch": {"tag": "scalar", "name": "bool"},
+          "QuietWithoutMatch": {"tag": "scalar", "name": "bool"},
+          "QuietJSON": {"tag": "scalar", "name": "unit"}
+        }
+      }
+    },
+    "RequestedPresentation": {
+      "core:function": {
+        "parameters": [
+          {"name": "mode", "type": {"tag": "nominal", "ref": "local:SearchMode"}, "mode": "in"},
+          {"name": "quiet", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"},
+          {"name": "statsRequested", "type": {"tag": "scalar", "name": "bool"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:SearchPresentation"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match", "value": {"op": "var", "name": "mode"},
+          "cases": [
+            {
+              "constructor": "Standard", "binding": "selectedMode",
+              "body": {
+                "op": "if", "condition": {"op": "var", "name": "quiet"},
+                "then": {"op": "variant", "constructor": "QuietWithMatch", "payload": {"op": "var", "name": "statsRequested"}},
+                "otherwise": {"op": "variant", "constructor": "Standard", "payload": {"op": "var", "name": "statsRequested"}}
+              }
+            },
+            {
+              "constructor": "JSON", "binding": "selectedMode",
+              "body": {
+                "op": "if", "condition": {"op": "var", "name": "quiet"},
+                "then": {"op": "variant", "constructor": "QuietJSON", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}},
+                "otherwise": {"op": "variant", "constructor": "JSON", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}
+              }
+            },
+            {
+              "constructor": "Count", "binding": "selectedMode",
+              "body": {
+                "op": "if", "condition": {"op": "var", "name": "quiet"},
+                "then": {"op": "variant", "constructor": "QuietWithMatch", "payload": {"op": "var", "name": "statsRequested"}},
+                "otherwise": {"op": "variant", "constructor": "Count", "payload": {"op": "var", "name": "statsRequested"}}
+              }
+            },
+            {
+              "constructor": "CountMatches", "binding": "selectedMode",
+              "body": {
+                "op": "if", "condition": {"op": "var", "name": "quiet"},
+                "then": {"op": "variant", "constructor": "QuietWithMatch", "payload": {"op": "var", "name": "statsRequested"}},
+                "otherwise": {"op": "variant", "constructor": "CountMatches", "payload": {"op": "var", "name": "statsRequested"}}
+              }
+            },
+            {
+              "constructor": "FilesWithMatches", "binding": "selectedMode",
+              "body": {
+                "op": "if", "condition": {"op": "var", "name": "quiet"},
+                "then": {"op": "variant", "constructor": "QuietWithMatch", "payload": {"op": "var", "name": "statsRequested"}},
+                "otherwise": {"op": "variant", "constructor": "PathsWithMatches", "payload": {"op": "var", "name": "statsRequested"}}
+              }
+            },
+            {
+              "constructor": "FilesWithoutMatch", "binding": "selectedMode",
+              "body": {
+                "op": "if", "condition": {"op": "var", "name": "quiet"},
+                "then": {"op": "variant", "constructor": "QuietWithoutMatch", "payload": {"op": "var", "name": "statsRequested"}},
+                "otherwise": {"op": "variant", "constructor": "PathsWithoutMatch", "payload": {"op": "var", "name": "statsRequested"}}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": ["SearchMode", "SearchPresentation", "RequestedPresentation"]
+}

@@ -1,0 +1,10 @@
+
+This flag limits the depth of directory traversal to \fINUM\fP levels beyond
+the paths given. A value of \fB0\fP only searches the explicitly given paths
+themselves.
+.sp
+For example, \fBrg --max-depth 0 \fP\fIdir/\fP is a no-op because \fIdir/\fP
+will not be descended into. \fBrg --max-depth 1 \fP\fIdir/\fP will search only
+the direct children of \fIdir\fP.
+.sp
+An alternative spelling for this flag is \fB\-\-maxdepth\fP.

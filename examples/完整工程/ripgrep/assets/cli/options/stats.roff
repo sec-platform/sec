@@ -1,0 +1,13 @@
+
+When enabled, ripgrep will print aggregate statistics about the search. When
+this flag is present, ripgrep will print at least the following stats to
+stdout at the end of the search: number of matched lines, number of files with
+matches, number of files searched, and the time taken for the entire search to
+complete.
+.sp
+This set of aggregate statistics may expand over time.
+.sp
+This flag is always and implicitly enabled when \flag{json} is used.
+.sp
+Note that this flag has no effect if \flag{files}, \flag{files-with-matches} or
+\flag{files-without-match} is passed.

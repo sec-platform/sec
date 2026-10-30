@@ -1,0 +1,46 @@
+
+Enable printing results in a JSON Lines format.
+.sp
+When this flag is provided, ripgrep will emit a sequence of messages, each
+encoded as a JSON object, where there are five different message types:
+.sp
+.TP 12
+\fBbegin\fP
+A message that indicates a file is being searched and contains at least one
+match.
+.TP 12
+\fBend\fP
+A message the indicates a file is done being searched. This message also
+include summary statistics about the search for a particular file.
+.TP 12
+\fBmatch\fP
+A message that indicates a match was found. This includes the text and offsets
+of the match.
+.TP 12
+\fBcontext\fP
+A message that indicates a contextual line was found. This includes the text of
+the line, along with any match information if the search was inverted.
+.TP 12
+\fBsummary\fP
+The final message emitted by ripgrep that contains summary statistics about the
+search across all files.
+.PP
+Since file paths or the contents of files are not guaranteed to be valid
+UTF-8 and JSON itself must be representable by a Unicode encoding, ripgrep
+will emit all data elements as objects with one of two keys: \fBtext\fP or
+\fBbytes\fP. \fBtext\fP is a normal JSON string when the data is valid UTF-8
+while \fBbytes\fP is the base64 encoded contents of the data.
+.sp
+The JSON Lines format is only supported for showing search results. It cannot
+be used with other flags that emit other types of output, such as \flag{files},
+\flag{files-with-matches}, \flag{files-without-match}, \flag{count} or
+\flag{count-matches}. ripgrep will report an error if any of the aforementioned
+flags are used in concert with \flag{json}.
+.sp
+Other flags that control aspects of the standard output such as
+\flag{only-matching}, \flag{heading}, \flag{replace}, \flag{max-columns}, etc.,
+have no effect when \flag{json} is set. However, enabling JSON output will
+always implicitly and unconditionally enable \flag{stats}.
+.sp
+A more complete description of the JSON format used can be found here:
+\fIhttps://docs.rs/grep-printer/*/grep_printer/struct.JSON.html\fP.

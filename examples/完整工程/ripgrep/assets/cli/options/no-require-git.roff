@@ -1,0 +1,11 @@
+
+When this flag is given, source control ignore files such as \fB.gitignore\fP
+are respected even if no \fBgit\fP repository is present.
+.sp
+By default, ripgrep will only respect filter rules from source control ignore
+files when ripgrep detects that the search is executed inside a source control
+repository. For example, when a \fB.git\fP directory is observed.
+.sp
+This flag relaxes the default restriction. For example, it might be useful when
+the contents of a \fBgit\fP repository are stored or copied somewhere, but
+where the repository state is absent.

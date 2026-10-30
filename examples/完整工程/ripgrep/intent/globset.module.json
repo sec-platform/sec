@@ -1,0 +1,29 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:ripgrep-globset",
+  "dialects": {
+    "req": {"languageId": "gift.requirement-structure", "constraint": "1"}
+  },
+  "imports": {
+    "contract": {"mode": "workspace", "moduleId": "module:ripgrep-globset-contract"}
+  },
+  "definitions": {
+    "Globset": {
+      "kind": "req:composite",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "library": {"type": {"ref": {"import": "contract", "export": "PublicLibrary"}}}
+        },
+        "exposes": {"library": {"subject": "library"}},
+        "terms": [
+          {
+            "require": {"import": "contract", "export": "Globset"},
+            "fields": {"on": {"subject": "library"}}
+          }
+        ]
+      }
+    }
+  },
+  "exports": {"Globset": {"definitionId": "Globset"}}
+}

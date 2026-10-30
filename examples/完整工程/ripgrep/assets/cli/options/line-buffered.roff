@@ -1,0 +1,13 @@
+
+When enabled, ripgrep will always use line buffering. That is, whenever a
+matching line is found, it will be flushed to stdout immediately. This is the
+default when ripgrep's stdout is connected to a tty, but otherwise, ripgrep
+will use block buffering, which is typically faster. This flag forces ripgrep
+to use line buffering even if it would otherwise use block buffering. This is
+typically useful in shell pipelines, for example:
+.sp
+.EX
+    tail -f something.log | rg foo --line-buffered | rg bar
+.EE
+.sp
+This overrides the \flag{block-buffered} flag.

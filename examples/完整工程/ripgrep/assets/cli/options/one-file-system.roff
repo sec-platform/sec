@@ -1,0 +1,16 @@
+
+When enabled, ripgrep will not cross file system boundaries relative to where
+the search started from.
+.sp
+Note that this applies to each path argument given to ripgrep. For example, in
+the command
+.sp
+.EX
+    rg \-\-one\-file\-system /foo/bar /quux/baz
+.EE
+.sp
+ripgrep will search both \fI/foo/bar\fP and \fI/quux/baz\fP even if they are
+on different file systems, but will not cross a file system boundary when
+traversing each path's directory tree.
+.sp
+This is similar to \fBfind\fP's \fB\-xdev\fP or \fB\-mount\fP flag.

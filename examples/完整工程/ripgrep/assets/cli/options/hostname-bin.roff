@@ -1,0 +1,13 @@
+
+This flag controls how ripgrep determines this system's hostname. The flag's
+value should correspond to an executable (either a path or something that can
+be found via your system's \fBPATH\fP environment variable). When set, ripgrep
+will run this executable, with no arguments, and treat its output (with leading
+and trailing whitespace stripped) as your system's hostname.
+.sp
+When not set (the default, or the empty string), ripgrep will try to
+automatically detect your system's hostname. On Unix, this corresponds
+to calling \fBgethostname\fP. On Windows, this corresponds to calling
+\fBGetComputerNameExW\fP to fetch the system's "physical DNS hostname."
+.sp
+ripgrep uses your system's hostname for producing hyperlinks.

@@ -1,0 +1,87 @@
+
+Set the format of hyperlinks to use when printing results. Hyperlinks make
+certain elements of ripgrep's output, such as file paths, clickable. This
+generally only works in terminal emulators that support OSC-8 hyperlinks. For
+example, the format \fBfile://{host}{path}\fP will emit an RFC 8089 hyperlink.
+To see the format that ripgrep is using, pass the \flag{debug} flag.
+.sp
+Alternatively, a format string may correspond to one of the following aliases:
+!!HYPERLINK_ALIASES!!
+The alias will be replaced with a format string that is intended to work for
+the corresponding application.
+.sp
+The following variables are available in the format string:
+.sp
+.TP 12
+\fB{path}\fP
+Required. This is replaced with a path to a matching file. The path is
+guaranteed to be absolute and percent encoded such that it is valid to put into
+a URI. Note that a path is guaranteed to start with a /.
+.TP 12
+\fB{host}\fP
+Optional. This is replaced with your system's hostname. On Unix, this
+corresponds to calling \fBgethostname\fP. On Windows, this corresponds to
+calling \fBGetComputerNameExW\fP to fetch the system's "physical DNS hostname."
+Alternatively, if \flag{hostname-bin} was provided, then the hostname returned
+from the output of that program will be returned. If no hostname could be
+found, then this variable is replaced with the empty string.
+.TP 12
+\fB{line}\fP
+Optional. If appropriate, this is replaced with the line number of a match. If
+no line number is available (for example, if \fB\-\-no\-line\-number\fP was
+given), then it is automatically replaced with the value 1.
+.TP 12
+\fB{column}\fP
+Optional, but requires the presence of \fB{line}\fP. If appropriate, this is
+replaced with the column number of a match. If no column number is available
+(for example, if \fB\-\-no\-column\fP was given), then it is automatically
+replaced with the value 1.
+.TP 12
+\fB{wslprefix}\fP
+Optional. This is a special value that is set to
+\fBwsl$/\fP\fIWSL_DISTRO_NAME\fP, where \fIWSL_DISTRO_NAME\fP corresponds to
+the value of the equivalent environment variable. If the system is not Unix
+or if the \fIWSL_DISTRO_NAME\fP environment variable is not set, then this is
+replaced with the empty string.
+.PP
+A format string may be empty. An empty format string is equivalent to the
+\fBnone\fP alias. In this case, hyperlinks will be disabled.
+.sp
+At present, ripgrep does not enable hyperlinks by default. Users must opt into
+them. If you aren't sure what format to use, try \fBdefault\fP.
+.sp
+Like colors, when ripgrep detects that stdout is not connected to a tty, then
+hyperlinks are automatically disabled, regardless of the value of this flag.
+Users can pass \fB\-\-color=always\fP to forcefully emit hyperlinks.
+.sp
+Note that hyperlinks are only written when a path is also in the output
+and colors are enabled. To write hyperlinks without colors, you'll need to
+configure ripgrep to not colorize anything without actually disabling all ANSI
+escape codes completely:
+.sp
+.EX
+    \-\-colors 'path:none' \\
+    \-\-colors 'line:none' \\
+    \-\-colors 'column:none' \\
+    \-\-colors 'match:none'
+.EE
+.sp
+ripgrep works this way because it treats the \flag{color} flag as a proxy for
+whether ANSI escape codes should be used at all. This means that environment
+variables like \fBNO_COLOR=1\fP and \fBTERM=dumb\fP not only disable colors,
+but hyperlinks as well. Similarly, colors and hyperlinks are disabled when
+ripgrep is not writing to a tty. (Unless one forces the issue by setting
+\fB\-\-color=always\fP.)
+.sp
+If you're searching a file directly, for example:
+.sp
+.EX
+    rg foo path/to/file
+.EE
+.sp
+then hyperlinks will not be emitted since the path given does not appear
+in the output. To make the path appear, and thus also a hyperlink, use the
+\flag{with-filename} flag.
+.sp
+For more information on hyperlinks in terminal emulators, see:
+https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda

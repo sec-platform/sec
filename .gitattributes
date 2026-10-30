@@ -27,6 +27,9 @@
 *.py        text eol=lf
 *.sh        text eol=lf
 
+# Fixed ripgrep product text and native templates are consumed as LF bytes.
+/examples/完整工程/ripgrep/assets/cli/** text eol=lf
+
 # === Root config files (canonical LF) ===
 /.gitattributes   text eol=lf
 /.gitignore       text eol=lf

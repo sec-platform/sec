@@ -1,0 +1,8 @@
+
+Set the path separator to use when printing file paths. This defaults to your
+platform's path separator, which is \fB/\fP on Unix and \fB\\\fP on Windows.
+This flag is intended for overriding the default when the environment demands
+it (e.g., cygwin). A path separator is limited to a single byte.
+.sp
+Setting this flag to an empty string reverts it to its default behavior. That
+is, the path separator is automatically chosen based on the environment.

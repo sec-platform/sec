@@ -1,0 +1,19 @@
+
+Specify which regular expression engine to use. When you choose a regex engine,
+it applies that choice for every regex provided to ripgrep (e.g., via multiple
+\flag{regexp} or \flag{file} flags).
+.sp
+Accepted values are \fBdefault\fP, \fBpcre2\fP, or \fBauto\fP.
+.sp
+The default value is \fBdefault\fP, which is usually the fastest and should be
+good for most use cases. The \fBpcre2\fP engine is generally useful when you
+want to use features such as look-around or backreferences. \fBauto\fP will
+dynamically choose between supported regex engines depending on the features
+used in a pattern on a best effort basis.
+.sp
+Note that the \fBpcre2\fP engine is an optional ripgrep feature. If PCRE2
+wasn't included in your build of ripgrep, then using this flag will result in
+ripgrep printing an error message and exiting.
+.sp
+This overrides previous uses of the \flag{pcre2} and \flag{auto-hybrid-regex}
+flags.

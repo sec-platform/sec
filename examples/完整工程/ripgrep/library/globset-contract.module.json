@@ -1,0 +1,36 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:ripgrep-globset-contract",
+  "dialects": {
+    "req": {"languageId": "gift.requirement-structure", "constraint": "1"}
+  },
+  "definitions": {
+    "PublicLibrary": {
+      "kind": "req:subject",
+      "body": {"roles": {}}
+    },
+    "Globset": {
+      "kind": "req:rule",
+      "body": {
+        "strength": "require",
+        "fields": {
+          "on": {
+            "required": true,
+            "type": {"kind": "subject", "subjectKinds": [{"decl": {"definitionId": "PublicLibrary"}}]},
+            "meaning": "同一公开 globset 库的模式、候选、匹配器、集合、错误及相交功能边界；不是一次匹配值或 Rust 私有对象。"
+          }
+        },
+        "semantics": {
+          "source": "globset-contract.md",
+          "section": "globset-contract",
+          "scope": "正文定义的模式语言、字节匹配、有序集合及公开观察；正文列明的未闭合接合仍是必要义务。"
+        },
+        "implementation": "unbound"
+      }
+    }
+  },
+  "exports": {
+    "PublicLibrary": {"definitionId": "PublicLibrary"},
+    "Globset": {"definitionId": "Globset"}
+  }
+}

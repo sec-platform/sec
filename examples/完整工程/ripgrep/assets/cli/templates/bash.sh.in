@@ -1,0 +1,36 @@
+
+_rg() {
+  local i cur prev opts cmds
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  cmd=""
+  opts=""
+
+  for i in ${COMP_WORDS[@]}; do
+    case "${i}" in
+      rg)
+        cmd="rg"
+        ;;
+      *)
+        ;;
+    esac
+  done
+
+  case "${cmd}" in
+    rg)
+      opts="!OPTS!"
+      if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
+        COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+        return 0
+      fi
+      case "${prev}" in
+!CASES!
+      esac
+      COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+      return 0
+      ;;
+  esac
+}
+
+complete -F _rg -o bashdefault -o default rg

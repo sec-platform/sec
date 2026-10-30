@@ -1,0 +1,5 @@
+
+        !FLAG!)
+          COMPREPLY=($(compgen -W "!CHOICES!" -- "${cur}"))
+          return 0
+          ;;

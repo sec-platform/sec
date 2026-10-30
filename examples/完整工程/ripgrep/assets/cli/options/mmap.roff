@@ -1,0 +1,11 @@
+
+When enabled, ripgrep will search using memory maps when possible. This is
+enabled by default when ripgrep thinks it will be faster.
+.sp
+Memory map searching cannot be used in all circumstances. For example, when
+searching virtual files or streams likes \fBstdin\fP. In such cases, memory
+maps will not be used even when this flag is enabled.
+.sp
+Note that ripgrep may abort unexpectedly when memory maps are used if it
+searches a file that is simultaneously truncated. Users can opt out of this
+possibility by disabling memory maps.

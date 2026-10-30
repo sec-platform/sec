@@ -1,0 +1,17 @@
+
+Specify the text encoding that ripgrep will use on all files searched. The
+default value is \fBauto\fP, which will cause ripgrep to do a best effort
+automatic detection of encoding on a per-file basis. Automatic detection in
+this case only applies to files that begin with a UTF-8 or UTF-16 byte-order
+mark (BOM). No other automatic detection is performed. One can also specify
+\fBnone\fP which will then completely disable BOM sniffing and always result
+in searching the raw bytes, including a BOM if it's present, regardless of its
+encoding.
+.sp
+Other supported values can be found in the list of labels here:
+\fIhttps://encoding.spec.whatwg.org/#concept-encoding-get\fP.
+.sp
+For more details on encoding and how ripgrep deals with it, see \fBGUIDE.md\fP.
+.sp
+The encoding detection that ripgrep uses can be reverted to its automatic mode
+via the \flag-negate{encoding} flag.

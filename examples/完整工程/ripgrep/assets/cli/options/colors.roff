@@ -1,0 +1,56 @@
+
+This flag specifies color settings for use in the output. This flag may be
+provided multiple times. Settings are applied iteratively. Pre-existing color
+labels are limited to one of eight choices: \fBred\fP, \fBblue\fP, \fBgreen\fP,
+\fBcyan\fP, \fBmagenta\fP, \fByellow\fP, \fBwhite\fP and \fBblack\fP. Styles
+are limited to \fBnobold\fP, \fBbold\fP, \fBnointense\fP, \fBintense\fP,
+\fBnounderline\fP, \fBunderline\fP, \fBnoitalic\fP or \fBitalic\fP.
+.sp
+The format of the flag is
+\fB{\fP\fItype\fP\fB}:{\fP\fIattribute\fP\fB}:{\fP\fIvalue\fP\fB}\fP.
+\fItype\fP should be one of \fBpath\fP, \fBline\fP, \fBcolumn\fP,
+\fBhighlight\fP or \fBmatch\fP. \fIattribute\fP can be \fBfg\fP, \fBbg\fP or
+\fBstyle\fP. \fIvalue\fP is either a color (for \fBfg\fP and \fBbg\fP) or a
+text style. A special format, \fB{\fP\fItype\fP\fB}:none\fP, will clear all
+color settings for \fItype\fP.
+.sp
+For example, the following command will change the match color to magenta and
+the background color for line numbers to yellow:
+.sp
+.EX
+    rg \-\-colors 'match:fg:magenta' \-\-colors 'line:bg:yellow'
+.EE
+.sp
+Another example, the following command will "highlight" the non-matching text
+in matching lines:
+.sp
+.EX
+    rg \-\-colors 'highlight:bg:yellow' \-\-colors 'highlight:fg:black'
+.EE
+.sp
+The "highlight" color type is particularly useful for contrasting matching
+lines with surrounding context printed by the \flag{before-context},
+\flag{after-context}, \flag{context} or \flag{passthru} flags.
+.sp
+Extended colors can be used for \fIvalue\fP when the tty supports ANSI color
+sequences. These are specified as either \fIx\fP (256-color) or
+.IB x , x , x
+(24-bit truecolor) where \fIx\fP is a number between \fB0\fP and \fB255\fP
+inclusive. \fIx\fP may be given as a normal decimal number or a hexadecimal
+number, which is prefixed by \fB0x\fP.
+.sp
+For example, the following command will change the match background color to
+that represented by the rgb value (0,128,255):
+.sp
+.EX
+    rg \-\-colors 'match:bg:0,128,255'
+.EE
+.sp
+or, equivalently,
+.sp
+.EX
+    rg \-\-colors 'match:bg:0x0,0x80,0xFF'
+.EE
+.sp
+Note that the \fBintense\fP and \fBnointense\fP styles will have no effect when
+used alongside these extended color codes.

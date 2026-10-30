@@ -1,0 +1,22 @@
+
+This flag instructs ripgrep to generate some special kind of output identified
+by \fIKIND\fP and then quit without searching. \fIKIND\fP can be one of the
+following values:
+.sp
+.TP 15
+\fBman\fP
+Generates a manual page for ripgrep in the \fBroff\fP format.
+.TP 15
+\fBcomplete\-bash\fP
+Generates a completion script for the \fBbash\fP shell.
+.TP 15
+\fBcomplete\-zsh\fP
+Generates a completion script for the \fBzsh\fP shell.
+.TP 15
+\fBcomplete\-fish\fP
+Generates a completion script for the \fBfish\fP shell.
+.TP 15
+\fBcomplete\-powershell\fP
+Generates a completion script for PowerShell.
+.PP
+The output is written to \fBstdout\fP. The list above may expand over time.

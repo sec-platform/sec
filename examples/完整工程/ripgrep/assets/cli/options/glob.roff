@@ -1,0 +1,25 @@
+
+Include or exclude files and directories for searching that match the given
+glob. This always overrides any other ignore logic. Multiple glob flags may
+be used. Globbing rules match \fB.gitignore\fP globs. Precede a glob with a
+\fB!\fP to exclude it. If multiple globs match a file or directory, the glob
+given later in the command line takes precedence.
+.sp
+As an extension, globs support specifying alternatives:
+.BI "\-g '" ab{c,d}* '
+is equivalent to
+.BI "\-g " "abc " "\-g " abd.
+Empty alternatives like
+.BI "\-g '" ab{,c} '
+are not currently supported. Note that this syntax extension is also currently
+enabled in \fBgitignore\fP files, even though this syntax isn't supported by
+git itself. ripgrep may disable this syntax extension in gitignore files, but
+it will always remain available via the \flag{glob} flag.
+.sp
+When this flag is set, every file and directory is applied to it to test for
+a match. For example, if you only want to search in a particular directory
+\fIfoo\fP, then
+.BI "\-g " foo
+is incorrect because \fIfoo/bar\fP does not match
+the glob \fIfoo\fP. Instead, you should use
+.BI "\-g '" foo/** '.

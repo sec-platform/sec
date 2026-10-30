@@ -1,0 +1,9 @@
+
+This flag inverts matching. That is, instead of printing lines that match,
+ripgrep will print lines that don't match.
+.sp
+Note that this only inverts line-by-line matching. For example, combining this
+flag with \flag{files-with-matches} will emit files that contain any lines
+that do not match the patterns given. That's not the same as, for example,
+\flag{files-without-match}, which will emit files that do not contain any
+matching lines.

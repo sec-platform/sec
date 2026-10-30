@@ -1,0 +1,11 @@
+
+When this flag is provided, all patterns will be searched case insensitively.
+The case insensitivity rules used by ripgrep's default regex engine conform to
+Unicode's "simple" case folding rules.
+.sp
+This is a global option that applies to all patterns given to ripgrep.
+Individual patterns can still be matched case sensitively by using
+inline regex flags. For example, \fB(?\-i)abc\fP will match \fBabc\fP
+case sensitively even when this flag is used.
+.sp
+This flag overrides \flag{case-sensitive} and \flag{smart-case}.

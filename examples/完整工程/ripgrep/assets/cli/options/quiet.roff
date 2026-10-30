@@ -1,0 +1,7 @@
+
+Do not print anything to stdout. If a match is found in a file, then ripgrep
+will stop searching. This is useful when ripgrep is used only for its exit code
+(which will be an error code if no matches are found).
+.sp
+When \flag{files} is used, ripgrep will stop finding files after finding the
+first file that does not match any ignore rules.

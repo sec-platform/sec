@@ -1,0 +1,18 @@
+
+This flag enables "dot all" mode in all regex patterns. This causes \fB.\fP to
+match line terminators when multiline searching is enabled. This flag has no
+effect if multiline searching isn't enabled with the \flag{multiline} flag.
+.sp
+Normally, a \fB.\fP will match any character except line terminators. While
+this behavior typically isn't relevant for line-oriented matching (since
+matches can span at most one line), this can be useful when searching with the
+\flag{multiline} flag. By default, multiline mode runs without "dot all" mode
+enabled.
+.sp
+This flag is generally intended to be used in an alias or your ripgrep config
+file if you prefer "dot all" semantics by default. Note that regardless of
+whether this flag is used, "dot all" semantics can still be controlled via
+inline flags in the regex pattern itself, e.g., \fB(?s:.)\fP always enables
+"dot all" whereas \fB(?-s:.)\fP always disables "dot all". Moreover, you
+can use character classes like \fB\\p{any}\fP to match any Unicode codepoint
+regardless of whether "dot all" mode is enabled or not.

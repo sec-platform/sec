@@ -1,0 +1,4818 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:default_types",
+  "definitions": {
+    "DefaultTypeGroup": {
+      "core:type": {
+        "tag": "record",
+        "fields": {
+          "names": {"type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true}},
+          "globs": {"type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true}}
+        },
+        "open": false
+      }
+    },
+    "DefaultTypes": {
+      "core:constant": {
+        "type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:DefaultTypeGroup"}, "ordered": true},
+        "value": {
+          "op": "sequence",
+          "items": [
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ada"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.adb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ads"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "agda"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.agda"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lagda"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "aidl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.aidl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "alire"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "alire.toml"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "amake"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mk"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bp"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "asciidoc"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.adoc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.asc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.asciidoc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "asm"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.asm"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.s"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.S"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "asp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.aspx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.aspx.cs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.aspx.vb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ascx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ascx.cs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ascx.vb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.asp"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ats"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ats"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dats"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sats"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hats"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "avro"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.avdl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.avpr"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.avsc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "awk"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.awk"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bat"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "batch"}
+                    ]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bat"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bazel"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bazel"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bzl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.BUILD"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bazelrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "BUILD"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "MODULE.bazel"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "WORKSPACE"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "WORKSPACE.bazel"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "WORKSPACE.bzlmod"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bitbake"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bbappend"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bbclass"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.conf"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.inc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "boxlang"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bxm"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bxs"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "brotli"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.br"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "buildstream"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bst"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bzip2"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bz2"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tbz2"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "c"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[chH]"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[chH].in"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cats"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cabal"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cabal"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "candid"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.did"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "carp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.carp"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cbor"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cbor"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ceylon"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ceylon"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cfml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cfc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cfm"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "clojure"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.clj"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cljc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cljs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cljx"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cmake"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cmake"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "CMakeLists.txt"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cmd"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bat"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cmd"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cml"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "coffeescript"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.coffee"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "config"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cfg"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.conf"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.config"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ini"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "container"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*Containerfile*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*Dockerfile*"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "coq"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.v"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cpp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[ChH]"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[ch]pp"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[ch]xx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.inl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[ChH].in"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cc.in"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[ch]pp.in"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[ch]xx.in"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hh.in"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "creole"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.creole"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "crystal"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Projectfile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cr"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ecr"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "shard.yml"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cs"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cs"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "csharp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cs"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cshtml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cshtml"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "csproj"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.csproj"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "css"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.css"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.scss"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "csv"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.csv"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cuda"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cu"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cuh"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "cython"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pyx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pxi"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pxd"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "d"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.d"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "dart"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dart"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "devicetree"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dts"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dtsi"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dtso"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "dhall"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dhall"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "diff"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.patch"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.diff"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "dita"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dita"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ditamap"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ditaval"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "docker"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*Dockerfile*"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "dockercompose"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "docker-compose.yml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "docker-compose.*.yml"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "dts"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dts"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dtsi"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "dvc"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Dvcfile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dvc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ebuild"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ebuild"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.eclass"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "edn"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.edn"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "elisp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.el"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "elixir"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ex"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.eex"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.exs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.heex"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.leex"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.livemd"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "elm"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.elm"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "erb"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.erb"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "erlang"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.erl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hrl"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "fennel"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fnl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "fidl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fidl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "fish"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fish"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "flatbuffers"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fbs"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "fortran"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.f"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.F"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.f77"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.F77"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pfo"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.f90"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.F90"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.f95"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.F95"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "fsharp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fsx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fsi"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "fut"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fut"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gap"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.g"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gap"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gi"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tst"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gdscript"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gd"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gleam"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gleam"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gn"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gn"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gni"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "go"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.go"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gprbuild"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gpr"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gradle"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gradle"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gradle.kts"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gradle.properties"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gradle-wrapper.*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gradlew"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gradlew.bat"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "graphql"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.graphql"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.graphqls"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "groovy"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.groovy"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gradle"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gzip"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gz"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tgz"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "h"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.h"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hpp"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "haml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.haml"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "hare"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ha"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "haskell"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lhs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cpphs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.c2hs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hsc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "hbs"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hbs"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "hs"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lhs"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "html"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.htm"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.html"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ejs"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "hurl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hurl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "hy"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.hy"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "idris"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.idr"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lidr"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "janet"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.janet"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "java"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.java"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jsp"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jspx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.properties"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "jinja"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.j2"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jinja"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jinja2"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "jl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "js"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.js"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jsx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vue"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cjs"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mjs"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "json"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.json"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "composer.lock"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sarif"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "jsonl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jsonl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "julia"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "jupyter"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ipynb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jpynb"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "k"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.k"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "kconfig"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Kconfig"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Kconfig.*"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "kotlin"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.kt"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.kts"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lean"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lean"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "less"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.less"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "license"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "COPYING"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "COPYING[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "COPYRIGHT"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "COPYRIGHT[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "EULA"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "EULA[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "licen[cs]e"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "licen[cs]e.*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "LICEN[CS]E"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "LICEN[CS]E[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*[.-]LICEN[CS]E*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "NOTICE"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "NOTICE[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "PATENTS"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "PATENTS[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "UNLICEN[CS]E"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "UNLICEN[CS]E[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "agpl[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gpl[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lgpl[.-]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "AGPL-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "APACHE-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "BSD-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "CC-BY-*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "GFDL-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "GNU-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "GPL-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "LGPL-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "MIT-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "MPL-*[0-9]*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "OFL-*[0-9]*"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lilypond"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ly"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ily"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lisp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.el"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.jl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lisp"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lsp"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.scm"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "llvm"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ll"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lock"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lock"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "package-lock.json"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "log"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.log"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lua"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lua"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lz4"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lz4"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "lzma"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lzma"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "m4"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ac"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.m4"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "make"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "[Gg][Nn][Uu]makefile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "[Mm]akefile"},
+                      {
+                        "op": "literal",
+                        "type": {"tag": "scalar", "name": "text"},
+                        "value": "[Gg][Nn][Uu]makefile.am"
+                      },
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "[Mm]akefile.am"},
+                      {
+                        "op": "literal",
+                        "type": {"tag": "scalar", "name": "text"},
+                        "value": "[Gg][Nn][Uu]makefile.in"
+                      },
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "[Mm]akefile.in"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Makefile.*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mk"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mak"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mako"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mako"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mao"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "man"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[0-9lnpx]"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.[0-9][cEFMmpSx]"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "markdown"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "md"}
+                    ]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.markdown"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.md"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mdown"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mdwn"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mkd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mkdn"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mdx"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "matlab"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.m"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "meson"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "meson.build"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "meson_options.txt"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "meson.options"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "minified"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.min.html"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.min.css"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.min.js"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mint"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mint"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mk"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mkfile"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ml"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "mojo"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mojo"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "motoko"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mo"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "msbuild"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.csproj"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.fsproj"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vcxproj"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.proj"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.props"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.targets"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sln"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.slnf"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "nim"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.nim"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.nimf"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.nimble"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.nims"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "nix"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.nix"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "objc"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.h"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.m"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "objcpp"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.h"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mm"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ocaml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mli"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mll"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mly"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "org"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.org"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.org_archive"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pants"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "BUILD"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pascal"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pas"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dpr"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.lpr"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pp"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.inc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pdf"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pdf"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "perl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.perl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.PL"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.plh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.plx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pm"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.t"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "php"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.php"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.php3"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.php4"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.php5"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.php7"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.php8"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pht"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.phtml"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pkgbuild"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "PKGBUILD"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "po"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.po"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "pod"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pod"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "postscript"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.eps"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ps"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "prolog"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pro"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.prolog"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.P"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "proto"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "protobuf"}
+                    ]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.proto"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ps"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cdxml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ps1"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ps1xml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.psd1"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.psm1"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "puppet"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.epp"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.erb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pp"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rb"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "purs"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.purs"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "py"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "python"}
+                    ]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.py"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pyi"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "qmake"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pro"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pri"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.prf"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "qml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.qml"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "qrc"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.qrc"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "qui"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ui"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "r"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.R"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.r"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.Rmd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rmd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.Rnw"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rnw"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "racket"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rkt"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "raku"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.raku"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rakumod"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rakudoc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rakutest"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.p6"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pl6"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.pm6"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "rdoc"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rdoc"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "readme"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "README*"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*README"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "reasonml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.re"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rei"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "red"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.r"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.red"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.reds"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "rescript"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.res"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.resi"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "robot"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.robot"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "rocq"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.v"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "rst"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rst"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ruby"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "config.ru"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Gemfile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".irbrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Rakefile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.gemspec"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rbw"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rake"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "rust"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rs"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "sass"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sass"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.scss"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "scala"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.scala"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sbt"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "scdoc"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.scd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.scdoc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "seed7"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sd7"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.s7i"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "sh"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".env"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".login"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".logout"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".profile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "profile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".bash_login"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bash_login"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".bash_logout"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bash_logout"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".bash_profile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bash_profile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".bashrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "bashrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bashrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".cshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".kshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.kshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".tcshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zshenv"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zshenv"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zlogin"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zlogin"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zlogout"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zlogout"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zprofile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zprofile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bash"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.csh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.env"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ksh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tcsh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.zsh"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "slim"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.skim"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.slim"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.slime"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "smarty"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tpl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "sml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sig"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "solidity"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sol"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "soy"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.soy"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "spark"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.spark"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "spec"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.spec"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "sql"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sql"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.psql"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ssa"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ssa"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "stylus"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.styl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "sv"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.v"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vg"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sv"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.svh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.h"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "svelte"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.svelte"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.svelte.ts"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "svg"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.svg"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "swift"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.swift"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "swig"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.def"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.i"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "systemd"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.automount"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.conf"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.device"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.link"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mount"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.path"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.scope"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.service"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.slice"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.socket"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.swap"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.target"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.timer"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "taskpaper"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.taskpaper"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "tcl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tcl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "tex"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tex"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ltx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cls"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sty"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.bib"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dtx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ins"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "texinfo"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.texi"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "textile"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.textile"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "tf"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tf"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tf.json"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tfvars"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tfvars.json"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.terraformrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "terraform.rc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tfrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.terraform.lock.hcl"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "thrift"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.thrift"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "toml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.toml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "Cargo.lock"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "ts"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "typescript"}
+                    ]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ts"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.tsx"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.cts"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mts"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "twig"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.twig"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "txt"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.txt"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "typoscript"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.typoscript"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.ts"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "typst"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.typ"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "usd"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.usd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.usda"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.usdc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "v"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.v"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vsh"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vala"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vala"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vb"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vb"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vcl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vcl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "verilog"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.v"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vh"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sv"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.svh"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vhdl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vhd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vhdl"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vim"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vim"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".vimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".gvimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gvimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "_vimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "_gvimrc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vimscript"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vim"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".vimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".gvimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "gvimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "_vimrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "_gvimrc"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "vue"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.vue"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "webidl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.idl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.webidl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.widl"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "wgsl"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.wgsl"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "wiki"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.mediawiki"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.wiki"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "xml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xml.dist"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.dtd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xsl"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xslt"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xsd"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xjb"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.rng"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.sch"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xhtml"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "xz"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.xz"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.txz"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "yacc"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.y"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "yaml"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.yaml"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.yml"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "yang"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.yang"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "z"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.Z"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zig"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.zig"}]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zsh"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zshenv"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zshenv"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zlogin"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zlogin"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zlogout"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zlogout"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zprofile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zprofile"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": ".zshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zshrc"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.zsh"}
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "names",
+                  "value": {
+                    "op": "sequence",
+                    "items": [{"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "zstd"}]
+                  }
+                },
+                {
+                  "name": "globs",
+                  "value": {
+                    "op": "sequence",
+                    "items": [
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.zst"},
+                      {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "*.zstd"}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": ["DefaultTypeGroup", "DefaultTypes"]
+}

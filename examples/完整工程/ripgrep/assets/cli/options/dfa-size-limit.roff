@@ -1,0 +1,9 @@
+
+The upper size limit of the regex DFA. The default limit is something generous
+for any single pattern or for many smallish patterns. This should only be
+changed on very large regex inputs where the (slower) fallback regex engine may
+otherwise be used if the limit is reached.
+.sp
+The input format accepts suffixes of \fBK\fP, \fBM\fP or \fBG\fP which
+correspond to kilobytes, megabytes and gigabytes, respectively. If no suffix is
+provided the input is treated as bytes.

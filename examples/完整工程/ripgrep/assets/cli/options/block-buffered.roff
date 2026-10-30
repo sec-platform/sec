@@ -1,0 +1,9 @@
+
+When enabled, ripgrep will use block buffering. That is, whenever a matching
+line is found, it will be written to an in-memory buffer and will not be
+written to stdout until the buffer reaches a certain size. This is the default
+when ripgrep's stdout is redirected to a pipeline or a file. When ripgrep's
+stdout is connected to a tty, line buffering will be used by default. Forcing
+block buffering can be useful when dumping a large amount of contents to a tty.
+.sp
+This overrides the \flag{line-buffered} flag.

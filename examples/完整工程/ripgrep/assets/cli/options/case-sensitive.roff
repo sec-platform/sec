@@ -1,0 +1,9 @@
+
+Execute the search case sensitively. This is the default mode.
+.sp
+This is a global option that applies to all patterns given to ripgrep.
+Individual patterns can still be matched case insensitively by using inline
+regex flags. For example, \fB(?i)abc\fP will match \fBabc\fP case insensitively
+even when this flag is used.
+.sp
+This flag overrides the \flag{ignore-case} and \flag{smart-case} flags.

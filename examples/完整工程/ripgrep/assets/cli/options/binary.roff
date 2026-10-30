@@ -1,0 +1,32 @@
+
+Enabling this flag will cause ripgrep to search binary files. By default,
+ripgrep attempts to automatically skip binary files in order to improve the
+relevance of results and make the search faster.
+.sp
+Binary files are heuristically detected based on whether they contain a
+\fBNUL\fP byte or not. By default (without this flag set), once a \fBNUL\fP
+byte is seen, ripgrep will stop searching the file. Usually, \fBNUL\fP bytes
+occur in the beginning of most binary files. If a \fBNUL\fP byte occurs after
+a match, then ripgrep will not print the match, stop searching that file, and
+emit a warning that some matches are being suppressed.
+.sp
+In contrast, when this flag is provided, ripgrep will continue searching a
+file even if a \fBNUL\fP byte is found. In particular, if a \fBNUL\fP byte is
+found then ripgrep will continue searching until either a match is found or
+the end of the file is reached, whichever comes sooner. If a match is found,
+then ripgrep will stop and print a warning saying that the search stopped
+prematurely.
+.sp
+If you want ripgrep to search a file without any special \fBNUL\fP byte
+handling at all (and potentially print binary data to stdout), then you should
+use the \flag{text} flag.
+.sp
+The \flag{binary} flag is a flag for controlling ripgrep's automatic filtering
+mechanism. As such, it does not need to be used when searching a file
+explicitly or when searching stdin. That is, it is only applicable when
+recursively searching a directory.
+.sp
+When the \flag{unrestricted} flag is provided for a third time, then this flag
+is automatically enabled.
+.sp
+This flag overrides the \flag{text} flag.
