@@ -1,0 +1,364 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:exact-state-point-example",
+  "imports": {
+    "time": {
+      "workspace": "module:event-time-ranges"
+    },
+    "sourceModel": {
+      "workspace": "module:source-model-subjects-v1"
+    },
+    "native": {
+      "workspace": "module:historical-state-observation"
+    }
+  },
+  "definitions": {
+    "History": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "WorkspaceInstance": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "OperationOccurrence": {
+      "req:subject": {
+        "roles": {}
+      }
+    },
+    "State": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "closed": {
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            }
+          }
+        }
+      }
+    },
+    "SnapshotIsClosed": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {
+            "name": "snapshot",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:State"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "local:SnapshotIsClosedBody"
+      }
+    },
+    "ClosedAtSelectedPoint": {
+      "intent:goal": {
+        "roles": {
+          "anchors": {
+            "typeRef": "sourceModel:ObservationUse",
+            "cardinality": "one",
+            "bindingLevel": "object"
+          },
+          "states": {
+            "typeRef": "sourceModel:ObservationUse",
+            "cardinality": "one",
+            "bindingLevel": "object"
+          }
+        },
+        "clauses": {
+          "closed": {
+            "achieve": {
+              "quantify": {
+                "quantifier": "exists",
+                "binder": "point",
+                "observedDomain": {
+                  "binding": "anchors"
+                },
+                "predicate": {
+                  "temporal": {
+                    "operator": "always",
+                    "clockRef": "time:SessionReading",
+                    "item": {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "snapshot",
+                        "observedDomain": {
+                          "binding": "states"
+                        },
+                        "predicate": {
+                          "apply": {
+                            "meaningRef": "local:SnapshotIsClosed",
+                            "arguments": {
+                              "snapshot": {
+                                "binding": "snapshot"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "range": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:OnePoint"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "point"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "BeforePointObservation": {
+      "observation:contract": {
+        "subjectRef": "native:BoundaryCut",
+        "observerRef": "native:BeforePoints",
+        "scopeRef": "scope:exact-workspace-boundary",
+        "clockRef": "time:SessionReading",
+        "completeness": "closed",
+        "contextRoles": {
+          "history": {
+            "typeRef": "local:History",
+            "cardinality": "one"
+          },
+          "subject": {
+            "typeRef": "local:WorkspaceInstance",
+            "cardinality": "one"
+          },
+          "operation": {
+            "typeRef": "local:OperationOccurrence",
+            "cardinality": "one"
+          }
+        }
+      }
+    },
+    "AfterPointObservation": {
+      "observation:contract": {
+        "subjectRef": "native:BoundaryCut",
+        "observerRef": "native:AfterPoints",
+        "scopeRef": "scope:exact-workspace-boundary",
+        "clockRef": "time:SessionReading",
+        "completeness": "closed",
+        "contextRoles": {
+          "history": {
+            "typeRef": "local:History",
+            "cardinality": "one"
+          },
+          "subject": {
+            "typeRef": "local:WorkspaceInstance",
+            "cardinality": "one"
+          },
+          "operation": {
+            "typeRef": "local:OperationOccurrence",
+            "cardinality": "one"
+          }
+        }
+      }
+    },
+    "StateObservation": {
+      "observation:contract": {
+        "subjectRef": "native:StateCut",
+        "observerRef": "native:OneState",
+        "scopeRef": "scope:exact-workspace-state",
+        "clockRef": "time:SessionReading",
+        "completeness": "closed",
+        "contextRoles": {
+          "history": {
+            "typeRef": "local:History",
+            "cardinality": "one"
+          },
+          "subject": {
+            "typeRef": "local:WorkspaceInstance",
+            "cardinality": "one"
+          }
+        }
+      }
+    },
+    "CheckRecordedState": {
+      "product:component": {
+        "provides": [],
+        "requires": [],
+        "contextRoles": {
+          "history": {
+            "typeRef": "local:History",
+            "cardinality": "one"
+          },
+          "subject": {
+            "typeRef": "local:WorkspaceInstance",
+            "cardinality": "one"
+          },
+          "operation": {
+            "typeRef": "local:OperationOccurrence",
+            "cardinality": "one"
+          }
+        },
+        "requirements": [
+          {
+            "ref": "local:ClosedAtSelectedPoint",
+            "roleBindings": {
+              "anchors": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "member",
+                  "componentPath": [],
+                  "slot": "observationParticipations",
+                  "useId": "anchors"
+                }
+              },
+              "states": {
+                "source": "occurrence",
+                "selector": {
+                  "kind": "member",
+                  "componentPath": [],
+                  "slot": "observationParticipations",
+                  "useId": "states"
+                }
+              }
+            }
+          }
+        ],
+        "observationParticipations": [
+          {
+            "use": {
+              "ref": "local:BeforePointObservation",
+              "useId": "anchors",
+              "bindings": {
+                "history": {
+                  "source": "context",
+                  "role": "history"
+                },
+                "subject": {
+                  "source": "context",
+                  "role": "subject"
+                },
+                "operation": {
+                  "source": "context",
+                  "role": "operation"
+                }
+              }
+            },
+            "role": "consume"
+          },
+          {
+            "use": {
+              "ref": "local:StateObservation",
+              "useId": "states",
+              "bindings": {
+                "history": {
+                  "source": "context",
+                  "role": "history"
+                },
+                "subject": {
+                  "source": "context",
+                  "role": "subject"
+                }
+              }
+            },
+            "role": "consume"
+          }
+        ]
+      }
+    },
+    "SnapshotIsClosedBody": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "snapshot",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:State"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "field",
+          "record": {
+            "op": "var",
+            "name": "snapshot"
+          },
+          "name": "closed"
+        }
+      }
+    },
+    "ExactCutRange": {
+      "core:type": {
+        "tag": "record",
+        "open": false,
+        "fields": {
+          "point": {
+            "type": {
+              "tag": "nominal",
+              "ref": "native:HistoricalPoint"
+            }
+          }
+        }
+      }
+    },
+    "OnePoint": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "point",
+            "type": {
+              "tag": "nominal",
+              "ref": "native:HistoricalPoint"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:ExactCutRange"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "point",
+              "value": {
+                "op": "var",
+                "name": "point"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": [
+    "History",
+    "WorkspaceInstance",
+    "OperationOccurrence",
+    "CheckRecordedState",
+    "OnePoint"
+  ]
+}

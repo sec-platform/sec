@@ -1,0 +1,12 @@
+[
+  {
+    "op": "test",
+    "path": "/definitions/CheckRecordedState/product:component/observationParticipations/0/use/ref",
+    "value": "local:BeforePointObservation"
+  },
+  {
+    "op": "replace",
+    "path": "/definitions/CheckRecordedState/product:component/observationParticipations/0/use/ref",
+    "value": "local:AfterPointObservation"
+  }
+]

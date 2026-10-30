@@ -1,0 +1,38 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "module:historical-state-observation",
+  "language": "typescript",
+  "profileRef": "profile:exact-workspace-history:1",
+  "symbols": {
+    "HistoricalPoint": {
+      "sourcePath": "准确历史点/supply/history.d.ts",
+      "nativeExport": "HistoricalPoint",
+      "role": "type"
+    },
+    "BoundaryCut": {
+      "sourcePath": "准确历史点/supply/history.d.ts",
+      "nativeExport": "BoundaryCut",
+      "role": "type"
+    },
+    "StateCut": {
+      "sourcePath": "准确历史点/supply/history.d.ts",
+      "nativeExport": "StateCut",
+      "role": "type"
+    },
+    "BeforePoints": {
+      "sourcePath": "准确历史点/supply/history.d.ts",
+      "nativeExport": "BeforePoints",
+      "role": "callable"
+    },
+    "AfterPoints": {
+      "sourcePath": "准确历史点/supply/history.d.ts",
+      "nativeExport": "AfterPoints",
+      "role": "callable"
+    },
+    "OneState": {
+      "sourcePath": "准确历史点/supply/history.d.ts",
+      "nativeExport": "OneState",
+      "role": "callable"
+    }
+  }
+}

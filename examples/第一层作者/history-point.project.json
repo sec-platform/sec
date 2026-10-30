@@ -1,0 +1,14 @@
+{
+  "schema":"gift.project/design-converged",
+  "projectId":"example:exact-history-point",
+  "sourceScopes":[
+    {"root":"准确历史点","kind":"semantic","include":["*.module.json"],"editSource":{"mode":"file"}},
+    {"root":"准确历史点","kind":"design","include":["README.md","changes/*.json"],"editSource":{"mode":"file"}},
+    {"root":"准确历史点/supply","kind":"native","include":["history.d.ts"],"editSource":{"mode":"file"}},
+    {"root":"准确历史点/supply","kind":"design","include":["history.selection.json","history-profile.md"],"editSource":{"mode":"file"}},
+    {"root":"事件期限","kind":"semantic","include":["ranges.module.json"],"editSource":{"mode":"file"}},
+    {"root":"事件期限","kind":"design","include":["README.md"],"editSource":{"mode":"file"}},
+    {"root":"源发生绑定","kind":"semantic","include":["subjects.module.json"],"editSource":{"mode":"file"}},
+    {"root":"源发生绑定","kind":"design","include":["README.md"],"editSource":{"mode":"file"}}
+  ]
+}
