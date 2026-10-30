@@ -117,6 +117,8 @@ test('default concurrent tests receive the canonical inner budget', () => {
     'tests/unit/toolchain/dependency-rollover-recovery.test.ts',
     'tests/contract/cli/cli-usage-process.test.ts',
     'tests/contract/cli/usage.test.ts',
+    'tests/unit/toolchain/dependency-command-capture.test.ts',
+    'tests/unit/verification/verification-session-command-cwd.test.ts',
     'tests/unit/verification/testkit-template-preparation.test.ts',
     'tests/contract/cli/error-protocol-isolation.test.ts'
   ]);
@@ -135,7 +137,9 @@ test('default concurrent tests receive the canonical inner budget', () => {
     'tests/unit/toolchain/dependency-migration-boundaries.test.ts',
     'tests/unit/toolchain/dependency-rollover-recovery.test.ts',
     'tests/contract/cli/cli-usage-process.test.ts',
-    'tests/contract/cli/usage.test.ts'
+    'tests/contract/cli/usage.test.ts',
+    'tests/unit/toolchain/dependency-command-capture.test.ts',
+    'tests/unit/verification/verification-session-command-cwd.test.ts'
   ]);
   expect(selected.concurrent).toEqual([
     'tests/unit/verification/testkit-template-preparation.test.ts',

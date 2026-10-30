@@ -135,6 +135,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/toolchain/dependency-command-capture.test.ts',
+    reason: 'native-bun-cli-child-and-command-scope-capture',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification/verification-session-command-cwd.test.ts',
+    reason: 'platform-native-bun-child-and-retained-directory-fault-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/contract/cli/cli-usage-process.test.ts',
     reason: 'native-bun-cli-process-and-actual-stream-lifecycle',
     resourceClass: 'independent-process'
