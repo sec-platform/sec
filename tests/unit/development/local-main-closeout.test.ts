@@ -123,12 +123,13 @@ test.serial('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via 
   expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(remoteSha);
   expect(git(protectedRoot!, ['rev-parse', 'HEAD^{tree}']).trim()).toBe(remoteTree);
   expect(tree).not.toBe(remoteTree);
-});
 
-test.serial('already-current protected main returns LOCAL_MAIN_READY without mutation', () => {
-  const status = inspectLocalMainCloseout(protectedRoot!, binding(), gitRunner);
-  expect(status.status).toBe('LOCAL_MAIN_READY');
-  if (status.status === 'LOCAL_MAIN_READY') expect(status.action).toBe('already-current');
+  // The already-current reader consumes this same successfully synchronized
+  // native Git state. Keep its independent no-op verdict without requiring
+  // a separate test to run after the fast-forward case.
+  const current = inspectLocalMainCloseout(protectedRoot!, binding(), gitRunner);
+  expect(current.status).toBe('LOCAL_MAIN_READY');
+  if (current.status === 'LOCAL_MAIN_READY') expect(current.action).toBe('already-current');
 });
 
 
