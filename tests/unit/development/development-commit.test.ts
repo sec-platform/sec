@@ -281,6 +281,18 @@ async function createDevelopmentCommitTemplate(): Promise<string> {
   }
 }
 
+function retainedDevelopmentCommitTemplate(): Promise<string> {
+  if (developmentCommitTemplate !== undefined) return developmentCommitTemplate;
+  const pending = createDevelopmentCommitTemplate();
+  developmentCommitTemplate = pending;
+  // Failed construction has already settled its fixture root. Never cache a
+  // rejected seed as the outcome of later, independent Git Effect cases.
+  void pending.catch(() => {
+    if (developmentCommitTemplate === pending) developmentCommitTemplate = undefined;
+  });
+  return pending;
+}
+
 afterAll(async () => {
   if (developmentCommitTemplate === undefined) return;
   const result = await Promise.allSettled([developmentCommitTemplate]);
@@ -296,7 +308,7 @@ async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
 }>> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
   try {
-    const source = await (developmentCommitTemplate ??= createDevelopmentCommitTemplate());
+    const source = await retainedDevelopmentCommitTemplate();
     await cp(source, root, { recursive: true });
     return Object.freeze({
     root,

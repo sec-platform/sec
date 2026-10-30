@@ -587,8 +587,15 @@ interface FreezeFixtureSeed {
 let freezeFixtureSeedPromise: Promise<FreezeFixtureSeed> | undefined;
 
 function freezeFixtureSeed(): Promise<FreezeFixtureSeed> {
-  freezeFixtureSeedPromise ??= createFreezeFixtureSeed();
-  return freezeFixtureSeedPromise;
+  if (freezeFixtureSeedPromise !== undefined) return freezeFixtureSeedPromise;
+  const pending = createFreezeFixtureSeed();
+  freezeFixtureSeedPromise = pending;
+  // The seed builder settles failed physical preparation. Do not make a
+  // rejected Promise the permanent source of every later freeze recovery case.
+  void pending.catch(() => {
+    if (freezeFixtureSeedPromise === pending) freezeFixtureSeedPromise = undefined;
+  });
+  return pending;
 }
 
 async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {

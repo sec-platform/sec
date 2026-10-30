@@ -85,6 +85,18 @@ async function buildOrganizerGitBase(): Promise<OrganizerGitBase> {
   }
 }
 
+function retainedOrganizerGitBase(): Promise<OrganizerGitBase> {
+  if (organizerGitBase !== undefined) return organizerGitBase;
+  const pending = buildOrganizerGitBase();
+  organizerGitBase = pending;
+  // Failure has already settled the incomplete physical seed; only successful
+  // immutable Git source data may be held for later independent cases.
+  void pending.catch(() => {
+    if (organizerGitBase === pending) organizerGitBase = undefined;
+  });
+  return pending;
+}
+
 afterAll(async () => {
   if (organizerGitBase === undefined) return;
   const settled = await Promise.allSettled([organizerGitBase]);
@@ -100,7 +112,7 @@ async function copyOrganizerGitBase(prefix: string): Promise<Readonly<{
 }>> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), prefix));
   try {
-    const base = await (organizerGitBase ??= buildOrganizerGitBase());
+    const base = await retainedOrganizerGitBase();
     await cp(base.root, repoRoot, { recursive: true });
     return Object.freeze({ repoRoot, candidateBase: base.candidateBase });
   } catch (error) {
