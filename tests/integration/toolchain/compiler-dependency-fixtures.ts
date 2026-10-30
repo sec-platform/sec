@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from 'bun:test';
+import { afterAll, describe, expect, spyOn, test } from 'bun:test';
 import * as fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -406,6 +406,56 @@ async function withRetainedCompilerContentFixture(
   });
 }
 
+// A run-local, immutable native Git seed avoids redoing the initial Git
+// initialization, account setup and first commit for each independent linked
+// dependency-recovery case. Do not capture a live worktree, cache, lease or
+// materialized dependency generation in this seed.
+let linkedGitSeedPromise: Promise<string> | undefined;
+
+async function createLinkedWorktreeGitSeed(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-cdep-linked-seed-'));
+  try {
+    await runFixtureGit(root, ['init', '-b', 'main']);
+    await runFixtureGit(root, ['config', 'user.email', 'sec@example.invalid']);
+    await runFixtureGit(root, ['config', 'user.name', 'SEC Test']);
+    await runFixtureGit(root, ['config', 'core.autocrlf', 'false']);
+    await writeCompilerDependencyRoot(root);
+    await fs.writeFile(path.join(root, '.gitignore'), 'node_modules/\n.tmp/\n');
+    await runFixtureGit(root, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
+    await runFixtureGit(root, ['commit', '-m', 'epoch-v1']);
+    return root;
+  } catch (primary) {
+    try {
+      await fs.rm(root, { recursive: true, force: true });
+    } catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'Linked compiler seed and cleanup both failed');
+    }
+    throw primary;
+  }
+}
+
+function linkedWorktreeGitSeed(): Promise<string> {
+  if (linkedGitSeedPromise === undefined) {
+    const pending = createLinkedWorktreeGitSeed();
+    linkedGitSeedPromise = pending;
+    // A failed initialization owns its cleanup and is retryable; it cannot
+    // publish an apparently prepared seed to another test.
+    void pending.catch(() => {
+      if (linkedGitSeedPromise === pending) linkedGitSeedPromise = undefined;
+    });
+  }
+  return linkedGitSeedPromise;
+}
+
+afterAll(async () => {
+  const pending = linkedGitSeedPromise;
+  if (pending === undefined) return;
+  const [result] = await Promise.allSettled([pending]);
+  if (result?.status === 'fulfilled') {
+    await fs.rm(result.value, { recursive: true, force: true });
+  }
+});
+
 async function prepareLinkedWorktreeEpochTransition(
   tempRoot: string,
   ownerOperation: Parameters<typeof ensureCompilerDepsReady>[0],
@@ -417,15 +467,14 @@ async function prepareLinkedWorktreeEpochTransition(
 }>> {
   const ownerRoot = path.join(tempRoot, 'repository');
   const consumerRoot = path.join(tempRoot, 'candidate');
-  await fs.mkdir(ownerRoot);
-  await runFixtureGit(ownerRoot, ['init', '-b', 'main']);
-  await runFixtureGit(ownerRoot, ['config', 'user.email', 'sec@example.invalid']);
-  await runFixtureGit(ownerRoot, ['config', 'user.name', 'SEC Test']);
-  await runFixtureGit(ownerRoot, ['config', 'core.autocrlf', 'false']);
-  await writeCompilerDependencyRoot(ownerRoot);
-  await fs.writeFile(path.join(ownerRoot, '.gitignore'), 'node_modules/\n.tmp/\n');
-  await runFixtureGit(ownerRoot, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
-  await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v1']);
+  // The seed predates linked worktrees, dependency state and all Effect hooks.
+  // Every consumer clones an independent native Git index/refs/worktree and
+  // creates its own generations and recovery cut points below.
+  await fs.cp(await linkedWorktreeGitSeed(), ownerRoot, {
+    recursive: true,
+    force: false,
+    errorOnExist: true
+  });
   await runFixtureGit(ownerRoot, ['worktree', 'add', '-b', 'candidate', consumerRoot]);
   onOperationStart(consumerRoot);
   await ensureCompilerDepsReady({
