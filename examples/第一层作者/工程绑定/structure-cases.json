@@ -1,0 +1,153 @@
+{
+  "scope": "Finite design formation vectors. Ref targets and phase qualification are not established by Schema. Not a runnable engineering module.",
+  "cases": [
+    {
+      "name": "constructor binds raw input and one successful typed state",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/ComponentBody",
+      "expectedStructure": true,
+      "value": {
+        "providedPorts": {"snapshot": "local:Snapshot", "replace": "local:Replace"},
+        "requiredPorts": {}, "requirements": [],
+        "state": {"rows": {"type": {"tag": "nominal", "ref": "local:Rows"}}},
+        "constructor": {
+          "parameters": [{"name": "initialRows", "type": {"tag": "nominal", "ref": "local:TargetPassiveValue"}, "mode": "in"}],
+          "errors": {"tag": "nominal", "ref": "local:CreateError"}, "effects": [],
+          "requirements": [{"ref": "local:StoreCreated", "callBinding": {"at": "success", "roles": {
+            "raw": {"source": "parameter", "name": "initialRows"},
+            "rows": {"source": "state", "when": "after", "cell": "rows"}
+          }}}]
+        }
+      },
+      "semanticBoundary": "The fragment needs the named local type/interface/relation definitions, all normal/error/progress obligations and a common realizable witness. No reference or implementation qualification is claimed."
+    },
+    {
+      "name": "same interface has two distinct provided occurrences",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/ComponentBody",
+      "expectedStructure": true,
+      "value": {
+        "providedPorts": {"mainRead": "local:Read", "previewRead": "local:Read"},
+        "requiredPorts": {"source": "local:Snapshot"}, "requirements": [],
+        "constructor": {"parameters": [], "errors": {"tag": "scalar", "name": "never"}, "effects": [], "requirements": []},
+        "composition": {"components": [
+          {"instance": "main", "componentRef": "local:ThresholdView", "argumentBindings": {"initialThreshold": {"source": "parameter", "parameter": "mainInitial"}}},
+          {"instance": "preview", "componentRef": "local:ThresholdView", "argumentBindings": {"initialThreshold": {"source": "parameter", "parameter": "previewInitial"}}}
+        ], "connections": [
+          {"source": {"instancePath": ["main"], "port": "read"}, "target": {"boundaryPort": {"direction": "provides", "name": "mainRead"}}},
+          {"source": {"instancePath": ["preview"], "port": "read"}, "target": {"boundaryPort": {"direction": "provides", "name": "previewRead"}}},
+          {"source": {"boundaryPort": {"direction": "requires", "name": "source"}}, "target": {"instancePath": ["main"], "port": "source"}},
+          {"source": {"boundaryPort": {"direction": "requires", "name": "source"}}, "target": {"instancePath": ["preview"], "port": "source"}}
+        ]}
+      },
+      "semanticBoundary": "Formation fragment only: the complete TwinViews must declare mainInitial/previewInitial and forward both Set ports as specified by the complete engineering design. Empty requirements do not prove total construction or borrow compatibility."
+    },
+    {
+      "name": "runtime constructor argument is separate from template actual",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/ComponentUse",
+      "expectedStructure": true,
+      "value": {"instance": "store", "componentRef": "local:Store", "constructorArguments": {"initialRows": {"op": "var", "name": "initialRows"}}}
+    },
+    {
+      "name": "static parameter forwarding has a distinct source tag",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/ComponentUse",
+      "expectedStructure": true,
+      "value": {"instance": "main", "componentRef": "local:ThresholdView", "argumentBindings": {"initialThreshold": {"source": "parameter", "parameter": "mainInitial"}}}
+    },
+    {
+      "name": "runtime expression remains forbidden in static argumentBindings",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/ComponentUse",
+      "expectedStructure": false,
+      "value": {"instance": "store", "componentRef": "local:Store", "argumentBindings": {"initialRows": {"op": "var", "name": "initialRows"}}}
+    },
+    {
+      "name": "call contract refers to own state and successful output",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement",
+      "expectedStructure": true,
+      "value": {"ref": "local:ReadResult", "callBinding": {"at": "success", "roles": {
+        "threshold": {"source": "state", "when": "before", "cell": "threshold"},
+        "snapshot": {"source": "observation", "when": "after", "useId": "readObservation"},
+        "result": {"source": "output"}
+      }}}
+    },
+    {
+      "name": "error uses a declared business error without a successful result",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement",
+      "expectedStructure": true,
+      "value": {"ref": "local:ReplaceRejected", "callBinding": {"at": "error", "roles": {"raw": {"source": "input"}, "reason": {"source": "error"}}}}
+    },
+    {
+      "name": "legacy component remains accepted by candidate",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedStructure": true,
+      "value": {"kind": "product:component", "body": {"provides": [], "requires": [], "requirements": []}}
+    },
+    {
+      "name": "mixed old and new port authorities rejected",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedStructure": false,
+      "value": {"kind": "product:component", "body": {"provides": [], "requires": [], "providedPorts": {}, "requiredPorts": {}, "requirements": [], "constructor": {"parameters": [], "errors": {"tag": "scalar", "name": "never"}, "effects": [], "requirements": []}}}
+    },
+    {
+      "name": "new component requires an explicit expanded construction contract",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/ComponentBody",
+      "expectedStructure": false,
+      "value": {"providedPorts": {}, "requiredPorts": {}, "requirements": []}
+    },
+    {
+      "name": "empty instance path is not an implicit receiver",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/SystemConnectionEnd",
+      "expectedStructure": false,
+      "value": {"instancePath": [], "port": "source"}
+    },
+    {
+      "name": "boundary direction is not an arbitrary routing string",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/SystemConnectionEnd",
+      "expectedStructure": false,
+      "value": {"boundaryPort": {"direction": "both", "name": "source"}}
+    },
+    {
+      "name": "ordinary logical input does not accept an ABI index",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallEndpoint",
+      "expectedStructure": false,
+      "value": {"source": "input", "index": 1}
+    },
+    {
+      "name": "child path cannot turn own cell selector into private access",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallEndpoint",
+      "expectedStructure": false,
+      "value": {"source": "state", "when": "after", "cell": "rows", "instancePath": ["store"]}
+    },
+    {
+      "name": "abnormal is not an invented final business outcome",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement",
+      "expectedStructure": false,
+      "value": {"ref": "local:Closed", "callBinding": {"at": "abnormal", "roles": {}}}
+    },
+    {
+      "name": "global RequirementLink did not gain callBinding",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/RequirementLink",
+      "expectedStructure": false,
+      "value": {"ref": "local:ReadResult", "callBinding": {"at": "success", "roles": {}}}
+    },
+    {
+      "name": "well shaped error output still needs semantic rejection",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement",
+      "expectedStructure": true,
+      "value": {"ref": "local:Bad", "callBinding": {"at": "error", "roles": {"result": {"source": "output"}}}},
+      "semanticBoundary": "REJECT: no successful output at business error. This is a phase rule, not currently executed by a production semantic checker."
+    },
+    {
+      "name": "two scopes cannot silently override a formal role",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement",
+      "expectedStructure": true,
+      "value": {"ref": "local:Bad", "roleBindings": {"result": {"source": "context", "role": "oldResult"}}, "callBinding": {"at": "success", "roles": {"result": {"source": "output"}}}},
+      "semanticBoundary": "REJECT: repeated formal role across ordinary and call bindings, even if type happens to match."
+    },
+    {
+      "name": "closed receiver cannot revive a released observation",
+      "schema": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement",
+      "expectedStructure": true,
+      "value": {"ref": "local:Bad", "callBinding": {"at": "error", "roles": {"rows": {"source": "observation", "when": "after", "useId": "releasedStore"}}}},
+      "semanticBoundary": "REJECT or Need according to actual contract: a selector does not restore a retired observer or grant access. No runtime observation proof is claimed."
+    }
+  ]
+}

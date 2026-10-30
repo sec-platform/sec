@@ -9,6 +9,499 @@
       "candidateId": "urn:gift:design-schema:universal-author-module-2-converged-base",
       "replacements": [
         {
+          "pointer": "/$defs/Definition/oneOf/18/properties/body",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "provides",
+              "requires",
+              "requirements"
+            ],
+            "properties": {
+              "provides": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "minItems": 0
+              },
+              "requires": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "minItems": 0
+              },
+              "requirements": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/RequirementLink"
+                },
+                "minItems": 0
+              },
+              "implementationRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ComponentParameter"
+                },
+                "minItems": 0
+              },
+              "contextRoles": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/ContextRole"
+                },
+                "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+              },
+              "stateParticipations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/StateParticipation"
+                },
+                "uniqueItems": true,
+                "description": "Component hosts or observes explicitly selected state machine occurrences."
+              },
+              "dataAccesses": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/DataAccess"
+                },
+                "uniqueItems": true
+              },
+              "eventParticipations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/EventParticipation"
+                },
+                "uniqueItems": true
+              },
+              "protocolParticipations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolParticipation"
+                },
+                "uniqueItems": true
+              },
+              "resourceParticipations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ResourceParticipation"
+                },
+                "uniqueItems": true
+              },
+              "uiParticipations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UiParticipation"
+                },
+                "uniqueItems": true
+              },
+              "observationParticipations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ObservationParticipation"
+                },
+                "uniqueItems": true
+              },
+              "concurrencyUses": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/DefinitionUse"
+                },
+                "uniqueItems": true,
+                "description": "Explicit typed concurrencyUses member occurrences; no implicit workspace traversal."
+              },
+              "workflowUses": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/DefinitionUse"
+                },
+                "uniqueItems": true,
+                "description": "Explicit typed workflowUses member occurrences; no implicit workspace traversal."
+              },
+              "policyUses": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/DefinitionUse"
+                },
+                "uniqueItems": true,
+                "description": "Explicit typed policyUses member occurrences; no implicit workspace traversal."
+              },
+              "qualityUses": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/DefinitionUse"
+                },
+                "uniqueItems": true,
+                "description": "Explicit typed qualityUses member occurrences; no implicit workspace traversal."
+              },
+              "activationRoutes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ActivationRoute"
+                },
+                "description": "Explicit local causal bindings to workflow occurrences. Must reference stable useId values on workflowUses and the appropriate typed member participation in the same component, never raw Definition names or other component instances."
+              }
+            }
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provides",
+                  "requires",
+                  "requirements"
+                ],
+                "properties": {
+                  "provides": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "minItems": 0
+                  },
+                  "requires": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "minItems": 0
+                  },
+                  "requirements": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/RequirementLink"
+                    },
+                    "minItems": 0
+                  },
+                  "implementationRef": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "parameters": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/ComponentParameter"
+                    },
+                    "minItems": 0
+                  },
+                  "contextRoles": {
+                    "type": "object",
+                    "propertyNames": {
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+                    },
+                    "additionalProperties": {
+                      "$ref": "#/$defs/ContextRole"
+                    },
+                    "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                  },
+                  "stateParticipations": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/StateParticipation"
+                    },
+                    "uniqueItems": true,
+                    "description": "Component hosts or observes explicitly selected state machine occurrences."
+                  },
+                  "dataAccesses": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/DataAccess"
+                    },
+                    "uniqueItems": true
+                  },
+                  "eventParticipations": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EventParticipation"
+                    },
+                    "uniqueItems": true
+                  },
+                  "protocolParticipations": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/ProtocolParticipation"
+                    },
+                    "uniqueItems": true
+                  },
+                  "resourceParticipations": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/ResourceParticipation"
+                    },
+                    "uniqueItems": true
+                  },
+                  "uiParticipations": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/UiParticipation"
+                    },
+                    "uniqueItems": true
+                  },
+                  "observationParticipations": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/ObservationParticipation"
+                    },
+                    "uniqueItems": true
+                  },
+                  "concurrencyUses": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/DefinitionUse"
+                    },
+                    "uniqueItems": true,
+                    "description": "Explicit typed concurrencyUses member occurrences; no implicit workspace traversal."
+                  },
+                  "workflowUses": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/DefinitionUse"
+                    },
+                    "uniqueItems": true,
+                    "description": "Explicit typed workflowUses member occurrences; no implicit workspace traversal."
+                  },
+                  "policyUses": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/DefinitionUse"
+                    },
+                    "uniqueItems": true,
+                    "description": "Explicit typed policyUses member occurrences; no implicit workspace traversal."
+                  },
+                  "qualityUses": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/DefinitionUse"
+                    },
+                    "uniqueItems": true,
+                    "description": "Explicit typed qualityUses member occurrences; no implicit workspace traversal."
+                  },
+                  "activationRoutes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/ActivationRoute"
+                    },
+                    "description": "Explicit local causal bindings to workflow occurrences. Must reference stable useId values on workflowUses and the appropriate typed member participation in the same component, never raw Definition names or other component instances."
+                  }
+                }
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-component-contracts#/$defs/ComponentBody"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/ComponentUse",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "instance",
+              "componentRef"
+            ],
+            "properties": {
+              "instance": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "componentRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "argumentBindings": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?![\\s\\S])"
+                },
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    {
+                      "$ref": "#/$defs/StaticValueActual"
+                    }
+                  ]
+                },
+                "description": "One occurrence binding per declared component parameter. Resource/capability/policy/observation modes take a typed Ref; value mode takes a tagged non-computational StaticValueActual. Unknown modes, wrong actual shape, missing required slots and nominal mismatches must be rejected by semantic checker. Old Expr arguments remain read-only and are forbidden to current Writer."
+              },
+              "contextBindings": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/BusinessRoleActual"
+                },
+                "description": "Per-instance bindings for component contextRoles. Separate from static definition argumentBindings; no cross-instance implicit inheritance."
+              }
+            }
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "instance",
+              "componentRef"
+            ],
+            "properties": {
+              "instance": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "componentRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "argumentBindings": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?![\\s\\S])"
+                },
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    {
+                      "$ref": "#/$defs/StaticValueActual"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "source",
+                        "parameter"
+                      ],
+                      "properties": {
+                        "source": {
+                          "const": "parameter"
+                        },
+                        "parameter": {
+                          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "description": "Static template actuals; parameter forwards one already-bound parent template parameter. Runtime constructor values belong only in constructorArguments. All kind, authority and lifetime checks remain required."
+              },
+              "contextBindings": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/BusinessRoleActual"
+                },
+                "description": "Per-instance bindings for component contextRoles. Separate from static definition argumentBindings; no cross-instance implicit inheritance."
+              },
+              "constructorArguments": {
+                "type": "object",
+                "propertyNames": {
+                  "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                },
+                "additionalProperties": {
+                  "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr"
+                }
+              }
+            }
+          }
+        },
+        {
+          "pointer": "/$defs/SystemConnectionEnd",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "instance",
+              "portRef"
+            ],
+            "properties": {
+              "instance": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "portRef": {
+                "$ref": "#/$defs/Ref"
+              }
+            }
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "instance",
+                  "portRef"
+                ],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Identifier"
+                  },
+                  "portRef": {
+                    "$ref": "#/$defs/Ref"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "instancePath",
+                  "port"
+                ],
+                "properties": {
+                  "instancePath": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                    },
+                    "minItems": 1
+                  },
+                  "port": {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "boundaryPort"
+                ],
+                "properties": {
+                  "boundaryPort": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "direction",
+                      "name"
+                    ],
+                    "properties": {
+                      "direction": {
+                        "enum": [
+                          "requires",
+                          "provides"
+                        ]
+                      },
+                      "name": {
+                        "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
           "pointer": "/properties/schema",
           "expected": {
             "const": "gift.author-module/2"
@@ -1292,6 +1785,11 @@
       "path": "schema/author/first-layer/surface-convergence.schema.json",
       "id": "urn:gift:design-schema:surface-convergence",
       "sha256": "6b59bd1b9104ffa757458ff282d2aa109684ec66483fb92f64fdd549546facf6"
+    },
+    {
+      "path": "schema/author/first-layer/component-contracts.schema.json",
+      "id": "urn:gift:design-schema:first-layer-component-contracts",
+      "sha256": "9f8e3f6cdefca8aa7a3b13da6ef6821657ca72841df702e93bc46fa9e41bc847"
     }
   ],
   "extensions": [

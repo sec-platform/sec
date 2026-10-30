@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:first-layer-component-contracts",
+  "title": "Structured component and scoped call design; no production qualification",
+  "$comment": "Candidate-only addition. Formation checks do not prove binding, availability, ownership, completeness, realization or runtime observations. Legacy component body and RequirementLink remain unchanged.",
+  "$defs": {
+    "ComponentBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "providedPorts",
+        "requiredPorts",
+        "requirements",
+        "constructor"
+      ],
+      "properties": {
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/RequirementLink"
+          },
+          "minItems": 0
+        },
+        "implementationRef": {
+          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ComponentParameter"
+          },
+          "minItems": 0
+        },
+        "contextRoles": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
+          },
+          "additionalProperties": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ContextRole"
+          },
+          "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+        },
+        "stateParticipations": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/StateParticipation"
+          },
+          "uniqueItems": true,
+          "description": "Component hosts or observes explicitly selected state machine occurrences."
+        },
+        "dataAccesses": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/DataAccess"
+          },
+          "uniqueItems": true
+        },
+        "eventParticipations": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/EventParticipation"
+          },
+          "uniqueItems": true
+        },
+        "protocolParticipations": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ProtocolParticipation"
+          },
+          "uniqueItems": true
+        },
+        "resourceParticipations": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ResourceParticipation"
+          },
+          "uniqueItems": true
+        },
+        "uiParticipations": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/UiParticipation"
+          },
+          "uniqueItems": true
+        },
+        "observationParticipations": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ObservationParticipation"
+          },
+          "uniqueItems": true
+        },
+        "concurrencyUses": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/DefinitionUse"
+          },
+          "uniqueItems": true,
+          "description": "Explicit typed concurrencyUses member occurrences; no implicit workspace traversal."
+        },
+        "workflowUses": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/DefinitionUse"
+          },
+          "uniqueItems": true,
+          "description": "Explicit typed workflowUses member occurrences; no implicit workspace traversal."
+        },
+        "policyUses": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/DefinitionUse"
+          },
+          "uniqueItems": true,
+          "description": "Explicit typed policyUses member occurrences; no implicit workspace traversal."
+        },
+        "qualityUses": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/DefinitionUse"
+          },
+          "uniqueItems": true,
+          "description": "Explicit typed qualityUses member occurrences; no implicit workspace traversal."
+        },
+        "activationRoutes": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ActivationRoute"
+          },
+          "description": "Explicit local causal bindings to workflow occurrences. Must reference stable useId values on workflowUses and the appropriate typed member participation in the same component, never raw Definition names or other component instances."
+        },
+        "providedPorts": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          },
+          "additionalProperties": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"
+          }
+        },
+        "requiredPorts": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          },
+          "additionalProperties": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"
+          }
+        },
+        "constructor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "parameters",
+            "errors",
+            "effects",
+            "requirements"
+          ],
+          "properties": {
+            "parameters": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Param"
+              },
+              "minItems": 0
+            },
+            "errors": {
+              "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"
+            },
+            "effects": {
+              "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/PortOperation/properties/effects"
+            },
+            "requirements": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        "state": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Type"
+              },
+              "initial": {
+                "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr"
+              }
+            }
+          }
+        },
+        "operationContracts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "port",
+              "operation",
+              "requirements"
+            ],
+            "properties": {
+              "port": {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              "operation": {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              "requirements": {
+                "type": "array",
+                "items": {
+                  "$ref": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallRequirement"
+                },
+                "minItems": 1
+              }
+            }
+          },
+          "minItems": 0
+        },
+        "composition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "components",
+            "connections"
+          ],
+          "properties": {
+            "components": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ComponentUse"
+              },
+              "minItems": 0
+            },
+            "connections": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/SystemConnection"
+              },
+              "minItems": 0
+            }
+          }
+        }
+      }
+    },
+    "CallRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "callBinding"
+      ],
+      "properties": {
+        "ref": {
+          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/RequirementLink/properties/ref"
+        },
+        "strength": {
+          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/RequirementLink/properties/strength"
+        },
+        "scopeRef": {
+          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/RequirementLink/properties/scopeRef"
+        },
+        "roleBindings": {
+          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/RequirementLink/properties/roleBindings"
+        },
+        "callBinding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at",
+            "roles"
+          ],
+          "properties": {
+            "at": {
+              "enum": [
+                "entry",
+                "success",
+                "error"
+              ]
+            },
+            "roles": {
+              "type": "object",
+              "propertyNames": {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+              },
+              "additionalProperties": {
+                "$ref": "urn:gift:design-schema:first-layer-component-contracts#/$defs/CallEndpoint"
+              }
+            }
+          }
+        }
+      }
+    },
+    "CallEndpoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "const": "input"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "name"
+          ],
+          "properties": {
+            "source": {
+              "const": "parameter"
+            },
+            "name": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "const": "output"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "const": "error"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "const": "receiver"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "when",
+            "cell"
+          ],
+          "properties": {
+            "source": {
+              "const": "state"
+            },
+            "when": {
+              "enum": [
+                "before",
+                "after"
+              ]
+            },
+            "cell": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "when",
+            "useId"
+          ],
+          "properties": {
+            "source": {
+              "const": "observation"
+            },
+            "when": {
+              "enum": [
+                "before",
+                "after"
+              ]
+            },
+            "useId": {
+              "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
