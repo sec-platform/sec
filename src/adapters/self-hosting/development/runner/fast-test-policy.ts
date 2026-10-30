@@ -380,6 +380,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/development/import-organizer-selection.test.ts',
+    reason: 'native-git-index-fixture-and-typescript-language-service',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/development/import-organizer-staged.test.ts',
+    reason: 'native-git-index-and-staged-publication-recovery-fixtures',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/workspace/project-baseline-phase.test.ts',
     reason: 'physical-project-baseline-and-workspace-publication',
     resourceClass: 'independent-process'
@@ -397,6 +407,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/unit/verification/verification-suite-harness.test.ts',
     reason: 'native-fast-suite-children-and-worker-failure-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification/verification-artifact-canonical-inventory.test.ts',
+    reason: 'process-global-cwd-during-asynchronous-artifact-publication',
     resourceClass: 'independent-process'
   },
   {

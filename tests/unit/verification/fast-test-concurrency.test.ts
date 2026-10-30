@@ -105,15 +105,23 @@ test('default concurrent tests receive the canonical inner budget', () => {
     'tests/unit/verification/verification-suite-harness.test.ts',
     'tests/unit/verification/verification-suite-process.test.ts',
     'tests/unit/verification/testkit-workspace-files.test.ts',
-    'tests/unit/verification/testkit-template-preparation.test.ts'
+    'tests/unit/development/import-organizer-selection.test.ts',
+    'tests/unit/development/import-organizer-staged.test.ts',
+    'tests/unit/verification/verification-artifact-canonical-inventory.test.ts',
+    'tests/unit/verification/testkit-template-preparation.test.ts',
+    'tests/contract/cli/error-protocol-isolation.test.ts'
   ]);
   expect(selected.resourceQueues['independent-process']).toEqual([
     'tests/unit/verification/verification-suite-harness.test.ts',
     'tests/unit/verification/verification-suite-process.test.ts',
-    'tests/unit/verification/testkit-workspace-files.test.ts'
+    'tests/unit/verification/testkit-workspace-files.test.ts',
+    'tests/unit/development/import-organizer-selection.test.ts',
+    'tests/unit/development/import-organizer-staged.test.ts',
+    'tests/unit/verification/verification-artifact-canonical-inventory.test.ts'
   ]);
   expect(selected.concurrent).toEqual([
-    'tests/unit/verification/testkit-template-preparation.test.ts'
+    'tests/unit/verification/testkit-template-preparation.test.ts',
+    'tests/contract/cli/error-protocol-isolation.test.ts'
   ]);
 });
 
