@@ -1,0 +1,727 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:shared-views-policy",
+  "imports": {
+    "boundary": {"mode": "workspace", "moduleId": "module:passive-typescript-values"},
+    "sequence": {"mode": "workspace", "moduleId": "module:gift-sequence-values-v1"}
+  },
+  "definitions": {
+    "Int": {"core:type": "int"},
+    "Text": {"core:type": "text"},
+    "Raw": {"core:type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}},
+    "Row": {"core:type": {"record": {"score": "int", "text": "text"}, "open": false}},
+    "Rows": {"core:type": {"tag": "sequence", "item": {"tag": "nominal", "ref": "local:Row"}, "ordered": true}},
+    "AtLeastBody": {
+      "core:function": {
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "mode": "in"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:IntCompare"},
+            "arguments": [{"op": "var", "name": "left"}, {"op": "var", "name": "right"}]
+          },
+          "cases": [
+            {
+              "constructor": "Less",
+              "binding": "unusedLess",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {
+              "constructor": "Equal",
+              "binding": "unusedEqual",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            },
+            {
+              "constructor": "Greater",
+              "binding": "unusedGreater",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            }
+          ]
+        }
+      }
+    },
+    "AboveBody": {
+      "core:function": {
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "mode": "in"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "scalar", "name": "bool"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op": "symbol", "ref": "std:IntCompare"},
+            "arguments": [{"op": "var", "name": "left"}, {"op": "var", "name": "right"}]
+          },
+          "cases": [
+            {
+              "constructor": "Less",
+              "binding": "unusedLess",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {
+              "constructor": "Equal",
+              "binding": "unusedEqual",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": false}
+            },
+            {
+              "constructor": "Greater",
+              "binding": "unusedGreater",
+              "body": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}
+            }
+          ]
+        }
+      }
+    },
+    "ThresholdPolicy": {
+      "core:constant": {
+        "type": {
+          "tag": "function",
+          "params": [{"tag": "scalar", "name": "int"}, {"tag": "scalar", "name": "int"}],
+          "returns": {"tag": "scalar", "name": "bool"},
+          "effects": []
+        },
+        "value": {"op": "symbol", "ref": "local:AtLeastBody"}
+      }
+    },
+    "AtLeast": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:AtLeastBody"
+      }
+    },
+    "IntEqual": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "std:IntEq"
+      }
+    },
+    "TextEqual": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "text"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "text"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "std:TextEqual"
+      }
+    },
+    "KeysMatch": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "value", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"},
+          {"name": "keys", "type": {"tag": "sequence", "item": {"tag": "scalar", "name": "text"}, "ordered": true}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "boundary:HasExactlyKeys"
+      }
+    },
+    "MeetsThreshold": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "interpretationRef": "local:ThresholdPolicy"
+      }
+    },
+    "InScoreRange": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "value", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "apply": {
+                "meaningRef": "local:AtLeast",
+                "arguments": {
+                  "left": {"value": {"op": "var", "name": "value"}},
+                  "right": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "0"}}
+                }
+              }
+            },
+            {
+              "apply": {
+                "meaningRef": "local:AtLeast",
+                "arguments": {
+                  "left": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "9"}},
+                  "right": {"value": {"op": "var", "name": "value"}}
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ValidRow": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "raw", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "apply": {
+                "meaningRef": "local:KeysMatch",
+                "arguments": {
+                  "value": {"value": {"op": "var", "name": "raw"}},
+                  "keys": {
+                    "value": {
+                      "op": "sequence",
+                      "items": [
+                        {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "score"},
+                        {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "text"}
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "exists",
+                "binder": "scoreField",
+                "domain": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "boundary:FieldValues"},
+                  "arguments": [{"op": "var", "name": "raw"}, {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "score"}]
+                },
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "scoreValue",
+                    "domain": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "boundary:NumberIntegers"},
+                      "arguments": [{"op": "var", "name": "scoreField"}]
+                    },
+                    "predicate": {"apply": {"meaningRef": "local:InScoreRange", "arguments": {"value": {"value": {"op": "var", "name": "scoreValue"}}}}}
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "exists",
+                "binder": "textField",
+                "domain": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "boundary:FieldValues"},
+                  "arguments": [{"op": "var", "name": "raw"}, {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "text"}]
+                },
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "textValue",
+                    "domain": {"op": "call", "callee": {"op": "symbol", "ref": "boundary:ScalarTexts"}, "arguments": [{"op": "var", "name": "textField"}]},
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "local:TextEqual",
+                        "arguments": {"left": {"value": {"op": "var", "name": "textValue"}}, "right": {"value": {"op": "var", "name": "textValue"}}}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "RowRepresents": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "raw", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"},
+          {"name": "row", "type": {"tag": "nominal", "ref": "local:Row"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {"apply": {"meaningRef": "local:ValidRow", "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}}}},
+            {
+              "quantify": {
+                "quantifier": "exists",
+                "binder": "scoreField",
+                "domain": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "boundary:FieldValues"},
+                  "arguments": [{"op": "var", "name": "raw"}, {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "score"}]
+                },
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "scoreValue",
+                    "domain": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "boundary:NumberIntegers"},
+                      "arguments": [{"op": "var", "name": "scoreField"}]
+                    },
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "local:IntEqual",
+                        "arguments": {
+                          "left": {"value": {"op": "var", "name": "scoreValue"}},
+                          "right": {"value": {"op": "field", "record": {"op": "var", "name": "row"}, "name": "score"}}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "exists",
+                "binder": "textField",
+                "domain": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "boundary:FieldValues"},
+                  "arguments": [{"op": "var", "name": "raw"}, {"op": "literal", "type": {"tag": "scalar", "name": "text"}, "value": "text"}]
+                },
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "textValue",
+                    "domain": {"op": "call", "callee": {"op": "symbol", "ref": "boundary:ScalarTexts"}, "arguments": [{"op": "var", "name": "textField"}]},
+                    "predicate": {
+                      "apply": {
+                        "meaningRef": "local:TextEqual",
+                        "arguments": {
+                          "left": {"value": {"op": "var", "name": "textValue"}},
+                          "right": {"value": {"op": "field", "record": {"op": "var", "name": "row"}, "name": "text"}}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ValidRows": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "raw", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "quantify": {
+            "quantifier": "exists",
+            "binder": "elements",
+            "domain": {"op": "call", "callee": {"op": "symbol", "ref": "boundary:DenseArrays"}, "arguments": [{"op": "var", "name": "raw"}]},
+            "predicate": {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "rawRow",
+                "domain": {"op": "var", "name": "elements"},
+                "predicate": {"apply": {"meaningRef": "local:ValidRow", "arguments": {"raw": {"value": {"op": "var", "name": "rawRow"}}}}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "RowsAdmitted": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "rows", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "quantify": {
+            "quantifier": "forall",
+            "binder": "row",
+            "domain": {"op": "var", "name": "rows"},
+            "predicate": {
+              "apply": {
+                "meaningRef": "local:InScoreRange",
+                "arguments": {"value": {"value": {"op": "field", "record": {"op": "var", "name": "row"}, "name": "score"}}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "DecodeRows": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "raw", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"},
+          {"name": "rows", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "quantify": {
+            "quantifier": "exists",
+            "binder": "elements",
+            "domain": {"op": "call", "callee": {"op": "symbol", "ref": "boundary:DenseArrays"}, "arguments": [{"op": "var", "name": "raw"}]},
+            "predicate": {
+              "all": [
+                {
+                  "apply": {
+                    "meaningRef": "local:IntEqual",
+                    "arguments": {
+                      "left": {
+                        "value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "elements"}]}
+                      },
+                      "right": {
+                        "value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "rows"}]}
+                      }
+                    }
+                  }
+                },
+                {
+                  "quantify": {
+                    "quantifier": "forall",
+                    "binder": "sourceItem",
+                    "domain": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Enumerate"}, "arguments": [{"op": "var", "name": "elements"}]},
+                    "predicate": {
+                      "quantify": {
+                        "quantifier": "exists",
+                        "binder": "resultItem",
+                        "domain": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Enumerate"}, "arguments": [{"op": "var", "name": "rows"}]},
+                        "predicate": {
+                          "all": [
+                            {
+                              "apply": {
+                                "meaningRef": "local:IntEqual",
+                                "arguments": {
+                                  "left": {"value": {"op": "field", "record": {"op": "var", "name": "sourceItem"}, "name": "index"}},
+                                  "right": {"value": {"op": "field", "record": {"op": "var", "name": "resultItem"}, "name": "index"}}
+                                }
+                              }
+                            },
+                            {
+                              "apply": {
+                                "meaningRef": "local:RowRepresents",
+                                "arguments": {
+                                  "raw": {"value": {"op": "field", "record": {"op": "var", "name": "sourceItem"}, "name": "value"}},
+                                  "row": {"value": {"op": "field", "record": {"op": "var", "name": "resultItem"}, "name": "value"}}
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "RowsEqual": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "left", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"},
+          {"name": "right", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "apply": {
+                "meaningRef": "local:IntEqual",
+                "arguments": {
+                  "left": {"value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "left"}]}},
+                  "right": {"value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "right"}]}}
+                }
+              }
+            },
+            {
+              "quantify": {
+                "quantifier": "forall",
+                "binder": "leftItem",
+                "domain": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Enumerate"}, "arguments": [{"op": "var", "name": "left"}]},
+                "predicate": {
+                  "quantify": {
+                    "quantifier": "exists",
+                    "binder": "rightItem",
+                    "domain": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Enumerate"}, "arguments": [{"op": "var", "name": "right"}]},
+                    "predicate": {
+                      "all": [
+                        {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {"value": {"op": "field", "record": {"op": "var", "name": "leftItem"}, "name": "index"}},
+                              "right": {"value": {"op": "field", "record": {"op": "var", "name": "rightItem"}, "name": "index"}}
+                            }
+                          }
+                        },
+                        {
+                          "apply": {
+                            "meaningRef": "local:IntEqual",
+                            "arguments": {
+                              "left": {
+                                "value": {
+                                  "op": "field",
+                                  "record": {"op": "field", "record": {"op": "var", "name": "leftItem"}, "name": "value"},
+                                  "name": "score"
+                                }
+                              },
+                              "right": {
+                                "value": {
+                                  "op": "field",
+                                  "record": {"op": "field", "record": {"op": "var", "name": "rightItem"}, "name": "value"},
+                                  "name": "score"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "apply": {
+                            "meaningRef": "local:TextEqual",
+                            "arguments": {
+                              "left": {
+                                "value": {
+                                  "op": "field",
+                                  "record": {"op": "field", "record": {"op": "var", "name": "leftItem"}, "name": "value"},
+                                  "name": "text"
+                                }
+                              },
+                              "right": {
+                                "value": {
+                                  "op": "field",
+                                  "record": {"op": "field", "record": {"op": "var", "name": "rightItem"}, "name": "value"},
+                                  "name": "text"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Select": {
+      "core:function": {
+        "parameters": [
+          {"name": "input", "type": {"tag": "nominal", "ref": "local:Rows"}, "mode": "in"},
+          {"name": "threshold", "type": {"tag": "scalar", "name": "int"}, "mode": "in"}
+        ],
+        "returns": {"tag": "nominal", "ref": "local:Rows"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "comprehension": {
+            "yield": {"op": "var", "name": "row"},
+            "clauses": [
+              {"from": {"bind": "row", "in": {"op": "var", "name": "input"}}},
+              {
+                "where": {
+                  "op": "call",
+                  "callee": {"op": "symbol", "ref": "local:ThresholdPolicy"},
+                  "arguments": [{"op": "field", "record": {"op": "var", "name": "row"}, "name": "score"}, {"op": "var", "name": "threshold"}]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "KeepByThreshold": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "input", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"},
+          {"name": "threshold", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"},
+          {"name": "output", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {"apply": {"meaningRef": "local:RowsAdmitted", "arguments": {"rows": {"value": {"op": "var", "name": "input"}}}}},
+            {"apply": {"meaningRef": "local:InScoreRange", "arguments": {"value": {"value": {"op": "var", "name": "threshold"}}}}},
+            {
+              "apply": {
+                "meaningRef": "local:RowsEqual",
+                "arguments": {
+                  "left": {"value": {"op": "var", "name": "output"}},
+                  "right": {
+                    "value": {
+                      "op": "call",
+                      "callee": {"op": "symbol", "ref": "local:Select"},
+                      "arguments": [{"op": "var", "name": "input"}, {"op": "var", "name": "threshold"}]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ScalarTotal": {
+      "core:function": {
+        "parameters": [{"name": "input", "type": {"tag": "nominal", "ref": "local:Rows"}, "mode": "in"}],
+        "returns": {"tag": "scalar", "name": "int"},
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "call": {
+            "callee": {"op": "symbol", "ref": "sequence:SumInt"},
+            "arguments": [
+              {
+                "comprehension": {
+                  "yield": {
+                    "op": "call",
+                    "callee": {"op": "symbol", "ref": "boundary:ScalarLength"},
+                    "arguments": [{"op": "field", "record": {"op": "var", "name": "row"}, "name": "text"}]
+                  },
+                  "clauses": [{"from": {"bind": "row", "in": {"op": "var", "name": "input"}}}]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "CapacityValid": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [{"name": "input", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "apply": {
+                "meaningRef": "local:AtLeast",
+                "arguments": {
+                  "left": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "10000"}},
+                  "right": {"value": {"op": "call", "callee": {"op": "symbol", "ref": "sequence:Length"}, "arguments": [{"op": "var", "name": "input"}]}}
+                }
+              }
+            },
+            {
+              "apply": {
+                "meaningRef": "local:AtLeast",
+                "arguments": {
+                  "left": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "100000"}},
+                  "right": {
+                    "value": {"op": "call", "callee": {"op": "symbol", "ref": "local:ScalarTotal"}, "arguments": [{"op": "var", "name": "input"}]}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ThresholdRepresents": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "raw", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"},
+          {"name": "value", "type": {"tag": "scalar", "name": "int"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "quantify": {
+            "quantifier": "exists",
+            "binder": "number",
+            "domain": {"op": "call", "callee": {"op": "symbol", "ref": "boundary:NumberIntegers"}, "arguments": [{"op": "var", "name": "raw"}]},
+            "predicate": {
+              "all": [
+                {
+                  "apply": {
+                    "meaningRef": "local:IntEqual",
+                    "arguments": {"left": {"value": {"op": "var", "name": "number"}}, "right": {"value": {"op": "var", "name": "value"}}}
+                  }
+                },
+                {"apply": {"meaningRef": "local:InScoreRange", "arguments": {"value": {"value": {"op": "var", "name": "value"}}}}}
+              ]
+            }
+          }
+        }
+      }
+    },
+    "CreateAccepted": {
+      "domain:meaning": {
+        "category": "relation",
+        "parameters": [
+          {"name": "raw", "type": {"tag": "nominal", "ref": "boundary:TargetPassiveValue"}, "cardinality": "one"},
+          {"name": "rows", "type": {"tag": "nominal", "ref": "local:Rows"}, "cardinality": "one"}
+        ],
+        "result": {"tag": "scalar", "name": "bool"},
+        "formula": {
+          "all": [
+            {
+              "apply": {
+                "meaningRef": "local:DecodeRows",
+                "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}, "rows": {"value": {"op": "var", "name": "rows"}}}
+              }
+            },
+            {"apply": {"meaningRef": "local:CapacityValid", "arguments": {"input": {"value": {"op": "var", "name": "rows"}}}}}
+          ]
+        }
+      }
+    },
+    "CreationRequirement": {
+      "intent:goal": {
+        "roles": {"raw": "local:Raw", "rows": "local:Rows"},
+        "clauses": {
+          "accepted": {
+            "achieve": {
+              "apply": {
+                "meaningRef": "local:CreateAccepted",
+                "arguments": {"raw": {"value": {"op": "var", "name": "raw"}}, "rows": {"value": {"op": "var", "name": "rows"}}}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": [
+    "Raw",
+    "Row",
+    "Rows",
+    "ThresholdPolicy",
+    "ValidRow",
+    "ValidRows",
+    "DecodeRows",
+    "RowsAdmitted",
+    "KeepByThreshold",
+    "CapacityValid",
+    "ThresholdRepresents",
+    "CreateAccepted",
+    "CreationRequirement"
+  ]
+}

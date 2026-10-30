@@ -47,7 +47,8 @@
             "description": "Exact native export spelling. The selected language Profile/compiler owns symbol existence and lexical qualification; unsupported exports remain Needs, never renamed implicitly."
           },
           "role": {
-            "$ref": "urn:gift:design-schema:native-binding-selection-1#/properties/symbols/additionalProperties/properties/role"
+            "enum": ["callable", "predicate", "type"],
+            "description": "The candidate may explicitly select a real public native type into the Type namespace. Signature reachability alone does not export a type; selection creates no callable, constructor, field access, ownership or runtime root. Original selection /1 remains callable/predicate only."
           }
         }
       },

@@ -1,0 +1,15 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "module:passive-typescript-values",
+  "language": "typescript",
+  "profileRef": "profile:passive-typescript-values:1",
+  "symbols": {
+    "TargetPassiveValue": {"sourcePath": "共享资料工程/supply/boundary.d.ts", "nativeExport": "TargetPassiveValue", "role": "type"},
+    "DenseArrays": {"sourcePath": "共享资料工程/supply/boundary.d.ts", "nativeExport": "DenseArrays", "role": "callable"},
+    "FieldValues": {"sourcePath": "共享资料工程/supply/boundary.d.ts", "nativeExport": "FieldValues", "role": "callable"},
+    "HasExactlyKeys": {"sourcePath": "共享资料工程/supply/boundary.d.ts", "nativeExport": "HasExactlyKeys", "role": "predicate"},
+    "NumberIntegers": {"sourcePath": "共享资料工程/supply/boundary.d.ts", "nativeExport": "NumberIntegers", "role": "callable"},
+    "ScalarTexts": {"sourcePath": "共享资料工程/supply/boundary.d.ts", "nativeExport": "ScalarTexts", "role": "callable"},
+    "ScalarLength": {"sourcePath": "共享资料工程/supply/boundary.d.ts", "nativeExport": "ScalarLength", "role": "callable"}
+  }
+}

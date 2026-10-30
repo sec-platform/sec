@@ -9,6 +9,139 @@
       "candidateId": "urn:gift:design-schema:universal-author-module-2-converged-base",
       "replacements": [
         {
+          "pointer": "/$defs/Definition/oneOf/4/properties/body",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "category",
+              "parameters",
+              "result",
+              "interpretationRef"
+            ],
+            "properties": {
+              "category": {
+                "enum": [
+                  "predicate",
+                  "relation",
+                  "operation",
+                  "measurement",
+                  "event"
+                ]
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/MeaningRole"
+                }
+              },
+              "result": {
+                "$ref": "#/$defs/Type"
+              },
+              "interpretationRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "observationRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "authorityRef": {
+                "$ref": "#/$defs/Ref"
+              },
+              "scopeRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "category",
+                  "parameters",
+                  "result",
+                  "interpretationRef"
+                ],
+                "properties": {
+                  "category": {
+                    "enum": [
+                      "predicate",
+                      "relation",
+                      "operation",
+                      "measurement",
+                      "event"
+                    ]
+                  },
+                  "parameters": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/MeaningRole"
+                    }
+                  },
+                  "result": {
+                    "$ref": "#/$defs/Type"
+                  },
+                  "interpretationRef": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "observationRef": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "authorityRef": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "scopeRef": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "category",
+                  "parameters",
+                  "result",
+                  "formula"
+                ],
+                "properties": {
+                  "category": {
+                    "const": "relation"
+                  },
+                  "parameters": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/MeaningRole"
+                    }
+                  },
+                  "result": {
+                    "const": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    }
+                  },
+                  "observationRef": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "authorityRef": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "scopeRef": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "formula": {
+                    "$ref": "urn:gift:design-schema:intent-body-1#/$defs/formula"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
           "pointer": "/$defs/Definition/oneOf/18/properties/body",
           "expected": {
             "type": "object",

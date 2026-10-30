@@ -264,3 +264,20 @@ class AuthorCodecSpec(TestCase):
         data = {'value': {'literal': literal}, 'region': 'ordinary data'}
         encoded = {'literal': {'type': {'tag': 'nominal', 'ref': 'local:Data'}, 'value': data}}
         self.assertEqual(self.expansion.expression(encoded), {'op': 'literal', **encoded['literal']})
+
+    def test_relation_formula_uses_the_existing_formula_slot_only(self):
+        body = {'category': 'relation', 'parameters': [],
+                'result': {'tag': 'scalar', 'name': 'bool'},
+                'formula': {'all': [{'local:R': {'x': 'input'}},
+                                    {'not': {'local:S': {'x': 'input'}}}]}}
+        expected = copy.deepcopy(body)
+        expected['formula'] = {'op': 'all', 'items': [
+            {'op': 'call', 'meaningRef': 'local:R', 'bindings': {'x': 'input'}},
+            {'op': 'not', 'item': {'op': 'call', 'meaningRef': 'local:S', 'bindings': {'x': 'input'}}}]}
+        self.assertEqual(self.expansion.definition({'domain:meaning': body}),
+                         {'kind': 'domain:meaning', 'body': expected})
+        exact = {'kind': 'domain:meaning', 'body': body}
+        self.assertEqual(self.expansion.definition(exact), exact)
+        # Competing bodies are not resolved by dropping one: full Schema rejects.
+        mixed = {**body, 'interpretationRef': 'local:Other'}
+        self.assertIn('interpretationRef', self.expansion.definition({'domain:meaning': mixed})['body'])

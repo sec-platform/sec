@@ -364,6 +364,10 @@ class Expansion:
                 body['body'] = self.expression(body['body'])
         elif kind == 'intent:goal':
             body = self.goal(body)
+        elif kind == 'domain:meaning':
+            body = copy.deepcopy(object_at(body, 'Meaning Body'))
+            if 'formula' in body:
+                body['formula'] = self.formula(body['formula'])
         elif kind == 'state:machine':
             body = self.state(body)
         else:
