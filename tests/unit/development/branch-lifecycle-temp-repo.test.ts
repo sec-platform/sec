@@ -1,4 +1,5 @@
 import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
+import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
@@ -415,7 +416,9 @@ test('typed inventory boundary ignores ambient repository and index steering wit
 });
 
 test('closeout requires its documentation owner and revalidates the exact recovery head before effects', () => {
-  const fixture = observationFixture();
+  // Preparing recovery artifacts is a physical Git Effect. Do not mutate the
+  // observation-only repository shared with the inventory reader cases.
+  const fixture = repositoryFixture();
   const restorePath = installGitHubObservationShim(fixture);
   const recoveryRoot = path.join(fixture.root, 'recovery');
   settleWorkspaceCallbackSync(() => {
@@ -497,7 +500,12 @@ test('closeout requires its documentation owner and revalidates the exact recove
       recoveryBundleBytes: readFileSync(authorized.preparation.recovery.path)
     })).toThrow('active-work-owner-observation-unavailable');
     expect(existsSync(rehydrationRoot)).toBe(false);
-  }, () => { restorePath(); });
+  }, () => {
+    settleResources({ cleanup: [
+      { label: 'closeout GitHub shim', settle: () => restorePath() },
+      { label: 'closeout native repository', settle: () => rmSync(fixture.root, { recursive: true, force: true }) }
+    ] });
+  });
 }, 180_000);
 
 
