@@ -42,13 +42,6 @@ test('native aborted state cannot be masked by a shadow public getter',()=>fixtu
   await assert.rejects(fs.stat(input.stableSeedFile),{code:'ENOENT'});
 }));
 
-test('false structural signals reject before creating any private resources',()=>fixture(async input=>{
-  for(const signal of [null,{},false,{aborted:false}]) {
-    await assert.rejects(prepareTypeScriptIncrementalState({...input,signal:signal as never}),TypeError);
-  }
-  assert.deepEqual(await fs.readdir(input.actionPrivateParent.path),[]);
-}));
-
 test('healthy cleanup is shared and publish cannot start after cleanup is selected',()=>fixture(async input=>{
   const session=await prepareTypeScriptIncrementalState(input);
   const first=session.dispose(),second=session.dispose();

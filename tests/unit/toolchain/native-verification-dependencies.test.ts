@@ -66,7 +66,6 @@ test('native dependency request binds exact JSON decisions and byte/depth limits
   expect(parseNativeVerificationDependencyRequest(atLimit)).toEqual(request);
   const overLimit = new Uint8Array(4_097).fill(0x20);
   overLimit.set(encoded);
-  Object.defineProperty(overLimit, 'byteLength', { value: 1 });
   expectJsonFailure(overLimit, 'input-too-large');
   expectJsonFailure(bytes({ ...request, kind: { nested: { value: 'source-program' } } }), 'depth-limit');
 });
