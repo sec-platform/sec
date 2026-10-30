@@ -419,9 +419,12 @@ test('closeout requires its documentation owner and revalidates the exact recove
   // Preparing recovery artifacts is a physical Git Effect. Do not mutate the
   // observation-only repository shared with the inventory reader cases.
   const fixture = repositoryFixture();
-  const restorePath = installGitHubObservationShim(fixture);
+  let restorePath: (() => void) | undefined;
   const recoveryRoot = path.join(fixture.root, 'recovery');
   settleWorkspaceCallbackSync(() => {
+    // Shim acquisition belongs to the same cleanup scope as this owned
+    // native repository, including failed shim creation or compilation.
+    restorePath = installGitHubObservationShim(fixture);
     const inventory = collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
@@ -502,7 +505,7 @@ test('closeout requires its documentation owner and revalidates the exact recove
     expect(existsSync(rehydrationRoot)).toBe(false);
   }, () => {
     settleResources({ cleanup: [
-      { label: 'closeout GitHub shim', settle: () => restorePath() },
+      { label: 'closeout GitHub shim', settle: () => restorePath?.() },
       { label: 'closeout native repository', settle: () => rmSync(fixture.root, { recursive: true, force: true }) }
     ] });
   });
