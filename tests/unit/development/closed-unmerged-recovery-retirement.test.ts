@@ -404,7 +404,9 @@ test('matching unknown journal preserves recovery before and after an absent-roo
     const journalPath = path.join(journalRoot, `${'a'.repeat(64)}.json`);
     // Both journal writes refer to the same original immutable Git object.
     // Retiring recovery material cannot change the commit's tree.
-    const headTreeSha = git(value.root, ['rev-parse', `${headSha}^{tree}`]);
+    const baseline = sourceRecoveryBase();
+    expect(headSha).toBe(baseline.headSha);
+    const headTreeSha = baseline.headTreeSha;
     const writeUnknown = () => {
       mkdirSync(journalRoot, { recursive: true });
       writeFileSync(journalPath, `${JSON.stringify(canonicalJson({
@@ -443,6 +445,8 @@ test('non-origin prepared remote tracking ref blocks journal and recovery retire
     const journalRoot = path.join(value.root, '.git', 'sec-development-commit');
     mkdirSync(journalRoot, { recursive: true });
     const journalPath = path.join(journalRoot, `${'b'.repeat(64)}.json`);
+    const baseline = sourceRecoveryBase();
+    expect(headSha).toBe(baseline.headSha);
     writeFileSync(journalPath, `${JSON.stringify(canonicalJson({
       schema: 'sec-development-commit-journal-v1',
       operation: `sha256:${'1'.repeat(64)}`,
@@ -451,7 +455,7 @@ test('non-origin prepared remote tracking ref blocks journal and recovery retire
       preimage: headSha,
       target: headSha,
       object: headSha,
-      tree: git(value.root, ['rev-parse', `${headSha}^{tree}`]),
+      tree: baseline.headTreeSha,
       terminal: 'unknown'
     }))}\n`, 'utf8');
     git(value.root, ['update-ref', `refs/remotes/upstream/${BRANCH}`, headSha]);

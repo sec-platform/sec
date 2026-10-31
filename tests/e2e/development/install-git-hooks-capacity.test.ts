@@ -47,9 +47,8 @@ test('linked hook installation reserves only a missing generation when bootstrap
       git(linkedRoot, ['add', '--chmod=+x', '.githooks/post-merge']);
       expect(installGitHooksInIsolatedProcess(repoRoot)).toMatchObject({ status: 'installed' });
       const bootstrapGeneration = configuredBootstrapHooksPath(repoRoot);
-      const commonRoot = path.join(path.resolve(git(repoRoot, [
-        'rev-parse', '--path-format=absolute', '--git-common-dir'
-      ])), 'sec-managed-hooks-v3');
+      // The bootstrap locator already checked this exact Git common directory.
+      const commonRoot = path.dirname(bootstrapGeneration);
       const unrelated = Array.from({ length: 6 }, (_, index) => path.join(
         commonRoot, `generation-${String(index + 1).padStart(64, '0')}`
       ));

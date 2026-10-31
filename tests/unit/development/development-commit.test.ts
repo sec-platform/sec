@@ -696,8 +696,8 @@ test('development.commit reports failed staged normalization without publishing 
   });
 }, 20_000);
 
-function fixtureReflogPath(root: string): string {
-  const ref = git(root, ['symbolic-ref', 'HEAD']);
+function fixtureReflogPath(root: string, knownRef?: string): string {
+  const ref = knownRef ?? git(root, ['symbolic-ref', 'HEAD']);
   return path.resolve(root, git(root, ['rev-parse', '--git-path', `logs/${ref}`]));
 }
 
@@ -712,7 +712,7 @@ for (const mode of [
       const tree = git(root, ['write-tree']);
       const target = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'intended target']);
       const other = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'unrelated target']);
-      const reflogPath = fixtureReflogPath(root);
+      const reflogPath = fixtureReflogPath(root, ref);
       if (mode !== 'gap') await rm(reflogPath);
       git(root, ['update-ref', '--create-reflog', '-m', 'development.commit', ref, target, preimage]);
       if (mode === 'wrong-old' || mode === 'zero-old' || mode === 'gap') {

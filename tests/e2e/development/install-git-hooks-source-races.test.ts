@@ -65,10 +65,8 @@ test('generation cleanup stops on validation-to-delete replacement and preserves
   await withRepository(async (repoRoot) => {
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const previousGeneration = configuredManagedHooksPath(repoRoot);
-    const commonGitDir = path.resolve(git(repoRoot, [
-      'rev-parse', '--path-format=absolute', '--git-common-dir'
-    ]));
-    const commonRoot = path.join(commonGitDir, 'sec-managed-hooks-v3');
+    // The retained generation was already checked against this native Git common directory.
+    const commonRoot = path.dirname(previousGeneration);
     const digest = /^generation-([0-9a-f]{64})/u.exec(path.basename(previousGeneration))?.[1];
     expect(digest).toBeDefined();
     const duplicateGeneration = path.join(

@@ -57,11 +57,14 @@ beforeAll(async () => {
   writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'base\n', 'utf8');
   git(repositoryRoot, ['add', 'behavior.txt']);
   git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
-  BASE_SHA = git(repositoryRoot, ['rev-parse', 'HEAD']);
   git(repositoryRoot, ['switch', '--quiet', '-c', BRANCH]);
   writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'closed branch behavior\n', 'utf8');
   git(repositoryRoot, ['commit', '--quiet', '-am', 'closed branch head']);
-  const branchObjects = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split('\n');
+  const [baseSha, branchParent, ...branchObjects] = git(repositoryRoot, [
+    'rev-parse', 'refs/heads/main', 'HEAD^', 'HEAD', 'HEAD^{tree}'
+  ]).split('\n');
+  expect(baseSha).toBe(branchParent);
+  BASE_SHA = baseSha!;
   expect(branchObjects).toHaveLength(2);
   [HEAD_SHA, HEAD_TREE] = branchObjects as [string, string];
   git(repositoryRoot, ['switch', '--quiet', 'main']);
