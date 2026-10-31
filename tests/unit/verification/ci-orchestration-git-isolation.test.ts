@@ -55,8 +55,6 @@ function prepareGitOrchestrationRepository(repositoryRoot: string): void {
     const base = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-empty-base-'));
     try {
       git(base, ['init', '--quiet', '--initial-branch=main']);
-      git(base, ['config', 'user.name', 'SEC Test']);
-      git(base, ['config', 'user.email', 'sec-test@example.invalid']);
       emptyGitOrchestrationBase = base;
     } catch (error) {
       try { rmSync(base, { recursive: true, force: true }); }
@@ -78,12 +76,12 @@ test.serial('CI orchestration Git observations ignore ambient repository redirec
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'base\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'removed.txt'), 'removed\n', 'utf8');
     git(repositoryRoot, ['add', 'fixture.txt', 'removed.txt']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
     const baseSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'head\n', 'utf8');
     unlinkSync(path.join(repositoryRoot, 'removed.txt'));
     git(repositoryRoot, ['add', 'fixture.txt', 'removed.txt']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'head']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'head']);
     const headSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
@@ -122,7 +120,7 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
     prepareGitOrchestrationRepository(repositoryRoot);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'fixture\n', 'utf8');
     git(repositoryRoot, ['add', 'fixture.txt']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
 
     let processFailure: unknown;
     try {
@@ -287,7 +285,7 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     prepareGitOrchestrationRepository(repositoryRoot);
     writeFileSync(path.join(repositoryRoot, 'README.md'), 'base\n', 'utf8');
     git(repositoryRoot, ['add', 'README.md']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
     const baseSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     mkdirSync(path.join(repositoryRoot, 'src', 'candidate'), { recursive: true });
@@ -334,7 +332,7 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     writeFileSync(path.join(repositoryRoot, 'tests', 'unit', 'candidate-only.test.ts'),
       "import { candidateOnly } from '../../src/candidate/candidate-only.ts'; void candidateOnly;\n", 'utf8');
     git(repositoryRoot, ['add', 'src/candidate', 'tests', 'docs', '.documentation']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'candidate']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'candidate']);
     const candidateSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     // The physical checkout is old-main. Only immutable candidate objects may

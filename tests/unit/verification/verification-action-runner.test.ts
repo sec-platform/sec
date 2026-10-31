@@ -1306,12 +1306,10 @@ test.skipIf(process.platform !== 'win32')(
   const candidateRoot = path.join(workspaceRoot, 'candidate');
   const decoyRoot = path.join(workspaceRoot, 'decoy');
   git(workspaceRoot, ['init', authorityRoot]);
-  git(authorityRoot, ['config', 'user.name', 'SEC Runner']);
-  git(authorityRoot, ['config', 'user.email', 'sec-runner@example.invalid']);
   writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
   writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'candidate\n', 'utf8');
   git(authorityRoot, ['add', '.gitignore', 'tracked.txt']);
-  git(authorityRoot, ['commit', '-m', 'candidate']);
+  git(authorityRoot, ['-c', 'user.name=SEC Runner', '-c', 'user.email=sec-runner@example.invalid', 'commit', '-m', 'candidate']);
   const headObjects = git(authorityRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
   if (headObjects.length !== 2 || !headObjects[0] || !headObjects[1]) {
     throw new Error('Expected both candidate commit and tree from native Git');
@@ -1322,7 +1320,7 @@ test.skipIf(process.platform !== 'win32')(
   git(authorityRoot, ['switch', '-c', 'replacement-view']);
   writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'replacement\n', 'utf8');
   git(authorityRoot, ['add', 'tracked.txt']);
-  git(authorityRoot, ['commit', '-m', 'replacement object view']);
+  git(authorityRoot, ['-c', 'user.name=SEC Runner', '-c', 'user.email=sec-runner@example.invalid', 'commit', '-m', 'replacement object view']);
   const replacementCommit = git(authorityRoot, ['rev-parse', 'HEAD']);
   git(authorityRoot, ['switch', originalBranch]);
   git(authorityRoot, ['replace', headSha, replacementCommit]);
@@ -1338,11 +1336,9 @@ test.skipIf(process.platform !== 'win32')(
   expect(canonicalBlob.stdout.toString('utf8').trim()).toBe('candidate');
 
   git(workspaceRoot, ['init', decoyRoot]);
-  git(decoyRoot, ['config', 'user.name', 'SEC Decoy']);
-  git(decoyRoot, ['config', 'user.email', 'sec-decoy@example.invalid']);
   writeFileSync(path.join(decoyRoot, 'decoy.txt'), 'decoy\n', 'utf8');
   git(decoyRoot, ['add', 'decoy.txt']);
-  git(decoyRoot, ['commit', '-m', 'decoy']);
+  git(decoyRoot, ['-c', 'user.name=SEC Decoy', '-c', 'user.email=sec-decoy@example.invalid', 'commit', '-m', 'decoy']);
   const decoyGitDirectory = git(decoyRoot, [
     'rev-parse', '--path-format=absolute', '--absolute-git-dir'
   ]);

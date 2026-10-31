@@ -42,8 +42,6 @@ test('release set is self-contained, relocatable and documentation-exact', async
   let buildSettled = true;
   await settleWorkspaceCallback(async () => {
     command(root, 'git', ['init', '--quiet']);
-    command(root, 'git', ['config', 'user.email', 'tests@example.com']);
-    command(root, 'git', ['config', 'user.name', 'SEC Tests']);
     await write(root, '.gitignore', 'node_modules/\nbuild/\n.tmp/\n');
     await write(root, '.bun-version', `${Bun.version}\n`);
     await write(root, 'LICENSE', 'fixture project license\n');
@@ -131,7 +129,7 @@ test('release set is self-contained, relocatable and documentation-exact', async
     }, null, 2)}\n`);
 
     command(root, 'git', ['add', '--all']);
-    command(root, 'git', ['commit', '--quiet', '-m', 'fixture']);
+    command(root, 'git', ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'fixture']);
     buildSettled = false;
     const receipt = await buildReleaseSet(root, destination);
     buildSettled = true;

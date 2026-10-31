@@ -846,21 +846,17 @@ test('trusted bootstrap cleanliness excludes only its exact nested candidate che
     const candidateRoot = path.join(baseRoot, 'candidate-sut');
     mkdirSync(baseRoot, { recursive: true });
     gitFixture(baseRoot, ['init', '--quiet']);
-    gitFixture(baseRoot, ['config', 'user.email', 'sec-test@example.invalid']);
-    gitFixture(baseRoot, ['config', 'user.name', 'SEC Test']);
     writeFileSync(path.join(baseRoot, '.gitignore'), 'ignored-residue.txt\n');
     writeFileSync(path.join(baseRoot, 'base.txt'), 'base\n');
     gitFixture(baseRoot, ['add', '.gitignore', 'base.txt']);
-    gitFixture(baseRoot, ['commit', '--quiet', '-m', 'base']);
+    gitFixture(baseRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
     const clone = spawnSync('git', ['clone', '--quiet', baseRoot, candidateRoot], {
       encoding: 'utf8', windowsHide: true, timeout: 30_000
     });
     if (clone.status !== 0) throw new Error(`Git fixture clone failed: ${clone.stderr || clone.stdout}`);
-    gitFixture(candidateRoot, ['config', 'user.email', 'sec-test@example.invalid']);
-    gitFixture(candidateRoot, ['config', 'user.name', 'SEC Test']);
     writeFileSync(path.join(candidateRoot, 'candidate.txt'), 'candidate\n');
     gitFixture(candidateRoot, ['add', 'candidate.txt']);
-    gitFixture(candidateRoot, ['commit', '--quiet', '-m', 'candidate']);
+    gitFixture(candidateRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'candidate']);
 
     expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot
@@ -2337,9 +2333,7 @@ function trustedPrivateArchiveBase(): PrivateActionArchiveBase {
       writeFileSync(path.join(baseRoot, name), bytes);
     }
     gitFixture(baseRoot, ['init', '--quiet']);
-    gitFixture(baseRoot, ['config', 'user.name', 'SEC Fixture']);
-    gitFixture(baseRoot, ['config', 'user.email', 'sec-fixture@example.invalid']);
-    gitFixture(baseRoot, ['add', '.']); gitFixture(baseRoot, ['commit', '--quiet', '-m', 'base']);
+    gitFixture(baseRoot, ['add', '.']); gitFixture(baseRoot, ['-c', 'user.name=SEC Fixture', '-c', 'user.email=sec-fixture@example.invalid', 'commit', '--quiet', '-m', 'base']);
     const [baseSha, baseTreeSha] = gitFixtureHeadAndTree(baseRoot);
     privateActionArchiveBase = Object.freeze({
       root, baseSha, baseTreeSha, sources: Object.freeze({ ...sources })
@@ -2369,7 +2363,7 @@ function privateActionArchiveFixture() {
     writeFileSync(path.join(candidateRoot, 'input.txt'), sources['input.txt']);
     // The fixed Python recipes must not import candidate module names.
     writeFileSync(path.join(candidateRoot, 'tarfile.py'), "raise RuntimeError('candidate module must remain data')\n");
-    gitFixture(candidateRoot, ['add', '.']); gitFixture(candidateRoot, ['commit', '--quiet', '-m', 'candidate']);
+    gitFixture(candidateRoot, ['add', '.']); gitFixture(candidateRoot, ['-c', 'user.name=SEC Fixture', '-c', 'user.email=sec-fixture@example.invalid', 'commit', '--quiet', '-m', 'candidate']);
     const [headSha, headTreeSha] = gitFixtureHeadAndTree(candidateRoot);
     mkdirSync(path.join(baseRoot, 'node_modules', 'fixture'), { recursive: true });
     writeFileSync(path.join(baseRoot, 'node_modules', 'fixture', 'value.txt'), 'exact trusted dependency\n');
