@@ -100,34 +100,18 @@ function issueTestGitReadOperation(input: Readonly<{
   })]);
 }
 
-test('the explicit host test route rejects aggregate argument overflow before starting Git', async () => {
-  await withHostGitSession({
-    cwd: process.cwd(),
-    budget: {
-      maxProcesses: 1,
-      maxTotalArgumentBytes: 1
-    }
-  }, async session => {
-    const result = await session.run(['status']);
-    expect(result).toMatchObject({
-      kind: 'unresolved-git-read-session',
-      reason: 'argument-budget-exhausted'
-    });
-    expect(session.processCount).toBe(0);
-  });
-});
-
 test('terminal host-session admission failures cannot execute or consume additional records', async () => {
   for (const reason of ['argument-budget-exhausted', 'operation-not-permitted'] as const) {
     await withHostGitSession({
       cwd: process.cwd(),
-      ...(reason === 'argument-budget-exhausted' ? { budget: { maxTotalArgumentBytes: 1 } } : {})
+      ...(reason === 'argument-budget-exhausted' ? { budget: { maxTotalArgumentBytes: 1, maxProcesses: 1 } } : {})
     }, async session => {
       if (reason === 'operation-not-permitted') {
         expect((await session.run(['status', '--porcelain=v1', '-z', '--untracked-files=all'])).kind).toBe('completed');
         expect(session.processCount).toBe(1);
       }
       const processesBefore = session.processCount;
+      if (reason === 'argument-budget-exhausted') expect(processesBefore).toBe(0);
       const commandFailure = await session.run(reason === 'argument-budget-exhausted' ? ['status'] : ['write-tree']);
       expect(commandFailure).toMatchObject({ kind: 'unresolved-git-read-session', reason });
       expect(session.processCount).toBe(processesBefore);
