@@ -87,7 +87,8 @@ async function commitFixture(
 // index, refs, objects or worktree after its private copy is created.
 let initializedRepository: Promise<string> | undefined;
 async function initializedGitRepository(): Promise<string> {
-  initializedRepository ??= (async () => {
+  if (initializedRepository !== undefined) return initializedRepository;
+  const preparing = (async () => {
     const template = await mkdtemp(path.join(tmpdir(), 'sec-import-git-empty-base-'));
     try {
       git(template, ['init', '--quiet']);
@@ -99,15 +100,21 @@ async function initializedGitRepository(): Promise<string> {
         () => rm(template, { recursive: true, force: true }));
     }
   })();
-  return initializedRepository;
+  const retained = preparing.catch((error) => {
+    if (initializedRepository === retained) initializedRepository = undefined;
+    throw error;
+  });
+  initializedRepository = retained;
+  return retained;
 }
 async function copyInitializedGitRepository(root: string): Promise<void> {
   await cp(await initializedGitRepository(), root, { recursive: true });
 }
 
 let defaultRepository: Promise<string> | undefined;
-async function copyDefaultRepository(root: string): Promise<string> {
-  defaultRepository ??= (async () => {
+async function retainedDefaultRepository(): Promise<string> {
+  if (defaultRepository !== undefined) return defaultRepository;
+  const preparing = (async () => {
     const template = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-base-'));
     try {
       await copyInitializedGitRepository(template);
@@ -118,7 +125,15 @@ async function copyDefaultRepository(root: string): Promise<string> {
         () => rm(template, { recursive: true, force: true }));
     }
   })();
-  await cp(await defaultRepository, root, { recursive: true });
+  const retained = preparing.catch((error) => {
+    if (defaultRepository === retained) defaultRepository = undefined;
+    throw error;
+  });
+  defaultRepository = retained;
+  return retained;
+}
+async function copyDefaultRepository(root: string): Promise<string> {
+  await cp(await retainedDefaultRepository(), root, { recursive: true });
   return git(root, ['rev-parse', 'HEAD']);
 }
 

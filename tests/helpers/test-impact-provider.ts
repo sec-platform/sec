@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
 import { isolatedGitReadEnvironment } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { gitEnvironmentValue } from '../../src/adapters/providers/git/environment.ts';
 import { createSourceProgramCompilationOperation } from '../../src/adapters/repository/source-program-model/compilation-operation.ts';
 import { compileRepositorySourceProgramWithCache } from '../../src/adapters/repository/source-program-model/repository-compilation-cache-session.ts';
 import {
@@ -177,8 +178,8 @@ const testImpactGitInitBases = new Map<string, string>();
 function initializedTestImpactGitBase(): string {
   const environment = isolatedGitReadEnvironment();
   const key = JSON.stringify([
-    environment.PATH ?? environment.Path ?? null,
-    environment.SystemRoot ?? environment.SYSTEMROOT ?? null
+    gitEnvironmentValue(environment, 'PATH') ?? null,
+    gitEnvironmentValue(environment, 'SystemRoot') ?? null
   ]);
   const existing = testImpactGitInitBases.get(key);
   if (existing !== undefined) return existing;
