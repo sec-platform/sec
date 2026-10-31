@@ -17,7 +17,11 @@ export function createGitBundleTestFixture() {
       env: {
         ...process.env,
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_TERMINAL_PROMPT: '0'
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_AUTHOR_NAME: 'SEC Test',
+        GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
+        GIT_COMMITTER_NAME: 'SEC Test',
+        GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
       },
       stdout: 'pipe',
       stderr: 'pipe'
@@ -35,8 +39,6 @@ export function createGitBundleTestFixture() {
   }> {
     const root = temporaryRoot('repository');
     git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.name', 'SEC Test']);
-    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
     writeFileSync(path.join(root, 'value.txt'), 'base\n');
     git(root, ['add', '--', 'value.txt']);
     git(root, ['commit', '--quiet', '-m', 'base']);

@@ -42,11 +42,9 @@ function immutableRefEffectSeed(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-ref-effect-base-'));
   try {
     git(root, ['init', '--quiet', '--initial-branch=current']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
     writeFileSync(path.join(root, 'base.txt'), 'base\n', 'utf8');
     git(root, ['add', 'base.txt']);
-    git(root, ['commit', '--quiet', '-m', 'base']);
+    git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'base']);
     refEffectSeeds.set(key, root);
     return root;
   } catch (primary) {

@@ -38,8 +38,6 @@ function emptyGitTestImpactBase(): string {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-base-'));
   try {
     git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'test-impact@sec.invalid']);
-    git(root, ['config', 'user.name', 'SEC Test Impact']);
     testImpactEmptyGit = root;
     return root;
   } catch (error) {
@@ -68,7 +66,7 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
       writeFileSync(filePath, source, 'utf8');
     }
     git(root, ['add', '--all']);
-    git(root, ['commit', '--quiet', '-m', 'test-impact-fixture']);
+    git(root, ['-c', 'user.name=SEC Test Impact', '-c', 'user.email=test-impact@sec.invalid', 'commit', '--quiet', '-m', 'test-impact-fixture']);
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
       repositoryRoot: root,
       commitSha: git(root, ['rev-parse', 'HEAD'])

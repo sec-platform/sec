@@ -25,11 +25,9 @@ function createRepository(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-environment-settlement-'));
   try {
     git(root, ['init', '--quiet', '--initial-branch=main']);
-    git(root, ['config', 'user.name', 'SEC Test']);
-    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
     writeFileSync(path.join(root, 'tracked.txt'), 'base\n', 'utf8');
     git(root, ['add', 'tracked.txt']);
-    git(root, ['commit', '--quiet', '-m', 'base']);
+    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
     return root;
   } catch (error) {
     rmSync(root, { recursive: true, force: true });

@@ -29,11 +29,9 @@ test('development commit candidate rejects empty trees, binds the retained index
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-candidate-test-'));
   await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
     await writeFile(path.join(root, 'base.txt'), 'base\n');
     git(root, ['add', '.']);
-    git(root, ['commit', '--quiet', '-m', 'base']);
+    git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'base']);
     const request: DevelopmentCommitRequest = Object.freeze({
       repositoryRoot: path.resolve(root),
       message: 'candidate\n',

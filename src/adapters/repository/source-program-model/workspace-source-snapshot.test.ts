@@ -52,8 +52,6 @@ async function buildSourceGenerationTemplate(): Promise<SourceGenerationFixture>
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-workspace-source-template-'));
   try {
   git(repositoryRoot, ['init', '--quiet']);
-  git(repositoryRoot, ['config', 'user.email', 'tests@example.com']);
-  git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
   git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
   await mkdir(path.join(repositoryRoot, 'src', 'example'), { recursive: true });
   await writeFile(
@@ -91,7 +89,7 @@ async function buildSourceGenerationTemplate(): Promise<SourceGenerationFixture>
   );
   git(repositoryRoot, ['add', '--all']);
   git(repositoryRoot, ['update-index', '--chmod=+x', 'src/example/value.ts']);
-  git(repositoryRoot, ['commit', '--quiet', '-m', 'source generation fixture']);
+  git(repositoryRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'source generation fixture']);
   return Object.freeze({
     commitSha: git(repositoryRoot, ['rev-parse', 'HEAD']),
     repositoryRoot

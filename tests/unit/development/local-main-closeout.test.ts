@@ -16,7 +16,13 @@ import {
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/local-main-closeout.ts';
 
 function git(repoRoot: string, args: readonly string[]): string {
-  const result = spawnSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
+  const result = spawnSync('git', [...args], {
+    cwd: repoRoot, encoding: 'utf8', windowsHide: true,
+    env: { ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Tests', GIT_AUTHOR_EMAIL: 'tests@example.com',
+      GIT_COMMITTER_NAME: 'SEC Tests', GIT_COMMITTER_EMAIL: 'tests@example.com'
+    }
+  });
   if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
   return String(result.stdout);
 }
@@ -70,8 +76,6 @@ beforeAll(async () => {
   git(baseRoot, ['--git-dir', remoteRoot, 'symbolic-ref', 'HEAD', 'refs/heads/main']);
   git(protectedRoot, ['init', '--quiet']);
   git(protectedRoot, ['branch', '-M', 'main']);
-  git(protectedRoot, ['config', 'user.email', 'tests@example.com']);
-  git(protectedRoot, ['config', 'user.name', 'SEC Tests']);
   git(protectedRoot, ['config', 'core.autocrlf', 'false']);
   git(protectedRoot, ['remote', 'add', 'origin', remoteRoot]);
   await writeFile(path.join(protectedRoot, '.gitignore'), '.sec/\n', 'utf8');
@@ -80,8 +84,6 @@ beforeAll(async () => {
   git(protectedRoot, ['commit', '--quiet', '-m', 'v1']);
   git(protectedRoot, ['push', '--quiet', '-u', 'origin', 'main']);
   git(baseRoot, ['clone', '--quiet', remoteRoot, developerRoot]);
-  git(developerRoot, ['config', 'user.email', 'tests@example.com']);
-  git(developerRoot, ['config', 'user.name', 'SEC Tests']);
 });
 
 afterAll(async () => {

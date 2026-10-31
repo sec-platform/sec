@@ -20,8 +20,6 @@ describe('Git candidate bundle native scale', () => {
   test('transports complete history above sixteen MiB as native files even when the current tree is small', async () => {
     const sourceRoot = temporaryRoot('repository');
     git(sourceRoot, ['init', '--quiet']);
-    git(sourceRoot, ['config', 'user.name', 'SEC Test']);
-    git(sourceRoot, ['config', 'user.email', 'sec-test@example.invalid']);
     // Only the retained historical commit and its small current successor are
     // needed here; preserve the same ordinary current-tree bytes as the fixture.
     writeFileSync(path.join(sourceRoot, 'value.txt'), 'head\n');

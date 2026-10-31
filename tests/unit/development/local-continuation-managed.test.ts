@@ -42,11 +42,9 @@ test.each(['codex-development-work-package-v1', 'codex-development-work-package-
     mkdirSync(path.join(repositoryRoot, 'config', 'repository', 'work-packages'), { recursive: true });
     git(repositoryRoot, 'init', '-b', 'integration/continuation-fixture');
     git(repositoryRoot, 'config', 'core.autocrlf', 'false');
-    git(repositoryRoot, 'config', 'user.email', 'sec@example.invalid');
-    git(repositoryRoot, 'config', 'user.name', 'SEC Test');
     writeFileSync(path.join(repositoryRoot, 'src', 'value.ts'), 'export const value = 1;\n', 'utf8');
     git(repositoryRoot, 'add', '.');
-    git(repositoryRoot, 'commit', '-m', 'base');
+    git(repositoryRoot, '-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid', 'commit', '-m', 'base');
     const baseSha = git(repositoryRoot, 'rev-parse', 'HEAD');
     const baseTreeSha = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
 
@@ -77,7 +75,7 @@ tests:
 `, 'utf8');
     writeFileSync(path.join(repositoryRoot, 'src', 'value.ts'), 'export const value = 2;\n', 'utf8');
     git(repositoryRoot, 'add', '.');
-    git(repositoryRoot, 'commit', '-m', 'candidate');
+    git(repositoryRoot, '-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid', 'commit', '-m', 'candidate');
     const headSha = git(repositoryRoot, 'rev-parse', 'HEAD');
     const headTreeSha = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
     const checkpoint = createLocalContinuationCheckpoint({

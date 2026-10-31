@@ -62,7 +62,11 @@ function runFixtureGit(root: string, args: readonly string[]): Buffer {
   const result = spawnSync('git', [...args], {
     cwd: root,
     encoding: 'buffer',
-    windowsHide: true
+    windowsHide: true,
+    env: { ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
+    }
   });
   if (result.status !== 0) {
     throw new Error(Buffer.from(result.stderr ?? '').toString('utf8'));
@@ -429,8 +433,6 @@ describe('work-selection live contract', () => {
       runFixtureGit(root, ['init', '--quiet', '-b', 'main']);
       expect(() => lstatSync(path.join(root, '.git', 'objects', 'info', 'alternates')))
         .toThrow(expect.objectContaining({ code: 'ENOENT' }));
-      runFixtureGit(root, ['config', 'user.name', 'SEC Test']);
-      runFixtureGit(root, ['config', 'user.email', 'sec-test@example.invalid']);
       runFixtureGit(root, ['commit', '--quiet', '--allow-empty', '-m', 'fixture: seed']);
 
       const prior = transitionCatalog();

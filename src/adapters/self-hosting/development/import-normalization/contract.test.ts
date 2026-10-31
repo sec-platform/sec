@@ -78,11 +78,11 @@ async function commitFixture(
     throw new AggregateError(failures, 'Import normalization fixture writes failed', { cause: failures[0] });
   }
   git(root, ['add', '--all']);
-  git(root, ['commit', '--quiet', '-m', note]);
+  git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', note]);
   return git(root, ['rev-parse', 'HEAD']);
 }
 
-// Reuse the initialized and configured Git precondition for both the ordinary
+// Reuse the initialized Git precondition for both the ordinary
 // committed template and the two noncanonical-import cases. No case shares
 // index, refs, objects or worktree after its private copy is created.
 let initializedRepository: Promise<string> | undefined;
@@ -92,8 +92,6 @@ async function initializedGitRepository(): Promise<string> {
     const template = await mkdtemp(path.join(tmpdir(), 'sec-import-git-empty-base-'));
     try {
       git(template, ['init', '--quiet']);
-      git(template, ['config', 'user.email', 'tests@example.com']);
-      git(template, ['config', 'user.name', 'SEC Tests']);
       return template;
     } catch (primary) {
       return settleWorkspaceCallback(async () => { throw primary; },
@@ -382,7 +380,7 @@ test('empty staged selection issues opaque not-applicable admission before readi
     await copyDefaultRepository(root);
     await writeFile(path.join(root, 'src', 'unselected.ts'), Buffer.from([0xff, 0xfe]));
     git(root, ['add', 'src/unselected.ts']);
-    git(root, ['commit', '--quiet', '-m', 'unrelated invalid UTF-8 source']);
+    git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'unrelated invalid UTF-8 source']);
     const baseCommit = git(root, ['rev-parse', 'HEAD']);
     await writeFile(path.join(root, 'note.txt'), 'staged candidate\n');
     git(root, ['add', 'note.txt']);
