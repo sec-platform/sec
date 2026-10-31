@@ -1,7 +1,7 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { executeGitHubApiOperation, observeGitHubApiMainRef, withGitHubApiReadSession } from '../../../src/adapters/providers/github-api/operation-session.ts';
@@ -16,6 +16,37 @@ function git(root: string, args: string[]) {
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
 }
+// Only the committed README precondition is shared. Each test copies the entire
+// Git store into its own native root before changing refs, index, branches,
+// control documents, worktree, or provider effects.
+let immutableSessionGitSeed: string | undefined;
+function sessionGitSeed(): string {
+  if (immutableSessionGitSeed !== undefined) return immutableSessionGitSeed;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-active-work-session-base-'));
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['config', 'user.email', 'fixture@example.invalid']);
+    git(root, ['config', 'user.name', 'Fixture']);
+    writeFileSync(path.join(root, 'README.md'), '# fixture\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '--quiet', '-m', 'seed']);
+    immutableSessionGitSeed = root;
+    return root;
+  } catch (primary) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'Active-work Git seed and cleanup both failed');
+    }
+    throw primary;
+  }
+}
+afterAll(() => {
+  if (immutableSessionGitSeed === undefined) return;
+  const root = immutableSessionGitSeed;
+  rmSync(root, { recursive: true, force: true });
+  immutableSessionGitSeed = undefined;
+});
+
 async function fixture(active: boolean, operation: (root: string, mainSha: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-active-work-session-'));
   const manifest = 'config/repository/work-packages/session-fixture-v1.md';
@@ -45,9 +76,7 @@ tests:
     mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), text);
   };
   await settleWorkspaceCallback(async () => {
-    git(root, ['init', '--quiet', '--initial-branch=main']);
-    git(root, ['config', 'user.email', 'fixture@example.invalid']); git(root, ['config', 'user.name', 'Fixture']);
-    put('README.md', '# fixture\n'); git(root, ['add', '.']); git(root, ['commit', '--quiet', '-m', 'seed']);
+    cpSync(sessionGitSeed(), root, { recursive: true });
     const seedSha = git(root, ['rev-parse', 'HEAD']);
     const seedTree = git(root, ['rev-parse', 'HEAD^{tree}']);
     if (active) git(root, ['switch', '--quiet', '-c', 'transport/old']);

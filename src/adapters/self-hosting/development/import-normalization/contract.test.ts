@@ -82,16 +82,35 @@ async function commitFixture(
   return git(root, ['rev-parse', 'HEAD']);
 }
 
-// Reuse only completed immutable source preparation. Each consumer still owns
-// private Git objects, refs, index and worktree, and observes its copied HEAD.
+// Reuse the initialized and configured Git precondition for both the ordinary
+// committed template and the two noncanonical-import cases. No case shares
+// index, refs, objects or worktree after its private copy is created.
+let initializedRepository: Promise<string> | undefined;
+async function initializedGitRepository(): Promise<string> {
+  initializedRepository ??= (async () => {
+    const template = await mkdtemp(path.join(tmpdir(), 'sec-import-git-empty-base-'));
+    try {
+      git(template, ['init', '--quiet']);
+      git(template, ['config', 'user.email', 'tests@example.com']);
+      git(template, ['config', 'user.name', 'SEC Tests']);
+      return template;
+    } catch (primary) {
+      return settleWorkspaceCallback(async () => { throw primary; },
+        () => rm(template, { recursive: true, force: true }));
+    }
+  })();
+  return initializedRepository;
+}
+async function copyInitializedGitRepository(root: string): Promise<void> {
+  await cp(await initializedGitRepository(), root, { recursive: true });
+}
+
 let defaultRepository: Promise<string> | undefined;
 async function copyDefaultRepository(root: string): Promise<string> {
   defaultRepository ??= (async () => {
     const template = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-base-'));
     try {
-      git(template, ['init', '--quiet']);
-      git(template, ['config', 'user.email', 'tests@example.com']);
-      git(template, ['config', 'user.name', 'SEC Tests']);
+      await copyInitializedGitRepository(template);
       await commitFixture(template, 'export function normalize(): void {}\n', 'base');
       return template;
     } catch (primary) {
@@ -104,11 +123,18 @@ async function copyDefaultRepository(root: string): Promise<string> {
 }
 
 afterAll(async () => {
-  if (defaultRepository === undefined) return;
-  const settled = await Promise.allSettled([defaultRepository]);
-  if (settled[0]!.status === 'fulfilled') {
-    await rm(settled[0]!.value, { recursive: true, force: true });
+  const pending = [defaultRepository, initializedRepository].filter(
+    (value): value is Promise<string> => value !== undefined
+  );
+  const settled = await Promise.allSettled(pending);
+  const failures: unknown[] = [];
+  for (const outcome of settled) {
+    if (outcome.status !== 'fulfilled') continue;
+    try { await rm(outcome.value, { recursive: true, force: true }); }
+    catch (failure) { failures.push(failure); }
   }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Import Git template cleanup failed');
 });
 
 async function exactSnapshot(root: string, commitSha: string) {
@@ -268,9 +294,7 @@ test('canonical immutable candidate receives an owner terminal', async () => {
 test('terminal observes candidate A instead of staged index B', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-exact-subject-'));
   return settleWorkspaceCallback(async () => {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
+    await copyInitializedGitRepository(root);
     const baseCommit = await commitFixture(
       root,
       "import fs from 'node:fs';\nimport path from 'node:path';\nexport function normalize(): void { void fs; void path; }\n",
@@ -309,9 +333,7 @@ test('terminal observes candidate A instead of staged index B', async () => {
 test('candidate configuration is immutable when the working tree config drifts', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-config-drift-'));
   return settleWorkspaceCallback(async () => {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
+    await copyInitializedGitRepository(root);
     const baseCommit = await commitFixture(
       root,
       "import fs from 'node:fs';\nimport path from 'node:path';\nexport function normalize(): void { void fs; void path; }\n",
