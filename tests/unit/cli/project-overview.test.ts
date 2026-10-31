@@ -19,6 +19,7 @@ import type { ExplainGraph } from '../../../src/semantics/projection/explain.ts'
 import { buildReviewLock, buildReviewProvenance } from '../../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
 import { productVerificationObservationsFixture } from '../../helpers/verification-fixtures.ts';
+import { runCliInProcess } from '../../testkit/cli.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 async function put(root: string, artifact: string, value: unknown): Promise<void> {
@@ -198,7 +199,7 @@ test('canonical overview reads preserve status, source counts, Review priorities
   });
 });
 
-test('absent artifacts retain the error code and caller-supplied recovery command', async () => {
+test('absent artifacts preserve direct recovery authority and public CLI guidance', async () => {
   await withTempWorkspace(async root => {
     let failure: unknown;
     try { readProjectOverviewArtifacts(root, 'custom explain'); }
@@ -207,8 +208,18 @@ test('absent artifacts retain the error code and caller-supplied recovery comman
       code: 'EXPLAIN-BLOCKED-004',
       message: 'Lock file is missing; run the refresh chain, then custom explain'
     });
+
+    // The independent CLI adapter must preserve the public status, streams,
+    // and canonical recovery command for the same missing physical artifact.
+    // Run it within this already-owned empty workspace, not a second one.
+    const result = await runCliInProcess(root, ['overview']);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toMatch(/\bLock file\b.*\bmissing\b/i);
+    expect(result.stderr).toMatch(/\brefresh\b/i);
+    expect(result.stderr).toContain('bun run sec -- explain');
   });
-});
+}, 10_000);
 
 test('partial verification publication remains malformed, never absence or an empty success', async () => {
   await withTempWorkspace(async root => {
