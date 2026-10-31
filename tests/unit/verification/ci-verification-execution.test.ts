@@ -2302,10 +2302,15 @@ test('candidate readonly preparation follows the original normalized Action and 
 // Only the trusted source commit is shared. Its physical bytes are copied
 // before each test creates a fresh native Git linked worktree, candidate commit,
 // dependency tree and archive. Git worktree absolute admin paths are never copied.
+const PRIVATE_ACTION_CANDIDATE_INPUT = 'candidate input\n';
+const PRIVATE_ACTION_CANDIDATE_DATA_SCRIPT = "raise RuntimeError('candidate module must remain data')\n";
+
 type PrivateActionArchiveBase = Readonly<{
   root: string;
   baseSha: string;
   baseTreeSha: string;
+  headSha: string;
+  headTreeSha: string;
   sources: Readonly<Record<string, string>>;
 }>;
 let privateActionArchiveBase: PrivateActionArchiveBase | undefined;
@@ -2335,8 +2340,17 @@ function trustedPrivateArchiveBase(): PrivateActionArchiveBase {
     gitFixture(baseRoot, ['init', '--quiet']);
     gitFixture(baseRoot, ['add', '.']); gitFixture(baseRoot, ['-c', 'user.name=SEC Fixture', '-c', 'user.email=sec-fixture@example.invalid', 'commit', '--quiet', '-m', 'base']);
     const [baseSha, baseTreeSha] = gitFixtureHeadAndTree(baseRoot);
+    // The identical committed candidate is an immutable fixture prerequisite,
+    // not a shared worktree or an Action materialization result. Keep its Git
+    // object in the seed, then restore the trusted base before any test copies it.
+    writeFileSync(path.join(baseRoot, 'input.txt'), PRIVATE_ACTION_CANDIDATE_INPUT);
+    writeFileSync(path.join(baseRoot, 'tarfile.py'), PRIVATE_ACTION_CANDIDATE_DATA_SCRIPT);
+    gitFixture(baseRoot, ['add', '.']);
+    gitFixture(baseRoot, ['-c', 'user.name=SEC Fixture', '-c', 'user.email=sec-fixture@example.invalid', 'commit', '--quiet', '-m', 'candidate']);
+    const [headSha, headTreeSha] = gitFixtureHeadAndTree(baseRoot);
+    gitFixture(baseRoot, ['reset', '--hard', baseSha]);
     privateActionArchiveBase = Object.freeze({
-      root, baseSha, baseTreeSha, sources: Object.freeze({ ...sources })
+      root, baseSha, baseTreeSha, headSha, headTreeSha, sources: Object.freeze({ ...sources })
     });
     return privateActionArchiveBase;
   } catch (error) {
@@ -2356,15 +2370,11 @@ function privateActionArchiveFixture() {
   try {
     const base = trustedPrivateArchiveBase();
     cpSync(path.join(base.root, 'base'), baseRoot, { recursive: true });
-    const { baseSha, baseTreeSha } = base;
-    const sources: Record<string, string> = { ...base.sources };
-    gitFixture(baseRoot, ['worktree', 'add', '--quiet', '--detach', candidateRoot, baseSha]);
-    sources['input.txt'] = 'candidate input\n';
-    writeFileSync(path.join(candidateRoot, 'input.txt'), sources['input.txt']);
-    // The fixed Python recipes must not import candidate module names.
-    writeFileSync(path.join(candidateRoot, 'tarfile.py'), "raise RuntimeError('candidate module must remain data')\n");
-    gitFixture(candidateRoot, ['add', '.']); gitFixture(candidateRoot, ['-c', 'user.name=SEC Fixture', '-c', 'user.email=sec-fixture@example.invalid', 'commit', '--quiet', '-m', 'candidate']);
-    const [headSha, headTreeSha] = gitFixtureHeadAndTree(candidateRoot);
+    const { baseSha, baseTreeSha, headSha, headTreeSha } = base;
+    const sources: Record<string, string> = { ...base.sources, 'input.txt': PRIVATE_ACTION_CANDIDATE_INPUT };
+    // Each copy owns its Git objects, index, refs and native linked-worktree
+    // admin state. The checked-out immutable commit already contains tarfile.py.
+    gitFixture(baseRoot, ['worktree', 'add', '--quiet', '--detach', candidateRoot, headSha]);
     mkdirSync(path.join(baseRoot, 'node_modules', 'fixture'), { recursive: true });
     writeFileSync(path.join(baseRoot, 'node_modules', 'fixture', 'value.txt'), 'exact trusted dependency\n');
     const candidate: CiVerificationActionCandidate = { ...hostedCandidate(), baseSha, baseTreeSha, headSha, headTreeSha,

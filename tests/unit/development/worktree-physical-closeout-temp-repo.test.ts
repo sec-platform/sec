@@ -117,7 +117,8 @@ type CloseoutFixtureOptions = Readonly<{
 // Build a native bare remote and a native main repository once for each
 // distinct tracked source class. Crucially, no registered worktree is copied:
 // each test must issue its own native worktree registration at its actual path.
-const immutableCloseoutTemplates = new Map<string, Readonly<{ root: string }>>();
+type ImmutableCloseoutTemplate = Readonly<{ root: string; headSha: string; treeSha: string }>;
+const immutableCloseoutTemplates = new Map<string, ImmutableCloseoutTemplate>();
 
 afterAll(() => {
   const errors: unknown[] = [];
@@ -130,7 +131,7 @@ afterAll(() => {
   if (errors.length > 1) throw new AggregateError(errors, 'Closeout fixture base cleanup failed');
 });
 
-function closeoutBase(options: CloseoutFixtureOptions): Readonly<{ root: string }> {
+function closeoutBase(options: CloseoutFixtureOptions): ImmutableCloseoutTemplate {
   const key = JSON.stringify([
     options.compilerDependencies === true,
     options.documentationCoordination === true,
@@ -156,7 +157,11 @@ function closeoutBase(options: CloseoutFixtureOptions): Readonly<{ root: string 
     git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
     git(repository, ['remote', 'set-head', 'origin', 'main']);
     git(repository, ['branch', 'codex/fixture']);
-    const prepared = Object.freeze({ root });
+    // The pristine fixture branch and its commit/tree are immutable across
+    // copied repositories. A test still registers its own native worktree;
+    // any later test-owned commit is observed from that physical worktree.
+    const [headSha, treeSha] = gitHeadAndTree(repository);
+    const prepared = Object.freeze({ root, headSha, treeSha });
     immutableCloseoutTemplates.set(key, prepared);
     return prepared;
   } catch (error) {
@@ -180,7 +185,7 @@ function fixture(options: CloseoutFixtureOptions = {}) {
     git(repository, ['remote', 'set-url', 'origin', remote]);
     const branch = 'codex/fixture';
     git(repository, ['worktree', 'add', target, branch]);
-    const [headSha, treeSha] = gitHeadAndTree(target);
+    const { headSha, treeSha } = template;
     const recoveryAuthorityDigest = detailDigest('fixture-recovery');
     return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };
   } catch (error) {
