@@ -147,15 +147,20 @@ export function git(repoRoot: string, args: readonly string[]): string {
 }
 
 export function configuredManagedHooksPath(repoRoot: string): string {
-  const worktreeConfigPath = path.resolve(git(
-    repoRoot,
-    ['rev-parse', '--path-format=absolute', '--git-path', 'config.worktree']
-  ));
+  // Read both native locations in one Git invocation. Separate worktree
+  // config readback and each case's physical index and refs remain independent.
+  const gitPaths = git(repoRoot, [
+    'rev-parse', '--path-format=absolute', '--git-path', 'config.worktree', '--git-common-dir'
+  ]).split(/\r?\n/u);
+  if (gitPaths.length !== 2 || gitPaths.some(value => value.length === 0)) {
+    throw new Error('Expected one config.worktree and one common Git directory');
+  }
+  const worktreeConfigPath = path.resolve(gitPaths[0]!);
+  const commonGitDir = path.resolve(gitPaths[1]!);
   const configured = path.resolve(git(
     repoRoot,
     ['config', '--file', worktreeConfigPath, '--path', '--get', 'core.hooksPath']
   ));
-  const commonGitDir = path.resolve(git(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']));
   expect(path.dirname(configured)).toBe(path.join(commonGitDir, 'sec-managed-hooks-v3'));
   expect(path.basename(configured)).toMatch(/^generation-[0-9a-f]{64}(?:-[0-9a-f-]{36})?$/u);
   return configured;

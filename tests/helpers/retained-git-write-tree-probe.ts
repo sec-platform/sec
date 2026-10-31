@@ -51,14 +51,17 @@ export function runRetainedGitWriteTreeProbe(): string {
       git(repositoryRoot, ['mktree'], `100644 blob ${blob}\ttracked.txt\n`),
       'independent expected tree'
     );
-    const indexCandidate = requireSuccess(
-      git(repositoryRoot, ['rev-parse', '--git-path', 'index']),
-      'git index path'
-    );
-    const objectCandidate = requireSuccess(
-      git(repositoryRoot, ['rev-parse', '--git-path', 'objects']),
-      'git object path'
-    );
+    // One native observation yields both locations; custody below remains
+    // independent for the writable index and object directory.
+    const gitCandidates = requireSuccess(
+      git(repositoryRoot, ['rev-parse', '--git-path', 'index', '--git-path', 'objects']),
+      'git index and object paths'
+    ).split(/\r?\n/u);
+    if (gitCandidates.length !== 2 || gitCandidates.some(value => value.length === 0)) {
+      throw new Error('Expected one Git index path and one objects path');
+    }
+    const indexCandidate = gitCandidates[0]!;
+    const objectCandidate = gitCandidates[1]!;
     const indexPath = path.isAbsolute(indexCandidate)
       ? indexCandidate
       : path.resolve(repositoryRoot, indexCandidate);
