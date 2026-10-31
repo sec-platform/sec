@@ -10,10 +10,16 @@ import { createRecoveryBundle } from '../../../src/adapters/self-hosting/control
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 function git(root: string, args: readonly string[], allowFailure = false) {
+  // Commit identity belongs to this test process; keep the native graph
+  // while avoiding independent Git config subprocesses.
   const result = spawnSync('git', [...args], {
     cwd: root,
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    env: { ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
+    }
   });
   if (!allowFailure && result.status !== 0) {
     throw new Error(result.stderr.trim() || result.stdout.trim());
@@ -30,8 +36,6 @@ test('branch recovery bundle retains only the source closure missing from exact 
   return settleWorkspaceCallback(async () => {
     mkdirSync(repository);
     git(repository, ['init', '--quiet', '--initial-branch=main']);
-    git(repository, ['config', 'user.name', 'SEC Test']);
-    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
     for (let index = 0; index < 16; index += 1) {
       writeFileSync(path.join(repository, 'history.txt'), `main-history-${index}\n`, 'utf8');
       if (index === 0) git(repository, ['add', 'history.txt']);
@@ -43,13 +47,15 @@ test('branch recovery bundle retains only the source closure missing from exact 
     writeFileSync(path.join(repository, 'feature.txt'), 'unique branch state\n', 'utf8');
     git(repository, ['add', 'feature.txt']);
     git(repository, ['commit', '--quiet', '-m', 'feature delta']);
-    const featureSha = git(repository, ['rev-parse', 'HEAD']).stdout.trim();
-
     git(repository, ['switch', '--quiet', 'main']);
     writeFileSync(path.join(repository, 'main-only.txt'), 'new main state\n', 'utf8');
     git(repository, ['add', 'main-only.txt']);
     git(repository, ['commit', '--quiet', '-m', 'main-only delta']);
-    const mainSha = git(repository, ['rev-parse', 'HEAD']).stdout.trim();
+    const tipLines = git(repository, [
+      'rev-parse', 'refs/heads/feat/recovery-delta', 'refs/heads/main'
+    ]).stdout.trim().split('\n');
+    expect(tipLines).toHaveLength(2);
+    const [featureSha, mainSha] = tipLines as [string, string];
 
     const inventory: BranchLifecycleInventory = {
       schema: 'sec-branch-lifecycle-inventory-v1',

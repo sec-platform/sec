@@ -8,7 +8,15 @@ import type { BranchLifecycleInventory } from '../../../src/execution/verificati
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 function git(root: string, args: readonly string[]): string {
-  const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
+  // Native identity is scoped to the fixture process; do not spawn Git
+  // solely to configure author and committer for each new repository.
+  const result = spawnSync('git', [...args], {
+    cwd: root, encoding: 'utf8', windowsHide: true,
+    env: { ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
+    }
+  });
   if (result.status !== 0) throw new Error(result.stderr || result.stdout);
   return result.stdout.trim();
 }
@@ -17,22 +25,32 @@ function fixture(root: string) {
   const repository = path.join(root, 'source');
   mkdirSync(repository);
   git(repository, ['init', '--quiet', '--initial-branch=main']);
-  git(repository, ['config', 'user.name', 'SEC Test']);
-  git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
   // One main prerequisite distinguishes compact recovery from a complete bundle.
   // Native Git owns history traversal; the two unique tips remain independent.
   writeFileSync(path.join(repository, 'base.txt'), 'base 2\n');
   git(repository, ['add', 'base.txt']);
   git(repository, ['commit', '--quiet', '-m', 'base']);
-  const mainSha = git(repository, ['rev-parse', 'HEAD']);
-  const refs = ['fix/first', 'fix/second'].map((branch) => {
+  const branches = ['fix/first', 'fix/second'];
+  for (const branch of branches) {
     git(repository, ['switch', '--quiet', '-c', branch, 'main']);
     writeFileSync(path.join(repository, 'unique.txt'), `${branch}\n`);
     git(repository, ['add', '.']);
     git(repository, ['commit', '--quiet', '-m', branch]);
-    return { branch, expectedHeadSha: git(repository, ['rev-parse', 'HEAD']) };
-  });
+  }
   git(repository, ['switch', '--quiet', 'main']);
+  // Read the immutable native tips together after each independent branch
+  // has finished writing its own index and ref.
+  const tips = git(repository, ['rev-parse',
+    'refs/heads/main', 'refs/heads/fix/first', 'refs/heads/fix/second'
+  ]).split('\n');
+  if (tips.length !== 3 || tips.some(tip => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(tip))) {
+    throw new Error('Expected three exact native Git tip identities');
+  }
+  const [mainSha, firstSha, secondSha] = tips as [string, string, string];
+  const refs = [
+    { branch: branches[0]!, expectedHeadSha: firstSha },
+    { branch: branches[1]!, expectedHeadSha: secondSha }
+  ];
   const inventory: BranchLifecycleInventory = {
     schema: 'sec-branch-lifecycle-inventory-v1', observedAt: '2026-10-05T00:00:00.000Z',
     repository: { root: repository, commonDir: path.join(repository, '.git'), fullName: 'sec-platform/sec',
