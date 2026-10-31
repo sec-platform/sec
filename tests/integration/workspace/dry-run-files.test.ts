@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
-import { collectUpgradePreflightEvidence } from '../../../src/adapters/upgrade/migration-runtime.ts';
+import { collectUpgradePreflightEvidence, loadMigrationEntries } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
 import { withBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
-import { deleteFile, withMigrationWorkspace } from './migration-fixtures.ts';
+import { copyDirectory, createDirectory, deleteFile, textAppend, withMigrationWorkspace } from './migration-fixtures.ts';
 import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records file directory and text migration impacts', async () => {
@@ -237,6 +237,164 @@ test('upgrade rejects occupied rename file targets before planning', async () =>
     async ({ workspaceRoot }) => {
       await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-020'
+      });
+    }
+  );
+});
+
+test('preflight and application reject directory operations that would overwrite incompatible targets', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {
+    const createTarget = 'generated/reports/snapshots';
+    const copyTarget = 'generated/reports/templates';
+    const textTarget = 'docs/upgrade-notes.md';
+    const source = 'files/generated/reports/templates';
+
+    await writeJson(path.join(workspaceRoot, createTarget), { occupied: true });
+    await writeJson(path.join(manifestRoot, source, 'daily.json'), { report: 'daily' });
+    await writeJson(path.join(workspaceRoot, copyTarget), { occupied: true });
+    await fs.mkdir(path.join(workspaceRoot, textTarget), { recursive: true });
+
+    const scenarios = [
+      {
+        target: createTarget,
+        entry: { id: 'mig-create-snapshots-dir', kind: 'create-directory',
+          reason: 'Create snapshot directory for generated reports.', target: createTarget },
+        application: createDirectory(createTarget),
+        code: 'UPGRADE-MIGRATION-028',
+        isDirectory: false
+      },
+      {
+        target: copyTarget,
+        entry: { id: 'mig-copy-report-templates', kind: 'copy-directory',
+          reason: 'Copy report templates into generated report assets.', source, target: copyTarget },
+        application: copyDirectory(copyTarget, source),
+        code: 'UPGRADE-MIGRATION-027',
+        isDirectory: false
+      },
+      {
+        target: textTarget,
+        entry: { id: 'mig-upgrade-notes', kind: 'text-append',
+          reason: 'Append upgrade notes.', target: textTarget,
+          content: '- text append migration applied.\n' },
+        application: textAppend(textTarget, '- first note\n'),
+        code: 'UPGRADE-MIGRATION-017',
+        isDirectory: true
+      }
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const originalBytes = scenario.isDirectory
+        ? null
+        : await fs.readFile(path.join(workspaceRoot, scenario.target));
+      const [preflight] = await Promise.allSettled([collectUpgradePreflightEvidence({
+        workspaceRoot, targetManifestRoot: manifestRoot,
+        blockId: 'private/block-upgrade', targetVersion: '0.2.0',
+        impacts: [scenario.target], migrationEntries: [scenario.entry]
+      })]);
+      const [application] = await Promise.allSettled([
+        apply([scenario.target], [scenario.application])
+      ]);
+      expect(preflight).toMatchObject({ status: 'rejected', reason: { code: scenario.code } });
+      expect(application).toMatchObject({ status: 'rejected', reason: { code: scenario.code } });
+      if (originalBytes !== null) {
+        expect(await fs.readFile(path.join(workspaceRoot, scenario.target))).toEqual(originalBytes);
+      } else {
+        expect((await fs.stat(path.join(workspaceRoot, scenario.target))).isDirectory()).toBe(true);
+      }
+    }
+  });
+}, 30_000);
+
+test('preflight rejects invalid directory sources, target shapes and absent text patterns', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+    const deleteTarget = 'generated/reports/obsolete';
+    const wrongSource = 'files/generated/reports/templates.json';
+    const textTarget = 'docs/upgrade-notes.md';
+    await writeJson(path.join(workspaceRoot, deleteTarget), { status: 'not-a-directory' });
+    await writeJson(path.join(manifestRoot, wrongSource), { report: 'not-a-directory' });
+    await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, textTarget), 'status: already-applied\n', 'utf8');
+
+    const scenarios = [
+      {
+        target: deleteTarget,
+        entry: { id: 'mig-delete-obsolete-report-dir', kind: 'delete-directory',
+          reason: 'Remove obsolete generated report directory from previous upgrades.', target: deleteTarget },
+        code: 'UPGRADE-MIGRATION-026'
+      },
+      {
+        target: 'generated/reports/templates',
+        entry: { id: 'mig-copy-report-templates', kind: 'copy-directory',
+          reason: 'Copy report templates into generated report assets.',
+          source: 'files/generated/reports/missing-templates', target: 'generated/reports/templates' },
+        code: 'UPGRADE-MIGRATION-008'
+      },
+      {
+        target: 'generated/reports/templates',
+        entry: { id: 'mig-copy-report-templates', kind: 'copy-directory',
+          reason: 'Copy report templates into generated report assets.',
+          source: wrongSource, target: 'generated/reports/templates' },
+        code: 'UPGRADE-MIGRATION-023'
+      },
+      {
+        target: textTarget,
+        entry: { id: 'mig-upgrade-notes-literal', kind: 'text-replace',
+          reason: 'Replace upgrade notes marker literally.', target: textTarget,
+          search: 'status: pending', replacement: 'status: applied' },
+        code: 'UPGRADE-MIGRATION-015'
+      }
+    ] as const;
+
+    for (const scenario of scenarios) {
+      await expect(collectUpgradePreflightEvidence({
+        workspaceRoot, targetManifestRoot: manifestRoot,
+        blockId: 'private/block-upgrade', targetVersion: '0.2.0',
+        impacts: [scenario.target], migrationEntries: [scenario.entry]
+      })).rejects.toMatchObject({ code: scenario.code });
+    }
+    expect(await fs.readFile(path.join(workspaceRoot, deleteTarget), 'utf8'))
+      .toContain('not-a-directory');
+    await expect(fs.readFile(path.join(workspaceRoot, textTarget), 'utf8'))
+      .resolves.toBe('status: already-applied\n');
+
+    await writeJson(path.join(manifestRoot, 'migrations/upgrade-notes.json'), {
+      id: 'mig-upgrade-notes', kind: 'text-append',
+      reason: 'Append upgrade notes.', target: 'docs/upgrade-notes.md'
+    });
+    await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [{
+      id: 'mig-upgrade-notes', kind: 'text-append', entry: 'migrations/upgrade-notes.json',
+      fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false
+    }])).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-011' });
+  });
+}, 25_000);
+
+test('upgrade rejects malformed literal text replace migration entries before planning', async () => {
+  await withBlockUpgradeDryRunFixture(
+    {
+      prefix: 'engineering-compiler-upgrade-malformed-text-replace-',
+      migration: {
+        id: 'mig-upgrade-notes-literal',
+        kind: 'text-replace',
+        entry: 'migrations/upgrade-notes-literal.json',
+        requiresVerification: false,
+        body: {
+          id: 'mig-upgrade-notes-literal',
+          kind: 'text-replace',
+          reason: 'Replace upgrade notes marker literally.',
+          target: 'docs/upgrade-notes.md',
+          replacement: 'status: applied'
+        }
+      }
+    },
+    async ({ workspaceRoot }) => {
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+        code: 'UPGRADE-MIGRATION-011',
+        details: {
+          failedCheck: 'migration-entries',
+          migrationId: 'mig-upgrade-notes-literal',
+          migrationKind: 'text-replace',
+          entry: 'migrations/upgrade-notes-literal.json'
+        }
       });
     }
   );
