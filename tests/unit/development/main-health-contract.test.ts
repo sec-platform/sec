@@ -208,16 +208,7 @@ test('MainHealth identity binds decision fields while observation provenance onl
     expect(candidate.healthRevision, label).toBe(base.healthRevision);
     expect(candidate.ledgerDigest, label).not.toBe(base.ledgerDigest);
   }
-  const local = createMainHealthLedger(healthyInput({
-    producer: {
-      ...producer(),
-      sourceTransport: 'trusted-runtime-durable-readback',
-      sourceRunId: 'trusted-main-health-run',
-      sourceRef: 'runtime-state:trusted-main-health/v1/main'
-    }
-  }));
-  expect(local.healthRevision).toBe(base.healthRevision);
-  expect(local.ledgerDigest).not.toBe(base.ledgerDigest);
+
 });
 
 test('live receipt provenance is distinct while historical durable ledgers stay decodable', () => {

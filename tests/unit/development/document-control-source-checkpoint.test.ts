@@ -43,8 +43,9 @@ stableFacts: {}
 }
 
 let preparedRepository: Promise<string> | undefined;
-async function fixture(root: string) {
-  preparedRepository ??= (async () => {
+async function retainedPreparedRepository(): Promise<string> {
+  if (preparedRepository !== undefined) return preparedRepository;
+  const preparing = (async () => {
     const template = await mkdtemp(path.join(tmpdir(), 'sec-source-checkpoint-base-'));
     try {
       await prepareRepository(template);
@@ -54,7 +55,15 @@ async function fixture(root: string) {
         () => rm(template, { recursive: true, force: true }));
     }
   })();
-  await cp(await preparedRepository, root, { recursive: true });
+  const retained = preparing.catch((error) => {
+    if (preparedRepository === retained) preparedRepository = undefined;
+    throw error;
+  });
+  preparedRepository = retained;
+  return retained;
+}
+async function fixture(root: string) {
+  await cp(await retainedPreparedRepository(), root, { recursive: true });
   const base = git(root, ['rev-parse', 'HEAD']);
   return { root, base, request: { base, expectedHead: base, ownedPaths: ['owned.txt'] } };
 }

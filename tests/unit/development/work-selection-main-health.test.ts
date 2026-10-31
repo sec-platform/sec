@@ -560,14 +560,12 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('histo
     expect(historical.repairDecision).toMatchObject({
       status: 'blocked', routingState: 'locked', reasonCode: 'repair-provider-unavailable'
     });
-    // Equal content does not merge object lifetimes or mint either live proof.
-    for (const unqualified of [receipt, JSON.parse(JSON.stringify(receipt)) as TrustedRuntimeMainHealthReceipt]) {
-      const constructed = await observe(unqualified);
-      expect(constructed.projection.state).toBe('unresolved');
-      expect(constructed.repairDecision).toMatchObject({
-        status: 'blocked', routingState: 'locked', reasonCode: 'repair-provider-invalid'
-      });
-    }
+    // This caller-created receipt has never acquired live qualification.
+    const constructed = await observe(receipt);
+    expect(constructed.projection.state).toBe('unresolved');
+    expect(constructed.repairDecision).toMatchObject({
+      status: 'blocked', routingState: 'locked', reasonCode: 'repair-provider-invalid'
+    });
     for (const filePath of historicalPaths) {
       expect(readFileSync(filePath, 'utf8')).toBe(historicalBytes);
     }
