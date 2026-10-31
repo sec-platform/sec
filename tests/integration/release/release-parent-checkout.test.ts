@@ -41,22 +41,28 @@ test.skipIf(process.platform !== 'linux')('release parent checkout is locally co
         stderr: Buffer.concat(stderr).toString('utf8') };
     };
     const git = async (cwd: string, args: string[]) => {
-      const result = await execute(cwd, 'git', args);
+      // Keep native author/committer identity scoped to every fixture Git
+      // operation, including commit-tree, without mutable local config setup.
+      const result = await execute(cwd, 'git', [
+        '-c', 'user.email=release-parent@sec.invalid',
+        '-c', 'user.name=SEC Release Parent Test',
+        ...args
+      ]);
       if (result.status !== 0) throw new Error(`Git fixture failed: ${result.stderr}`);
       return result.stdout;
     };
     mkdirSync(source);
     await git(source, ['init', '--quiet']);
-    await git(source, ['config', 'user.email', 'release-parent@sec.invalid']);
-    await git(source, ['config', 'user.name', 'SEC Release Parent Test']);
-    const commits: string[] = [];
+    // Each created repository owns its own refs and index; identity is
+    // supplied by the scoped Git helper rather than separate config effects.
     for (const value of ['root', 'base', 'head']) {
       writeFileSync(path.join(source, 'value.txt'), value);
       await git(source, ['add', 'value.txt']);
       await git(source, ['commit', '--quiet', '-m', value]);
-      commits.push(await git(source, ['rev-parse', 'HEAD']));
     }
-    const [ancestor, base, head] = commits as [string, string, string];
+    const commitsNewestFirst = (await git(source, ['rev-list', '--max-count=3', 'HEAD'])).split('\n');
+    expect(commitsNewestFirst).toHaveLength(3);
+    const [head, base, ancestor] = commitsNewestFirst as [string, string, string];
     await git(root, ['clone', '--quiet', '--no-local', '--depth=2', '--no-tags', source, checkout]);
     await git(root, ['clone', '--quiet', '--no-local', '--depth=1', '--no-tags', source, shallow]);
     expect(await git(checkout, ['rev-parse', '--is-shallow-repository'])).toBe('true');

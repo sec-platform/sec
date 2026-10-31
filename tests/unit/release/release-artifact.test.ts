@@ -41,7 +41,16 @@ function command(repositoryRoot: string, executable: string, args: readonly stri
   const result = spawnSync(executable, [...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    // Fixture commit identity is local to this child; avoid two Git config
+    // subprocesses per independent repository while retaining native Git commits.
+    ...(executable === 'git' ? { env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Tests',
+      GIT_AUTHOR_EMAIL: 'tests@example.com',
+      GIT_COMMITTER_NAME: 'SEC Tests',
+      GIT_COMMITTER_EMAIL: 'tests@example.com'
+    } } : {})
   });
   if (result.status !== 0) {
     throw new Error(result.stderr || `${executable} ${args.join(' ')} failed`);
@@ -55,8 +64,6 @@ function git(repositoryRoot: string, args: readonly string[]): string {
 
 async function initRepository(repositoryRoot: string): Promise<void> {
   git(repositoryRoot, ['init', '--quiet']);
-  git(repositoryRoot, ['config', 'user.email', 'tests@example.com']);
-  git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
 }
 
 async function initMinimalBunRepository(repositoryRoot: string, entrypointSource: string): Promise<void> {
@@ -188,8 +195,9 @@ test('Bun-target release bundle consumes the exact frozen source and rejects lat
   let sourceUseSettled = true;
   await settleWorkspaceCallback(async () => {
     await initMinimalBunRepository(repositoryRoot, 'console.log("fixture");\n');
-    const expectedCommit = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    const expectedTree = git(repositoryRoot, ['rev-parse', `${expectedCommit}^{tree}`]);
+    const identityLines = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split('\n');
+    expect(identityLines).toHaveLength(2);
+    const [expectedCommit, expectedTree] = identityLines as [string, string];
     await fs.writeFile(path.join(repositoryRoot, 'local-note.txt'), 'untracked-noise\n');
 
     sourceUseSettled = false;
