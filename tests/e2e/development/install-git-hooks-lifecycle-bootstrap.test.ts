@@ -24,8 +24,6 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
   await settleWorkspaceCallback(async () => {
     await mkdir(repoRoot);
     git(repoRoot, ['init', '--quiet', '-b', 'main']);
-    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     await mkdir(path.join(repoRoot, '.githooks'));
     await writeFile(path.join(repoRoot, '.gitattributes'), '/.githooks/* text eol=lf\n', 'utf8');
     await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
@@ -38,7 +36,7 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
     // bit. Keep unrelated tracked documents non-executable.
     git(repoRoot, ['add', '.gitattributes', 'README.md']);
     git(repoRoot, ['add', '--chmod=+x', '.githooks']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
     git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-fixture', linkedRoot]);
     const linkedPostMerge = path.join(linkedRoot, '.githooks', 'post-merge');
     await writeFile(linkedPostMerge, `${managedHookSource('post-merge')}# linked-branch-hook\n`, 'utf8');

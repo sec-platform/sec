@@ -88,8 +88,6 @@ beforeAll(async () => {
   worktreeA = path.join(baseRoot, 'wt-a');
   worktreeB = path.join(baseRoot, 'wt-b');
   git(baseRoot, ['init', '--quiet', '--separate-git-dir', path.join(baseRoot, 'common.git'), repoRoot]);
-  git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-  git(repoRoot, ['config', 'user.name', 'SEC Tests']);
   git(repoRoot, ['config', 'core.autocrlf', 'false']);
   await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
     compilerOptions: {
@@ -104,7 +102,7 @@ beforeAll(async () => {
   await writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8');
   await writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8');
   git(repoRoot, ['add', '--all']);
-  git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+  git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
   const head = git(repoRoot, ['rev-parse', 'HEAD']).trim();
   git(repoRoot, ['worktree', 'add', '--quiet', '--detach', worktreeA!, head]);
   git(repoRoot, ['worktree', 'add', '--quiet', '--detach', worktreeB!, head]);

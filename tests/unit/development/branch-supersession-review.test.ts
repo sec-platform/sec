@@ -84,13 +84,11 @@ function createDivergedReviewFixture(): DivergedReviewFixture {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-reviewed-ref-supersession-'));
   try {
     git(root, ['init', '--quiet', '--initial-branch=main']);
-    git(root, ['config', 'user.name', 'SEC Test']);
-    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
     git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
 
     writeFileSync(path.join(root, 'base.txt'), 'shared base\n', 'utf8');
     git(root, ['add', 'base.txt']);
-    git(root, ['commit', '--quiet', '-m', 'shared base']);
+    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'shared base']);
     const mergeBaseSha = git(root, ['rev-parse', 'HEAD']);
     const mergeBaseTreeSha = git(root, ['rev-parse', `${mergeBaseSha}^{tree}`]);
 
@@ -98,7 +96,7 @@ function createDivergedReviewFixture(): DivergedReviewFixture {
     writeFileSync(path.join(root, 'retained.txt'), 'orphan behavior\n', 'utf8');
     writeFileSync(path.join(root, 'superseded.txt'), 'obsolete implementation\n', 'utf8');
     git(root, ['add', 'retained.txt', 'superseded.txt']);
-    git(root, ['commit', '--quiet', '-m', 'orphan delta']);
+    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'orphan delta']);
     const headSha = git(root, ['rev-parse', 'HEAD']);
     const headTreeSha = git(root, ['rev-parse', `${headSha}^{tree}`]);
 
@@ -106,7 +104,7 @@ function createDivergedReviewFixture(): DivergedReviewFixture {
     writeFileSync(path.join(root, 'retained.txt'), 'current replacement\n', 'utf8');
     writeFileSync(path.join(root, 'main-only.txt'), 'unrelated later main work\n', 'utf8');
     git(root, ['add', 'retained.txt', 'main-only.txt']);
-    git(root, ['commit', '--quiet', '-m', 'current main evolution']);
+    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'current main evolution']);
     const currentMainSha = git(root, ['rev-parse', 'HEAD']);
     const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
 
@@ -130,21 +128,19 @@ function createRepositoryFixture(): RepositoryFixture {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-supersession-review-'));
   try {
     git(root, ['init', '--quiet', '--initial-branch=main']);
-    git(root, ['config', 'user.name', 'SEC Test']);
-    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
     git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
 
     writeFileSync(path.join(root, 'retained.txt'), 'closed branch behavior\n', 'utf8');
     writeFileSync(path.join(root, 'superseded.txt'), 'old obligation\n', 'utf8');
     git(root, ['add', 'retained.txt', 'superseded.txt']);
-    git(root, ['commit', '--quiet', '-m', 'closed branch head']);
+    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'closed branch head']);
     const headSha = git(root, ['rev-parse', 'HEAD']);
     const headTreeSha = git(root, ['rev-parse', `${headSha}^{tree}`]);
 
     writeFileSync(path.join(root, 'retained.txt'), 'current main keeps the behavior\n', 'utf8');
     unlinkSync(path.join(root, 'superseded.txt'));
     git(root, ['add', 'retained.txt', 'superseded.txt']);
-    git(root, ['commit', '--quiet', '-m', 'current main replacement']);
+    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'current main replacement']);
     const currentMainSha = git(root, ['rev-parse', 'HEAD']);
     const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
 

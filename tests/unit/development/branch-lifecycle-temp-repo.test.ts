@@ -349,11 +349,9 @@ test('typed inventory boundary ignores ambient repository and index steering wit
     const isolatedHome = path.join(fixture.root, 'home');
     mkdirSync(isolatedHome, { recursive: true });
     git(fixture.root, ['init', decoy]);
-    git(decoy, ['config', 'user.name', 'SEC Decoy']);
-    git(decoy, ['config', 'user.email', 'sec-decoy@example.invalid']);
     writeFileSync(path.join(decoy, 'decoy.txt'), 'decoy\n', 'utf8');
     git(decoy, ['add', 'decoy.txt']);
-    git(decoy, ['commit', '-m', 'decoy']);
+    git(decoy, ['-c', 'user.name=SEC Decoy', '-c', 'user.email=sec-decoy@example.invalid', 'commit', '-m', 'decoy']);
     const decoyGitDirectory = git(decoy, [
       'rev-parse', '--path-format=absolute', '--absolute-git-dir'
     ]);
