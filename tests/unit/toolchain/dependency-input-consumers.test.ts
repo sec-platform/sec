@@ -24,11 +24,12 @@ test('public request, coordinator, process binder and effect use one captured pr
   // The public request is a bounded decision snapshot, not a vehicle for
   // coordinator-only clock providers or a writable signal replacement.
   const signal = new AbortController().signal;
-  const selected = capture({
+  const selectedInput = {
     deadlineAtUnixMs: 5000, installMode: 'offline-copy-only' as const,
     lockTimeoutMs: 100, rematerialize: true, signal,
     monotonicNowMs: () => 0
-  });
+  };
+  const selected = capture(selectedInput);
   assert.deepEqual(selected, {
     beforeCommit: undefined, deadlineAtUnixMs: 5000,
     installMode: 'offline-copy-only', lockTimeoutMs: 100, rematerialize: true, signal

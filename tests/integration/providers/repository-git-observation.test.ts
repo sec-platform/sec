@@ -101,10 +101,8 @@ async function createRepository(prefix: string): Promise<string> {
     await fs.cp(path.join(seed, '.git'), path.join(root, '.git'), {
       recursive: true, force: false, errorOnExist: true
     });
-    await Promise.all([
-      fs.copyFile(path.join(seed, '.gitattributes'), path.join(root, '.gitattributes')),
-      fs.copyFile(path.join(seed, 'committed.ts'), path.join(root, 'committed.ts'))
-    ]);
+    await fs.copyFile(path.join(seed, '.gitattributes'), path.join(root, '.gitattributes'));
+    await fs.copyFile(path.join(seed, 'committed.ts'), path.join(root, 'committed.ts'));
     // The copied index contains the seed's inode/stat cache. Refresh it
     // before the zero-write observation interval begins in each case.
     git(root, ['update-index', '--refresh']);

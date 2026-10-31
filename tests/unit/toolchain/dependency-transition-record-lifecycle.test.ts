@@ -41,7 +41,7 @@ async function using(run: (f: Awaited<ReturnType<typeof fixture>>) => Promise<vo
   const f = await fixture();
   return settleWorkspaceCallback(
     () => run(f),
-    () => rmSync(f.root, { recursive: true, force: true })
+    async () => rmSync(f.root, { recursive: true, force: true })
   );
 }
 
