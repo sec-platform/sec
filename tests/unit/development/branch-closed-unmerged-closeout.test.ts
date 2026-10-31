@@ -39,7 +39,13 @@ let supersededEvidence: ClosedSupersededDispositionEvidence;
 let recovery: ReturnType<typeof createRecoveryBundle>['recovery'] | undefined;
 
 function git(root: string, args: readonly string[]): string {
-  const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
+  const result = spawnSync('git', [...args], {
+    cwd: root, encoding: 'utf8', windowsHide: true,
+    env: { ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
+    }
+  });
   if (result.status !== 0) throw new Error(result.stderr.trim());
   return result.stdout.trim();
 }
@@ -47,8 +53,6 @@ function git(root: string, args: readonly string[]): string {
 beforeAll(async () => {
   repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-closed-unmerged-operation-'));
   git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-  git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-  git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
   git(repositoryRoot, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
   writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'base\n', 'utf8');
   git(repositoryRoot, ['add', 'behavior.txt']);
@@ -57,13 +61,15 @@ beforeAll(async () => {
   git(repositoryRoot, ['switch', '--quiet', '-c', BRANCH]);
   writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'closed branch behavior\n', 'utf8');
   git(repositoryRoot, ['commit', '--quiet', '-am', 'closed branch head']);
-  HEAD_SHA = git(repositoryRoot, ['rev-parse', 'HEAD']);
-  HEAD_TREE = git(repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+  const branchObjects = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split('\n');
+  expect(branchObjects).toHaveLength(2);
+  [HEAD_SHA, HEAD_TREE] = branchObjects as [string, string];
   git(repositoryRoot, ['switch', '--quiet', 'main']);
   writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'current main replacement\n', 'utf8');
   git(repositoryRoot, ['commit', '--quiet', '-am', 'current main replacement']);
-  MAIN_SHA = git(repositoryRoot, ['rev-parse', 'HEAD']);
-  MAIN_TREE = git(repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+  const mainObjects = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split('\n');
+  expect(mainObjects).toHaveLength(2);
+  [MAIN_SHA, MAIN_TREE] = mainObjects as [string, string];
   recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-closed-unmerged-recovery-'));
   const supersession = await observeTestClosedSupersessionEvidence({
     repositoryRoot,

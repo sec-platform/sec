@@ -39,7 +39,11 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    env: { ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Tests', GIT_AUTHOR_EMAIL: 'tests@example.com',
+      GIT_COMMITTER_NAME: 'SEC Tests', GIT_COMMITTER_EMAIL: 'tests@example.com'
+    }
   });
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
@@ -58,8 +62,6 @@ async function createRepositorySeed(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-git-observation-base-'));
   try {
     git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
     git(root, ['config', 'core.autocrlf', 'false']);
     await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text eol=lf\n');
     await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = true;\n');
@@ -481,8 +483,6 @@ test.skipIf(process.platform === 'win32')('tracked governed symlink cannot be fo
   const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-settlement-link-'));
   await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
     git(root, ['config', 'core.autocrlf', 'false']);
     await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text eol=lf\n');
     await fs.writeFile(path.join(root, 'target.ts'), 'export const external = true;\n');

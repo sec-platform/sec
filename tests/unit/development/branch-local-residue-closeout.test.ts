@@ -41,7 +41,12 @@ function git(cwd: string, args: readonly string[], input?: string) {
     cwd,
     ...(input === undefined ? {} : { input: Buffer.from(input, 'utf8') }),
     encoding: null,
-    windowsHide: true
+    windowsHide: true,
+    // Fixture identity is process scoped; native refs and recovery remain isolated.
+    env: { ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec@example.invalid'
+    }
   });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${Buffer.from(result.stderr).toString('utf8')}`);
@@ -102,8 +107,6 @@ function effectTemplate(): EffectTemplate {
     const repositoryRoot = path.join(root, 'repository');
     mkdirSync(repositoryRoot);
     git(repositoryRoot, ['init', '-b', 'main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec@example.invalid']);
     writeFileSync(path.join(repositoryRoot, 'base.txt'), 'base\n');
     git(repositoryRoot, ['add', 'base.txt']);
     git(repositoryRoot, ['commit', '-m', 'base']);
