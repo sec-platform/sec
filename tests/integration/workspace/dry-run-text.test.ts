@@ -6,20 +6,23 @@ import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 import { collectUpgradePreflightEvidence, loadMigrationEntries } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
 import { withBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
-import { withMigrationWorkspace } from './migration-fixtures.ts';
+import { textAppend, withMigrationWorkspace } from './migration-fixtures.ts';
 
-test('migration preflight rejects text append targets that are directories', async () => {
-  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+test('migration preflight and application both reject text append directory targets', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {
     const target = 'docs/upgrade-notes.md';
     await fs.mkdir(path.join(workspaceRoot, target), { recursive: true });
-    await expect(collectUpgradePreflightEvidence({
+    const [preflight] = await Promise.allSettled([collectUpgradePreflightEvidence({
       workspaceRoot, targetManifestRoot: manifestRoot,
       blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [target],
       migrationEntries: [{ id: 'mig-upgrade-notes', kind: 'text-append',
         reason: 'Append upgrade notes.', target, content: '- text append migration applied.\n' }]
-    })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-017' });
+    })]);
+    const [application] = await Promise.allSettled([apply([target], [textAppend(target, '- first note\n')])]);
+    expect(preflight).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
+    expect(application).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
   });
-});
+}, 10_000);
 
 test('upgrade rejects malformed literal text replace migration entries before planning', async () => {
   await withBlockUpgradeDryRunFixture(

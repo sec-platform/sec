@@ -34,19 +34,7 @@ test('text-append migration preserves existing content and creates missing paren
   });
 });
 
-test('text-append migration rejects directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), { recursive: true });
 
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['docs/upgrade-notes.md'], [textAppend('docs/upgrade-notes.md', '- first note\n')])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
-  });
-});
 
 test('literal text replace migrations update all matching text', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
