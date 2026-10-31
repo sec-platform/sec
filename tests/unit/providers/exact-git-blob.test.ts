@@ -39,8 +39,6 @@ function initializeRepository(): string {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-exact-git-blob-'));
   try {
     git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
     git(repositoryRoot, ['config', 'core.autocrlf', 'true']);
     return repositoryRoot;
   } catch (error) {
@@ -58,12 +56,12 @@ test('exact Git batch reader preserves absence and rejects invalid, nonordinary,
     writeFileSync(path.join(repositoryRoot, 'ordinary'), 'ordinary\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'nested-file'), 'nested\n', 'utf8');
     git(repositoryRoot, ['add', 'ordinary', 'nested-file']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
     const baseCommit = git(repositoryRoot, ['rev-parse', 'HEAD']);
     const linkBlob = git(repositoryRoot, ['hash-object', '-w', '--stdin'], { input: 'ordinary' });
     git(repositoryRoot, ['update-index', '--add', '--cacheinfo', `120000,${linkBlob},link`]);
     git(repositoryRoot, ['update-index', '--add', '--cacheinfo', `160000,${baseCommit},module`]);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'nonordinary']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'nonordinary']);
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     const entries = listExactGitTreeEntries({ repositoryRoot, commitSha });
@@ -96,7 +94,7 @@ test('exact Git batch reader preserves LF path-to-blob identity despite checkout
     writeFileSync(path.join(repositoryRoot, 'first.ts'), 'export const first = 1;\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'second.ts'), 'export const second = 2;\n', 'utf8');
     git(repositoryRoot, ['add', 'first.ts', 'second.ts']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'batch']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'batch']);
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     const originalBlob = git(repositoryRoot, ['rev-parse', `${commitSha}:first.ts`]);
     const replacementBlob = git(repositoryRoot, ['hash-object', '-w', '--stdin'], {

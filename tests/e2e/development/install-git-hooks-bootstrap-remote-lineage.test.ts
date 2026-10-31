@@ -38,8 +38,6 @@ test('repository-common hook generation runs when an older worktree creates the 
   await settleWorkspaceCallback(async () => {
     await mkdir(repoRoot);
     git(repoRoot, ['init', '--quiet', '-b', 'main']);
-    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
     // Both revisions supply the package entry invoked by the managed hook.
     // The fixture observes dispatch; package metadata is verified separately.
@@ -47,7 +45,7 @@ test('repository-common hook generation runs when an older worktree creates the 
       scripts: { 'workspace:transition': '"$npm_execpath" -e "process.exit(0)"' }
     }));
     git(repoRoot, ['add', 'README.md', 'package.json']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'older checkout without managed hooks']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'older checkout without managed hooks']);
     const olderHead = git(repoRoot, ['rev-parse', 'HEAD']);
 
     await mkdir(path.join(repoRoot, '.githooks'));
@@ -69,7 +67,7 @@ test('repository-common hook generation runs when an older worktree creates the 
     // bit. Keep unrelated tracked documents non-executable.
     git(repoRoot, ['add', '.gitattributes', 'README.md']);
     git(repoRoot, ['add', '--chmod=+x', '.githooks']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'install managed hooks']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'install managed hooks']);
     const managedHead = git(repoRoot, ['rev-parse', 'HEAD']);
 
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });

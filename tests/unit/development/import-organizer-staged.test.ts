@@ -48,8 +48,6 @@ async function buildOrganizerGitBase(): Promise<OrganizerGitBase> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-shared-base-'));
   try {
   git(repoRoot, ['init', '--quiet']);
-  git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-  git(repoRoot, ['config', 'user.name', 'SEC Tests']);
   git(repoRoot, ['config', 'core.autocrlf', 'false']);
   const writes = await Promise.allSettled([
     writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
@@ -71,7 +69,7 @@ async function buildOrganizerGitBase(): Promise<OrganizerGitBase> {
     throw new AggregateError(writeFailures, 'Import organizer source writes failed');
   }
   git(repoRoot, ['add', '--all']);
-  git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+  git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
     return Object.freeze({
       root: repoRoot,
       candidateBase: String(git(repoRoot, ['rev-parse', 'HEAD'])).trim()
@@ -152,7 +150,7 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
 
     await writeFile(longCanonicalOwner, 'canonical owner fixture\n', 'utf8');
     git(repoRoot, ['-c', 'core.longpaths=true', 'add', '--all']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'long-path fixture']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'long-path fixture']);
     const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
     const fixturePath = path.join(repoRoot, 'fixture.ts');
@@ -203,11 +201,9 @@ test.skipIf(process.platform !== 'linux')('candidate snapshot retained capabilit
   let relativePath: string | null = null;
   await settleWorkspaceCallback(async () => {
     git(repoRoot, ['init', '--quiet']);
-    git(repoRoot, ['config', 'user.name', 'SEC Test']);
-    git(repoRoot, ['config', 'user.email', 'sec-test@example.invalid']);
     await writeFile(fixturePath, source('sorted'));
     git(repoRoot, ['add', '--all']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+    git(repoRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'initial']);
     const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
     await writeFile(fixturePath, source('unsorted'));
     git(repoRoot, ['add', 'fixture.ts']);

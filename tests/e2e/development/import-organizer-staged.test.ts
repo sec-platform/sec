@@ -76,8 +76,6 @@ async function createRepositoryTemplate(
   try {
     await afterDirectoryCreated?.(repoRoot);
     git(repoRoot, ['init', '--quiet']);
-    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     git(repoRoot, ['config', 'core.autocrlf', 'false']);
     git(repoRoot, ['config', 'core.hooksPath', '.git/hooks']);
     const writes = await Promise.allSettled([
@@ -100,7 +98,7 @@ async function createRepositoryTemplate(
       throw new AggregateError(writeFailures, 'Import template source writes failed');
     }
     git(repoRoot, ['add', '--all']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
     const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', head]);
     return repoRoot;
@@ -204,7 +202,7 @@ test.concurrent('candidate organizer repairs the complete amended commit diff in
     const expected = `${source('sorted')}export const committedChange = answer;\n`;
     await writeFile(fixturePath, committed, 'utf8');
     git(repoRoot, ['add', 'fixture.ts']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'legacy candidate']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'legacy candidate']);
     await writeFile(path.join(repoRoot, 'README.md'), 'amend metadata\n', 'utf8');
     git(repoRoot, ['add', 'README.md']);
     const contexts: string[] = [];
@@ -266,7 +264,7 @@ test.concurrent('candidate apply normalizes the complete committed, staged, unst
 
     await writeFile(committedPath, source('unsorted'), 'utf8');
     git(repoRoot, ['add', 'committed.ts']);
-    git(repoRoot, ['commit', '--quiet', '--no-verify', '-m', 'committed authoring delta']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '--no-verify', '-m', 'committed authoring delta']);
     await writeFile(stagedPath, source('unsorted'), 'utf8');
     git(repoRoot, ['add', 'staged.ts']);
     await settleImportFixtureWrites([
@@ -339,7 +337,7 @@ test.concurrent('working apply and staged freeze normalize identical Git-selecte
       writeFile(path.join(includedRoot, 'consumer.ts'), "export { answer } from '../tooling/fixture.ts';\n", 'utf8')
     ]);
     git(repoRoot, ['add', '--all']);
-    git(repoRoot, ['commit', '--quiet', '--no-verify', '-m', 'transitive tooling root']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '--no-verify', '-m', 'transitive tooling root']);
     const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
 
