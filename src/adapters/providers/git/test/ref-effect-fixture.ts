@@ -1,6 +1,7 @@
 import { settleResources } from '../../../../execution/resource-settlement.ts';
+import { afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { sha256 } from '../../../../contracts/canonical.ts';
@@ -19,15 +20,71 @@ export function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
+// The seed has only an immutable tracked base commit. Its refs, index,
+// worktree and object store are cloned into each independent test root.
+// PATH, HOME and Git configuration variables distinguish initialization inputs.
+const refEffectSeeds = new Map<string, string>();
+
+function currentGitSeedKey(): string {
+  const keys = Object.keys(process.env).filter(key =>
+    ['PATH', 'HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'SystemRoot'].includes(key)
+    || key.startsWith('GIT_')
+  ).sort();
+  return JSON.stringify(keys.map(key => [key, process.env[key]]));
+}
+
+function immutableRefEffectSeed(): string {
+  const key = currentGitSeedKey();
+  const existing = refEffectSeeds.get(key);
+  if (existing !== undefined) return existing;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-ref-effect-base-'));
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=current']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    writeFileSync(path.join(root, 'base.txt'), 'base\n', 'utf8');
+    git(root, ['add', 'base.txt']);
+    git(root, ['commit', '--quiet', '-m', 'base']);
+    refEffectSeeds.set(key, root);
+    return root;
+  } catch (primary) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'Git ref baseline setup and cleanup both failed');
+    }
+    throw primary;
+  }
+}
+
+afterAll(() => {
+  const failures: unknown[] = [];
+  for (const [key, root] of refEffectSeeds) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      refEffectSeeds.delete(key);
+    } catch (failure) {
+      failures.push(failure);
+    }
+  }
+  if (failures.length > 0) throw new AggregateError(failures, 'Git ref baseline cleanup failed');
+});
+
 export function fixture(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-ref-effect-'));
-  git(root, ['init', '--quiet', '--initial-branch=current']);
-  git(root, ['config', 'user.name', 'SEC Tests']);
-  git(root, ['config', 'user.email', 'tests@example.com']);
-  writeFileSync(path.join(root, 'base.txt'), 'base\n', 'utf8');
-  git(root, ['add', 'base.txt']);
-  git(root, ['commit', '--quiet', '-m', 'base']);
-  return root;
+  try {
+    const seed = immutableRefEffectSeed();
+    cpSync(path.join(seed, '.git'), path.join(root, '.git'), {
+      recursive: true, force: false, errorOnExist: true
+    });
+    copyFileSync(path.join(seed, 'base.txt'), path.join(root, 'base.txt'));
+    return root;
+  } catch (primary) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'Git ref fixture setup and cleanup both failed');
+    }
+    throw primary;
+  }
 }
 
 function testOperation() {
