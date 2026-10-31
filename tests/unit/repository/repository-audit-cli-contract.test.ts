@@ -207,20 +207,15 @@ test('topology enforcement preserves clean and violated outcomes', () => {
   assert.equal(topologyFails({ unresolvedFiles: [], topology: { violations: [{ code: 'boundary' }] } }, false), false);
 });
 
-test('scanned and explicitly excluded content are not converted into missing coverage', () => {
-  const report = { findings: [], unknowns: [], sourceProgram: { unknowns: [] },
-    declarationTopology: { unknowns: [] }, contentCoverage: [
-      { status: 'scanned' as const }, { status: 'excluded' as const }
-    ] };
-  assert.equal(shouldFail(report), false);
-});
-
 test('each detailed unknown channel independently obeys the diagnostic decision', () => {
   for (const mask of [0, 1, 2, 4]) {
     const report = { findings: [], unknowns: [],
       sourceProgram: { unknowns: mask & 1 ? ['model'] : [] },
       declarationTopology: { unknowns: mask & 2 ? ['topology'] : [] },
-      contentCoverage: [{ status: mask & 4 ? 'unknown' as const : 'scanned' as const }] };
+      contentCoverage: [
+        { status: mask & 4 ? 'unknown' as const : 'scanned' as const },
+        { status: 'excluded' as const }
+      ] };
     assert.equal(shouldFail(report, { failOn: 'none' }), mask !== 0);
     assert.equal(shouldFail(report, { diagnostic: true, failOn: 'none' }), false);
   }

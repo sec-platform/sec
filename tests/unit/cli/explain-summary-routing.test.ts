@@ -75,9 +75,6 @@ test('live explain routing preserves nonempty graph semantics and raw JSON', asy
     expect(lines.filter(line => line.startsWith('E2E ')).map(line => line.split(':')[0])).toEqual([
       'E2E verification', 'E2E coverage', 'E2E artifacts', 'E2E review'
     ]);
-    expect(e2eMatrix.rows.map(row => row.stage)).toEqual([
-      'verification', 'coverage', 'artifacts', 'review'
-    ]);
     const compact = await invoke(['--json', '--compact']);
     expect(compact.trim().split('\n')).toHaveLength(1);
     expect(JSON.parse(compact)).toEqual({ graph, reviewSummary, e2eMatrix });

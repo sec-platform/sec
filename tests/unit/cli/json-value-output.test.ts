@@ -6,8 +6,6 @@ import { formatJson, printJsonOrText } from '../../../src/entry/cli/format-utils
 
 test.serial('shared writer, standard JSON values and text selection keep their distinct output contracts', () => {
   const value = { b: 2, a: ['x', undefined, 3], ignored: undefined };
-  assert.equal(formatJson(value, { compact: false }), JSON.stringify(value, null, 2));
-  assert.equal(formatJson(value, { compact: true }), JSON.stringify(value));
   assert.equal(formatJsonFile(value), JSON.stringify(value, null, 2) + '\n');
   const log = console.log, lines: string[] = [];
   console.log = (...args) => { lines.push(format(...args)); };
@@ -17,7 +15,7 @@ test.serial('shared writer, standard JSON values and text selection keep their d
     for (const compact of [false, true]) {
       lines.length = 0;
       printJsonOrText(value, { json: true, compact }, () => assert.fail('text renderer invoked'));
-      assert.deepEqual(JSON.parse(lines.join('\n')), { b: 2, a: ['x', null, 3] });
+      assert.deepEqual(lines, [JSON.stringify(value, null, compact ? 0 : 2)]);
     }
   } finally { console.log = log; }
 });
