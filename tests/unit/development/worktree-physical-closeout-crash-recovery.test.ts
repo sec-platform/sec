@@ -12,7 +12,25 @@ import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { detailDigest } from '../../../src/adapters/runtime-state/worktree-closeout-contract.ts';
 import { assertTrustedCompletedWorktreePhysicalCloseout, prepareTrustedWorktreePhysicalCloseout } from '../../../src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
 
-function git(cwd: string, args: string[]): string { const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); }
+function git(cwd: string, args: string[]): string {
+  const r = spawnSync('git', args, {
+    cwd, encoding: 'utf8', windowsHide: true,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'SEC', GIT_AUTHOR_EMAIL: 'sec@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC', GIT_COMMITTER_EMAIL: 'sec@example.invalid'
+    }
+  });
+  if (r.status !== 0) throw new Error(r.stderr);
+  return r.stdout.trim();
+}
+function gitHeadAndTree(cwd: string): readonly [string, string] {
+  const identities = git(cwd, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+  if (identities.length !== 2 || !identities[0] || !identities[1]) {
+    throw new Error('Expected HEAD and tree identities from one native Git query');
+  }
+  return [identities[0], identities[1]];
+}
 async function waitFor(check: () => boolean): Promise<boolean> { const until = Date.now() + 20_000; while (Date.now() < until) { if (check()) return true; await Bun.sleep(10); } return check(); }
 function killFixtureTree(pid: number): void {
   if (process.platform === 'win32') {
@@ -55,14 +73,14 @@ test('real child death before terminal preserves durable recovery evidence witho
   let controller: AbortController | undefined;
   await settleWorkspaceCallback(async () => {
     executable = createRawTestExecutableFixture();
-    git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'user.name', 'SEC']); git(repository, ['config', 'user.email', 'sec@example.invalid']); git(repository, ['config', 'core.autocrlf', 'false']);
+    git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(repository, 'a.txt'), 'a\n'); git(repository, ['add', '.']); git(repository, ['commit', '-m', 'base']); git(repository, ['remote', 'add', 'origin', remote]); git(repository, ['push', '-u', 'origin', 'main']); git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']); git(repository, ['remote', 'set-head', 'origin', 'main']);
     const branch = 'codex/crash'; git(repository, ['branch', branch]); git(repository, ['worktree', 'add', target, branch]);
     // Keep a distinct tracked target commit. The child observes the durable
     // fence/terminal-pending checkpoint and pauses there; file count is not a
     // timing control for that lease-namespace transition.
     writeFileSync(path.join(target, 'slow-0.txt'), '0\n'); git(target, ['add', '.']); git(target, ['commit', '-m', 'slow']);
-    const headSha = git(target, ['rev-parse', 'HEAD']); const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']); const recoveryAuthorityDigest = detailDigest('crash-child');
+    const [headSha, treeSha] = gitHeadAndTree(target); const recoveryAuthorityDigest = detailDigest('crash-child');
     const prepared = await prepareTrustedWorktreePhysicalCloseout({ repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest }, worktreePhysicalCloseoutOperations);
     const input = { repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest, authorizationPath: prepared.authorization.authorizationPath };
     const fixture = path.join(import.meta.dir, './worktree-physical-closeout-crash-fixture.ts');

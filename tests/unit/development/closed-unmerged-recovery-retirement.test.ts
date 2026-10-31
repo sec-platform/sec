@@ -46,7 +46,14 @@ const GITHUB_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
 });
 
 function git(root: string, args: readonly string[]): string {
-  const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
+  const result = spawnSync('git', [...args], {
+    cwd: root, encoding: 'utf8', windowsHide: true,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Tests', GIT_AUTHOR_EMAIL: 'tests@example.com',
+      GIT_COMMITTER_NAME: 'SEC Tests', GIT_COMMITTER_EMAIL: 'tests@example.com'
+    }
+  });
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
 }
@@ -69,8 +76,6 @@ function sourceRecoveryBase(): ClosedRecoveryBase {
   const root = path.join(parent, 'repository');
   try {
     git(parent, ['init', '--quiet', '--initial-branch=main', root]);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
     writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
     git(root, ['add', 'tracked.txt']);

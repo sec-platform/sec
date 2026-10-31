@@ -54,11 +54,25 @@ import { sha256 } from '../../../src/contracts/canonical.ts';
 import { generatedStateProducerHooks } from '../../helpers/generated-state-fixture.ts';
 
 function git(cwd: string, args: readonly string[]): string {
-  const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
+  const result = spawnSync('git', [...args], {
+    cwd, encoding: 'utf8', windowsHide: true,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
+    }
+  });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
   }
   return (result.stdout ?? '').trim();
+}
+function gitHeadAndTree(cwd: string): readonly [string, string] {
+  const identities = git(cwd, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+  if (identities.length !== 2 || !identities[0] || !identities[1]) {
+    throw new Error('Expected HEAD and tree identities from one native Git query');
+  }
+  return [identities[0], identities[1]];
 }
 
 function gitPath(value: string): string {
@@ -130,8 +144,6 @@ function closeoutBase(options: CloseoutFixtureOptions): Readonly<{ root: string 
   try {
     git(root, ['init', '--bare', remote]);
     git(root, ['init', '-b', 'main', repository]);
-    git(repository, ['config', 'user.name', 'SEC Test']);
-    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
     git(repository, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
     if (options.trackedBackslash === true) writeFileSync(path.join(repository, 'a\\b'), 'backslash tracked\n', 'utf8');
@@ -168,8 +180,7 @@ function fixture(options: CloseoutFixtureOptions = {}) {
     git(repository, ['remote', 'set-url', 'origin', remote]);
     const branch = 'codex/fixture';
     git(repository, ['worktree', 'add', target, branch]);
-    const headSha = git(target, ['rev-parse', 'HEAD']);
-    const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']);
+    const [headSha, treeSha] = gitHeadAndTree(target);
     const recoveryAuthorityDigest = detailDigest('fixture-recovery');
     return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };
   } catch (error) {
@@ -844,8 +855,7 @@ test.skipIf(process.platform !== 'win32')('authorized externally unregistered wo
     writeFileSync(path.join(junctionPath, 'sentinel.txt'), 'external target survives\n');
     git(value.target, ['add', 'tracked-junction/sentinel.txt']);
     git(value.target, ['commit', '-m', 'add junction preimage']);
-    value.headSha = git(value.target, ['rev-parse', 'HEAD']);
-    value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+    [value.headSha, value.treeSha] = gitHeadAndTree(value.target);
     renameSync(junctionPath, externalTarget);
     symlinkSync(externalTarget, junctionPath, 'junction');
     const externalTargetIdentity = inspectNoFollowDirectoryChain(
@@ -1043,8 +1053,7 @@ test.skipIf(process.platform !== 'win32')('Windows real closeout streams a large
     writeFileSync(path.join(junctionPath, 'external-sentinel.txt'), 'must survive closeout\n', 'utf8');
     git(value.target, ['add', 'tracked-cache/large-object.bin', 'readonly/nested-object.bin', 'tracked-junction/external-sentinel.txt']);
     git(value.target, ['commit', '-m', 'add physical closeout stress leaves']);
-    value.headSha = git(value.target, ['rev-parse', 'HEAD']);
-    value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+    [value.headSha, value.treeSha] = gitHeadAndTree(value.target);
     chmodSync(readonlyPath, 0o444);
     renameSync(junctionPath, externalJunctionTarget);
     symlinkSync(externalJunctionTarget, junctionPath, 'junction');
@@ -1102,8 +1111,7 @@ test('first same-branch completed token remains target-valid after a second regi
     // both registrations name the same branch/head/tree but have independent
     // target/admin identities.
     git(value.repository, ['worktree', 'add', '--force', secondTarget, value.branch]);
-    const secondHeadSha = git(secondTarget, ['rev-parse', 'HEAD']);
-    const secondTreeSha = git(secondTarget, ['rev-parse', 'HEAD^{tree}']);
+    const [secondHeadSha, secondTreeSha] = gitHeadAndTree(secondTarget);
     expect(secondHeadSha).toBe(value.headSha);
     expect(secondTreeSha).toBe(value.treeSha);
 
@@ -1238,8 +1246,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
       writeFileSync(path.join(value.target, '.gitignore'), '.sec/\n', 'utf8');
       git(value.target, ['add', '.gitignore']);
       git(value.target, ['commit', '-m', 'ignore control state']);
-      value.headSha = git(value.target, ['rev-parse', 'HEAD']);
-      value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+      [value.headSha, value.treeSha] = gitHeadAndTree(value.target);
       if (foreignSibling) {
         mkdirSync(path.join(value.target, '.sec'), { recursive: true });
         writeFileSync(path.join(value.target, '.sec', 'foreign.txt'), 'foreign\n', 'utf8');
@@ -1343,8 +1350,7 @@ test('dirty untracked and ignored targets block before durable authorization or 
         writeFileSync(path.join(value.target, '.gitignore'), 'ignored.txt\n', 'utf8');
         git(value.target, ['add', '.gitignore']);
         git(value.target, ['commit', '-m', 'ignore policy']);
-        value.headSha = git(value.target, ['rev-parse', 'HEAD']);
-        value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+        [value.headSha, value.treeSha] = gitHeadAndTree(value.target);
         writeFileSync(path.join(value.target, 'ignored.txt'), 'ignored\n', 'utf8');
       }
       await expect(
