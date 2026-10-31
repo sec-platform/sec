@@ -6,7 +6,7 @@ import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 import { collectUpgradePreflightEvidence, loadMigrationEntries } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
 import { withBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
-import { copyDirectory, createDirectory, deleteFile, textAppend, withMigrationWorkspace } from './migration-fixtures.ts';
+import { applyMigrationEntries, copyDirectory, createDirectory, deleteFile, renameDirectory, renameFile, textAppend, withMigrationWorkspace } from './migration-fixtures.ts';
 import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records file directory and text migration impacts', async () => {
@@ -179,8 +179,8 @@ test('upgrade dry-run records file directory and text migration impacts', async 
     ]);
 });
 
-test('migration preflight rejects a copy file source that is not a file', async () => {
-  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+test('migration rejects incompatible copy-file and rename source kinds', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {
     const source = 'files/generated/reports/schema';
     const target = 'generated/reports/schema.json';
     await fs.mkdir(path.join(manifestRoot, source), { recursive: true });
@@ -190,10 +190,25 @@ test('migration preflight rejects a copy file source that is not a file', async 
       migrationEntries: [{ id: 'mig-copy-report-schema', kind: 'copy-file',
         reason: 'Copy report schema into generated report assets.', source, target }]
     })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-024' });
-  });
-});
 
-test('migration preflight and application both reject absent delete-file targets', async () => {
+    // These three consumers retain distinct source-kind and observation-layer oracles.
+    const directorySource = 'generated/reports';
+    const fileSource = 'generated/reports/current.json';
+    await fs.mkdir(path.join(workspaceRoot, directorySource), { recursive: true });
+    await writeJson(path.join(workspaceRoot, fileSource), { current: true });
+    const before = await fs.readFile(path.join(workspaceRoot, fileSource));
+    await expect(apply([directorySource, 'generated/archive'], [
+      renameFile(directorySource, 'generated/archive')
+    ])).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-019' });
+    await expect(apply([fileSource, 'generated/reports/archive/current'], [
+      renameDirectory(fileSource, 'generated/reports/archive/current')
+    ])).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-019' });
+    expect((await fs.stat(path.join(workspaceRoot, directorySource))).isDirectory()).toBe(true);
+    expect(await fs.readFile(path.join(workspaceRoot, fileSource))).toEqual(before);
+  });
+}, 15_000);
+
+test('migration rejects missing delete-file targets and rename-file sources', async () => {
   await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {
     const target = 'generated/reports/missing.json';
     const [preflight] = await Promise.allSettled([collectUpgradePreflightEvidence({
@@ -205,10 +220,18 @@ test('migration preflight and application both reject absent delete-file targets
     const [application] = await Promise.allSettled([apply([target], [deleteFile(target)])]);
     expect(preflight).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-016' } });
     expect(application).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-016' } });
-  });
-}, 10_000);
 
-test('upgrade rejects occupied rename file targets before planning', async () => {
+    const missingSource = 'generated/reports/missing-rename.json';
+    const missingDestination = 'generated/reports/archive/missing-rename.json';
+    await expect(apply([missingSource, missingDestination], [
+      renameFile(missingSource, missingDestination)
+    ])).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-018' });
+    await expect(fs.lstat(path.join(workspaceRoot, missingDestination)))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  });
+}, 15_000);
+
+test('upgrade preflight and application both reject occupied rename-file targets', async () => {
   await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-rename-file-occupied-',
@@ -238,9 +261,19 @@ test('upgrade rejects occupied rename file targets before planning', async () =>
       await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-020'
       });
+
+      const source = 'generated/reports/current.json';
+      const target = 'generated/reports/archive/current.json';
+      const sourceBytes = await fs.readFile(path.join(workspaceRoot, source));
+      const targetBytes = await fs.readFile(path.join(workspaceRoot, target));
+      await expect(applyMigrationEntries(workspaceRoot, workspaceRoot, [source, target], [
+        renameFile(source, target)
+      ])).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-020' });
+      expect(await fs.readFile(path.join(workspaceRoot, source))).toEqual(sourceBytes);
+      expect(await fs.readFile(path.join(workspaceRoot, target))).toEqual(targetBytes);
     }
   );
-});
+}, 10_000);
 
 test('preflight and application reject directory operations that would overwrite incompatible targets', async () => {
   await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {

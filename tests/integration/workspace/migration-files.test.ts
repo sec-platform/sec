@@ -95,7 +95,6 @@ test('copy-directory migration copies manifest directory to impacted project tar
 });
 
 
-
 test('create-directory migration creates nested targets and preserves existing directories', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const manifestRoot = path.join(workspaceRoot, 'manifest');
@@ -115,7 +114,6 @@ test('create-directory migration creates nested targets and preserves existing d
 });
 
 
-
 test('delete-file migration removes existing file targets', async () => {
   await withTempWorkspace(async (tempRoot) => {
     const workspaceRoot = tempRoot;
@@ -131,9 +129,6 @@ test('delete-file migration removes existing file targets', async () => {
     await expect(fs.lstat(targetPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
-
-
-
 
 
 test('rename-file migration moves file targets', async () => {
@@ -155,52 +150,6 @@ test('rename-file migration moves file targets', async () => {
   });
 });
 
-test('rename-file migration rejects missing sources', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-
-    const source = 'generated/reports/missing.json';
-    const target = 'generated/reports/archive/missing.json';
-    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-018'
-    });
-  });
-});
-
-test('rename-file migration rejects directory sources', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-
-    const source = 'generated/reports';
-    const target = 'generated/archive';
-    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-019'
-    });
-  });
-});
-
-test('rename-file migration rejects occupied targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, 'generated', 'archive'), { recursive: true });
-
-    const source = 'generated/reports/old.json';
-    const target = 'generated/archive/old.json';
-    await fs.writeFile(path.join(workspaceRoot, 'generated', 'reports', 'old.json'), 'old\n', 'utf8');
-    await fs.writeFile(path.join(workspaceRoot, 'generated', 'archive', 'old.json'), 'existing\n', 'utf8');
-
-    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-020'
-    });
-    await expect(fs.readFile(path.join(workspaceRoot, source), 'utf8')).resolves.toBe('old\n');
-    await expect(fs.readFile(path.join(workspaceRoot, target), 'utf8')).resolves.toBe('existing\n');
-  });
-});
 
 test('rename-directory migration moves directory targets', async () => {
   await withTempWorkspace(async (tempRoot) => {
@@ -220,23 +169,6 @@ test('rename-directory migration moves directory targets', async () => {
   });
 });
 
-test('rename-directory migration rejects file sources', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-
-    const source = 'generated/reports/current.json';
-    const target = 'generated/reports/archive/current';
-    await fs.writeFile(path.join(workspaceRoot, source), '{}\n', 'utf8');
-
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameDirectory(source, target)])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-019'
-    });
-  });
-});
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('file migration refuses a workspace parent alias instead of writing outside the workspace', async () => {
   await withTempWorkspace(async (tempRoot) => {
