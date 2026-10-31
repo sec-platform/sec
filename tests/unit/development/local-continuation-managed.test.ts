@@ -169,6 +169,7 @@ tests:
     cpSync(stateRoot, stateBackup, { recursive: true });
     const unrelatedTree = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
     const unrelatedCommit = git(repositoryRoot,
+      '-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid',
       'commit-tree', unrelatedTree, '-m', 'unrelated candidate history'
     );
     git(repositoryRoot, 'reset', '--hard', unrelatedCommit);
