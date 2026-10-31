@@ -78,6 +78,15 @@ function fixtureGitSha(root: string, ref: string): string {
   return runFixtureGit(root, ['rev-parse', ref]).toString('utf8').trim();
 }
 
+function fixtureGitCommitAndTree(root: string): readonly [string, string] {
+  const objects = runFixtureGit(root, ['rev-parse', 'HEAD', 'HEAD^{tree}'])
+    .toString('utf8').trim().split(/\r?\n/u);
+  if (objects.length !== 2 || objects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+    throw new Error('Expected native Git commit and tree identities');
+  }
+  return objects as [string, string];
+}
+
 function transitionCatalog(): CatalogObservation {
   const item = (packageId: string, issue: number, evidence: string,
     overrides: Partial<RoadmapWorkCatalog['items'][number]> = {}) => ({
@@ -459,8 +468,7 @@ describe('work-selection live contract', () => {
       writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), prior.source, 'utf8');
       runFixtureGit(root, ['add', '--', 'config/repository']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal base']);
-      const baseSha = fixtureGitSha(root, 'HEAD');
-      const baseTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
+      const [baseSha, baseTreeSha] = fixtureGitCommitAndTree(root);
       runFixtureGit(root, ['update-ref', 'refs/remotes/origin/main', baseSha]);
       runFixtureGit(root, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
 
@@ -472,8 +480,7 @@ describe('work-selection live contract', () => {
       writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), compaction.roadmapSource, 'utf8');
       runFixtureGit(root, ['add', '--', 'config/repository/work-selection.md']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal candidate']);
-      const headSha = fixtureGitSha(root, 'HEAD');
-      const headTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
+      const [headSha, headTreeSha] = fixtureGitCommitAndTree(root);
 
       const independentItem = prior.catalog.items.find(({ workId }) => workId !== 'issue-186')!;
       const independentManifestPath = `config/repository/work-packages/${independentItem.packageId}.md`;

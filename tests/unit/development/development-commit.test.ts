@@ -40,6 +40,16 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
+// One native observation captures both immutable identities of the current
+// commit. All subsequent scenario-specific Git Effects remain independent.
+function gitCommitAndTree(root: string): readonly [string, string] {
+  const objects = git(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+  if (objects.length !== 2 || objects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+    throw new Error('Expected native Git commit and tree identities');
+  }
+  return objects as [string, string];
+}
+
 for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anchor-lost',
   'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
   'carrier-retained', 'carrier-rejected'] as const) {
@@ -51,8 +61,7 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
       harnessRoot = harness;
       const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
       git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
-      const originalBase = git(root, ['rev-parse', 'HEAD']);
-      const baseTree = git(root, ['rev-parse', 'HEAD^{tree}']);
+      const [originalBase, baseTree] = gitCommitAndTree(root);
       const base = mode === 'anchor-lost'
         ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'separately adopted anchor'])
         : originalBase;
@@ -849,8 +858,7 @@ test('development.commit keeps a failed reflog observation unknown instead of au
   await withCommitFixture(async ({ root }) => {
     const preimage = git(root, ['rev-parse', 'HEAD']);
     git(root, ['commit', '--quiet', '-m', 'detached target object']);
-    const target = git(root, ['rev-parse', 'HEAD']);
-    const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+    const [target, tree] = gitCommitAndTree(root);
     const ref = git(root, ['symbolic-ref', 'HEAD']);
     git(root, ['reset', '--soft', preimage]);
     const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
