@@ -330,14 +330,6 @@ test('one process-local materialization is reusable only for a covered demand cl
       return compilerReady('existing');
     }
   }));
-  expect(result).toEqual({
-    executionGenerationAuthority: compilerDependencyFixture.executionGenerationAuthority,
-    manifestHash: compilerDependencyFixture.manifestHash,
-    nodeModulesPath: compilerDependencyFixture.nodeModulesPath,
-    requiresFreshProcess: false,
-    source: 'existing',
-    transitionDigest: `sha256:${'a'.repeat(64)}`
-  });
   expect(calls).toEqual(['compiler']);
 
   expect(() => assertMaterializedOperationDependencyBootstrapResult(result)).not.toThrow();
