@@ -2299,9 +2299,9 @@ test('candidate readonly preparation follows the original normalized Action and 
   }
 });
 
-// Only the trusted source commit is shared. Its physical bytes are copied
-// before each test creates a fresh native Git linked worktree, candidate commit,
-// dependency tree and archive. Git worktree absolute admin paths are never copied.
+// Immutable base and candidate Git objects are shared as fixture preparation.
+// Each case copies a private repository, registers its own native linked worktree,
+// and creates its dependency tree and archive; no worktree admin paths are copied.
 const PRIVATE_ACTION_CANDIDATE_INPUT = 'candidate input\n';
 const PRIVATE_ACTION_CANDIDATE_DATA_SCRIPT = "raise RuntimeError('candidate module must remain data')\n";
 
