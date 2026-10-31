@@ -236,8 +236,10 @@ test('reference entry rejects nonterminal, foreign and structurally unknown lega
       '"formatVersion": "1",\n  "formatVersion": "1"'
     )
   ];
-  for (const [index, candidateSource] of candidates.entries()) {
-    await withTempWorkspace(async (workspaceRoot) => {
+  await withTempWorkspace(async (root) => {
+    for (const [index, candidateSource] of candidates.entries()) {
+      // One disposable parent; each rejected journal has its own physical root.
+      const workspaceRoot = path.join(root, `scenario-${index}`);
       await preparePipelineJournalParent(workspaceRoot);
       const secRoot = getWorkspacePaths(workspaceRoot).secRoot;
       const journalPath = path.join(secRoot, 'pipeline-journal.json');
@@ -252,8 +254,8 @@ test('reference entry rejects nonterminal, foreign and structurally unknown lega
       )).rejects.toThrow(/Pipeline journal/);
       expect(await fs.readFile(journalPath)).toEqual(legacyBytes);
       expect((await fs.readdir(secRoot)).filter((name) => name !== 'pipeline-journal.json')).toEqual([]);
-    }, `engineering-compiler-invalid-pipeline-retirement-${index}-`);
-  }
+    }
+  }, 'engineering-compiler-invalid-pipeline-retirement-');
 });
 
 test('reference retirement refuses an exact-byte physical replacement after evidence publication', async () => {

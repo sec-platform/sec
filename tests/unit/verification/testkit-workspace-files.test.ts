@@ -79,38 +79,45 @@ test('local-state projection case-folds declared snapshots and excludes transien
     'node_modules', 'nested/node_modules', '.template-ready', 'nested/.template-ready']) await absent(path.join(target, file));
 }));
 
-test('protected snapshot aliases fail before ordinary destination writes', async () => {
-  for (const snapshot of ['pipeline-journal.json', 'cache/project-baseline.json']) {
-    await using(async (root, source, target) => {
-      await write(source, 'src/main.ts', 'new');
-      const directoryLink = snapshot.startsWith('cache/') && process.platform === 'win32';
-      const external = path.join(root, directoryLink ? 'outside-directory' : 'outside.json');
-      if (directoryLink) await fs.mkdir(external);
-      else await fs.writeFile(external, '{"external":true}\n');
-      const alias = path.join(source, '.sec', snapshot);
-      await fs.mkdir(path.dirname(alias), { recursive: true });
-      await fs.symlink(external, alias, directoryLink ? 'junction' : 'file');
-      await assert.rejects(copyWorkspaceFixture(source, target), error => error instanceof Error
-        && error.message === `Workspace fixture .sec/${snapshot} must be a physical regular file`);
-      assert.deepEqual(await fs.readdir(target), []);
-    });
+test('protected snapshot aliases fail before ordinary destination writes', () => using(async (root, source, target) => {
+  for (const [index, snapshot] of ['pipeline-journal.json', 'cache/project-baseline.json'].entries()) {
+    const caseSource = path.join(source, `case-${index}`);
+    const caseTarget = path.join(target, `case-${index}`);
+    await fs.mkdir(caseSource);
+    await fs.mkdir(caseTarget);
+    await write(caseSource, 'src/main.ts', 'new');
+    const directoryLink = snapshot.startsWith('cache/') && process.platform === 'win32';
+    const external = path.join(root, directoryLink ? 'outside-directory' : 'outside.json');
+    if (directoryLink) await fs.mkdir(external);
+    else await fs.writeFile(external, '{"external":true}\n');
+    const alias = path.join(caseSource, '.sec', snapshot);
+    await fs.mkdir(path.dirname(alias), { recursive: true });
+    await fs.symlink(external, alias, directoryLink ? 'junction' : 'file');
+    await assert.rejects(copyWorkspaceFixture(caseSource, caseTarget), error => error instanceof Error
+      && error.message === `Workspace fixture .sec/${snapshot} must be a physical regular file`);
+    assert.deepEqual(await fs.readdir(caseTarget), []);
   }
-});
+}));
 
-test('an existing case-equivalent state destination is preserved without writes', async () => {
-  for (const alias of [false, true]) await using(async (root, source, target) => {
-    await write(source, '.sec/pipeline-journal.json', 'new');
-    await write(source, 'src/main.ts', 'new source');
-    const existing = alias ? path.join(root, 'external-state') : path.join(target, '.SEC');
+test('an existing case-equivalent state destination is preserved without writes', () => using(async (root, source, target) => {
+  for (const alias of [false, true]) {
+    const caseName = alias ? 'alias' : 'physical';
+    const caseSource = path.join(source, caseName);
+    const caseTarget = path.join(target, caseName);
+    await fs.mkdir(caseSource);
+    await fs.mkdir(caseTarget);
+    await write(caseSource, '.sec/pipeline-journal.json', 'new');
+    await write(caseSource, 'src/main.ts', 'new source');
+    const existing = alias ? path.join(root, 'external-state') : path.join(caseTarget, '.SEC');
     await write(existing, 'keep', 'owned-by-another-operation');
-    if (alias) await fs.symlink(existing, path.join(target, '.SEC'), process.platform === 'win32' ? 'junction' : 'dir');
-    await assert.rejects(copyWorkspaceFixture(source, target), /destination must not contain a case-equivalent local-state path/);
+    if (alias) await fs.symlink(existing, path.join(caseTarget, '.SEC'), process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(copyWorkspaceFixture(caseSource, caseTarget), /destination must not contain a case-equivalent local-state path/);
     assert.equal(await fs.readFile(path.join(existing, 'keep'), 'utf8'), 'owned-by-another-operation');
-    assert.deepEqual(await fs.readdir(target), ['.SEC']);
+    assert.deepEqual(await fs.readdir(caseTarget), ['.SEC']);
     await absent(path.join(existing, 'pipeline-journal.json'));
-    await absent(path.join(target, 'src'));
-  });
-});
+    await absent(path.join(caseTarget, 'src'));
+  }
+}));
 
 test.skipIf(process.platform === 'win32' && process.env.SEC_CASE_SENSITIVE_FIXTURE_TEST !== '1')(
   'workspace fixture copies reject case-colliding local-state paths',
