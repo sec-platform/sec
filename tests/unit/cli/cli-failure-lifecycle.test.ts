@@ -1,4 +1,5 @@
 import { test } from 'bun:test';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import assert from 'node:assert/strict';
 import { buildErrorProtocol, type ErrorProtocol } from '../../../src/application/error-protocol.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
@@ -108,16 +109,42 @@ for (const primary of [undefined, Object.freeze({ code: 'original' })]) {
   });
 }
 
-test('secondary readback failure is reported without masking the original repair failure', async () => {
-  const primary = {}, secondary = new Error('readback'); const lines: unknown[][] = [];
-  const previous = console.error; console.error = (...args) => { lines.push(args); };
+test('secondary readback failure is awaited, reported once, and cannot mask the original repair failure', async () => {
+  const primary = Object.freeze({ kind: 'repair-failed' });
+  const secondary = new Error('readback');
+  const events: string[] = [];
+  const lines: unknown[][] = [];
+  let rejectReadback!: (reason: unknown) => void;
+  const delayedReadback = new Promise<void>((_, reject) => { rejectReadback = reject; });
+  const previous = console.error;
+  console.error = (...args) => { lines.push(args); };
   try {
-    await assert.rejects(runRepairWithFailureReadback(
-      async () => { throw primary; },
-      async () => { throw secondary; },
-      failure => reportRepairFailureReadback(formatFailure(failure))
-    ), (e) => e === primary);
-    assert.equal(lines.length, 1); assert.match(String(lines[0]![0]), /readback/);
+    let settled = false;
+    const observed = runRepairWithFailureReadback(
+      async () => { events.push('repair'); throw primary; },
+      () => { events.push('readback'); return delayedReadback; },
+      failure => {
+        assert.equal(failure, secondary);
+        events.push('report');
+        reportRepairFailureReadback(formatFailure(failure));
+      }
+    ).then(
+      () => assert.fail('A failed repair cannot complete successfully'),
+      error => { settled = true; assert.equal(error, primary); }
+    );
+    // Retire the standalone workspace unit test only after its distinct
+    // pending-readback/settlement oracle is carried by this same fast Bun test.
+    // The cleanup still rejects and awaits the deferred readback if an earlier
+    // assertion fails, preventing a leaked asynchronous callback.
+    await settleWorkspaceCallback(async () => {
+      await Promise.resolve();
+      assert.deepEqual(events, ['repair', 'readback']);
+      assert.equal(settled, false);
+    }, async () => { rejectReadback(secondary); await observed; });
+    assert.equal(settled, true);
+    assert.deepEqual(events, ['repair', 'readback', 'report']);
+    assert.equal(lines.length, 1);
+    assert.match(String(lines[0]![0]), /readback/);
   } finally { console.error = previous; }
 });
 
