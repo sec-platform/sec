@@ -73,13 +73,14 @@ const operations: Operation[] = [
 for (const operation of operations) {
   test(`${operation.name} binds its workspace before the first suspension`, async () => {
     const cwd = process.cwd();
-    const baseline = await mkdtemp(path.join(tmpdir(), 'sec-root-baseline-'));
-    const roots = [baseline];
+    // One owned allocation per case; each operation still receives separate,
+    // initially empty physical workspaces and an independent cwd decoy.
+    const family = await mkdtemp(path.join(tmpdir(), 'sec-root-capture-'));
+    const baseline = path.join(family, 'baseline');
+    const target = path.join(family, 'target');
+    const decoy = path.join(family, 'decoy');
     await settleWorkspaceCallback(async () => {
-      const target = await mkdtemp(path.join(tmpdir(), 'sec-root-target-'));
-      roots.push(target);
-      const decoy = await mkdtemp(path.join(tmpdir(), 'sec-root-decoy-'));
-      roots.push(decoy);
+      await Promise.all([baseline, target, decoy].map(root => mkdir(root)));
       const observe = async (pending: Promise<unknown>, root: string) => {
         try { const value = await pending; return { status: 'returned', ...(operation.name === 'inventory' ? { value } : {}) }; }
         catch (error) {
@@ -116,7 +117,7 @@ for (const operation of operations) {
     }, async () => {
       await settleResourcesAsync({ cleanup: [
         { label: 'original cwd', settle: () => process.chdir(cwd) },
-        ...roots.map(root => ({ label: root, settle: () => rm(root, { recursive: true, force: true }) }))
+        { label: 'root-capture case family', settle: () => rm(family, { recursive: true, force: true }) }
       ] });
     });
   // Real resolve includes two temporary-project typechecks. Use the existing
