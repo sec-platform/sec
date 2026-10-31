@@ -353,12 +353,11 @@ test('typed inventory boundary ignores ambient repository and index steering wit
     writeFileSync(path.join(decoy, 'decoy.txt'), 'decoy\n', 'utf8');
     git(decoy, ['add', 'decoy.txt']);
     git(decoy, ['-c', 'user.name=SEC Decoy', '-c', 'user.email=sec-decoy@example.invalid', 'commit', '-m', 'decoy']);
-    const decoyGitDirectory = git(decoy, [
-      'rev-parse', '--path-format=absolute', '--absolute-git-dir'
-    ]);
-    const decoyIndex = git(decoy, [
-      'rev-parse', '--path-format=absolute', '--git-path', 'index'
-    ]);
+    const decoyPaths = git(decoy, [
+      'rev-parse', '--path-format=absolute', '--absolute-git-dir', '--git-path', 'index'
+    ]).split(/\r?\n/u);
+    expect(decoyPaths).toHaveLength(2);
+    const [decoyGitDirectory, decoyIndex] = decoyPaths as [string, string];
     const targetIndex = git(fixture.repository, [
       'rev-parse', '--path-format=absolute', '--git-path', 'index'
     ]);

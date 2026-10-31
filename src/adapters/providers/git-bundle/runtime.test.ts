@@ -195,18 +195,22 @@ describe('private candidate Git input lifetime', () => {
       purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
       borrowed = checkout; generation = path.dirname(checkout.candidateRoot);
       expect(checkout.candidateRoot).not.toBe(repository.root);
-      const reportedRoot = git(checkout.candidateRoot, ['rev-parse', '--path-format=absolute', '--show-toplevel']);
+      const gitLocations = git(checkout.candidateRoot, [
+        'rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'
+      ]).split(/\r?\n/u);
+      expect(gitLocations).toHaveLength(3);
+      const [reportedRoot, gitDirectory, commonDirectory] = gitLocations as [string, string, string];
       if (process.platform === 'win32') expect(reportedRoot).not.toBe(checkout.candidateRoot);
       for (const [reported, expected] of [
         [reportedRoot, checkout.candidateRoot],
-        [git(checkout.candidateRoot, ['rev-parse', '--absolute-git-dir']), path.join(checkout.candidateRoot, '.git')],
-        [git(checkout.candidateRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']), path.join(checkout.candidateRoot, '.git')]
+        [gitDirectory, path.join(checkout.candidateRoot, '.git')],
+        [commonDirectory, path.join(checkout.candidateRoot, '.git')]
       ]) {
         expect(path.isAbsolute(reported!)).toBe(true);
         expect(realpathSync.native(reported!)).toBe(realpathSync.native(expected!));
       }
-      expect(git(checkout.candidateRoot, ['rev-parse', 'HEAD'])).toBe(repository.headSha);
-      expect(git(checkout.candidateRoot, ['rev-parse', 'HEAD^'])).toBe(repository.baseSha);
+      expect(git(checkout.candidateRoot, ['rev-parse', 'HEAD', 'HEAD^']).split(/\r?\n/u))
+        .toEqual([repository.headSha, repository.baseSha]);
       expect(git(checkout.candidateRoot, ['for-each-ref', '--format=%(refname)'])).toBe('');
       expect(readFileSync(path.join(checkout.candidateRoot, '.git/config'), 'utf8')).not.toContain('SEC Test');
       expect(existsSync(path.join(checkout.candidateRoot, '.git/objects/info/alternates'))).toBe(false);
@@ -251,8 +255,11 @@ describe('private candidate Git input lifetime', () => {
           renameSync(path.join(checkout.candidateRoot, '.git'), path.join(checkout.candidateRoot, 'moved-git'));
           writeFileSync(path.join(checkout.candidateRoot, '.git'), 'gitdir: moved-git\n');
         }
-        observedHead = git(checkout.candidateRoot, ['rev-parse', 'HEAD']);
-        observedTree = git(checkout.candidateRoot, ['rev-parse', 'HEAD^{tree}']);
+        const observedObjects = git(checkout.candidateRoot, [
+          'rev-parse', 'HEAD', 'HEAD^{tree}'
+        ]).split(/\r?\n/u);
+        expect(observedObjects).toHaveLength(2);
+        [observedHead, observedTree] = observedObjects as [string, string];
         try { assertGitCandidateCheckoutCurrent(checkout); }
         catch (error) { currentFailure = error; }
       })).rejects.toThrow();
