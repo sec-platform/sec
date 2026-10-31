@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ResourceCompositeSettlementError } from '../../../execution/resource-settlement.ts';
@@ -20,13 +20,14 @@ import {
   type GitCandidateCheckout
 } from './runtime.ts';
 
-const { roots, temporaryRoot, git, repositoryFixture } = createGitBundleTestFixture();
+const { roots, temporaryRoot, git, repositoryFixture, dispose } = createGitBundleTestFixture();
 
 afterEach(() => {
   for (const root of roots.splice(0).reverse()) {
     rmSync(root, { recursive: true, force: true });
   }
 });
+afterAll(() => dispose());
 
 describe('Git candidate bundle effect', () => {
   test('shares the inclusive complete-history byte boundary with the native input consumer', () => {

@@ -1,9 +1,13 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 export function createGitBundleTestFixture() {
   const roots: string[] = [];
+  // This seed has completed both native commits before any case copies it.
+  // No case can mutate the template: .git, index, refs, objects and working
+  // file are copied into its own root before any candidate effect occurs.
+  let template: Readonly<{ root: string; baseSha: string; headSha: string }> | null = null;
 
   function temporaryRoot(label: string): string {
     const root = mkdtempSync(path.join(tmpdir(), `sec-git-bundle-${label}-`));
@@ -32,20 +36,52 @@ export function createGitBundleTestFixture() {
     return new TextDecoder().decode(result.stdout).trim();
   }
 
+  function initializedRepositoryTemplate(): NonNullable<typeof template> {
+    if (template !== null) return template;
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-git-bundle-seed-'));
+    try {
+      git(root, ['init', '--quiet']);
+      writeFileSync(path.join(root, 'value.txt'), 'base\n');
+      git(root, ['add', '--', 'value.txt']);
+      git(root, ['commit', '--quiet', '-m', 'base']);
+      const baseSha = git(root, ['rev-parse', 'HEAD']);
+      writeFileSync(path.join(root, 'value.txt'), 'head\n');
+      git(root, ['commit', '--quiet', '-am', 'head']);
+      template = Object.freeze({ root, baseSha, headSha: git(root, ['rev-parse', 'HEAD']) });
+      return template;
+    } catch (error) {
+      try { rmSync(root, { recursive: true, force: true }); }
+      catch (cleanup) {
+        throw new AggregateError([error, cleanup], 'Git bundle seed creation and cleanup failed');
+      }
+      throw error;
+    }
+  }
+
   function repositoryFixture(): Readonly<{
     root: string;
     baseSha: string;
     headSha: string;
   }> {
+    const source = initializedRepositoryTemplate();
     const root = temporaryRoot('repository');
-    git(root, ['init', '--quiet']);
-    writeFileSync(path.join(root, 'value.txt'), 'base\n');
-    git(root, ['add', '--', 'value.txt']);
-    git(root, ['commit', '--quiet', '-m', 'base']);
-    const baseSha = git(root, ['rev-parse', 'HEAD']);
-    writeFileSync(path.join(root, 'value.txt'), 'head\n');
-    git(root, ['commit', '--quiet', '-am', 'head']);
-    return Object.freeze({ root, baseSha, headSha: git(root, ['rev-parse', 'HEAD']) });
+    // Ordinary copies, never links or shared Git object alternatives. Even a
+    // test that rewrites refs, config, index or objects cannot affect its peers.
+    cpSync(path.join(source.root, '.git'), path.join(root, '.git'), {
+      recursive: true, errorOnExist: true, force: false
+    });
+    cpSync(path.join(source.root, 'value.txt'), path.join(root, 'value.txt'), {
+      errorOnExist: true, force: false
+    });
+    return Object.freeze({ root, baseSha: source.baseSha, headSha: source.headSha });
   }
-  return { roots, temporaryRoot, git, repositoryFixture };
+
+  function dispose(): void {
+    if (template !== null) {
+      rmSync(template.root, { recursive: true, force: true });
+      template = null;
+    }
+  }
+
+  return { roots, temporaryRoot, git, repositoryFixture, dispose };
 }
