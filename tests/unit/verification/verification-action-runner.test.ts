@@ -1312,8 +1312,11 @@ test.skipIf(process.platform !== 'win32')(
   writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'candidate\n', 'utf8');
   git(authorityRoot, ['add', '.gitignore', 'tracked.txt']);
   git(authorityRoot, ['commit', '-m', 'candidate']);
-  const headSha = git(authorityRoot, ['rev-parse', 'HEAD']);
-  const headTreeSha = git(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+  const headObjects = git(authorityRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+  if (headObjects.length !== 2 || !headObjects[0] || !headObjects[1]) {
+    throw new Error('Expected both candidate commit and tree from native Git');
+  }
+  const [headSha, headTreeSha] = headObjects as [string, string];
   git(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
   const originalBranch = git(authorityRoot, ['symbolic-ref', '--short', 'HEAD']);
   git(authorityRoot, ['switch', '-c', 'replacement-view']);

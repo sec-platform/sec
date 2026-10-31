@@ -1870,17 +1870,27 @@ describe('qualified exact-repository Session consumers', () => {
     if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
     return result.stdout.trim();
   };
-  const inspectRepository = (repositoryRoot: string) => ({
-    headSha: runGit(repositoryRoot, ['rev-parse', 'HEAD']),
-    headTreeSha: runGit(repositoryRoot, ['rev-parse', 'HEAD^{tree}']),
-    trackedClean:
-      runGit(repositoryRoot, ['diff', '--name-only', '--ignore-cr-at-eol']) === ''
-      && runGit(repositoryRoot, ['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''
-      && runGit(repositoryRoot, ['ls-files', '--others', '--exclude-standard']) === '',
-    gitCommonDirectory: realpathSync.native(runGit(repositoryRoot, [
-      'rev-parse', '--path-format=absolute', '--git-common-dir'
-    ]))
-  });
+  const gitHeadAndTree = (repositoryRoot: string): readonly [string, string] => {
+    const objects = runGit(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}'])
+      .split(/\r?\n/u);
+    if (objects.length !== 2 || !objects[0] || !objects[1]) {
+      throw new Error('Expected both commit and tree from native Git');
+    }
+    return [objects[0], objects[1]];
+  };
+  const inspectRepository = (repositoryRoot: string) => {
+    const [headSha, headTreeSha] = gitHeadAndTree(repositoryRoot);
+    return {
+      headSha, headTreeSha,
+      trackedClean:
+        runGit(repositoryRoot, ['diff', '--name-only', '--ignore-cr-at-eol']) === ''
+        && runGit(repositoryRoot, ['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''
+        && runGit(repositoryRoot, ['ls-files', '--others', '--exclude-standard']) === '',
+      gitCommonDirectory: realpathSync.native(runGit(repositoryRoot, [
+        'rev-parse', '--path-format=absolute', '--git-common-dir'
+      ]))
+    };
+  };
   const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
     { label: 'previous state home', settle: () => {
       if (priorStateHome === undefined) delete process.env.SEC_STATE_HOME;
@@ -1907,19 +1917,15 @@ describe('qualified exact-repository Session consumers', () => {
     process.env.SEC_STATE_HOME = runtimeStateRoot;
     process.env.SEC_CACHE_HOME = runtimeCacheRoot;
     runGit(authorityRoot, ['init', '-b', 'main']);
-    runGit(authorityRoot, ['config', 'user.name', 'Session Test']);
-    runGit(authorityRoot, ['config', 'user.email', 'session-test@example.invalid']);
     writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'base\n', 'utf8');
     writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
     runGit(authorityRoot, ['add', 'tracked.txt', '.gitignore']);
-    runGit(authorityRoot, ['commit', '-m', 'base']);
-    const baseSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
-    const baseTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+    runGit(authorityRoot, ['-c', 'user.name=Session Test', '-c', 'user.email=session-test@example.invalid', 'commit', '-m', 'base']);
+    const [baseSha, baseTreeSha] = gitHeadAndTree(authorityRoot);
     writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'exact candidate\n', 'utf8');
     runGit(authorityRoot, ['add', 'tracked.txt']);
-    runGit(authorityRoot, ['commit', '-m', 'exact candidate']);
-    const headSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
-    const headTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+    runGit(authorityRoot, ['-c', 'user.name=Session Test', '-c', 'user.email=session-test@example.invalid', 'commit', '-m', 'exact candidate']);
+    const [headSha, headTreeSha] = gitHeadAndTree(authorityRoot);
     const candidateRoot = path.join(authorityRoot, '.tmp', 'codex',
       'verification-session-candidates', headSha);
     mkdirSync(path.dirname(candidateRoot), { recursive: true });
@@ -1976,8 +1982,9 @@ describe('qualified exact-repository Session consumers', () => {
     expect(existsSync(path.join(runtimeStateRoot, 'workspaces', 'v1'))).toBe(true);
     expect(existsSync(path.join(authorityRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
     expect(existsSync(path.join(candidateRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
-    expect(runGit(candidateRoot, ['rev-parse', 'HEAD'])).toBe(headSha);
-    expect(runGit(candidateRoot, ['rev-parse', 'HEAD^{tree}'])).toBe(headTreeSha);
+    const [candidateHeadSha, candidateHeadTreeSha] = gitHeadAndTree(candidateRoot);
+    expect(candidateHeadSha).toBe(headSha);
+    expect(candidateHeadTreeSha).toBe(headTreeSha);
     expect(runGit(candidateRoot, ['status', '--porcelain=v1', '--untracked-files=no'])).toBe('');
   } catch (error) {
     sessionFailure = { label: 'session assertions', error };

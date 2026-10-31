@@ -174,6 +174,13 @@ function gitFixture(root: string, args: readonly string[]): string {
   }
   return result.stdout.trim();
 }
+function gitFixtureHeadAndTree(root: string): readonly [string, string] {
+  const objects = gitFixture(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+  if (objects.length !== 2 || !objects[0] || !objects[1]) {
+    throw new Error('Expected both source commit and tree from native Git');
+  }
+  return [objects[0], objects[1]];
+}
 
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}` as VerificationActionKeyDigest;
@@ -2333,8 +2340,7 @@ function trustedPrivateArchiveBase(): PrivateActionArchiveBase {
     gitFixture(baseRoot, ['config', 'user.name', 'SEC Fixture']);
     gitFixture(baseRoot, ['config', 'user.email', 'sec-fixture@example.invalid']);
     gitFixture(baseRoot, ['add', '.']); gitFixture(baseRoot, ['commit', '--quiet', '-m', 'base']);
-    const baseSha = gitFixture(baseRoot, ['rev-parse', 'HEAD']);
-    const baseTreeSha = gitFixture(baseRoot, ['rev-parse', 'HEAD^{tree}']);
+    const [baseSha, baseTreeSha] = gitFixtureHeadAndTree(baseRoot);
     privateActionArchiveBase = Object.freeze({
       root, baseSha, baseTreeSha, sources: Object.freeze({ ...sources })
     });
@@ -2364,8 +2370,7 @@ function privateActionArchiveFixture() {
     // The fixed Python recipes must not import candidate module names.
     writeFileSync(path.join(candidateRoot, 'tarfile.py'), "raise RuntimeError('candidate module must remain data')\n");
     gitFixture(candidateRoot, ['add', '.']); gitFixture(candidateRoot, ['commit', '--quiet', '-m', 'candidate']);
-    const headSha = gitFixture(candidateRoot, ['rev-parse', 'HEAD']);
-    const headTreeSha = gitFixture(candidateRoot, ['rev-parse', 'HEAD^{tree}']);
+    const [headSha, headTreeSha] = gitFixtureHeadAndTree(candidateRoot);
     mkdirSync(path.join(baseRoot, 'node_modules', 'fixture'), { recursive: true });
     writeFileSync(path.join(baseRoot, 'node_modules', 'fixture', 'value.txt'), 'exact trusted dependency\n');
     const candidate: CiVerificationActionCandidate = { ...hostedCandidate(), baseSha, baseTreeSha, headSha, headTreeSha,
