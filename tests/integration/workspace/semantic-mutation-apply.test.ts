@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -45,7 +45,7 @@ import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '
 import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../../src/semantics/mutation/types.ts';
 import { installPrivateBannerBlock } from '../../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../../helpers/semantic-mutation-verification-report.ts';
-import { copyWorkspaceFixture, withTempWorkspace } from '../../testkit/workspace.ts';
+import { copyWorkspaceFixture, createWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
 
 const FAILURE_MATRIX_ISOLATION_CAPABILITY_PROBE = () =>
   Object.freeze({ status: 'available' as const });
@@ -240,6 +240,35 @@ async function prepareCoordinatorWorkspace(workspaceRoot: string): Promise<void>
     'unchanged\n',
     'utf8'
   );
+}
+
+// The two failure matrices differ only after their source precondition. Build
+// that expensive initialized/resolved workspace once per test module. The
+// existing fixture copier makes independent files and local-state snapshots;
+// no transaction, Git state, generation, writer lease or recovery journal is
+// shared with any case. The testkit's run-owned deferred cleanup owns the
+// immutable template after the last case, even if a matrix assertion fails.
+let coordinatorSourceTemplate: Promise<string> | undefined;
+function immutableCoordinatorSourceTemplate(): Promise<string> {
+  if (coordinatorSourceTemplate !== undefined) return coordinatorSourceTemplate;
+  const pending = (async () => {
+    const root = await createWorkspace('sm3-coordinator-source-base-');
+    try {
+      await prepareCoordinatorWorkspace(root);
+      return root;
+    } catch (primary) {
+      try { await rm(root, { recursive: true, force: true }); }
+      catch (cleanup) {
+        throw new AggregateError([primary, cleanup], 'Semantic coordinator base and cleanup both failed');
+      }
+      throw primary;
+    }
+  })();
+  coordinatorSourceTemplate = pending;
+  void pending.catch(() => {
+    if (coordinatorSourceTemplate === pending) coordinatorSourceTemplate = undefined;
+  });
+  return pending;
 }
 
 async function coordinatorFailureFixture(
@@ -547,8 +576,7 @@ test('SM-3 public dry-run blocks on unfinished recovery authority without publis
 
 test('SM-3 coordinator pre-publish failure matrix preserves every live byte and stops later producers', async () => {
   await withTempWorkspace(async (root) => {
-    const templateRoot = path.join(root, 'template');
-    await prepareCoordinatorWorkspace(templateRoot);
+    const templateRoot = await immutableCoordinatorSourceTemplate();
     const createCase = async (label: string): Promise<{
       readonly workspaceRoot: string;
       readonly fixture: CoordinatorFailureFixture;
@@ -775,8 +803,7 @@ test('SM-3 coordinator pre-publish failure matrix preserves every live byte and 
 
 test('SM-3 coordinator post-publish restore and journal failures become durable recovery-required', async () => {
   await withTempWorkspace(async (root) => {
-    const templateRoot = path.join(root, 'template');
-    await prepareCoordinatorWorkspace(templateRoot);
+    const templateRoot = await immutableCoordinatorSourceTemplate();
     const createCase = async (label: string) => {
       const workspaceRoot = path.join(root, label);
       const fixture = await coordinatorFailureFixture(workspaceRoot, `request:${label}`, templateRoot);
