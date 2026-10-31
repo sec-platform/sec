@@ -1006,13 +1006,12 @@ async function openFixtureOrigins(): Promise<void> {
     // issuer still independently requires its exact clean source and pinned Bun.
     [BASE, SOURCE_TREE] = await withAuthorityGitReadSession({ cwd: REPOSITORY_ROOT, source: process.env,
       budget: { maxProcesses: 2 } }, async git => {
-      const values: string[] = [];
-      for (const revision of ['HEAD', 'HEAD^{tree}']) {
-        const result = await git.run(['rev-parse', revision]);
-        if (result.kind !== 'completed' || result.result.code !== 0) throw new Error('Origin fixture source observation failed');
-        const value = Buffer.from(result.result.stdout).toString('utf8').trim();
-        if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error('Origin fixture source identity is invalid');
-        values.push(value);
+      // One native snapshot yields the immutable commit and tree identities.
+      const result = await git.run(['rev-parse', 'HEAD', 'HEAD^{tree}']);
+      if (result.kind !== 'completed' || result.result.code !== 0) throw new Error('Origin fixture source observation failed');
+      const values = Buffer.from(result.result.stdout).toString('utf8').trim().split(/\r?\n/u);
+      if (values.length !== 2 || values.some(value => !/^[0-9a-f]{40}$/u.test(value))) {
+        throw new Error('Origin fixture source identities are invalid');
       }
       return values as [string, string];
     });

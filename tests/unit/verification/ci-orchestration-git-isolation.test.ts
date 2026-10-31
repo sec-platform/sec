@@ -39,6 +39,16 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
+// The two scenario commits are linear; query both immutable tips after the
+// second commit, without an intermediate rev-parse process.
+function twoCommitFixtureTips(repositoryRoot: string): readonly [string, string] {
+  const tips = git(repositoryRoot, ['rev-parse', 'HEAD^', 'HEAD']).split(/\r?\n/u);
+  if (tips.length !== 2 || tips.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+    throw new Error('Expected exactly two native Git commit identities');
+  }
+  return tips as [string, string];
+}
+
 // A common empty native Git repository is the only shared preparation.
 // Every scenario copies its physical index, config and refs before writing
 // scenario-specific history; observed GitRead work is never shared.
@@ -77,12 +87,11 @@ test.serial('CI orchestration Git observations ignore ambient repository redirec
     writeFileSync(path.join(repositoryRoot, 'removed.txt'), 'removed\n', 'utf8');
     git(repositoryRoot, ['add', 'fixture.txt', 'removed.txt']);
     git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
-    const baseSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'head\n', 'utf8');
     unlinkSync(path.join(repositoryRoot, 'removed.txt'));
     git(repositoryRoot, ['add', 'fixture.txt', 'removed.txt']);
     git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'head']);
-    const headSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const [baseSha, headSha] = twoCommitFixtureTips(repositoryRoot);
 
     process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
 
@@ -286,7 +295,6 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     writeFileSync(path.join(repositoryRoot, 'README.md'), 'base\n', 'utf8');
     git(repositoryRoot, ['add', 'README.md']);
     git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
-    const baseSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     mkdirSync(path.join(repositoryRoot, 'src', 'candidate'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, '.documentation'), { recursive: true });
@@ -333,7 +341,7 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       "import { candidateOnly } from '../../src/candidate/candidate-only.ts'; void candidateOnly;\n", 'utf8');
     git(repositoryRoot, ['add', 'src/candidate', 'tests', 'docs', '.documentation']);
     git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'candidate']);
-    const candidateSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const [baseSha, candidateSha] = twoCommitFixtureTips(repositoryRoot);
 
     // The physical checkout is old-main. Only immutable candidate objects may
     // contribute source bytes to the provider.

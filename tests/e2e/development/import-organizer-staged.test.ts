@@ -99,8 +99,8 @@ async function createRepositoryTemplate(
     }
     git(repoRoot, ['add', '--all']);
     git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
-    const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
-    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', head]);
+    // Git resolves HEAD for update-ref; no separate identity query is needed.
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
     return repoRoot;
   } catch (error) {
     try { await rm(repoRoot, { recursive: true, force: true }); }
@@ -151,8 +151,8 @@ afterAll(async () => {
 });
 
 async function stagedBytes(repoRoot: string, fileName: string): Promise<Buffer> {
-  const objectId = String(git(repoRoot, ['rev-parse', `:${fileName}`])).trim();
-  return git(repoRoot, ['cat-file', 'blob', objectId], { bytes: true }) as Buffer;
+  // Git cat-file resolves the exact stage-0 index blob without a separate rev-parse.
+  return git(repoRoot, ['cat-file', 'blob', `:${fileName}`], { bytes: true }) as Buffer;
 }
 
 async function withRepository(run: (repoRoot: string) => Promise<void>): Promise<void> {
