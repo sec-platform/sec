@@ -400,9 +400,15 @@ function inspectRepository(repositoryRoot: string) {
     if (result.status !== 0) throw new Error(String(result.stderr || result.stdout));
     return String(result.stdout).trim();
   };
+  // One native Git snapshot yields both immutable object identities.
+  // The later working-tree cleanliness and common-directory reads remain live.
+  const objects = read(['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+  if (objects.length !== 2 || !objects[0] || !objects[1]) {
+    throw new Error('Expected both commit and tree from native Git');
+  }
   return {
-    headSha: read(['rev-parse', 'HEAD']),
-    headTreeSha: read(['rev-parse', 'HEAD^{tree}']),
+    headSha: objects[0],
+    headTreeSha: objects[1],
     trackedClean:
       read(['diff', '--name-only', '--ignore-cr-at-eol']) === ''
       && read(['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''

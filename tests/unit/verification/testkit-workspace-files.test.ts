@@ -87,7 +87,9 @@ test('protected snapshot aliases fail before ordinary destination writes', () =>
     await fs.mkdir(caseTarget);
     await write(caseSource, 'src/main.ts', 'new');
     const directoryLink = snapshot.startsWith('cache/') && process.platform === 'win32';
-    const external = path.join(root, directoryLink ? 'outside-directory' : 'outside.json');
+    // Each rejected source owns its external alias target; only the empty
+    // disposable parent is shared across these independent security cases.
+    const external = path.join(root, directoryLink ? `outside-directory-${index}` : `outside-${index}.json`);
     if (directoryLink) await fs.mkdir(external);
     else await fs.writeFile(external, '{"external":true}\n');
     const alias = path.join(caseSource, '.sec', snapshot);
