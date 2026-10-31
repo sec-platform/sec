@@ -26,11 +26,13 @@ export function git(root: string, args: readonly string[]): string {
 const refEffectSeeds = new Map<string, string>();
 
 function currentGitSeedKey(): string {
-  const keys = Object.keys(process.env).filter(key =>
-    ['PATH', 'HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'SystemRoot'].includes(key)
-    || key.startsWith('GIT_')
-  ).sort();
-  return JSON.stringify(keys.map(key => [key, process.env[key]]));
+  const keys = Object.keys(process.env).filter(key => {
+    const normalized = key.toUpperCase();
+    return ['PATH', 'HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'SYSTEMROOT'].includes(normalized)
+      || normalized.startsWith('GIT_');
+  }).sort();
+  // Windows inherited environment keys may be spelled Path or SystemRoot.
+  return JSON.stringify(keys.map(key => [key.toUpperCase(), process.env[key]]));
 }
 
 function immutableRefEffectSeed(): string {
