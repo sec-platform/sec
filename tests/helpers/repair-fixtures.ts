@@ -107,14 +107,6 @@ export function buildRepairVerificationFixture(
     logs: { stdout: '', stderr: failed ? 'independent unit failure' : '' }
   };
   const runtime = createSkippedRuntimeLane();
-  const acceptanceCoverage: VerificationArtifactPublicationArtifacts['acceptanceCoverage'] = {
-    formatVersion: '2',
-    status: 'skipped',
-    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
-    acceptancePassed: [],
-    blocks: [],
-    uncoveredBlocks: []
-  };
   if (lane === 'all' && !failed) {
     runtime.status = 'passed';
     runtime.unit = {
@@ -129,10 +121,9 @@ export function buildRepairVerificationFixture(
       failed: [],
       command: 'synthetic acceptance observation'
     };
-    acceptanceCoverage.status = 'passed';
   }
   const runtimeMode = lane === 'all' ? 'full' : 'service';
-  Object.assign(acceptanceCoverage, buildAcceptanceCoverageReport({ lock, fast, runtime }));
+  const acceptanceCoverage = { ...buildAcceptanceCoverageReport({ lock, fast, runtime }) };
   const observations = productVerificationObservationsFixture(lane, runtimeMode, productVerificationSubjectRevision(lock));
   if (failed) {
     observations.fast.execution!.exitCode = 1;

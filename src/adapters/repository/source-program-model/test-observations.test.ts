@@ -131,12 +131,18 @@ test('baseline contract census requires two exact compiler generations', () => {
   }));
 });
 
-test('lightweight test observations bind aliased imports to signed production declarations', () => {
+test('lightweight test observations bind aliased and namespace imports to signed production declarations', () => {
   const projection = compileFixture({
     'tests/alias.test.ts': [
       "import { expect, test } from 'bun:test';",
       "import { execute as run } from '../src/example/operation.ts';",
       "test('alias', () => expect(run(1)).toBe(2));",
+      ''
+    ].join('\n'),
+    'tests/namespace.test.ts': [
+      "import { expect, test } from 'bun:test';",
+      "import * as operation from '../src/example/operation.ts';",
+      "test('namespace', () => expect(operation.execute(1)).toBe(2));",
       ''
     ].join('\n')
   });
@@ -149,7 +155,8 @@ test('lightweight test observations bind aliased imports to signed production de
     observationClass: 'derived',
     sourceRelation: 'declaration'
   }));
-  expect(projection.registrations).toEqual([
+  expect(projection.registrations).toHaveLength(2);
+  expect(projection.registrations.filter(({ path }) => path === 'tests/alias.test.ts')).toEqual([
     expect.objectContaining({
       path: 'tests/alias.test.ts',
       index: 0,
@@ -166,23 +173,8 @@ test('lightweight test observations bind aliased imports to signed production de
       })]
     })
   ]);
-  expect(projection.unknowns).not.toContainEqual(expect.objectContaining({
-    code: 'test-production-binding-unresolved'
-  }));
-  expect(projection.observationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
-
-test('lightweight test observations resolve namespace calls without a second TypeChecker', () => {
-  const projection = compileFixture({
-    'tests/namespace.test.ts': [
-      "import { expect, test } from 'bun:test';",
-      "import * as operation from '../src/example/operation.ts';",
-      "test('namespace', () => expect(operation.execute(1)).toBe(2));",
-      ''
-    ].join('\n')
-  });
-
   expect(projection.references).toContainEqual(expect.objectContaining({
+    path: 'tests/namespace.test.ts',
     kind: 'call',
     name: 'execute',
     targetPath: 'src/example/operation.ts',
@@ -192,6 +184,7 @@ test('lightweight test observations resolve namespace calls without a second Typ
   expect(projection.unknowns).not.toContainEqual(expect.objectContaining({
     code: 'test-production-binding-unresolved'
   }));
+  expect(projection.observationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
 test('lightweight test observations retain filesystem and repository-provider effects', () => {
@@ -271,6 +264,40 @@ test('compiler observations bind current-Bun local TypeScript program argv', () 
 
 test('conditional, table and fixture factories register only their returned cases', () => {
   const projection = compileFixture({
+    'tests/expansion.test.ts': [
+      "import { test, describe as suite } from 'bun:test';",
+      "import * as native from 'bun:test';",
+      "test('direct', () => {});",
+      "test.each([[1], [1], [2]])('duplicates', () => {});",
+      "test.each([])('empty', () => {});",
+      "test.each([{ value: 1 }, { value: -2 }])('objects', () => {});",
+      "const table = [[1]]; test.each(table)('table variable', () => {});",
+      "test.each([...table])('spread', () => {});",
+      "test.each([, 1])('hole', () => {});",
+      "test.each([{ get value() { return 1; } }])('getter', () => {});",
+      "test.each([{ ['value']: 1 }])('computed', () => {});",
+      "test.each([makeValue()])('call input', () => {});",
+      "test.each(makeTable())('factory input', () => {});",
+      "const captured = test.each([[1]]); captured('captured table', () => {});",
+      "const each = test.each; each([[1]])('captured factory', () => {});",
+      "test.each([[1]]).each([[2]])('two tables', () => {});",
+      "if (true) test('if context', () => {});",
+      "for (const value of [1, 2]) test('loop context', () => {});",
+      "function registerLater() { test('function context', () => {}); }",
+      "[1].forEach(() => { test('callback context', () => {}); });",
+      "test('outer test', () => { test('nested test', () => {}); });",
+      "suite('plain describe', function () { test('describe context', () => {}); });",
+      "suite('recursive describe', function repeat() { test('recursive describe context', () => {}); if (condition) repeat(); });",
+      "suite('recursive outer describe', function repeat() { suite('ordinary inner describe', () => { test('nested recursive describe context', () => {}); }); if (condition) repeat(); });",
+      "for (const value of [1, 2]) suite('loop describe', () => { test('loop describe context', () => {}); });",
+      "function describeLater() { suite('deferred describe', () => { test('function describe context', () => {}); }); }",
+      "native.describe('namespace describe', () => { test.each([[1], [2]])('namespace describe context', () => {}); });",
+      "suite.each([[1]])('table describe', () => { test('describe table context', () => {}); });",
+      "suite('async describe', async () => { test('async describe context', () => {}); });",
+      "suite('generator describe', function* () { test('generator describe context', () => {}); });",
+      "function shadow(suite: any) { suite('fake describe', () => { test('shadowed describe context', () => {}); }); }",
+      "if (true) suite('conditional describe', () => { test('conditional describe context', () => {}); });"
+    ].join('\n'),
     'tests/modifiers.test.ts': [
       "import { test, it, expect } from 'vitest';",
       "test.runIf(true)('conditional', () => { expect(1).toBe(1); });",
@@ -283,22 +310,104 @@ test('conditional, table and fixture factories register only their returned case
       "test.override({ value: 2 });",
       "test.scoped({ value: 2 });",
       "test.skip('skipped', () => {});",
-      "test.todo('todo');"
+      "test.todo('todo');",
+      "const alias = test;",
+      "const conditionalAlias = alias.skipIf(false);",
+      "conditionalAlias<number>('bound alias', () => {});",
+      "test.skipIf(false).each<number>([1, 2])('generic table', () => {});",
+      "(test as typeof test)('asserted registrar', () => {});",
+      "function shadow(test: (...args: unknown[]) => void, it: any) { test('shadow', () => {}); it.each([1])('shadow table', () => {}); }",
+      "{ const test = (_title: string, _run: () => void) => {}; test('local', () => {}); }",
+      "let mutable = test; mutable = (() => {}) as typeof test; mutable('mutable', () => {});",
+      "const cycleA = cycleB; const cycleB = cycleA; cycleA('cycle', () => {});",
+      "test.override({ value: 2 })('not a registrar', () => {});",
+      "test('returned value', () => {})('not a second registrar', () => {});"
+    ].join('\n'),
+    'tests/namespace.test.ts': [
+      "import * as suite from 'bun:test';",
+      "import { test as caseOf } from 'bun:test';",
+      "import type { test as typeOnly } from 'bun:test';",
+      "suite.it('namespace', () => {});",
+      "caseOf('import alias', () => {});",
+      "typeOnly('erased', () => {});",
+      "function shadow(suite: any, caseOf: any) { suite.it('shadow namespace', () => {}); caseOf('shadow alias', () => {}); }"
+    ].join('\n'),
+    'tests/unrelated.test.ts': [
+      "import { execute as test } from '../src/example/operation.ts';",
+      "test('ordinary imported function', () => {});"
     ].join('\n')
   });
-  expect(projection.registrations.map(({ kind, title }) => ({ kind, title }))).toEqual([
+  expect(projection.registrations.filter(({ path }) => path !== 'tests/expansion.test.ts')
+    .map(({ kind, title }) => ({ kind, title }))).toEqual([
     { kind: 'test.runIf', title: 'conditional' },
     { kind: 'it.for', title: 'table' },
     { kind: 'test.each', title: 'each' },
     { kind: 'test.extend', title: 'fixture' },
     { kind: 'test.skip', title: 'skipped' },
-    { kind: 'test.todo', title: 'todo' }
+    { kind: 'test.todo', title: 'todo' },
+    { kind: 'test.skipIf', title: 'bound alias' },
+    { kind: 'test.skipIf.each', title: 'generic table' },
+    { kind: 'test', title: 'asserted registrar' },
+    { kind: 'test', title: 'returned value' },
+    { kind: 'it', title: 'namespace' },
+    { kind: 'test', title: 'import alias' }
+  ]);
+  const known = (count: number) => ({ status: 'known', count });
+  const tableUnknown = { status: 'unknown', reason: 'registration-table-unresolved' };
+  const contextUnknown = { status: 'unknown', reason: 'registration-context-unresolved' };
+  expect(projection.registrations.filter(({ path }) => path === 'tests/expansion.test.ts')
+    .map(({ title, potentialExpansion }) => [title, potentialExpansion])).toEqual([
+    ['direct', known(1)],
+    ['duplicates', known(3)],
+    ['empty', known(0)],
+    ['objects', known(2)],
+    ['table variable', tableUnknown],
+    ['spread', tableUnknown],
+    ['hole', tableUnknown],
+    ['getter', tableUnknown],
+    ['computed', tableUnknown],
+    ['call input', tableUnknown],
+    ['factory input', tableUnknown],
+    ['captured table', tableUnknown],
+    ['captured factory', tableUnknown],
+    ['two tables', tableUnknown],
+    ['if context', contextUnknown],
+    ['loop context', contextUnknown],
+    ['function context', contextUnknown],
+    ['callback context', contextUnknown],
+    ['outer test', known(1)],
+    ['nested test', contextUnknown],
+    ['describe context', known(1)],
+    ['recursive describe context', contextUnknown],
+    ['nested recursive describe context', contextUnknown],
+    ['loop describe context', contextUnknown],
+    ['function describe context', contextUnknown],
+    ['namespace describe context', known(2)],
+    ['describe table context', contextUnknown],
+    ['async describe context', contextUnknown],
+    ['generator describe context', contextUnknown],
+    ['shadowed describe context', contextUnknown],
+    ['conditional describe context', contextUnknown]
+  ]);
+  expect(projection.registrations.filter(({ path }) => path === 'tests/modifiers.test.ts')
+    .map(({ title, potentialExpansion }) => [title, potentialExpansion])).toEqual([
+    ['conditional', { status: 'unknown', reason: 'registration-condition-unresolved' }],
+    ['table', known(1)],
+    ['each', known(1)],
+    ['fixture', { status: 'unknown', reason: 'registration-source-unresolved' }],
+    ['skipped', known(1)],
+    ['todo', known(1)],
+    ['bound alias', { status: 'unknown', reason: 'registration-condition-unresolved' }],
+    ['generic table', { status: 'unknown', reason: 'registration-condition-unresolved' }],
+    ['asserted registrar', known(1)],
+    ['returned value', contextUnknown]
   ]);
 });
 
 test('local program observations reject shadowed, dynamic, external, and foreign executables', () => {
-  const projection = compileFixture({
-    'tests/local-program-negative.test.ts': [
+  const negativePath = 'tests/local-program-negative.test.ts';
+  const sources: Readonly<Record<string, string>> = {
+    [negativePath]: [
       "import { spawnSync as runChild } from 'node:child_process';",
       "import { exec as spawnSync } from 'node:child_process';",
       "import process from 'node:process';",
@@ -333,12 +442,21 @@ test('local program observations reject shadowed, dynamic, external, and foreign
       "spawnSync(process.execPath, ['src/example/operation.ts']);",
       "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
     ].join('\n')
-  });
+  };
+  const projection = compileFixture(sources);
 
   expect(projection.localProgramInvocations).toEqual([]);
   expect(projection.unknowns.filter(({ code }) => (
     code === 'test-local-program-invocation-unresolved'
-  ))).toHaveLength(4);
+  )).map(({ path, span }) => [
+    path,
+    span === null ? null : sources[path]?.slice(span.start, span.end)
+  ])).toEqual([
+    [negativePath, 'runChild(process.execPath, [dynamicProgram])'],
+    [negativePath, "runChild(process.execPath, ['../outside.ts'])"],
+    [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options })"],
+    [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] })"]
+  ]);
 });
 
 test('lightweight test observations bind reexports through the canonical module graph', () => {
@@ -394,13 +512,20 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
       ''
     ].join('\n'),
     'tests/provenance.test.ts': [
-      "import { expect, test } from 'bun:test';",
+      "import { expect, test as nativeTest } from 'bun:test';",
       "import { performEffect } from '../src/runtime/operations.ts';",
-      "import { registerEffect, registerUnsettled } from './helpers/wrapper.ts';",
-      "registerEffect(test, 'effect', async () => { await performEffect(); });",
-      "registerUnsettled(test, 'unsettled', async () => { await performEffect(); });",
-      "test('pure sibling', () => expect(1).toBe(1));",
-      "test('dynamic unknown', async () => { const target = './helpers/wrapper.ts'; await import(target); });",
+      "import { registerEffect as test } from './helpers/wrapper.ts';",
+      "import * as wrapper from './helpers/wrapper.ts';",
+      "import type { registerEffect as erasedRegistration } from './helpers/wrapper.ts';",
+      "import type * as erasedWrapper from './helpers/wrapper.ts';",
+      "test(nativeTest, 'effect', async () => { await performEffect(); });",
+      "test(nativeTest, 'single inner registration', async () => {})('not a second registration', () => {});",
+      "erasedRegistration(nativeTest, 'erased registration', async () => {});",
+      "erasedWrapper.registerEffect(nativeTest, 'erased namespace registration', async () => {});",
+      "wrapper.registerUnsettled(nativeTest, 'unsettled', async () => { await performEffect(); });",
+      "function shadow(wrapper: any) { wrapper.registerEffect(nativeTest, 'shadowed issuer namespace', async () => {}); }",
+      "nativeTest('pure sibling', () => expect(1).toBe(1));",
+      "nativeTest('dynamic unknown', async () => { const target = './helpers/wrapper.ts'; await import(target); });",
       ''
     ].join('\n')
   });
@@ -464,8 +589,14 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
     moduleMembership: membership
   });
 
+  expect(projection.registrations.map(({ kind }) => kind)).toEqual([
+    'registerEffect', 'registerEffect', 'registerUnsettled', 'test', 'test'
+  ]);
   const effect = projection.registrations.find(({ kind }) => kind === 'registerEffect');
   expect(effect).toBeDefined();
+  expect(effect?.potentialExpansion).toEqual({ status: 'unknown', reason: 'registration-source-unresolved' });
+  expect(projection.registrations[1]?.potentialExpansion)
+    .toEqual({ status: 'unknown', reason: 'registration-context-unresolved' });
   expect(effect?.registrationProvenance.map(({ operation }) => operation)).toEqual(['registerEffect']);
   expect(effect?.supervisorPolicyProvenance.map(({ operation }) => operation)).toContain('compilePolicy');
   expect(effect?.terminalProvenance.map(({ operation }) => operation)).toContain('issueTerminal');
@@ -523,27 +654,43 @@ test('overlapping cyclic test inputs preserve exact reads, negative paths, and f
   }
 });
 
-test('repository unknown merge preserves predicate distinctions, order, and test-only multiplicity', async () => {
+test('repository unknown merge removes shared compiler copies but retains distinct source occurrences', async () => {
   const { compileRepositorySourceProgramModel } = await import('./repository.ts');
-  const sources = {
-    'src/value.ts': 'export const value = 1;\n',
-    'tests/opaque.test.ts': "import { unknownValue } from 'opaque-package'; export const observed = unknownValue;\n"
-  };
+  const testPath = 'tests/opaque.test.ts';
+  const source = [
+    "import { unknownValue } from 'opaque-package';",
+    "import { otherValue } from 'opaque-package';",
+    'export async function observed(target: string) {',
+    '  await import(target);',
+    '  await import(target);',
+    '  return [unknownValue, otherValue];',
+    '}',
+    ''
+  ].join('\n');
+  const sources = { 'src/value.ts': 'export const value = 1;\n', [testPath]: source };
   const files = Object.entries(sources).map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
   const moduleMembership = Object.freeze({ descriptors: Object.freeze([]), graphRoots: Object.freeze([]),
     moduleRoots: Object.freeze([]), moduleForPath: () => null });
   const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
   const typescriptModel = compileTypeScriptSourceProgramModel({ sourceRevision, files, moduleMembership });
-  const observations = compileSourceProgramTestObservations({ productionModel: typescriptModel, files, moduleMembership });
-  const existing = typescriptModel.unknowns.find(({ span }) => span !== null)!;
-  expect(existing).toBeDefined();
-  const sameOffsets = { ...existing, span: { ...existing.span!, startLine: 99, endLine: 100 } };
-  const extra = { ...existing, code: 'fixture-independent-unknown', span: null };
-  const differentEnd = { ...existing, span: { ...existing.span!, end: existing.span!.end + 1 } };
-  const differentDetail = { ...existing, detail: `${existing.detail}:independent` };
-  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership, typescriptModel,
-    testObservations: { ...observations, unknowns: [sameOffsets, extra, extra, differentEnd, differentDetail] } });
-  expect(model.unknowns.slice(0, typescriptModel.unknowns.length + 4)).toEqual([
-    ...typescriptModel.unknowns, differentEnd, differentDetail, extra, extra
-  ]);
+  const testObservations = compileSourceProgramTestObservations({ productionModel: typescriptModel, files, moduleMembership });
+  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership, typescriptModel, testObservations });
+  const occurrences = (code: string) => model.unknowns.filter(unknown => unknown.code === code)
+    .map(({ path, detail, span }) => ({ path, detail, start: span?.start, end: span?.end }))
+    .sort((left, right) => (left.start ?? -1) - (right.start ?? -1));
+  const firstImport = source.indexOf("'opaque-package'");
+  const secondImport = source.indexOf("'opaque-package'", firstImport + 1);
+  expect(occurrences('external-module-opaque')).toEqual([firstImport, secondImport].map(start => ({
+    path: testPath, detail: 'opaque-package', start, end: start + "'opaque-package'".length
+  })));
+  const firstDynamic = source.indexOf('import(target)');
+  const secondDynamic = source.indexOf('import(target)', firstDynamic + 1);
+  for (const [code, detail] of [
+    ['dynamic-module-unresolved', 'import(target)'],
+    ['test-dynamic-module-unresolved', 'dynamic import specifier is not a static string']
+  ] as const) {
+    expect(occurrences(code)).toEqual([firstDynamic, secondDynamic].map(start => ({
+      path: testPath, detail, start, end: start + 'import(target)'.length
+    })));
+  }
 });

@@ -22,7 +22,7 @@ test('same producer retirement retry binds the active predecessor and preserves 
     const retired = await producer.retired(relativePath, 'original-outcome');
     const store = openRuntimeStoreReadOnly(repositoryRoot, { environment })!;
     const snapshot = async () => Promise.all((await readdir(store.registrationsRoot)).sort()
-      .map(async name => [name, await readFile(path.join(store.registrationsRoot, name), 'utf8')]));
+      .map(async name => [name, await readFile(path.join(store.registrationsRoot, name), 'utf8')] as const));
     const before = await snapshot();
     expect(await producer.retired(relativePath, 'original-outcome')).toEqual(retired);
     await expect(producer.retired(relativePath, 'foreign-outcome')).rejects.toThrow('different authority');
@@ -40,8 +40,8 @@ test('same producer retirement retry binds the active predecessor and preserves 
     // Record filenames bind record digests, so select the self-contained retired
     // record by its canonical body rather than inventing a registration filename.
     let retiredRecord: string | undefined;
-    for (const name of await readdir(store.registrationsRoot)) {
-      if ((await readFile(path.join(store.registrationsRoot, name), 'utf8')).includes(retired.registrationDigest)) retiredRecord = name;
+    for (const [name, bytes] of before) {
+      if (bytes.includes(retired.registrationDigest)) retiredRecord = name;
     }
     if (retiredRecord === undefined) throw new Error('Native retirement did not publish its exact record.');
     await writeFile(path.join(store.registrationsRoot, retiredRecord), 'foreign bytes');

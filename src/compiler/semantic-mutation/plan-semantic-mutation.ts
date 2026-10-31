@@ -421,15 +421,6 @@ export function planSemanticMutationWithProducerSeamForTest(
   return plan;
 }
 
-/** Local-module-only async finalization seam. It is intentionally absent from the Compiler facade. */
-export async function planSemanticMutationWithAsyncProducerSeamForTest(
-  input: SemanticMutationInput,
-  producers: SemanticMutationPlanProducerSeamForTest,
-  verificationPlanningProducer: SemanticMutationVerificationPlanningProducer
-): Promise<SemanticMutationPlan> {
-  return planSemanticMutationWithProducers(input, producers, verificationPlanningProducer);
-}
-
 export function semanticMutationPlanRevision(
   draft: Omit<NonRequestPlanDraft, 'planRevision'>
 ): string {

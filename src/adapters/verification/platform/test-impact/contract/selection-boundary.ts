@@ -172,7 +172,7 @@ export function defaultAffectedSelectionProjectionContext(
  * CodexDevelopmentBuildVerificationGateResult, to avoid pulling
  * src/assurance/verification/result/contract/result.ts into the TCB runtime import closure.
  * The result is validated by CodexDevelopmentAssertVerificationGateResult
- * in tests/contract/affected-selection-trust-boundary.test.ts.
+ * in tests/contract/verification/affected-selection-trust-boundary.test.ts.
  */
 export function projectAffectedSelectionToVerificationGateResult(
   boundary: AffectedSelectionTrustBoundary,

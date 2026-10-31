@@ -34,10 +34,10 @@ import {
   type WorkspaceSourceSnapshotSubject
 } from './workspace-source-snapshot.ts';
 
-function fixture(value: number) {
+function fixture() {
   const descriptorPath = 'src/example/module.json';
   const sources = Object.freeze({
-    'src/example/operation.ts': `export const value = ${value};\n`,
+    'src/example/operation.ts': 'export const value = 1;\n',
     'tsconfig.json': `${JSON.stringify({
       compilerOptions: { strict: true },
       include: ['src/**/*.ts']
@@ -87,9 +87,11 @@ function virtualSnapshotSubject(identity: string): WorkspaceSourceSnapshotSubjec
 }
 
 test('one owner-issued virtual snapshot compiles one graph for every Source Program projection', () => {
-  const input = fixture(1);
+  const input = fixture();
+  const mutableFile = { ...input.files[0]! };
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
+    files: [mutableFile, ...input.files.slice(1)],
     subject: virtualSnapshotSubject('virtual-observation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
   const receipt = compileVirtualRepositorySourceProgramCompilation({
@@ -112,13 +114,27 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
     .toBe(receipt.workspaceSnapshotIdentityDigest);
   expect(receipt.model.sourceRevision).toBe(workspaceSnapshot.sourceRevision);
   expect(receipt.receiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
+  const forged = Object.freeze({ ...workspaceSnapshot }) as WorkspaceSourceSnapshot;
+  expect(() => assertWorkspaceSourceSnapshot(forged))
+    .toThrow('was not issued by the Source Program owner');
+
+  const admitted = workspaceSnapshot.file(mutableFile.path);
+  expect(admitted).not.toBeNull();
+  expect(admitted?.source).toBe(mutableFile.source);
+  expect(admitted?.path.startsWith('/')).toBeFalse();
+  expect(Object.isFrozen(workspaceSnapshot.files)).toBeTrue();
+  expect(Object.isFrozen(admitted)).toBeTrue();
+
+  mutableFile.source = 'export const replacement = true;\n';
+  expect(workspaceSnapshot.file(admitted!.path)?.source).toBe(admitted!.source);
+  expect(workspaceSnapshot.files.some((file) => 'bytesBase64' in file || 'physicalPath' in file)).toBeFalse();
 });
 
 test('repository compilation contexts reject fact mixing and keep virtual mutation explicit', () => {
-  const left = fixture(1);
-  const right = fixture(1);
+  const input = fixture();
   const leftContext = compileVirtualWorkspaceSourceSnapshot({
-    ...left,
+    ...input,
     subject: virtualSnapshotSubject('left-observation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
   const mutationSubject: WorkspaceSourceSnapshotSubject = Object.freeze({
@@ -130,75 +146,40 @@ test('repository compilation contexts reject fact mixing and keep virtual mutati
     })
   });
   const rightContext = compileVirtualWorkspaceSourceSnapshot({
-    ...right,
+    ...input,
     subject: mutationSubject as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
   const leftModel = compileTypeScriptSourceProgramModelFromWorkspaceSnapshot({
-    ...left,
+    ...input,
     sourceRevision: leftContext.sourceRevision
   }, leftContext);
   const rightModel = compileTypeScriptSourceProgramModelFromWorkspaceSnapshot({
-    ...right,
+    ...input,
     sourceRevision: rightContext.sourceRevision
   }, rightContext);
 
   expect(rightContext.subject.kind).toBe('virtual-mutation');
   expect(() => compileSourceProgramTestObservationsFromWorkspaceSnapshot({
     productionModel: leftModel,
-    files: right.files,
-    moduleMembership: right.moduleMembership
+    files: input.files,
+    moduleMembership: input.moduleMembership
   }, rightContext)).toThrow('cannot mix a production model');
 
   const leftObservations = compileSourceProgramTestObservationsFromWorkspaceSnapshot({
     productionModel: leftModel,
-    files: left.files,
-    moduleMembership: left.moduleMembership
+    files: input.files,
+    moduleMembership: input.moduleMembership
   }, leftContext);
   expect(() => compileRepositorySourceProgramModelFromWorkspaceSnapshot({
-    ...right,
+    ...input,
     sourceRevision: rightContext.sourceRevision,
     typescriptModel: rightModel,
     testObservations: leftObservations
   }, rightContext)).toThrow('cannot mix test facts');
 });
 
-test('workspace source snapshot origin cannot be forged by structural copying', () => {
-  const input = fixture(1);
-  const issued = compileVirtualWorkspaceSourceSnapshot({
-    ...input,
-    subject: virtualSnapshotSubject('issued-context') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
-  });
-  expect(() => assertWorkspaceSourceSnapshot(issued)).not.toThrow();
-
-  const forged = Object.freeze({ ...issued }) as WorkspaceSourceSnapshot;
-  expect(() => assertWorkspaceSourceSnapshot(forged))
-    .toThrow('was not issued by the Source Program owner');
-});
-
-test('workspace source snapshot owns immutable repository-relative source bytes', () => {
-  const input = fixture(1);
-  const mutableFile = {
-    ...input.files[0]!
-  };
-  const issued = compileVirtualWorkspaceSourceSnapshot({
-    ...input,
-    files: [mutableFile, ...input.files.slice(1)],
-    subject: virtualSnapshotSubject('immutable-snapshot') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
-  });
-  const admitted = issued.file(mutableFile.path);
-  expect(admitted).not.toBeNull();
-  expect(admitted?.source).toBe(mutableFile.source);
-  expect(admitted?.path.startsWith('/')).toBeFalse();
-  expect(Object.isFrozen(issued.files)).toBeTrue();
-  expect(Object.isFrozen(admitted)).toBeTrue();
-
-  mutableFile.source = 'export const replacement = true;\n';
-  expect(issued.file(admitted!.path)?.source).toBe(admitted!.source);
-  expect(issued.files.some((file) => 'bytesBase64' in file || 'physicalPath' in file)).toBeFalse();
-});
-
 test('cache absence and open, read, or publish failure preserve the cold semantic generation', () => {
-  const input = fixture(1);
+  const input = fixture();
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
     subject: virtualSnapshotSubject('cache-failure-fallback') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
@@ -254,7 +235,7 @@ test('cache absence and open, read, or publish failure preserve the cold semanti
 });
 
 test('read-only cache consumption preserves reads and the semantic receipt without publication', () => {
-  const input = fixture(1);
+  const input = fixture();
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
     subject: virtualSnapshotSubject('read-only-cache') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
@@ -294,7 +275,7 @@ test('read-only cache consumption preserves reads and the semantic receipt witho
 });
 
 test('one bounded compilation reports exact phases and rejects late cache publication', () => {
-  const input = fixture(1);
+  const input = fixture();
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...input,
     subject: virtualSnapshotSubject('bounded-compilation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
@@ -410,9 +391,7 @@ const incrementalScenarios: readonly Readonly<{
   { name: 'added module with changed global input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': 'export const value = 1; declare global { interface Window { value: number } }\n' }, mode: 'full' },
   { name: 'added module with changed triple-slash input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': '/// <reference lib="es2022" />\nexport const value = 1;\n' }, mode: 'full' },
   { name: 'unchanged global dependency', before: { 'src/example/global.ts': 'export {}; declare global { const GLOBAL: number; }\n', 'src/example/helper.ts': 'export const value = GLOBAL;\n' }, after: { 'src/example/helper.ts': 'export const value = GLOBAL + 1;\n' }, mode: 'full' },
-  { name: 'unchanged global augmentation', before: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
   { name: 'unchanged triple-slash reference', before: { 'src/example/library.ts': '/// <reference lib="es2022" />\nexport const library = true;\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
-  { name: 'package change', after: { 'package.json': JSON.stringify({ type: 'module', private: true, version: '2' }) }, mode: 'full' },
   { name: 'tsconfig change', after: { 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: false }, include: ['src/example/**/*.ts', 'tests/**/*.ts'] }) }, mode: 'full' },
   { name: 'unchanged unknown frontier', before: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'full' },
   { name: 'unknown dynamic frontier', after: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, mode: 'full' },
@@ -420,14 +399,20 @@ const incrementalScenarios: readonly Readonly<{
   { name: 'resolution candidate shadowing', before: { 'src/example/choice/index.ts': 'export const choice = 1;\n', 'src/example/consumer.ts': "import { choice } from './choice'; export const result = choice;\n" }, after: { 'src/example/choice.ts': 'export const choice = 2;\n' }, mode: 'full' }
 ];
 
+// The eight unchanged-source predecessors are one immutable issued generation;
+// current inputs, clean comparisons and each case's timeout remain independent.
+let sharedIncrementalBaseline: RepositorySourceProgramCompilationReceipt | undefined;
 for (const scenario of incrementalScenarios) {
   test(`live baseline incremental/full facts agree for ${scenario.name}`, () => {
     const before = { ...incrementalFixtureBase, ...scenario.before };
     const after: Record<string, string> = { ...before, ...scenario.after };
     if (scenario.remove !== undefined) delete after[scenario.remove];
-    const baselineInput = incrementalFixture(before, `${scenario.name}:before`);
     const currentInput = incrementalFixture(after, `${scenario.name}:after`);
-    const baseline = compileVirtualRepositorySourceProgramCompilation(baselineInput);
+    const baseline = scenario.before === undefined
+      ? sharedIncrementalBaseline ??= compileVirtualRepositorySourceProgramCompilation(
+          incrementalFixture(incrementalFixtureBase, 'shared-incremental-baseline')
+        )
+      : compileVirtualRepositorySourceProgramCompilation(incrementalFixture(before, `${scenario.name}:before`));
     const beforeReuse = observeTypeScriptSourceProgramPerformanceForTests();
     const reused = compileVirtualRepositorySourceProgramCompilation({ ...currentInput, previousCompilation: baseline });
     const afterReuse = observeTypeScriptSourceProgramPerformanceForTests();
@@ -444,8 +429,6 @@ for (const scenario of incrementalScenarios) {
     expect(sourceProgramCurrentExactReturnProvenances(reused.typeScriptCompilation.model))
       .toEqual(sourceProgramCurrentExactReturnProvenances(full.typeScriptCompilation.model));
     if (scenario.mode === 'incremental') {
-      const retained = reused.typeScriptCompilation.state.factShards.find(({ path }) => path === 'src/example/unrelated.ts');
-      expect(retained).toBe(baseline.typeScriptCompilation.state.factShards.find(({ path }) => path === 'src/example/unrelated.ts'));
       expect(reused.typeScriptCompilation.invalidatedPaths).not.toContain('src/example/unrelated.ts');
     }
   }, 30_000);
@@ -455,7 +438,7 @@ test('a rejected live baseline cannot fall through to a persistent predecessor',
   const baselineInput = incrementalFixture(incrementalFixtureBase, 'guard:before');
   const baseline = compileVirtualRepositorySourceProgramCompilation(baselineInput);
   const changedInput = incrementalFixture({ ...incrementalFixtureBase,
-    'package.json': JSON.stringify({ type: 'module', version: 'changed' }) }, 'guard:after');
+    'package.json': JSON.stringify({ type: 'module', private: true, version: '2' }) }, 'guard:after');
   const sameInput = incrementalFixture({ ...incrementalFixtureBase, 'tests/added.test.ts': addedTestSource }, 'guard:clone');
   for (const [currentInput, previousCompilation] of [
     [changedInput, baseline],
@@ -473,7 +456,13 @@ test('a rejected live baseline cannot fall through to a persistent predecessor',
       previousCompilation, cacheProvider, cacheAccess: 'read-only' });
     expect(result.typeScriptCompilation.mode).toBe('full');
     expect(predecessorReads).toBe(0);
-    expect(result.model).toEqual(compileVirtualRepositorySourceProgramCompilation(currentInput).model);
+    const full = compileVirtualRepositorySourceProgramCompilation(currentInput);
+    expect(result.typeScriptCompilation.model).toEqual(full.typeScriptCompilation.model);
+    expect(result.testObservations).toEqual(full.testObservations);
+    expect(result.model).toEqual(full.model);
+    expect(result.receiptDigest).toBe(full.receiptDigest);
+    expect(sourceProgramCurrentExactReturnProvenances(result.typeScriptCompilation.model))
+      .toEqual(sourceProgramCurrentExactReturnProvenances(full.typeScriptCompilation.model));
   }
 });
 

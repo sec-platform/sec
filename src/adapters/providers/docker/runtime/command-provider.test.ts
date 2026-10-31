@@ -1,3 +1,4 @@
+import { settleResources, settleResourcesAsync, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { mkdtemp, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -19,6 +20,7 @@ import {
 import {
   assertDockerCommandProviderCapability,
   claimDockerCommandProviderCapability,
+  disposeClaimedDockerCommandProvider,
   disposeUnclaimedDockerCommandProviderCapability,
   issueDockerCommandProviderCapability,
   requireDockerCommandProviderCapability
@@ -26,53 +28,63 @@ import {
 
 async function retainedProviderFixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-docker-command-provider-'));
-  const executablePath = path.join(root, process.platform === 'win32' ? 'docker.exe' : 'docker');
-  await writeFile(executablePath, Buffer.from('provider-bytes'), { mode: 0o700 });
-  const directory = inspectNoFollowDirectoryChain(root, 'Docker provider fixture root');
-  const executableEntry = inspectNoFollowOrdinaryFileEntry(
-    directory.target,
-    path.basename(executablePath)
-  );
-  if (executableEntry === null || executableEntry.kind !== 'file') {
-    throw new Error('Docker provider fixture executable is unavailable.');
-  }
-  const executable = retainNoFollowOrdinaryFile(
-    directory,
-    path.basename(executablePath),
-    { device: executableEntry.device, inode: executableEntry.inode },
-    'Docker provider fixture executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
-  const workingDirectory = retainNoFollowDirectoryForChildProcess(
-    directory,
-    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-    'Docker provider fixture cwd'
-  );
-  const systemDirectory = path.join(root, 'System32');
-  const environment = process.platform === 'win32'
-    ? {
-      APPDATA: root,
-      HOME: root,
-      LOCALAPPDATA: root,
-      PATH: systemDirectory,
-      PROGRAMDATA: root,
-      PROGRAMFILES: root,
-      SYSTEMROOT: root,
-      TEMP: root,
-      TMP: root,
-      USERPROFILE: root,
-      WINDIR: root
+  const cleanup: { label: string; settle(): void | Promise<void> }[] = [
+    { label: 'provider fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+  ];
+  try {
+    const executablePath = path.join(root, process.platform === 'win32' ? 'docker.exe' : 'docker');
+    await writeFile(executablePath, Buffer.from('provider-bytes'), { mode: 0o700 });
+    const directory = inspectNoFollowDirectoryChain(root, 'Docker provider fixture root');
+    const executableEntry = inspectNoFollowOrdinaryFileEntry(
+      directory.target,
+      path.basename(executablePath)
+    );
+    if (executableEntry === null || executableEntry.kind !== 'file') {
+      throw new Error('Docker provider fixture executable is unavailable.');
     }
-    : { HOME: root, PATH: '', TEMP: root, TMP: root };
-  const capability = issueDockerCommandProviderCapability({
-    boundary: issueRetainedCommandBoundary({ executable, workingDirectory }),
-    environment,
-    platform: process.platform,
-    providerContractDigest: rawSha256('sec.docker.command-provider.fixture'),
-    workingDirectory: directory.target
-  });
-  return { capability, executablePath, root };
+    const executable = retainNoFollowOrdinaryFile(
+      directory,
+      path.basename(executablePath),
+      { device: executableEntry.device, inode: executableEntry.inode },
+      'Docker provider fixture executable',
+      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+      'executable'
+    );
+    cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
+    const workingDirectory = retainNoFollowDirectoryForChildProcess(
+      directory,
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'Docker provider fixture cwd'
+    );
+    cleanup.unshift({ label: 'working directory', settle: () => workingDirectory.dispose() });
+    const systemDirectory = path.join(root, 'System32');
+    const environment = process.platform === 'win32'
+      ? {
+        APPDATA: root,
+        HOME: root,
+        LOCALAPPDATA: root,
+        PATH: systemDirectory,
+        PROGRAMDATA: root,
+        PROGRAMFILES: root,
+        SYSTEMROOT: root,
+        TEMP: root,
+        TMP: root,
+        USERPROFILE: root,
+        WINDIR: root
+      }
+      : { HOME: root, PATH: '', TEMP: root, TMP: root };
+    const capability = issueDockerCommandProviderCapability({
+      boundary: issueRetainedCommandBoundary({ executable, workingDirectory }),
+      environment,
+      platform: process.platform,
+      providerContractDigest: rawSha256('sec.docker.command-provider.fixture'),
+      workingDirectory: directory.target
+    });
+    return { capability, executablePath, root };
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'provider fixture construction', error }, cleanup });
+    throw error;
+  }
 }
 
 function issueProviderWithAuxiliary(
@@ -80,73 +92,84 @@ function issueProviderWithAuxiliary(
   executablePath: string,
   auxiliaryPath: string
 ) {
-  const directory = inspectNoFollowDirectoryChain(root, 'Docker provider auxiliary fixture root');
-  const executableEntry = inspectNoFollowOrdinaryFileEntry(
-    directory.target,
-    path.basename(executablePath)
-  );
-  const auxiliaryEntry = inspectNoFollowOrdinaryFileEntry(
-    directory.target,
-    path.basename(auxiliaryPath)
-  );
-  if (executableEntry === null || executableEntry.kind !== 'file'
-      || auxiliaryEntry === null || auxiliaryEntry.kind !== 'file') {
-    throw new Error('Docker provider auxiliary fixture files are unavailable.');
-  }
-  const executable = retainNoFollowOrdinaryFile(
-    directory,
-    path.basename(executablePath),
-    { device: executableEntry.device, inode: executableEntry.inode },
-    'Docker provider auxiliary fixture executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
-  const auxiliary = retainNoFollowOrdinaryFile(
-    directory,
-    path.basename(auxiliaryPath),
-    { device: auxiliaryEntry.device, inode: auxiliaryEntry.inode },
-    'Docker provider auxiliary fixture input',
-    52,
-    'ordinary-file'
-  );
-  const workingDirectory = retainNoFollowDirectoryForChildProcess(
-    directory,
-    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-    'Docker provider auxiliary fixture cwd'
-  );
-  const systemDirectory = path.join(root, 'System32');
-  const environment = process.platform === 'win32'
-    ? {
-      APPDATA: root,
-      HOME: root,
-      LOCALAPPDATA: root,
-      PATH: systemDirectory,
-      PROGRAMDATA: root,
-      PROGRAMFILES: root,
-      SYSTEMROOT: root,
-      TEMP: root,
-      TMP: root,
-      USERPROFILE: root,
-      WINDIR: root
+  const cleanup: { label: string; settle(): void }[] = [];
+  try {
+    const directory = inspectNoFollowDirectoryChain(root, 'Docker provider auxiliary fixture root');
+    const executableEntry = inspectNoFollowOrdinaryFileEntry(
+      directory.target,
+      path.basename(executablePath)
+    );
+    const auxiliaryEntry = inspectNoFollowOrdinaryFileEntry(
+      directory.target,
+      path.basename(auxiliaryPath)
+    );
+    if (executableEntry === null || executableEntry.kind !== 'file'
+        || auxiliaryEntry === null || auxiliaryEntry.kind !== 'file') {
+      throw new Error('Docker provider auxiliary fixture files are unavailable.');
     }
-    : { HOME: root, PATH: '', TEMP: root, TMP: root };
-  const capability = issueDockerCommandProviderCapability({
-    boundary: issueRetainedCommandBoundary({
-      executable,
-      workingDirectory,
-      auxiliaryInputs: [{ capability: auxiliary, kind: 'ordinary-file' }]
-    }),
-    environment,
-    platform: process.platform,
-    providerContractDigest: rawSha256('sec.docker.command-provider.auxiliary-fixture'),
-    workingDirectory: directory.target
-  });
-  return { auxiliary, capability };
+    const executable = retainNoFollowOrdinaryFile(
+      directory,
+      path.basename(executablePath),
+      { device: executableEntry.device, inode: executableEntry.inode },
+      'Docker provider auxiliary fixture executable',
+      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+      'executable'
+    );
+    cleanup.unshift({ label: 'executable', settle: () => executable.dispose() });
+    const auxiliary = retainNoFollowOrdinaryFile(
+      directory,
+      path.basename(auxiliaryPath),
+      { device: auxiliaryEntry.device, inode: auxiliaryEntry.inode },
+      'Docker provider auxiliary fixture input',
+      52,
+      'ordinary-file'
+    );
+    cleanup.unshift({ label: 'auxiliary input', settle: () => auxiliary.dispose() });
+    const workingDirectory = retainNoFollowDirectoryForChildProcess(
+      directory,
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'Docker provider auxiliary fixture cwd'
+    );
+    cleanup.unshift({ label: 'working directory', settle: () => workingDirectory.dispose() });
+    const systemDirectory = path.join(root, 'System32');
+    const environment = process.platform === 'win32'
+      ? {
+        APPDATA: root,
+        HOME: root,
+        LOCALAPPDATA: root,
+        PATH: systemDirectory,
+        PROGRAMDATA: root,
+        PROGRAMFILES: root,
+        SYSTEMROOT: root,
+        TEMP: root,
+        TMP: root,
+        USERPROFILE: root,
+        WINDIR: root
+      }
+      : { HOME: root, PATH: '', TEMP: root, TMP: root };
+    const capability = issueDockerCommandProviderCapability({
+      boundary: issueRetainedCommandBoundary({
+        executable,
+        workingDirectory,
+        auxiliaryInputs: [{ capability: auxiliary, kind: 'ordinary-file' }]
+      }),
+      environment,
+      platform: process.platform,
+      providerContractDigest: rawSha256('sec.docker.command-provider.auxiliary-fixture'),
+      workingDirectory: directory.target
+    });
+    return { auxiliary, capability };
+  } catch (error) {
+    settleResources({ primary: { label: 'auxiliary provider construction', error }, cleanup });
+    throw error;
+  }
 }
 
 test('Docker command provider ignores ambient command and directory redirection', async () => {
   const fixture = await retainedProviderFixture();
   let claimed: ReturnType<typeof claimDockerCommandProviderCapability> | undefined;
+  let cleanupProvider: (() => void) | undefined = () => disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
+  let primary: ResourceSettlementFailure | undefined;
   const original = {
     PATH: process.env.PATH,
     PROGRAMFILES: process.env.PROGRAMFILES,
@@ -154,12 +177,20 @@ test('Docker command provider ignores ambient command and directory redirection'
     TMP: process.env.TMP
   };
   try {
+    expect(() => assertDockerCommandProviderCapability({ ...fixture.capability }))
+      .toThrow('not owner-issued');
+    expect(() => requireDockerCommandProviderCapability(undefined))
+      .toThrow('capability is unavailable');
     process.env.PATH = path.join(fixture.root, 'ambient-bin');
     process.env.PROGRAMFILES = path.join(fixture.root, 'ambient-program-files');
     process.env.TEMP = path.join(fixture.root, 'ambient-temp');
     process.env.TMP = path.join(fixture.root, 'ambient-tmp');
     expect('loginStart' in fixture.capability).toBe(false);
+    cleanupProvider = undefined; // A failed physical claim settles its record.
     claimed = claimDockerCommandProviderCapability(fixture.capability);
+    cleanupProvider = () => disposeClaimedDockerCommandProvider(claimed!);
+    expect(() => claimDockerCommandProviderCapability(fixture.capability))
+      .toThrow('is claimed');
     expect('loginStart' in claimed).toBe(false);
     expect(claimed.executable).toBe(fixture.executablePath);
     expect(claimed.environment.PATH).toBe(
@@ -169,36 +200,24 @@ test('Docker command provider ignores ambient command and directory redirection'
     expect(claimed.environment.PROGRAMFILES).toBe(
       process.platform === 'win32' ? fixture.root : undefined
     );
+  } catch (error) {
+    primary = { label: 'ambient provider fixture', error };
   } finally {
-    claimed?.boundary.workingDirectory.dispose();
-    claimed?.boundary.executable.dispose();
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('Docker command provider is nonforgeable, single-use, and rejects ambient PATH', async () => {
-  const fixture = await retainedProviderFixture();
-  try {
-    expect(() => assertDockerCommandProviderCapability({ ...fixture.capability }))
-      .toThrow('not owner-issued');
-    expect(() => requireDockerCommandProviderCapability(undefined))
-      .toThrow('capability is unavailable');
-    const claimed = claimDockerCommandProviderCapability(fixture.capability);
-    expect(() => claimDockerCommandProviderCapability(fixture.capability))
-      .toThrow('is claimed');
-    claimed.boundary.workingDirectory.dispose();
-    claimed.boundary.executable.dispose();
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'provider capability', settle: () => cleanupProvider?.() },
+      ...Object.entries(original).map(([key, value]) => ({ label: `restore ${key}`, settle: () => {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      } })),
+      { label: 'provider root', settle: () => rm(fixture.root, { recursive: true, force: true }) }
+    ] });
   }
 });
 
 test('Docker command provider retains executable identity through replacement attempts', async () => {
   const fixture = await retainedProviderFixture();
+  let cleanupProvider: (() => void) | undefined = () => disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const replacement = path.join(fixture.root, 'replacement.exe');
     await writeFile(replacement, Buffer.from('replacement'));
@@ -207,19 +226,29 @@ test('Docker command provider retains executable identity through replacement at
       await expect(replacementAttempt).rejects.toBeDefined();
     } else {
       await replacementAttempt;
-      expect(() => claimDockerCommandProviderCapability(fixture.capability))
+      expect(() => {
+        cleanupProvider = undefined; // Failed admission consumes and settles this exact record.
+        const claimed = claimDockerCommandProviderCapability(fixture.capability);
+        cleanupProvider = () => disposeClaimedDockerCommandProvider(claimed);
+      })
         .toThrow(expect.objectContaining({
           code: 'SEC-DOCKER-COMMAND-PROVIDER-UNAVAILABLE',
           cause: expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' })
         }));
       return;
     }
+    cleanupProvider = undefined;
     const claimed = claimDockerCommandProviderCapability(fixture.capability);
+    cleanupProvider = () => disposeClaimedDockerCommandProvider(claimed);
     claimed.boundary.executable.assertCurrent();
-    claimed.boundary.workingDirectory.dispose();
-    claimed.boundary.executable.dispose();
+  } catch (error) {
+    primary = { label: 'replacement provider fixture', error };
+    throw error;
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'provider capability', settle: () => cleanupProvider?.() },
+      { label: 'provider root', settle: () => rm(fixture.root, { recursive: true, force: true }) }
+    ] });
   }
 });
 
@@ -229,10 +258,20 @@ test('Docker command provider identity binds same-byte auxiliary file identity',
   const auxiliaryPath = path.join(root, process.platform === 'win32' ? 'wsl.exe' : 'wsl');
   const replacementPath = path.join(root, 'replacement-auxiliary');
   const bytes = Buffer.from('same-auxiliary-bytes');
-  await writeFile(executablePath, Buffer.from('provider-bytes'), { mode: 0o700 });
-  await writeFile(auxiliaryPath, bytes);
-  const first = issueProviderWithAuxiliary(root, executablePath, auxiliaryPath);
+  let first: ReturnType<typeof issueProviderWithAuxiliary>;
+  try {
+    await writeFile(executablePath, Buffer.from('provider-bytes'), { mode: 0o700 });
+    await writeFile(auxiliaryPath, bytes);
+    first = issueProviderWithAuxiliary(root, executablePath, auxiliaryPath);
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'auxiliary fixture construction', error }, cleanup: [
+      { label: 'auxiliary fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+    ] });
+    throw error;
+  }
   let second: ReturnType<typeof issueProviderWithAuxiliary> | undefined;
+  let cleanupFirst: (() => void) | undefined = () => disposeUnclaimedDockerCommandProviderCapability(first.capability);
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const firstPhysical = first.auxiliary.physical;
     first.auxiliary.dispose();
@@ -240,24 +279,38 @@ test('Docker command provider identity binds same-byte auxiliary file identity',
     await unlink(auxiliaryPath);
     await rename(replacementPath, auxiliaryPath);
     second = issueProviderWithAuxiliary(root, executablePath, auxiliaryPath);
-    expect(() => claimDockerCommandProviderCapability(first.capability))
+    expect(() => {
+      cleanupFirst = undefined;
+      const claimed = claimDockerCommandProviderCapability(first.capability);
+      cleanupFirst = () => disposeClaimedDockerCommandProvider(claimed);
+    })
       .toThrow('changed before admission');
     expect(second.auxiliary.physical).not.toEqual(firstPhysical);
     expect(second.capability.providerIdentityDigest)
       .not.toBe(first.capability.providerIdentityDigest);
+  } catch (error) {
+    primary = { label: 'auxiliary provider fixture', error };
   } finally {
-    if (second !== undefined) disposeUnclaimedDockerCommandProviderCapability(second.capability);
-    await rm(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'second provider', settle: () => { if (second !== undefined) disposeUnclaimedDockerCommandProviderCapability(second.capability); } },
+      { label: 'first provider', settle: () => cleanupFirst?.() },
+      { label: 'auxiliary fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+    ] });
   }
 });
 
 test('unclaimed Docker command provider can be settled without a session', async () => {
   const fixture = await retainedProviderFixture();
+  let primary: ResourceSettlementFailure | undefined;
   try {
     disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
     expect(() => claimDockerCommandProviderCapability(fixture.capability))
       .toThrow('is disposed');
+  } catch (error) {
+    primary = { label: 'unclaimed provider settlement', error };
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'provider root', settle: () => rm(fixture.root, { recursive: true, force: true }) }
+    ] });
   }
 });

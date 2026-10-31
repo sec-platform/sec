@@ -89,8 +89,8 @@ type SlowTestSuiteDefinition = {
 };
 
 export const DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE =
-  'tests/contract/document-control-plane-lifecycle.test.ts';
-export const FAST_TEST_PROCESS_POLICY_TEST_FILE = 'tests/unit/test-runner.test.ts';
+  'tests/contract/development/document-control-plane-lifecycle.test.ts';
+export const FAST_TEST_PROCESS_POLICY_TEST_FILE = 'tests/unit/verification/test-runner.test.ts';
 export const TEST_ARCHITECTURE_POLICY_TEST_FILE = 'src/adapters/repository/source-program-model/test-value.test.ts';
 
 function e2eTestFile(name: string): string {
@@ -138,7 +138,7 @@ function slowFileSuite(
 const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze([
   slowPathSuite(
     'unit-content-hash-provider-boundary',
-    'tests/unit/content-hash-provider-boundary.test.ts',
+    'tests/unit/providers/content-hash-provider-boundary.test.ts',
     'content-hash-capability-boundary',
     180_000,
     { resourceClass: 'runtime-heavy' }
@@ -159,30 +159,27 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   ),
   slowPathSuite(
     'integration-typescript-native-package-layout',
-    'tests/integration/typescript-native-package-layout.test.ts',
+    'tests/integration/toolchain/typescript-native-package-layout.test.ts',
     'typescript-native-package-layout',
     180_000,
     { resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
     'contract-typecheck-provider-native',
-    'tests/contract/typecheck-provider-native.test.ts',
+    'tests/contract/toolchain/typecheck-provider-native.test.ts',
     'typescript-native-checker',
     180_000,
     { resourceClass: 'runtime-heavy' }
   ),
   // These suites acquire the full repository semantic graph. Keep them out of
   // fast batches and serialize their resource-heavy execution through this owner.
-  slowPathSuite('contract-ci-lanes', 'tests/contract/ci-lanes.test.ts', 'ci-plan-and-selection', 180_000, {
+  slowPathSuite('contract-ci-lanes', 'tests/contract/verification/ci-lanes.test.ts', 'ci-plan-and-selection', 180_000, {
     resourceClass: 'runtime-heavy'
   }),
-  slowPathSuite('contract-ci-trust-closure', 'tests/contract/ci-trust-closure-contract.test.ts', 'ci-trust-closure', 180_000, {
+  slowPathSuite('unit-slow-test-selection', 'tests/unit/verification/slow-test-selection.test.ts', 'test-impact-selection', 180_000, {
     resourceClass: 'runtime-heavy'
   }),
-  slowPathSuite('unit-slow-test-selection', 'tests/unit/slow-test-selection.test.ts', 'test-impact-selection', 180_000, {
-    resourceClass: 'runtime-heavy'
-  }),
-  slowPathSuite('unit-verification-session-runtime', 'tests/unit/verification-session-runtime.test.ts', 'verification-session-runtime', 180_000, {
+  slowPathSuite('unit-verification-session-runtime', 'tests/unit/verification/verification-session-runtime.test.ts', 'verification-session-runtime', 180_000, {
     resourceClass: 'runtime-heavy'
   }),
   slowPathSuite(
@@ -201,48 +198,48 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   ),
   slowPathSuite(
     'unit-dev-runner-dependency-bootstrap',
-    'tests/unit/dev-runner-dependency-bootstrap.test.ts',
+    'tests/unit/development/dev-runner-dependency-bootstrap.test.ts',
     'development-runner-dependency-bootstrap',
     300_000,
     { resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
     'unit-branch-local-residue-closeout',
-    'tests/unit/branch-local-residue-closeout.test.ts',
+    'tests/unit/development/branch-local-residue-closeout.test.ts',
     'local-branch-residue-closeout',
     240_000,
     { resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
     'integration-semantic-mutation-apply',
-    'tests/integration/semantic-mutation-apply.test.ts',
+    'tests/integration/workspace/semantic-mutation-apply.test.ts',
     'semantic-mutation-transaction',
     420_000,
     { resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
     'unit-dependency-rollover-capacity',
-    'tests/unit/dependency-rollover-capacity.test.ts',
+    'tests/unit/toolchain/dependency-rollover-capacity.test.ts',
     'compiler-dependency-transition-rollover',
     300_000
   ),
   slowPathSuite(
     'integration-release-set-portable',
-    'tests/integration/release-set-portable.test.ts',
+    'tests/integration/release/release-set-portable.test.ts',
     'release-set-portability',
     120_000,
     { parallelSafe: true, resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
     'integration-upgrade-validation',
-    'tests/integration/validation.test.ts',
+    'tests/integration/workspace/upgrade-lifecycle.test.ts',
     'upgrade-transaction-validation',
     300_000,
     { resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
     'integration-shared-runtime-dependencies',
-    'tests/integration/project-dependency-runtime.test.ts',
+    'tests/integration/toolchain/project-dependency-runtime.test.ts',
     'shared-runtime-dependency-integration',
     300_000,
     { parallelSafe: true, resourceClass: 'runtime-heavy' }
@@ -256,45 +253,45 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   ),
   slowPathSuite(
     'unit-worktree-closeout-crash-recovery',
-    'tests/unit/worktree-physical-closeout-crash-recovery.test.ts',
+    'tests/unit/development/worktree-physical-closeout-crash-recovery.test.ts',
     'git-worktree-physical-closeout',
     180_000,
     { parallelSafe: true, resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
     'unit-worktree-closeout-temp-repo',
-    'tests/unit/worktree-physical-closeout-temp-repo.test.ts',
+    'tests/unit/development/worktree-physical-closeout-temp-repo.test.ts',
     'git-worktree-physical-closeout',
     420_000,
     { parallelSafe: true, resourceClass: 'runtime-heavy' }
   ),
-  slowFileSuite('e2e-artifacts', 'artifacts', 'compiler-artifacts-e2e', 120_000, {
+  slowFileSuite('e2e-artifacts', 'cli/artifacts', 'compiler-artifacts-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy',
     prRiskBaseline: true
   }),
-  slowFileSuite('e2e-demo-doctor', 'demo-doctor', 'compiler-demo-doctor-e2e', 120_000, {
+  slowFileSuite('e2e-demo-doctor', 'cli/demo-doctor', 'compiler-demo-doctor-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
   }),
-  slowFileSuite('e2e-dry-run-plan', 'dry-run-plan', 'compiler-dry-run-plan-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-pipeline-end-to-end', 'end-to-end', 'compiler-pipeline-end-to-end-e2e'),
-  slowFileSuite('e2e-expanded-blocks', 'expanded-blocks', 'compiler-expanded-blocks-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-explain', 'explain', 'compiler-explain-e2e', 120_000, {
+  slowFileSuite('e2e-dry-run-plan', 'workspace/dry-run-plan', 'compiler-dry-run-plan-e2e', 180_000, { parallelSafe: true }),
+  slowFileSuite('e2e-pipeline-end-to-end', 'workspace/reference-pipeline', 'compiler-pipeline-end-to-end-e2e'),
+  slowFileSuite('e2e-expanded-blocks', 'workspace/expanded-blocks', 'compiler-expanded-blocks-e2e', 180_000, { parallelSafe: true }),
+  slowFileSuite('e2e-explain', 'cli/explain', 'compiler-explain-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
   }),
-  slowFileSuite('e2e-graph', 'graph', 'compiler-graph-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-graph', 'verification/graph', 'compiler-graph-e2e', 120_000, { parallelSafe: true }),
   {
-    ...slowFileSuite('e2e-import-organizer-staged', 'import-organizer-staged', 'compiler-import-organizer-staged-e2e', 120_000, {
+    ...slowFileSuite('e2e-import-organizer-staged', 'development/import-organizer-staged', 'compiler-import-organizer-staged-e2e', 120_000, {
       parallelSafe: true
     }),
     files: [
-      e2eTestFile('import-organizer-staged'),
-      e2eTestFile('import-organizer-worktree-isolation')
+      e2eTestFile('development/import-organizer-staged'),
+      e2eTestFile('development/import-organizer-worktree-isolation')
     ]
   },
-  slowFileSuite('e2e-install-git-hooks', 'install-git-hooks', 'managed-git-hooks-e2e', 120_000, {
+  slowFileSuite('e2e-install-git-hooks', 'development/install-git-hooks', 'managed-git-hooks-e2e', 120_000, {
     parallelSafe: true
   }),
   ...[
@@ -319,38 +316,35 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     'bootstrap-remote-lineage'
   ].map((part) => slowFileSuite(
     `e2e-install-git-hooks-${part}`,
-    `install-git-hooks-${part}`,
+    `development/install-git-hooks-${part}`,
     'managed-git-hooks-e2e',
     120_000,
     { parallelSafe: true }
   )),
-  slowFileSuite('e2e-lanes', 'lanes', 'compiler-lanes-e2e', 120_000, { parallelSafe: true }),
-  slowFileSuite('e2e-manifest', 'manifest', 'compiler-manifest-e2e'),
-  slowFileSuite('e2e-pipeline', 'pipeline', 'compiler-pipeline-e2e'),
-  slowFileSuite('e2e-policy', 'policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-prisma-merge', 'prisma-merge', 'compiler-prisma-merge-e2e'),
-  slowFileSuite('e2e-private-registry', 'private-registry', 'compiler-private-registry-e2e'),
-  slowFileSuite('e2e-registry', 'registry', 'compiler-registry-e2e'),
-  slowFileSuite('e2e-repair', 'repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-summary', 'summary', 'compiler-summary-e2e', 120_000, {
+  slowFileSuite('e2e-lanes', 'verification/lanes', 'compiler-lanes-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-manifest', 'workspace/override-manifest', 'compiler-manifest-e2e'),
+  slowFileSuite('e2e-pipeline', 'workspace/pipeline', 'compiler-pipeline-e2e'),
+  slowFileSuite('e2e-policy', 'verification/policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),
+  slowFileSuite('e2e-prisma-merge', 'workspace/prisma-merge', 'compiler-prisma-merge-e2e'),
+  slowFileSuite('e2e-private-registry', 'workspace/private-registry', 'compiler-private-registry-e2e'),
+  slowFileSuite('e2e-registry', 'toolchain/registry', 'compiler-registry-e2e'),
+  slowFileSuite('e2e-repair', 'workspace/repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
+  slowFileSuite('e2e-summary', 'verification/summary', 'compiler-summary-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
   }),
   slowFileSuite(
     'e2e-ticket-semantic-vertical',
-    'semantic-runtime-contract',
+    'workspace/semantic-runtime-contract',
     'ticket-semantic-vertical',
     300_000
   ),
-  slowFileSuite('e2e-upgrade', 'upgrade', 'compiler-upgrade-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e', 900_000, {
+  slowFileSuite('e2e-upgrade', 'workspace/upgrade', 'compiler-upgrade-e2e', 180_000, { parallelSafe: true }),
+  slowFileSuite('e2e-verify-lock', 'cli/verification', 'compiler-verify-lock-e2e', 900_000, {
     parallelSafe: true,
     prRiskBaseline: true
   }),
-  slowFileSuite('e2e-windows-appcontainer-executor', 'windows-appcontainer-executor', 'windows-appcontainer-native-e2e', 180_000, {
-    resourceClass: 'runtime-heavy'
-  }),
-  slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
+  slowFileSuite('e2e-workspace', 'cli/workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
 ]);
 
 // This index derives only from the immutable definitions above. Its maps never
@@ -376,7 +370,7 @@ const NO_SLOW_TEST_SUITES: readonly string[] = Object.freeze([]);
 // The genuine issuer retains the loaded clean source and pinned Linux Bun.
 // A host match does not issue an origin or replace any of those checks.
 const fastTestHostRequirementDefinitions: readonly TestFileHostRequirement[] = deepFreeze([
-  { file: 'tests/unit/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
+  { file: 'tests/unit/verification/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
 ]);
 
 

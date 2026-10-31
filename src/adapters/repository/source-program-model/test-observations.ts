@@ -80,6 +80,24 @@ interface SourceProgramTestAssertionObservation {
   readonly productionPathLayoutTarget: string | null;
 }
 
+/** Potential cases only if registration is reached and its inputs construct successfully.
+ * This is not runner discovery, execution, or a proof that a test is necessary.
+ */
+export type SourceProgramTestPotentialExpansion = Readonly<{
+  status: 'known';
+  count: number;
+}> | Readonly<{
+  status: 'unknown';
+  reason: 'registration-source-unresolved'
+    | 'registration-context-unresolved'
+    | 'registration-condition-unresolved'
+    | 'registration-table-unresolved';
+}>;
+
+type TestPotentialExpansionUnknownReason = Extract<
+  SourceProgramTestPotentialExpansion, { status: 'unknown' }
+>['reason'];
+
 interface SourceProgramTestRegistrationObservation {
   readonly path: string;
   readonly index: number;
@@ -87,6 +105,7 @@ interface SourceProgramTestRegistrationObservation {
   readonly title: string | null;
   readonly span: SourceProgramSpan;
   readonly registrationContentDigest: string;
+  readonly potentialExpansion: SourceProgramTestPotentialExpansion;
   readonly assertions: readonly SourceProgramTestAssertionObservation[];
   readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
@@ -213,6 +232,7 @@ export function sourceProgramTestObservationsForFiles(
 }
 
 type ImportedBinding = Readonly<{
+  typeOnly?: boolean;
   moduleSpecifier: string;
   targetPath: string | null;
   targetName: string;
@@ -276,7 +296,8 @@ function importBindings(
       bindings.set(clause.name.text, Object.freeze({
         moduleSpecifier,
         targetPath,
-        targetName: 'default'
+        targetName: 'default',
+        typeOnly: clause.isTypeOnly
       }));
     }
     if (clause.namedBindings === undefined) continue;
@@ -284,7 +305,8 @@ function importBindings(
       bindings.set(clause.namedBindings.name.text, Object.freeze({
         moduleSpecifier,
         targetPath,
-        targetName: '*'
+        targetName: '*',
+        typeOnly: clause.isTypeOnly
       }));
       continue;
     }
@@ -292,7 +314,8 @@ function importBindings(
       bindings.set(element.name.text, Object.freeze({
         moduleSpecifier,
         targetPath,
-        targetName: (element.propertyName ?? element.name).text
+        targetName: (element.propertyName ?? element.name).text,
+        typeOnly: clause.isTypeOnly || element.isTypeOnly
       }));
     }
   }
@@ -355,11 +378,12 @@ function operationRoleProvenance(
 function callReferenceForExpression(
   sourceFile: ts.SourceFile,
   repositoryPath: string,
-  expression: ts.LeftHandSideExpression,
+  expression: ts.Identifier | ts.PropertyAccessExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>
 ): SourceProgramReference | null {
-  const start = expression.getStart(sourceFile, false);
-  const end = expression.getEnd();
+  const callee = ts.isPropertyAccessExpression(expression) ? expression.name : expression;
+  const start = callee.getStart(sourceFile, false);
+  const end = callee.getEnd();
   const references = callReferencesByPath.get(repositoryPath) ?? [];
   let lower = 0;
   let upper = references.length;
@@ -371,8 +395,8 @@ function callReferenceForExpression(
   let candidate: SourceProgramReference | null = null;
   for (let index = lower; index < references.length; index += 1) {
     const reference = references[index]!;
-    if (reference.span.start > end) break;
-    if (reference.span.end > end) continue;
+    if (reference.span.start > start) break;
+    if (reference.span.end !== end) continue;
     if (candidate !== null) return null;
     candidate = reference;
   }
@@ -418,16 +442,21 @@ function callReferenceIndex(
 }
 
 function compilerRegistrationKind(
+  model: SourceProgramModel,
+  bindings: ReadonlyMap<string, ImportedBinding>,
   sourceFile: ts.SourceFile,
   repositoryPath: string,
   node: ts.CallExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
-  moduleMembership: RepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership,
+  operation: SourceProgramCompilationOperation
 ): string | null {
-  const direct = testRegistrationKind(node.expression);
-  if (direct !== null) return direct;
+  const direct = testRegistrar(node.expression, model, repositoryPath, bindings, operation);
+  if (direct?.state === 'registrar') return direct.kind;
   return compilerRegistrationProvenance(
+    model,
+    bindings,
     sourceFile,
     repositoryPath,
     node,
@@ -438,6 +467,8 @@ function compilerRegistrationKind(
 }
 
 function compilerRegistrationProvenance(
+  model: SourceProgramModel,
+  bindings: ReadonlyMap<string, ImportedBinding>,
   sourceFile: ts.SourceFile,
   repositoryPath: string,
   node: ts.CallExpression,
@@ -445,11 +476,22 @@ function compilerRegistrationProvenance(
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
   moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
-  if (testRegistrationKind(node.expression) !== null) return Object.freeze([]);
+  const expression = unwrap(node.expression);
+  if (!ts.isIdentifier(expression) && !ts.isPropertyAccessExpression(expression)) return Object.freeze([]);
+  let root: ts.Expression = expression;
+  while (ts.isPropertyAccessExpression(root)) root = unwrap(root.expression);
+  // A call on an issuer's return value is not a call to that issuer. Resolve
+  // only this callee's compiler reference, never a nested call in its receiver.
+  if (!ts.isIdentifier(root)) return Object.freeze([]);
+  const binding = bindings.get(root.text);
+  if (binding !== undefined && (binding.typeOnly === true
+      || !sourceProgramTypeScriptIdentifierResolvesToImport(
+        model, repositoryPath, root, binding.moduleSpecifier, binding.targetName
+      ))) return Object.freeze([]);
   const call = callReferenceForExpression(
     sourceFile,
     repositoryPath,
-    node.expression,
+    expression,
     callReferencesByPath
   );
   if (call?.targetObservationId === null || call === null) return Object.freeze([]);
@@ -699,20 +741,186 @@ function callIdentity(expression: ts.LeftHandSideExpression): string | null {
   return null;
 }
 
-function testRegistrationKind(expression: ts.LeftHandSideExpression): string | null {
-  const identity = callIdentity(expression);
-  if (identity === null) return null;
-  const root = identity.split('.')[0];
-  if (root !== 'test' && root !== 'it') return null;
-  // Bun/Jest/Vitest conditional, table and fixture APIs return a registrar;
-  // their factory invocation is not a case. The outer call supplies the case.
-  // Vitest scoped/override configure fixtures and never register a case.
-  const member = ts.isPropertyAccessExpression(expression) ? expression.name.text : null;
-  if (member === 'scoped' || member === 'override') return null;
-  if (member !== null && [
-    'if', 'skipIf', 'todoIf', 'runIf', 'each', 'for', 'extend'
-  ].includes(member)) return null;
-  return identity;
+type TestRegistrar = Readonly<{
+  kind: string;
+  state: 'registrar' | 'factory' | 'namespace';
+  moduleSpecifier: string;
+  factory?: 'table' | 'condition' | 'other';
+  table?: ts.Expression;
+  expansionUnknown?: TestPotentialExpansionUnknownReason;
+}>;
+
+/** Resolve registration sources, not names or the number of runner-expanded cases. */
+function testRegistrar(
+  expression: ts.Expression,
+  model: SourceProgramModel,
+  repositoryPath: string,
+  bindings: ReadonlyMap<string, ImportedBinding>,
+  operation: SourceProgramCompilationOperation,
+  resolving: ReadonlySet<ts.Node> = new Set()
+): TestRegistrar | null {
+  checkpoint(operation);
+  const current = unwrap(expression);
+  if (resolving.has(current)) return null;
+  const next = new Set([...resolving, current]);
+  const resolve = (value: ts.Expression): TestRegistrar | null =>
+    testRegistrar(value, model, repositoryPath, bindings, operation, next);
+  if (ts.isSatisfiesExpression(current) || ts.isExpressionWithTypeArguments(current)) {
+    return resolve(current.expression);
+  }
+  if (ts.isIdentifier(current)) {
+    const binding = bindings.get(current.text);
+    if (binding !== undefined
+        && binding.typeOnly !== true
+        && ['bun:test', 'node:test', 'vitest', '@jest/globals'].includes(binding.moduleSpecifier)
+        && sourceProgramTypeScriptIdentifierResolvesToImport(
+          model, repositoryPath, current, binding.moduleSpecifier, binding.targetName
+        )) {
+      const moduleSpecifier = binding.moduleSpecifier;
+      if (binding.targetName === '*') return { kind: '', state: 'namespace', moduleSpecifier };
+      if (binding.targetName === 'test' || binding.targetName === 'it') {
+        return { kind: binding.targetName, state: 'registrar', moduleSpecifier };
+      }
+      if (binding.targetName === 'default' && moduleSpecifier === 'node:test') {
+        return { kind: 'test', state: 'registrar', moduleSpecifier };
+      }
+      return null;
+    }
+    const initializer = sourceProgramTypeScriptIdentifierInitializer(model, repositoryPath, current);
+    // A mutable alias is not proof of its value at this call site. Resolve only
+    // compiler-bound const declarations, never the file-wide name index.
+    if (initializer === null || !ts.isVariableDeclaration(initializer.parent)
+        || !ts.isVariableDeclarationList(initializer.parent.parent)
+        || (initializer.parent.parent.flags & ts.NodeFlags.Const) === 0) return null;
+    const alias = resolve(initializer);
+    // Captured factory inputs may escape or mutate before use. Their earlier
+    // literal syntax is not an inline table at this registration site.
+    return alias !== null && (alias.table !== undefined || alias.state === 'factory')
+      ? { ...alias, expansionUnknown: alias.expansionUnknown ?? 'registration-table-unresolved' }
+      : alias;
+  }
+  if (ts.isPropertyAccessExpression(current)) {
+    const owner = resolve(current.expression);
+    if (owner === null) return null;
+    const member = current.name.text;
+    if (owner.state === 'namespace') {
+      return member === 'test' || member === 'it' ? { ...owner, kind: member, state: 'registrar' } : null;
+    }
+    if (owner.state !== 'registrar') return null;
+    const kind = `${owner.kind}.${member}`;
+    if (['if', 'skipIf', 'todoIf', 'runIf', 'each', 'for', 'extend'].includes(member)) {
+      const factory = member === 'each' || member === 'for' ? 'table'
+        : member === 'extend' ? 'other' : 'condition';
+      const supportedTable = member === 'for' ? owner.moduleSpecifier === 'vitest'
+        : ['bun:test', 'vitest', '@jest/globals'].includes(owner.moduleSpecifier);
+      return { ...owner, kind, state: 'factory', factory,
+        ...(factory === 'table' && !supportedTable
+          ? { expansionUnknown: 'registration-source-unresolved' as const } : {}) };
+    }
+    return ['skip', 'only', 'todo', 'concurrent', 'sequential', 'serial', 'failing', 'fails'].includes(member)
+      ? { ...owner, kind, state: 'registrar',
+          ...(!['skip', 'only', 'todo'].includes(member)
+            ? { expansionUnknown: owner.expansionUnknown ?? 'registration-source-unresolved' } : {}) }
+      : null;
+  }
+  if (ts.isCallExpression(current)) {
+    const factory = resolve(current.expression);
+    if (factory?.state !== 'factory') return null;
+    if (factory.factory === 'table') {
+      const table = current.arguments[0];
+      return { ...factory, state: 'registrar', ...(table === undefined ? {} : { table }),
+        ...(factory.expansionUnknown === undefined
+            && (factory.table !== undefined || current.arguments.length !== 1)
+          ? { expansionUnknown: 'registration-table-unresolved' as const } : {}) };
+    }
+    return { ...factory, state: 'registrar', expansionUnknown: factory.expansionUnknown
+      ?? (factory.factory === 'condition' ? 'registration-condition-unresolved' : 'registration-source-unresolved') };
+  }
+  return null;
+}
+
+function literalTableInput(expression: ts.Expression, operation: SourceProgramCompilationOperation): boolean {
+  checkpoint(operation);
+  const current = unwrap(expression);
+  if (ts.isStringLiteralLike(current) || ts.isNumericLiteral(current) || ts.isBigIntLiteral(current)
+      || current.kind === ts.SyntaxKind.TrueKeyword || current.kind === ts.SyntaxKind.FalseKeyword
+      || current.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isPrefixUnaryExpression(current)
+      && (current.operator === ts.SyntaxKind.PlusToken || current.operator === ts.SyntaxKind.MinusToken)
+      && ts.isNumericLiteral(current.operand)) return true;
+  if (ts.isArrayLiteralExpression(current)) {
+    return current.elements.every(element => literalTableInput(element, operation));
+  }
+  if (ts.isObjectLiteralExpression(current)) {
+    return current.properties.every(property => {
+      checkpoint(operation);
+      return ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name)
+        && literalTableInput(property.initializer, operation);
+    });
+  }
+  return false;
+}
+
+function nativeDescribeCallback(
+  callback: ts.ArrowFunction | ts.FunctionExpression,
+  model: SourceProgramModel,
+  repositoryPath: string,
+  bindings: ReadonlyMap<string, ImportedBinding>
+): ts.CallExpression | null {
+  const call = callback.parent;
+  if (!ts.isCallExpression(call) || call.arguments.length !== 2 || call.arguments[1] !== callback
+      || ts.isArrowFunction(call.arguments[0]!) || ts.isFunctionExpression(call.arguments[0]!)
+      || callback.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)
+      || (ts.isFunctionExpression(callback)
+        && (callback.asteriskToken !== undefined || callback.name !== undefined))) return null;
+  const callee = unwrap(call.expression);
+  const root = ts.isIdentifier(callee) ? callee
+    : ts.isPropertyAccessExpression(callee) && callee.name.text === 'describe'
+        && ts.isIdentifier(callee.expression) ? callee.expression : null;
+  if (root === null) return null;
+  const binding = bindings.get(root.text);
+  if (binding === undefined || binding.typeOnly === true
+      || !['bun:test', 'node:test', 'vitest', '@jest/globals'].includes(binding.moduleSpecifier)
+      || binding.targetName !== (ts.isIdentifier(callee) ? 'describe' : '*')
+      || !sourceProgramTypeScriptIdentifierResolvesToImport(
+        model, repositoryPath, root, binding.moduleSpecifier, binding.targetName
+      )) return null;
+  return call;
+}
+
+function registrationPotentialExpansion(
+  registration: ts.CallExpression,
+  model: SourceProgramModel,
+  repositoryPath: string,
+  bindings: ReadonlyMap<string, ImportedBinding>,
+  operation: SourceProgramCompilationOperation
+): SourceProgramTestPotentialExpansion {
+  const unknown = (reason: TestPotentialExpansionUnknownReason): SourceProgramTestPotentialExpansion =>
+    Object.freeze({ status: 'unknown', reason });
+  // Only module statements and proven ordinary native describe callbacks have
+  // a single lexical registration context. Do not multiply loops or callbacks.
+  let ancestor: ts.Node | undefined = registration.parent;
+  while (ancestor !== undefined && !ts.isSourceFile(ancestor)) {
+    checkpoint(operation);
+    if (ts.isArrowFunction(ancestor) || ts.isFunctionExpression(ancestor)) {
+      const describe = nativeDescribeCallback(ancestor, model, repositoryPath, bindings);
+      if (describe === null) return unknown('registration-context-unresolved');
+      ancestor = describe.parent;
+      continue;
+    }
+    if (!ts.isExpressionStatement(ancestor) && !ts.isBlock(ancestor)
+        && !ts.isParenthesizedExpression(ancestor)) return unknown('registration-context-unresolved');
+    ancestor = ancestor.parent;
+  }
+  const registrar = testRegistrar(registration.expression, model, repositoryPath, bindings, operation);
+  if (registrar === null || registrar.state !== 'registrar') return unknown('registration-source-unresolved');
+  if (registrar.expansionUnknown !== undefined) return unknown(registrar.expansionUnknown);
+  if (registrar.table === undefined) return Object.freeze({ status: 'known', count: 1 });
+  const table = unwrap(registrar.table);
+  if (!ts.isArrayLiteralExpression(table) || !literalTableInput(table, operation)) {
+    return unknown('registration-table-unresolved');
+  }
+  return Object.freeze({ status: 'known', count: table.elements.length });
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -1760,12 +1968,15 @@ function compileSourceProgramTestObservationsInternal(
       }
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
         if (ts.isCallExpression(node) && compilerRegistrationKind(
+          input.productionModel,
+          bindings,
           sourceFile,
           file.path,
           node,
           callReferencesByPath,
           declarationsByObservation,
-          input.moduleMembership
+          input.moduleMembership,
+          input.operation
         ) !== null) {
           registrationNodes.push(node);
         }
@@ -2012,12 +2223,15 @@ function compileSourceProgramTestObservationsInternal(
     registrationNodes.forEach((registration, index) => {
       checkpoint(input.operation);
       const kind = compilerRegistrationKind(
+        input.productionModel,
+        bindings,
         sourceFile,
         file.path,
         registration,
         callReferencesByPath,
         declarationsByObservation,
-        input.moduleMembership
+        input.moduleMembership,
+        input.operation
       )!;
       const titleExpression = registration.arguments[0];
       const title = titleExpression === undefined
@@ -2136,6 +2350,8 @@ function compileSourceProgramTestObservationsInternal(
         .map(({ observationId }) => observationId)
         .sort(compareCodeUnits));
       const registrationProvenance = compilerRegistrationProvenance(
+        input.productionModel,
+        bindings,
         sourceFile,
         file.path,
         registration,
@@ -2186,6 +2402,9 @@ function compileSourceProgramTestObservationsInternal(
         title,
         span: registrationSpan,
         registrationContentDigest: rawSha256(file.source.slice(registrationStart, registrationEnd)),
+        potentialExpansion: registrationPotentialExpansion(
+          registration, input.productionModel, file.path, bindings, input.operation
+        ),
         assertions: assertionObservations,
         semanticClasses,
         observedProductionPaths,

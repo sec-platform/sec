@@ -1,0 +1,117 @@
+import { expect, test } from 'bun:test';
+import { agentPlanningContext } from '../../helpers/agent-planning-input.ts';
+
+import {
+  compileTaskCapsule,
+  TASK_CAPSULE_INPUT_SCHEMA,
+  type AgentContentDigest,
+  type TaskCapsuleInput,
+  type TaskCapsulePlanningContext
+} from '../../../src/adapters/self-hosting/control/agent/task-capsule.ts';
+
+const digest = (character: string): AgentContentDigest => `sha256:${character.repeat(64)}`;
+
+function planningContext(): TaskCapsulePlanningContext {
+  return agentPlanningContext({
+    operationId: 'work-package-task-capsule-compiler-v1',
+    goalDigest: digest('a'),
+    trustedRevision: '8ba2bf1fb39351124187130d60fa971e4802155a',
+    targetCandidate: '375a3f95c4a949dcd418823e61b9488e4b4c4786',
+    workPackageProposalDigest: digest('b'),
+    workPackageProjectionId: digest('c'),
+    ownerFacts: [
+      {
+        id: 'task-capsule-owner',
+        ref: 'docs/开发/AI协作/规则装载与任务恢复.md',
+        owner: 'development-governance-owner',
+        revision: 'owner-v1'
+      },
+      {
+        id: 'work-package-owner',
+        ref: 'config/repository/work-packages/task-capsule-compiler-v1.md',
+        owner: 'development-governance-owner',
+        revision: digest('b')
+      }
+    ],
+    scopeProposal: {
+      readPaths: ['docs/', 'src/adapters/self-hosting/control/agent/'],
+      writePaths: ['src/adapters/self-hosting/control/agent/'],
+      forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
+      authorizedResources: [],
+      authorizedGates: [],
+      changedPaths: [
+        'src/adapters/self-hosting/control/agent/task-capsule-host.ts',
+        'src/adapters/self-hosting/control/agent/task-capsule.ts'
+      ]
+    },
+    verificationObligations: [{
+      id: 'task-capsule-focused',
+      revision: 'v1',
+      reasonCode: 'public-contract-change'
+    }]
+  });
+}
+
+function input(overrides: Partial<TaskCapsuleInput> = {}): TaskCapsuleInput {
+  return {
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
+    ref: 'urn:sec:task-capsule:work-package/task-capsule-compiler-v1',
+    planningContext: planningContext(),
+    ...overrides
+  };
+}
+
+test('Task Capsule rejects caller state, write-forbidden overlap and changed-path escape', () => {
+  const source = planningContext();
+  expect(() => compileTaskCapsule({
+    ...input(),
+    currentState: 'candidate'
+  })).toThrow(/keys must be exact/u);
+  expect(() => compileTaskCapsule(input({
+    planningContext: {
+      ...source,
+      scopeProposal: {
+        ...source.scopeProposal,
+        writePaths: ['scripts/'],
+        forbiddenPaths: ['scripts/codex/protected.ts'],
+        changedPaths: []
+      }
+    }
+  }))).toThrow(/overlaps forbidden/u);
+
+  expect(() => compileTaskCapsule(input({
+    planningContext: {
+      ...source,
+      scopeProposal: {
+        ...source.scopeProposal,
+        writePaths: ['docs/'],
+        changedPaths: ['src/adapters/self-hosting/control/agent/task-capsule.ts']
+      }
+    }
+  }))).toThrow(/outside every proposed write path/u);
+});
+
+test('Task Capsule requires exact Git and Work Package identities plus a real owner fact', () => {
+  const source = planningContext();
+  expect(() => compileTaskCapsule(input({
+    planningContext: { ...source, trustedRevision: 'main' }
+  }))).toThrow(/exact lowercase Git object ID/u);
+  expect(() => compileTaskCapsule(input({
+    planningContext: { ...source, workPackageProjectionId: 'freeze-latest' as AgentContentDigest }
+  }))).toThrow(/lowercase SHA-256 digest/u);
+  expect(() => compileTaskCapsule(input({
+    planningContext: { ...source, ownerFacts: [] }
+  }))).toThrow(/at least one canonical owner/u);
+  expect(() => compileTaskCapsule(input({
+    planningContext: {
+      ...source,
+      workPackageProposalRef: '../outside.md'
+    }
+  }))).toThrow(/canonical repository path/u);
+  expect(() => compileTaskCapsule(input({
+    planningContext: {
+      ...source,
+      scopeGrantId: digest('d') as unknown as null
+    }
+  }))).toThrow(/scopeGrantId must remain null/u);
+});

@@ -103,17 +103,17 @@ export const DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS =
 
 const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
   {
-    file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+    file: 'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts',
     reason: 'durable-recovery-lifecycle'
   },
-  { file: 'tests/integration/semantic-pipeline-spine.test.ts', reason: 'full-workspace-compile' },
+  { file: 'tests/integration/workspace/semantic-pipeline-spine.test.ts', reason: 'full-workspace-compile' },
   {
-    file: 'tests/integration/semantic-projection-consumers.test.ts',
+    file: 'tests/integration/verification/semantic-projection-consumers.test.ts',
     reason: 'full-workspace-derived-consumers'
   },
-  { file: 'tests/integration/workspace-engineering-ir.test.ts', reason: 'full-workspace-ir-build' },
+  { file: 'tests/integration/workspace/workspace-engineering-ir.test.ts', reason: 'full-workspace-ir-build' },
   {
-    file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    file: 'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts',
     reason: 'production-host-and-runtime-lifecycle'
   }
 ] as const;
@@ -130,167 +130,182 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
-    file: 'tests/unit/formatter-publication-lifecycle.test.ts',
+    file: 'tests/unit/workspace/formatter-publication-lifecycle.test.ts',
     reason: 'process-global-mocks',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/contract/test-budget.test.ts',
+    file: 'tests/unit/toolchain/dependency-command-capture.test.ts',
+    reason: 'native-bun-cli-child-and-command-scope-capture',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification/verification-session-command-cwd.test.ts',
+    reason: 'platform-native-bun-child-and-retained-directory-fault-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/contract/cli/cli-usage-process.test.ts',
+    reason: 'native-bun-cli-process-and-actual-stream-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/contract/cli/usage.test.ts',
+    reason: 'native-bun-cli-process-and-retained-workspace-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/contract/cli/test-budget.test.ts',
     reason: 'repeated-repository-compilation-and-process-global-cli-context',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/contract/dependency-transition-migration.test.ts',
+    file: 'tests/contract/toolchain/dependency-transition-migration.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/contract/repository-audit.test.ts',
+    file: 'tests/contract/repository/repository-audit.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/pipeline-kernel.test.ts',
+    file: 'tests/integration/workspace/pipeline-kernel.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/compiler-dependency-generation.test.ts',
+    file: 'tests/integration/toolchain/compiler-dependency-generation.test.ts',
     reason: 'process-global-environment-and-isolated-physical-lifecycle',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/compiler-dependency-external.test.ts',
+    file: 'tests/integration/toolchain/compiler-dependency-external.test.ts',
     reason: 'process-global-environment-and-isolated-physical-lifecycle',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/compiler-dependency-recovery.test.ts',
+    file: 'tests/integration/toolchain/compiler-dependency-recovery.test.ts',
     reason: 'process-global-environment-and-isolated-physical-lifecycle',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/compiler-dependency-locks.test.ts',
+    file: 'tests/integration/toolchain/compiler-dependency-locks.test.ts',
     reason: 'process-global-environment-and-isolated-physical-lifecycle',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/pipeline-workspace-write-lease.test.ts',
+    file: 'tests/integration/workspace/pipeline-workspace-write-lease.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+    file: 'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/semantic-mutation-windows-rollback.test.ts',
+    file: 'tests/integration/workspace/semantic-mutation-windows-rollback.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/semantic-pipeline-spine.test.ts',
+    file: 'tests/integration/workspace/semantic-pipeline-spine.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/semantic-projection-consumers.test.ts',
+    file: 'tests/integration/verification/semantic-projection-consumers.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/semantic-projections.test.ts',
+    file: 'tests/integration/workspace/semantic-projections.test.ts',
     reason: 'shared-workspace',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/workspace-engineering-ir.test.ts',
+    file: 'tests/integration/workspace/workspace-engineering-ir.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/branch-lifecycle-temp-repo.test.ts',
+    file: 'tests/unit/development/branch-lifecycle-temp-repo.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/ci-orchestration-git-isolation.test.ts',
+    file: 'tests/unit/verification/ci-orchestration-git-isolation.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/verification-session-closeout-fixture.test.ts',
+    file: 'tests/unit/verification/verification-session-closeout-fixture.test.ts',
     reason: 'process-global-environment-and-synthetic-closeout-processes',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/ci-verification-execution.test.ts',
+    file: 'tests/unit/verification/ci-verification-execution.test.ts',
     reason: 'copied-tcb-cli-and-child-process-recovery',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/project-overview.test.ts',
+    file: 'tests/unit/cli/project-overview.test.ts',
     reason: 'workspace-overview',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/exact-git-blob.test.ts',
+    file: 'tests/unit/providers/exact-git-blob.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/manifest-cache-activation.test.ts',
+    file: 'tests/unit/workspace/manifest-cache-activation.test.ts',
     reason: 'module-global-manifest-cache',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/work-selection-main-health.test.ts',
+    file: 'tests/unit/development/work-selection-main-health.test.ts',
     reason: 'production-child-process-and-runtime-state-lifecycle',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/physical-no-follow.test.ts',
+    file: 'tests/unit/runtime/physical-no-follow.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    file: 'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts',
     reason: 'module-global-runtime-cache-and-process-lifecycle',
     resourceClass: 'shared-host-runtime'
   },
   {
-    file: 'tests/unit/test-runner.test.ts',
+    file: 'tests/unit/verification/test-runner.test.ts',
     reason: 'process-global-mocks',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/command-runner.test.ts',
+    file: 'tests/unit/development/command-runner.test.ts',
     reason: 'process-global-mocks',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/verification-action-github-provider.test.ts',
+    file: 'tests/unit/verification/verification-action-github-provider.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/verification-action-runner.test.ts',
+    file: 'tests/unit/verification/verification-action-runner.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/windows-appcontainer-executor.test.ts',
+    file: 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts',
     reason: 'production-host-and-runtime-lifecycle',
     resourceClass: 'shared-host-runtime'
   },
   {
-    file: 'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts',
-    reason: 'production-host-and-runtime-lifecycle',
-    resourceClass: 'shared-host-runtime'
-  },
-  {
-    file: 'tests/unit/workspace-write-lease.test.ts',
+    file: 'tests/unit/workspace/workspace-write-lease.test.ts',
     reason: 'workspace-lease-process-state',
     resourceClass: 'independent-process'
   },
@@ -335,72 +350,127 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/dev-command-input.test.ts',
+    file: 'tests/unit/development/dev-command-input.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/exact-ref-batch-retirement.test.ts',
+    file: 'tests/unit/development/exact-ref-batch-retirement.test.ts',
     reason: 'process-global-historical-provider-session-mock',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/github-api-credential.test.ts',
+    file: 'tests/unit/providers/github-api-credential.test.ts',
     reason: 'process-global-environment-and-child-process',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/github-api-ruleset-auditor.test.ts',
+    file: 'tests/unit/providers/github-api-ruleset-auditor.test.ts',
     reason: 'process-global-environment-and-fetch',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/github-api-verification.test.ts',
+    file: 'tests/unit/providers/github-api-verification.test.ts',
     reason: 'process-global-environment-fetch-and-synthetic-credential-process',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/local-github-actions-runner-lifecycle.test.ts',
+    file: 'tests/unit/providers/local-github-actions-runner-lifecycle.test.ts',
     reason: 'process-global-provider-and-durable-state-mocks',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/local-github-actions-runner.test.ts',
+    file: 'tests/unit/providers/local-github-actions-runner.test.ts',
     reason: 'process-global-environment-and-child-process',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/template-validation-lifecycle.test.ts',
+    file: 'tests/unit/workspace/template-validation-lifecycle.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/git-read-borrowed-lifecycle.test.ts',
+    file: 'tests/unit/providers/git-read-borrowed-lifecycle.test.ts',
     reason: 'native-git-process-session-and-retained-host-state',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/install-git-hooks.test.ts',
+    file: 'tests/unit/development/install-git-hooks.test.ts',
     reason: 'native-hook-children-and-git-process-state',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/project-baseline-phase.test.ts',
+    file: 'tests/unit/development/import-organizer-selection.test.ts',
+    reason: 'native-git-index-fixture-and-typescript-language-service',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/development/import-organizer-staged.test.ts',
+    reason: 'native-git-index-and-staged-publication-recovery-fixtures',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/workspace/runtime-scaffold-publication.test.ts',
+    reason: 'process-global-template-renderer-and-cwd-during-publication',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/workspace/workspace-copy-lifecycle.test.ts',
+    reason: 'process-global-cwd-and-filesystem-monkeypatches-during-copy',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/workspace/workspace-root-capture.test.ts',
+    reason: 'process-global-cwd-during-multi-workspace-async-capture',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-environment-observation.test.ts',
+    reason: 'process-global-cwd-and-filesystem-observation-mocks',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-ledger-storage.test.ts',
+    reason: 'process-global-cwd-during-commit-fence',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-migration-boundaries.test.ts',
+    reason: 'process-global-cwd-during-legacy-migration-fence',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/toolchain/dependency-rollover-recovery.test.ts',
+    reason: 'process-global-cwd-during-native-recovery-fence',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/workspace/project-baseline-phase.test.ts',
     reason: 'physical-project-baseline-and-workspace-publication',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/project-provenance-fallback.test.ts',
+    file: 'tests/unit/workspace/project-provenance-fallback.test.ts',
     reason: 'physical-project-provenance-and-workspace-publication',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/project-write-boundary-fallback.test.ts',
-    reason: 'physical-project-write-boundary-and-workspace-publication',
+    file: 'tests/unit/verification/testkit-workspace-files.test.ts',
+    reason: 'process-global-cwd-capture-during-async-workspace-copy',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/verification-suite-process.test.ts',
+    file: 'tests/unit/verification/verification-suite-harness.test.ts',
+    reason: 'native-fast-suite-children-and-worker-failure-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification/verification-artifact-canonical-inventory.test.ts',
+    reason: 'process-global-cwd-during-asynchronous-artifact-publication',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification/verification-suite-process.test.ts',
     reason: 'process-global-environment-and-suite-child-lifecycle',
     resourceClass: 'independent-process'
   },

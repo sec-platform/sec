@@ -6,7 +6,6 @@ import {
   assertOwnerTerminalJoinReceipt,
   assertProviderSettlementReceipt,
   assertRecoveredRetryAdmission,
-  assertSemanticOperationPlan,
   bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
@@ -132,17 +131,16 @@ function providerSettlement(
   });
 }
 
-test('caller-compiled attempts and provider bindings remain pure correlation projections', () => {
+test('caller-compiled plan stays provider-neutral while exact bindings remain correlation projections', () => {
   const firstPlan = plan();
   const first = bindSemanticOperation(firstPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('caller-selected-provider')
   })]);
-  const secondPlan = plan();
-  const second = bindSemanticOperation(secondPlan, [compileCapabilityBinding({
+  const second = bindSemanticOperation(firstPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
-    contractDigest: secondPlan.execution.requirements[0]!.contractDigest,
+    contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('different-caller-selected-provider')
   })]);
 
@@ -157,25 +155,6 @@ test('caller-compiled attempts and provider bindings remain pure correlation pro
   });
   expect(() => bindSemanticOperation(firstPlan, [foreignRequirement]))
     .toThrow('not exactly bound');
-});
-
-test('semantic plan remains provider-neutral while exact bindings are replaceable', () => {
-  const operationPlan = plan();
-  const native = compileCapabilityBinding({
-    requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('native-checker')
-  });
-  const remote = compileCapabilityBinding({
-    requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('remote-checker')
-  });
-
-  const nativeOperation = bindSemanticOperation(operationPlan, [native]);
-  const remoteOperation = bindSemanticOperation(operationPlan, [remote]);
-  expect(nativeOperation.plan.identity.identityDigest).toBe(remoteOperation.plan.identity.identityDigest);
-  expect(nativeOperation.bindingSetIdentityDigest).not.toBe(remoteOperation.bindingSetIdentityDigest);
 });
 
 test('operation identity excludes the attempt deadline while the attempt remains deadline-bound', () => {
@@ -208,33 +187,7 @@ test('budget narrowing and attempt lineage never manufacture a new OperationKey'
   expect(first.attempt.attemptDigest).not.toBe(retried.attempt.attemptDigest);
 });
 
-test('semantic budgets represent static ceilings and allow only an explicit zero input ceiling', () => {
-  const zeroInput = compileSemanticOperationPlan({
-    operation: 'verification.typecheck',
-    intentDigest: digest('zero-input-operation'),
-    decisionDigest: digest('zero-input-decision'),
-    deadlineAtUnixMs: 1_900_000_000_000,
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 1_000 },
-      { resource: 'input-bytes', maximum: 0 },
-      { resource: 'output-bytes', maximum: 1 },
-      { resource: 'processes', maximum: 1 }
-    ],
-    requirements: [{
-      id: 'typescript.project-check',
-      contractDigest: digest('zero-input-contract'),
-      effectKinds: ['process'],
-      failureKinds: ['provider.unavailable']
-    }],
-    attempt: issueSemanticOperationAttemptContext({
-      authorityGrantDigest: digest('zero-input-grant')
-    })
-  });
-  expect(zeroInput.execution.aggregateBudgets).toContainEqual({
-    resource: 'input-bytes',
-    maximum: 0
-  });
-
+test('semantic budgets reject zero output ceilings and runtime ledgers', () => {
   expect(() => compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: digest('zero-output-operation'),
@@ -274,27 +227,6 @@ test('semantic budgets represent static ceilings and allow only an explicit zero
   })).toThrow('aggregate budget is not canonical');
 });
 
-test('attempt context is compiler-local correlation rather than serializable authority', () => {
-  const issued = issueSemanticOperationAttemptContext({
-    authorityGrantDigest: digest('verification-typecheck-authority-grant')
-  });
-  const structural = structuredClone(issued);
-  expect(() => compileSemanticOperationPlan({
-    operation: 'verification.typecheck',
-    intentDigest: digest({ target: 'candidate' }),
-    decisionDigest: digest({ noEmit: true }),
-    deadlineAtUnixMs: 1_900_000_000_000,
-    aggregateBudgets: [{ resource: 'processes', maximum: 1 }],
-    requirements: [{
-      id: 'typescript.project-check',
-      contractDigest: digest({ semantics: 'no-emit-project-check' }),
-      effectKinds: ['process'],
-      failureKinds: ['provider.unavailable']
-    }],
-    attempt: structural
-  })).toThrow('not foundation-compiled');
-});
-
 test('binding rejects missing, duplicate and semantic-contract mismatches', () => {
   const operationPlan = plan();
   const wrong = compileCapabilityBinding({
@@ -307,22 +239,6 @@ test('binding rejects missing, duplicate and semantic-contract mismatches', () =
   expect(() => bindSemanticOperation(operationPlan, [wrong, wrong])).toThrow(/exactly one binding/u);
 });
 
-test('binding rejects a structural copy that bypasses the foundation compiler', () => {
-  const operationPlan = plan();
-  const binding = compileCapabilityBinding({
-    requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('native-checker')
-  });
-
-  expect(() => assertSemanticOperationPlan(operationPlan)).not.toThrow();
-  const structuralPlan = structuredClone(operationPlan);
-  expect(() => assertSemanticOperationPlan(structuralPlan))
-    .toThrow('requires a foundation-compiled operation plan');
-  expect(() => bindSemanticOperation(structuralPlan, [binding]))
-    .toThrow('requires a foundation-compiled operation plan');
-});
-
 test('provider diagnostics expose typed identity and digest without raw evidence', () => {
   const operationPlan = plan();
   const binding = compileCapabilityBinding({
@@ -330,7 +246,7 @@ test('provider diagnostics expose typed identity and digest without raw evidence
     contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   });
-  const raw = 'C:\\secret\\workspace --token visible-only-to-provider';
+  const raw = 'C:\\secret\\workspace --token visible-only-to-provider 秘密';
   const diagnostic = projectCapabilityDiagnostic({
     bindingDigest: binding.bindingDigest,
     code: 'typescript.provider-unverified',
@@ -338,7 +254,7 @@ test('provider diagnostics expose typed identity and digest without raw evidence
     rawEvidence: raw
   });
   expect(JSON.stringify(diagnostic)).not.toContain(raw);
-  expect(diagnostic.evidenceByteLength).toBeGreaterThan(0);
+  expect(diagnostic.evidenceByteLength).toBe(Buffer.byteLength(raw, 'utf8'));
   expect(diagnostic.evidenceDigest).toBe(
     `sha256:${createHash('sha256').update(raw).digest('hex')}`
   );

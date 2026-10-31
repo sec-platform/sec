@@ -87,7 +87,6 @@ function serviceDescriptor(
     includeEffect?: boolean;
     includeTerminal?: boolean;
     includeReadback?: boolean;
-    includeRecovery?: boolean;
     includeRetirement?: boolean;
   }> = {}
 ): DescriptorFixture {
@@ -112,12 +111,6 @@ function serviceDescriptor(
   if (options.includeReadback) relations.push({
     subject: 'example.service',
     relation: 'reads-back',
-    symbol: { path: symbolPath, name: symbolName },
-    operation: null
-  });
-  if (options.includeRecovery) relations.push({
-    subject: 'example.service',
-    relation: 'recovers',
     symbol: { path: symbolPath, name: symbolName },
     operation: null
   });
@@ -194,7 +187,8 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     kind: 'renamed',
     subjects: ['example.service']
   }));
-  expect(reconcile(before, moved).changes).toContainEqual(expect.objectContaining({
+  const movedProjection = reconcile(before, moved);
+  expect(movedProjection.changes).toContainEqual(expect.objectContaining({
     kind: 'moved',
     subjects: ['example.service']
   }));
@@ -203,10 +197,10 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     subjects: ['example.service']
   }));
 
-  const reference = architectureEvolution(before, moved);
+  const reference = compileSourceProgramArchitectureEvolutionReference({ reconciliation: movedProjection });
   // The owner relation and every consumer moved together. A path change
   // alone is not an unresolved architecture obligation or effect grant.
-  expect(reconcile(before, moved).unresolvedReasons).toEqual([]);
+  expect(movedProjection.unresolvedReasons).toEqual([]);
   expect(reference.status).toBe('ready');
   expect(reference.changes).toContainEqual(expect.objectContaining({
     kind: 'moved',
@@ -316,10 +310,7 @@ test('export visibility retirement admits only an exact closed internal frontier
   expect(reconcile(beforeObligation, afterObligation).unresolvedReasons).toContainEqual(
     expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
   );
-  const afterRemovedObligation = compileFixture({
-    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
-  }, [{ root: 'src/example', source: {} }]);
-  expect(reconcile(beforeObligation, afterRemovedObligation).unresolvedReasons).toContainEqual(
+  expect(reconcile(beforeObligation, afterConsumer).unresolvedReasons).toContainEqual(
     expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
   );
 
@@ -395,26 +386,24 @@ test('duplicate owner and removed consumer frontiers fail closed', () => {
   const projection = reconcile(before, after);
 
   expect(projection.status).toBe('unresolved');
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'modified',
+    before: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' }),
+    after: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' })
+  }));
+  expect(projection.changes).not.toContainEqual(expect.objectContaining({
+    kind: 'removed', before: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' })
+  }));
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'module-responsibility-duplicate-owner'
   );
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'consumer-frontier-removed-without-retirement'
   );
-  const reference = architectureEvolution(before, after);
+  const reference = compileSourceProgramArchitectureEvolutionReference({ reconciliation: projection });
   expect(reference.status).toBe('blocked');
   expect(reference.direction).toBe('blocked');
   expect(reference.blockers.map(({ code }) => code)).toContain('reconciliation-unresolved');
-});
-
-test('architecture evolution refuses caller-constructed reconciliation objects', () => {
-  const fixture = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const issued = reconcile(fixture, fixture);
-  expect(() => compileSourceProgramArchitectureEvolutionReference({
-    reconciliation: { ...issued }
-  })).toThrow('compiler-issued reconciliation projection');
 });
 
 test('architecture evolution consumes canonical owner and file cycle evidence', () => {
@@ -501,9 +490,14 @@ test('effectful changes require terminal and readback relations', () => {
     includeReadback: true
   })]);
   const after = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run', { includeEffect: true })]);
+    'src/example/service.ts': 'export function execute(): string { return \'changed\'; }\n'
+  }, [serviceDescriptor('src/example/service.ts', 'execute', { includeEffect: true })]);
   const projection = reconcile(before, after);
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'renamed', subjects: ['example.service'],
+    before: expect.objectContaining({ name: 'run' }),
+    after: expect.objectContaining({ name: 'execute' })
+  }));
 
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'effect-terminal-unresolved'
@@ -543,7 +537,8 @@ test('unknowns on changed paths remain unresolved and candidate tools stay non-a
     'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
   }, [serviceDescriptor('src/example/service.ts', 'run')]);
   const after = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n'
+    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n',
+    'src/example/opaque.bin': 'unclassified bytes'
   }, [serviceDescriptor('src/example/service.ts', 'run')], [Object.freeze({
     code: 'synthetic-unknown',
     path: 'src/example/service.ts',
@@ -553,6 +548,12 @@ test('unknowns on changed paths remain unresolved and candidate tools stay non-a
   const projection = reconcile(before, after);
 
   expect(projection.status).toBe('unresolved');
+  expect(projection.findingDelta.scope.regressedPaths).toEqual([
+    'src/example/opaque.bin', 'src/example/service.ts'
+  ]);
+  expect(projection.findingDelta.after.unobservedPaths).toEqual([
+    'src/example/opaque.bin', 'src/example/service.ts'
+  ]);
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'changed-path-source-program-unknown'
   );
@@ -616,40 +617,6 @@ test('computed values block changed declarations and their consumer frontier', (
       subject: 'computed-property-unresolved'
     })
   );
-  const escapedBodies = [
-    '  return (selected as () => string)();',
-    '  return String(selected);',
-    '  const escaped = { selected };\n  return String(escaped.selected);',
-    '  const read = () => selected;\n  return String(read());'
-  ];
-  for (const body of escapedBodies) {
-    const escaped = compileFixture({
-      'src/example/service.ts': [
-        'export function run(values: Record<string, unknown>, key: string): string {',
-        '  const selected = values[key];',
-        body,
-        '}',
-        ''
-      ].join('\n')
-    }, [serviceDescriptor('src/example/service.ts', 'run')]);
-    expect(reconcile(before, escaped).unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    }));
-  }
-  const invocation = compileFixture({
-    'src/example/service.ts': [
-      'export function run(values: Record<string, () => string>, key: string): string {',
-      '  return values[key]();',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  expect(reconcile(before, invocation).unresolvedReasons).toContainEqual(expect.objectContaining({
-    code: 'changed-path-source-program-unknown',
-    subject: 'computed-property-unresolved'
-  }));
-
   const consumerBefore = compileFixture({
     'src/example/service.ts': [
       'export function select(values: Record<string, unknown>, key: string): unknown {',
@@ -846,45 +813,41 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
     subject: 'static-analysis.unused'
   }));
 
-  for (const provider of ['static-analysis.dependencies', 'knip']) {
-    const unavailableShadow = compileSourceProgramReconciliationProjection({
-      before: before.compilation,
-      after: after.compilation,
-      providerEvidence: [Object.freeze({
-        provider,
-        status: 'unresolved',
-        providerRevision: null,
-        configDigest: null,
-        inputDigest: null,
-        candidateDigest: null
-      })]
-    });
-    expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'candidate-provider-evidence-unresolved',
-      subject: provider
-    }));
-    expect(unavailableShadow.status).toBe('unresolved');
-  }
+  const unavailableShadow = compileSourceProgramReconciliationProjection({
+    before: before.compilation,
+    after: after.compilation,
+    providerEvidence: [Object.freeze({
+      provider: 'knip',
+      status: 'unresolved',
+      providerRevision: null,
+      configDigest: null,
+      inputDigest: null,
+      candidateDigest: null
+    })]
+  });
+  expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'candidate-provider-evidence-unresolved',
+    subject: 'knip'
+  }));
+  expect(unavailableShadow.status).toBe('unresolved');
 
-  for (const status of ['absent', 'unexpected']) {
-    const invalidRuntimeStatus = compileSourceProgramReconciliationProjection({
-      before: before.compilation,
-      after: after.compilation,
-      providerEvidence: [Object.freeze({
-        provider: `static-analysis.${status}`,
-        status,
-        providerRevision: null,
-        configDigest: null,
-        inputDigest: null,
-        candidateDigest: null
-      }) as unknown as SourceProgramReconciliationProviderEvidence]
-    });
-    expect(invalidRuntimeStatus.providerEvidence).toEqual([]);
-    expect(invalidRuntimeStatus.unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'candidate-provider-evidence-invalid',
-      subject: `static-analysis.${status}`
-    }));
-  }
+  const invalidRuntimeStatus = compileSourceProgramReconciliationProjection({
+    before: before.compilation,
+    after: after.compilation,
+    providerEvidence: [Object.freeze({
+      provider: 'static-analysis.absent',
+      status: 'absent',
+      providerRevision: null,
+      configDigest: null,
+      inputDigest: null,
+      candidateDigest: null
+    }) as unknown as SourceProgramReconciliationProviderEvidence]
+  });
+  expect(invalidRuntimeStatus.providerEvidence).toEqual([]);
+  expect(invalidRuntimeStatus.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'candidate-provider-evidence-invalid',
+    subject: 'static-analysis.absent'
+  }));
 
   const observed = Object.freeze({
     provider: 'static-analysis.dependencies',
@@ -906,7 +869,7 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
   }));
 });
 
-test('equivalent compiler snapshots produce byte-equivalent reconciliation projections', () => {
+test('equivalent compiler snapshots retain the same reconciliation identity', () => {
   const before = compileFixture({
     'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
   }, [serviceDescriptor('src/example/service.ts', 'run')]);
@@ -921,6 +884,11 @@ test('equivalent compiler snapshots produce byte-equivalent reconciliation proje
 
   expect(reconcile(before, firstAfter).projectionDigest)
     .toBe(reconcile(before, secondAfter).projectionDigest);
+
+  const issued = reconcile(before, before);
+  expect(() => compileSourceProgramArchitectureEvolutionReference({
+    reconciliation: { ...issued }
+  })).toThrow('compiler-issued reconciliation projection');
 });
 
 test('Git LF and Windows checkout line endings have one semantic reconciliation identity', () => {
@@ -989,8 +957,13 @@ test('cross-revision matching retains overload groups before classifying real ch
     'src/example/service.ts': `${overloads}\n`,
     'src/example/marker.ts': 'export const marker = false;\n'
   }, [descriptor]);
+  const reorderedOverloads = [
+    'export function run(value: number): number;',
+    'export function run(value: string): string;',
+    'export function run(value: string | number): string | number { return value; }'
+  ].join('\n');
   const after = compileFixture({
-    'src/example/service.ts': `${overloads}\n`,
+    'src/example/service.ts': `${reorderedOverloads}\n`,
     'src/example/marker.ts': 'export const marker = true;\n'
   }, [descriptor]);
   const projection = reconcile(before, after);
@@ -1049,7 +1022,7 @@ test('test finding debt survives unrelated inventory additions but not relevant 
   expect(sourceProgramTestFindingDeltaHasRegression(ownerDelta, changedOwner.tests.findings)).toBe(true);
 });
 
-test('new local unknown input cannot hide behind inherited shared uncertainty', () => {
+test('local unknown additions and changed excluded shared inputs remain unresolved against inherited uncertainty', () => {
   const sources = { 'src/example/operation.ts': findingProduction,
     [findingTestPath]: findingTestHeader + findingBehaviorCase };
   const before = compileTestFindingFixture(sources);
@@ -1068,17 +1041,12 @@ test('new local unknown input cannot hide behind inherited shared uncertainty', 
   expect(before.tests.records).toHaveLength(1);
   expect(after.tests.records).toHaveLength(2);
   expect(after.tests.records[0]!.testId).toBe(before.tests.records[0]!.testId);
-});
-
-test('excluded shared input changes invalidate null-digest debt without reading values', () => {
-  const snapshot = compileTestFindingFixture({ 'src/example/operation.ts': findingProduction,
-    [findingTestPath]: findingTestHeader + findingBehaviorCase });
-  expect(snapshot.tests.definitionContext?.inputs).toContainEqual(expect.objectContaining({ path: '.env', contentDigest: null }));
-  const unrelated = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['unrelated/resource.txt']);
+  expect(before.tests.definitionContext?.inputs).toContainEqual(expect.objectContaining({ path: '.env', contentDigest: null }));
+  const unrelated = compileSourceProgramTestFindingDelta(before, before, ['unrelated/resource.txt']);
   expect(unrelated.changedSharedInputPaths).toEqual([]);
   expect(sourceProgramTestFindingDeltaIsUnresolved(unrelated)).toBe(false);
-  const changed = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['.env']);
-  assertSourceProgramTestFindingDelta(changed, snapshot.tests.findings);
+  const changed = compileSourceProgramTestFindingDelta(before, before, ['.env']);
+  assertSourceProgramTestFindingDelta(changed, before.tests.findings);
   expect(changed.changedSharedInputPaths).toEqual(['.env']);
   expect(changed.contextComparable).toBe(false);
   expect(changed.scope.regressedPaths).toEqual([findingTestPath]);

@@ -132,6 +132,7 @@ export type SourceProgramSupersessionFindingCode =
   | 'required-production-behavior-missing'
   | 'required-resource-missing'
   | 'required-test-boundary-missing'
+  | 'test-introduction-decision-required'
   | 'replacement-ambiguous';
 
 export interface SourceProgramSupersessionFinding {

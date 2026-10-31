@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -29,9 +30,11 @@ function git(repositoryRoot: string, args: readonly string[]): string {
 
 test('observed local program edges continue through test helpers to runnable tests', () => {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-test-impact-observed-edge-'));
+  let primary: ResourceSettlementFailure | undefined;
   try {
     const sources = {
       'src/value.ts': 'export const value = 1;\n',
+      'src/read-only.ts': 'export const observed = 2;\n',
       'src/value.json': '{"value":1}\n',
       'tests/helpers/value-child.ts': "import '../../src/value.ts';\n",
       'tests/unit/tsconfig-excluded.test.ts': 'test("excluded from type project", () => {});\n',
@@ -41,6 +44,7 @@ test('observed local program edges continue through test helpers to runnable tes
         "import { readFileSync } from 'node:fs';",
         "import { readFileSync as unavailableSyncRead } from 'node:fs/promises';",
         "readFileSync('src/value.json', 'utf8');",
+        "readFileSync('src/read-only.ts', 'utf8');",
         "readFileSync('../outside.json', 'utf8');",
         "readFileSync('src/absent.json', 'utf8');",
         "unavailableSyncRead('src/value.json');",
@@ -50,7 +54,7 @@ test('observed local program edges continue through test helpers to runnable tes
         "spawnSync(process.execPath, ['tests/helpers/value-child.ts']);",
         ''
       ].join('\n'),
-      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"files":["src/value.ts","tests/helpers/value-child.ts","tests/unit/value.test.ts"]}\n'
+      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"files":["src/value.ts","src/read-only.ts","tests/helpers/value-child.ts","tests/unit/value.test.ts"]}\n'
     } as const;
     for (const [repositoryPath, source] of Object.entries(sources)) {
       const absolutePath = path.join(repositoryRoot, ...repositoryPath.split('/'));
@@ -74,44 +78,22 @@ test('observed local program edges continue through test helpers to runnable tes
       activeDocumentationPaths: []
     });
 
-    const capturedInputs = { projection: 0, testInventory: 0, affectedSource: 0, activeDocumentationPaths: 0 };
-    const captureOnceProvider = createRepositoryTestImpactSourceProvider({
-      get projection() {
-        capturedInputs.projection += 1;
-        if (capturedInputs.projection > 1) throw new Error('projection getter was read more than once');
-        return provider.projection;
-      },
-      get testInventory() {
-        capturedInputs.testInventory += 1;
-        if (capturedInputs.testInventory > 1) throw new Error('inventory getter was read more than once');
-        return provider.testInventory;
-      },
-      get affectedSource() {
-        capturedInputs.affectedSource += 1;
-        if (capturedInputs.affectedSource > 1) throw new Error('affected source getter was read more than once');
-        return undefined;
-      },
-      get activeDocumentationPaths() {
-        capturedInputs.activeDocumentationPaths += 1;
-        if (capturedInputs.activeDocumentationPaths > 1) throw new Error('documentation getter was read more than once');
-        return [];
-      }
-    });
-    expect(captureOnceProvider.projection).toBe(provider.projection);
-    expect(capturedInputs).toEqual({
-      projection: 1, testInventory: 1, affectedSource: 1, activeDocumentationPaths: 1
-    });
     expect(provider.testInventory.testFiles).toContain('tests/unit/tsconfig-excluded.test.ts');
 
     const selection = selectTestsForSources(['src/value.ts'], provider);
     expect(selection.fast).toEqual(['tests/unit/value.test.ts']);
-    expect(selection.fast).not.toContain('tests/helpers/value-child.ts');
-    expect(provider.projection.observedTestConsumers).toContainEqual({
-      targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts'
-    });
+    expect(provider.projection.observedTestConsumers).toEqual([
+      { targetPath: 'src/read-only.ts', testPath: 'tests/unit/value.test.ts' },
+      { targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts' },
+      { targetPath: 'tests/helpers/value-child.ts', testPath: 'tests/unit/value.test.ts' }
+    ]);
     expect(selectTestsForSources(['src/value.json'], provider).fast).toEqual(['tests/unit/value.test.ts']);
+    expect(selectTestsForSources(['src/read-only.ts'], provider).fast).toEqual(['tests/unit/value.test.ts']);
     expect(compilation.testObservations.resourceReads.map(({ target }) => target)).toEqual(['src/value.json']);
+  } catch (error) {
+    primary = { label: 'observed-edge assertions', error };
+    throw error;
   } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    settleResources({ primary, cleanup: [{ label: 'observed-edge root', settle: () => rmSync(repositoryRoot, { recursive: true, force: true }) }] });
   }
 });

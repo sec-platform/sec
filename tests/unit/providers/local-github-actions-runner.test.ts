@@ -1,0 +1,549 @@
+import { describe, expect, test } from 'bun:test';
+
+import {
+  createDockerEndpointIdentity,
+  type DockerEndpointIdentity
+} from '../../../src/adapters/providers/docker/contract/daemon.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../src/adapters/providers/linux-verification/contract.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
+import {
+  assertExactLocalGitHubActionsRunnerProfileContainers,
+  assertExactLocalGitHubActionsRunnerProfileInventory,
+  assertLocalGitHubActionsRunnerImageIdentity,
+  assertLocalGitHubActionsRunnerReplacementImageIdentity,
+  assertOwnedLocalGitHubActionsRunner,
+  assertRepositoryIdentityMatchesOrigin,
+  assertRepositoryIdentityMatchesRemoteUrls,
+  createLocalGitHubActionsRunnerBuildInputProjection,
+  createLocalGitHubActionsRunnerEnvironmentSpec,
+  createLocalGitHubActionsRunnerState,
+  LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
+  LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT,
+  parseLocalGitHubActionsRunnerState,
+  type GitHubEndpointIdentity,
+  type LocalGitHubActionsRunnerInstance,
+  type LocalGitHubActionsRunnerRole
+} from '../../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts';
+import { sha256 } from '../../../src/contracts/canonical.ts';
+
+const repository = 'sec-platform/sec';
+const providerName = 'sec-main-health-1';
+const operationLabel = `sec-operation-${'b'.repeat(64)}`;
+const roles = ['control', 'trusted', 'sut'] as const;
+const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+
+const dockerEndpoint: DockerEndpointIdentity = createDockerEndpointIdentity({
+  contextName: 'desktop-linux',
+  endpointHost: 'npipe:////./pipe/dockerDesktopLinuxEngine',
+  daemonId: '01234567-89ab-cdef-0123-456789abcdef',
+  osType: 'linux',
+  architecture: 'x86_64'
+});
+
+const githubEndpoint: GitHubEndpointIdentity = Object.freeze({
+  schema: 'sec-github-api-endpoint-identity-v1',
+  host: environment.provider.githubHost,
+  repository,
+  principal: 'maintainer'
+});
+
+const instances: readonly LocalGitHubActionsRunnerInstance[] = Object.freeze(
+  roles.map((role, index) => Object.freeze({
+    role,
+    roleLabel: environment.runtime.roleLabels[role],
+    name: `${providerName}-${role}`,
+    runnerId: 21 + index,
+    containerId: String.fromCharCode(97 + index).repeat(64),
+    containerName: `${providerName}-${role}`
+  }))
+);
+
+function runner(role: LocalGitHubActionsRunnerRole, overrides: Record<string, unknown> = {}) {
+  const instance = instances.find((candidate) => candidate.role === role)!;
+  return {
+    id: instance.runnerId,
+    name: instance.name,
+    os: 'Linux',
+    status: 'online',
+    busy: false,
+    labels: [
+      ...environment.runtime.labels,
+      environment.runtime.roleLabels[role],
+      operationLabel
+    ].map((name) => ({ name })),
+    ...overrides
+  };
+}
+
+function container(role: LocalGitHubActionsRunnerRole, overrides: Record<string, unknown> = {}) {
+  const instance = instances.find((candidate) => candidate.role === role)!;
+  const isSut = role === 'sut';
+  const resources = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.resources[role];
+  return {
+    Id: instance.containerId,
+    Name: `/${instance.name}`,
+    Image: environment.image.dockerProjectionDigest,
+    Config: {
+      Entrypoint: ['/bin/bash'],
+      Cmd: ['-ceu', LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT],
+      Labels: {
+        'sec.local-runner.schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
+        'sec.local-runner.repository': repository,
+        'sec.local-runner.provider-name': providerName,
+        'sec.local-runner.instance-name': instance.name,
+        'sec.local-runner.role': role,
+        'sec.local-runner.container-init': environment.runtime.containerInitCapability,
+        'sec.local-runner.image-id': environment.image.dockerProjectionDigest,
+        'sec.local-runner.operation-label': operationLabel
+      }
+    },
+    HostConfig: {
+      RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
+      Init: true,
+      CapAdd: isSut
+        ? CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outerSutContainerCapabilities
+          .map((capability) => `CAP_${capability}`)
+        : [],
+      CapDrop: ['ALL'],
+      SecurityOpt: ['no-new-privileges:true'],
+      Privileged: false,
+      Binds: null,
+      PidsLimit: resources.pids,
+      Memory: resources.memoryGiB * 1024 * 1024 * 1024,
+      NanoCpus: resources.cpus * 1_000_000_000
+    },
+    State: { Running: true },
+    ...overrides
+  };
+}
+
+describe('local GitHub Actions runner contract', () => {
+  test('retained runner images and materialization identities preserve their historical authority', () => {
+    const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+    const retiredImage = authority.image.retirements.find(({ imageTag }) =>
+      imageTag.endsWith('-archive-v7'));
+    expect(retiredImage).toBeDefined();
+    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentity(
+      { Id: retiredImage!.imageId },
+      retiredImage!.imageId
+    )).not.toThrow();
+    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentity(
+      { Id: authority.image.dockerProjectionDigest },
+      retiredImage!.imageId
+    )).toThrow('superseding frozen image identity differs from its decision');
+
+    const environmentSpec = createLocalGitHubActionsRunnerEnvironmentSpec();
+    expect(environmentSpec).not.toHaveProperty('command');
+    expect(environmentSpec).not.toHaveProperty('buildx');
+    expect(environmentSpec.specDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(environmentSpec.providerRequirement)
+      .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.provider.requirement);
+    expect(environmentSpec.components.map(({ id }) => id)).toEqual([
+      'authority-input-closure', 'base-image', 'bootstrap-ca-bundle', 'dockerfile-frontend',
+      'github-cli', 'node', 'runner', 'runner-build-input-closure'
+    ]);
+
+    const buildInputProjection = createLocalGitHubActionsRunnerBuildInputProjection();
+    expect(JSON.stringify(buildInputProjection)).toContain('<candidate-layout>');
+    expect(JSON.stringify(buildInputProjection)).toContain('<layout>');
+    expect(JSON.stringify(buildInputProjection)).toContain(
+      authority.image.runtimeContentDigest
+    );
+    const frozenImage = {
+      Id: authority.image.dockerProjectionDigest,
+      Config: { Labels: {
+        'sec.local-runner.image-schema': authority.image.lineageSchema,
+        'sec.local-runner.image-revision': authority.image.buildRevision,
+        'sec.local-runner.runner-version': authority.archives.runner.version,
+        'sec.local-runner.node-version': authority.archives.node.version,
+        'sec.local-runner.node-archive-sha256': authority.archives.node.digest.slice(7),
+        'sec.local-runner.github-cli-version': authority.archives.githubCli.version,
+        'sec.local-runner.github-cli-archive-sha256':
+          authority.archives.githubCli.digest.slice(7),
+        'sec.local-runner.python-version': authority.runtime.pythonVersion,
+        'sec.local-runner.ubuntu-snapshot': authority.ubuntu.snapshot,
+        'sec.local-runner.bootstrap-ca-bundle-sha256':
+          authority.archives.bootstrapCa.digest.slice(7),
+        'sec.local-runner.dockerfile-frontend': authority.provider.dockerfileFrontend.reference
+      } }
+    } as const;
+    expect(() => assertLocalGitHubActionsRunnerImageIdentity(frozenImage)).not.toThrow();
+    expect(() => assertLocalGitHubActionsRunnerImageIdentity({
+      ...frozenImage,
+      Config: { Labels: {
+        ...frozenImage.Config.Labels,
+        'sec.local-runner.image-schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
+      } }
+    })).toThrow('cached runner image labels differ from the frozen provider revision');
+    expect(() => assertLocalGitHubActionsRunnerImageIdentity({
+      ...frozenImage,
+      Id: 'sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+    })).toThrow('cached runner image ID differs from the frozen provider revision');
+    for (const [label, value] of [
+      ['sec.local-runner.github-cli-version', '2.96.0'],
+      ['sec.local-runner.github-cli-archive-sha256', 'f'.repeat(64)]
+    ] as const) {
+      expect(() => assertLocalGitHubActionsRunnerImageIdentity({
+        ...frozenImage,
+        Config: { Labels: { ...frozenImage.Config.Labels, [label]: value } }
+      })).toThrow('cached runner image labels differ from the frozen provider revision');
+    }
+    for (const label of [
+      'sec.local-runner.image-revision',
+      'sec.local-runner.runner-version',
+      'sec.local-runner.node-version',
+      'sec.local-runner.node-archive-sha256',
+      'sec.local-runner.github-cli-version',
+      'sec.local-runner.github-cli-archive-sha256',
+      'sec.local-runner.python-version',
+      'sec.local-runner.ubuntu-snapshot',
+      'sec.local-runner.bootstrap-ca-bundle-sha256',
+      'sec.local-runner.dockerfile-frontend'
+    ] as const) {
+      const labels = { ...frozenImage.Config.Labels } as Record<string, string>;
+      delete labels[label];
+      expect(() => assertLocalGitHubActionsRunnerImageIdentity({
+        ...frozenImage,
+        Config: { Labels: labels }
+      })).toThrow('cached runner image labels differ from the frozen provider revision');
+    }
+  });
+
+  test('local durable state owns lifecycle and retains every destructive identity', () => {
+    const provisioning = createLocalGitHubActionsRunnerState({
+      repository,
+      repositoryRoot: 'D:/Project/sec',
+      commonDirectory: 'D:/Project/sec/.git',
+      providerName,
+      operationLabel,
+      lifecycle: 'provisioning',
+      resources: { cpus: 8, memory: '12g' },
+      dockerEndpoint,
+      githubEndpoint,
+      instances: roles.map((role) => ({
+        role,
+        roleLabel: environment.runtime.roleLabels[role],
+        name: `${providerName}-${role}`,
+        containerId: null,
+        containerState: 'uncreated' as const,
+        runnerId: null,
+        runnerState: 'uncreated' as const
+      })),
+      startedAt: '2026-08-14T08:00:00.000Z'
+    });
+    expect(parseLocalGitHubActionsRunnerState(JSON.stringify(provisioning))).toEqual(provisioning);
+    const state = createLocalGitHubActionsRunnerState({
+      repository,
+      repositoryRoot: 'D:/Project/sec',
+      commonDirectory: 'D:/Project/sec/.git',
+      providerName,
+      operationLabel,
+      lifecycle: 'active',
+      resources: { cpus: 8, memory: '12g' },
+      dockerEndpoint,
+      githubEndpoint,
+      instances: instances.map((instance) => ({
+        role: instance.role,
+        roleLabel: instance.roleLabel,
+        name: instance.name,
+        containerId: instance.containerId,
+        containerState: 'present' as const,
+        runnerId: instance.runnerId,
+        runnerState: 'present' as const
+      })),
+      startedAt: '2026-08-14T08:00:00.000Z'
+    });
+    expect(parseLocalGitHubActionsRunnerState(JSON.stringify(state))).toEqual(state);
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({
+      ...state,
+      githubEndpoint: { ...state.githubEndpoint, principal: 'Attacker' }
+    }))).toThrow('digest mismatch');
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({ ...state, token: 'secret' })))
+      .toThrow('keys are invalid');
+    expect(JSON.stringify(state)).not.toContain('token');
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...state,
+      lifecycle: 'active',
+      instances: state.instances.map((instance) => instance.role === 'control'
+        ? { ...instance, runnerState: 'uncreated' as const, runnerId: null }
+        : instance)
+    })).toThrow('active runner state is incomplete');
+    const terminal = createLocalGitHubActionsRunnerState({
+      ...state,
+      lifecycle: 'terminal',
+      instances: state.instances.map((instance) => ({
+        ...instance,
+        runnerState: 'absent' as const,
+        containerState: 'absent' as const
+      }))
+    });
+    expect(terminal.instances.map(({ runnerId, containerId }) => ({ runnerId, containerId })))
+      .toEqual(instances.map(({ runnerId, containerId }) => ({ runnerId, containerId })));
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...terminal,
+      instances: terminal.instances.map((instance) => instance.role === 'trusted'
+        ? { ...instance, containerState: 'present' as const, runnerState: 'present' as const }
+        : instance)
+    })).toThrow('terminal runner state retains resources');
+  });
+
+  test('retains routing resource intent and refuses incomplete committed generations', () => {
+    const state = createLocalGitHubActionsRunnerState({
+      repository, providerName, operationLabel,
+      repositoryRoot: '/project/sec', commonDirectory: '/project/sec/.git',
+      lifecycle: 'routing', resources: { cpus: 3, memory: '768m' },
+      dockerEndpoint, githubEndpoint,
+      instances: instances.map((instance) => ({
+        role: instance.role, roleLabel: instance.roleLabel, name: instance.name,
+        containerId: instance.containerId, containerState: 'present' as const,
+        runnerId: instance.runnerId, runnerState: 'present' as const
+      })),
+      startedAt: '2026-10-01T00:00:00.000Z'
+    });
+    const parsed = parseLocalGitHubActionsRunnerState(JSON.stringify(state));
+    expect(parsed.schema).toBe('sec-local-github-actions-provider-state-v5');
+    expect(parsed.lifecycle).toBe('routing');
+    expect(parsed.resources).toEqual({ cpus: 3, memory: '768m' });
+    const { resources: _resources, stateDigest: _digest, ...retained } = state;
+    const legacy = { ...retained, schema: 'sec-local-github-actions-provider-state-v4', lifecycle: 'active' };
+    const parsedLegacy = parseLocalGitHubActionsRunnerState(JSON.stringify({ ...legacy, stateDigest: sha256(legacy) }));
+    expect(parsedLegacy.schema).toBe('sec-local-github-actions-provider-state-v4');
+    expect(parsedLegacy.resources).toBeUndefined();
+    const invalidLegacy = { ...legacy, lifecycle: 'routing' };
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({
+      ...invalidLegacy, stateDigest: sha256(invalidLegacy)
+    }))).toThrow('legacy runner state cannot acquire routing intent');
+
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...state, resources: undefined
+    })).toThrow('provider resources are invalid');
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...state, instances: state.instances.map((instance, index) => index === 2
+        ? { ...instance, runnerId: null, runnerState: 'uncreated' as const } : instance)
+    })).toThrow('routing runner state is incomplete');
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({
+      ...state, resources: { cpus: 4, memory: '768m' }
+    }))).toThrow('digest mismatch');
+  });
+
+  test('staged inventory has no SEC routing labels and must remain offline before commit', () => {
+    const staged = roles.map((role) => runner(role, {
+      status: 'offline',
+      labels: ['self-hosted', 'Linux', 'X64', operationLabel].map((name) => ({ name }))
+    }));
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: staged, instances, operationLabel, routing: 'staged', readiness: 'registered'
+    })).not.toThrow();
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [staged[0]!, { ...staged[1]!, status: 'online' }, staged[2]!],
+      instances, operationLabel, routing: 'staged', readiness: 'registered'
+    })).toThrow('listener is not offline');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [runner('control', { busy: true }), staged[1]!, staged[2]!],
+      instances, operationLabel, routing: 'either', readiness: 'registered'
+    })).not.toThrow();
+    for (const change of [
+      { id: 901 },
+      { labels: [...staged[0]!.labels, { name: 'foreign-generation-label' }] }
+    ]) {
+      expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+        runners: [{ ...staged[0]!, ...change }, staged[1]!, staged[2]!],
+        instances, operationLabel, routing: 'either', readiness: 'registered'
+      })).toThrow();
+    }
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [runner('control'), staged[1]!, staged[2]!],
+      instances, operationLabel, routing: 'staged', readiness: 'registered'
+    })).toThrow('complete effective labels changed');
+  });
+
+  test('checks retained control and trusted CPU and memory rather than inferring defaults', () => {
+    const resources = { cpus: 3, memory: '768m' };
+    const configured = roles.map((role) => {
+      const value = container(role);
+      return role === 'sut' ? value : {
+        ...value, HostConfig: { ...value.HostConfig, NanoCpus: 3_000_000_000, Memory: 805306368 }
+      };
+    });
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: configured, instances, repository, providerName, operationLabel, resources
+    })).not.toThrow();
+    for (const index of [0, 1]) {
+      const changed = configured.map((value, current) => current === index ? {
+        ...value, HostConfig: { ...value.HostConfig, Memory: 1073741824 }
+      } : value);
+      expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+        containers: changed, instances, repository, providerName, operationLabel, resources
+      })).toThrow('retained resource boundary changed');
+    }
+  });
+
+  test('requires one exact runner identity for every trust role', () => {
+    const runners = roles.map((role) => runner(role));
+    expect(assertOwnedLocalGitHubActionsRunner(runners[1]!, {
+      name: `${providerName}-trusted`,
+      role: 'trusted',
+      operationLabel,
+      runnerId: 22,
+      requireIdleForRemoval: true
+    })).toBe(22);
+    const missingBusy: Record<string, unknown> = { ...runner('trusted') };
+    Reflect.deleteProperty(missingBusy, 'busy');
+    for (const candidate of [
+      missingBusy,
+      runner('trusted', { busy: null }),
+      runner('trusted', { busy: 'false' }),
+      runner('trusted', { busy: true })
+    ]) {
+      expect(() => assertOwnedLocalGitHubActionsRunner(candidate, {
+        name: `${providerName}-trusted`,
+        role: 'trusted',
+        operationLabel,
+        runnerId: 22,
+        requireIdleForRemoval: true
+      })).toThrow('busy state must be exact false before cleanup');
+    }
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners,
+      instances,
+      operationLabel
+    })).not.toThrow();
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: runners.slice(0, 2),
+      instances,
+      operationLabel
+    })).toThrow('missing, duplicated, or extra');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [...runners, runner('sut', { id: 99, name: 'foreign-sut' })],
+      instances,
+      operationLabel
+    })).toThrow('missing, duplicated, or extra');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [runners[0]!, runner('trusted', { status: 'offline' }), runners[2]!],
+      instances,
+      operationLabel
+    })).toThrow('final readiness census is not online');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [runners[0]!, runner('trusted', { busy: true }), runners[2]!],
+      instances,
+      operationLabel
+    })).not.toThrow();
+    expect(() => assertOwnedLocalGitHubActionsRunner({
+      ...runner('trusted'),
+      labels: [...runner('trusted').labels, {
+        name: environment.runtime.roleLabels.sut
+      }]
+    }, {
+      name: `${providerName}-trusted`,
+      role: 'trusted',
+      operationLabel
+    })).toThrow('complete effective labels changed');
+    const caseVaried = runner('trusted');
+    caseVaried.labels = caseVaried.labels.map(({ name }) => ({ name: name.toUpperCase() }));
+    expect(assertOwnedLocalGitHubActionsRunner(caseVaried, {
+      name: `${providerName}-trusted`,
+      role: 'trusted',
+      operationLabel,
+      runnerId: 22
+    })).toBe(22);
+    expect(() => assertOwnedLocalGitHubActionsRunner({
+      ...runner('trusted'),
+      labels: [...runner('trusted').labels, {
+        name: environment.runtime.labels[3].toUpperCase()
+      }]
+    }, {
+      name: `${providerName}-trusted`,
+      role: 'trusted',
+      operationLabel
+    })).toThrow('duplicated case-insensitively');
+    expect(() => assertOwnedLocalGitHubActionsRunner({ ...runner('trusted'), os: 'Windows' }, {
+      name: `${providerName}-trusted`,
+      role: 'trusted',
+      operationLabel
+    })).toThrow('operating system identity changed');
+  });
+
+  test('requires exact immutable container IDs and names for all three roles', () => {
+    const containers = roles.map((role) => container(role));
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers,
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).not.toThrow();
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: containers.slice(0, 2),
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('missing, duplicated, or extra');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: [containers[0]!, containers[1]!, container('sut', { Id: 'f'.repeat(64) })],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('foreign eligible container');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: [containers[0]!, containers[1]!, container('sut', { Name: '/replacement-sut' })],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('retained name changed');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: [containers[0]!, containers[1]!, container('sut', { State: { Running: false } })],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('final readiness census is not running');
+    const withoutInit = container('trusted');
+    withoutInit.HostConfig.Init = false;
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: [containers[0]!, withoutInit, containers[2]!],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('container capability boundary changed');
+    const withoutRestart = container('trusted');
+    withoutRestart.HostConfig.RestartPolicy = { Name: 'no', MaximumRetryCount: 0 };
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: [containers[0]!, withoutRestart, containers[2]!],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('container restart policy changed');
+    const detachedRunner = container('trusted');
+    detachedRunner.Config.Entrypoint = ['/usr/bin/sleep'];
+    detachedRunner.Config.Cmd = ['infinity'];
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: [containers[0]!, detachedRunner, containers[2]!],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('container runner supervisor boundary changed');
+  });
+
+  test('binds repository identity to the supported GitHub remote URLs', async () => {
+    expect(assertRepositoryIdentityMatchesOrigin(
+      repository,
+      'https://github.com/sec-platform/sec.git'
+    )).toBe(repository);
+    expect(assertRepositoryIdentityMatchesRemoteUrls(
+      repository,
+      'git@github.com:sec-platform/sec.git',
+      ['https://github.com/sec-platform/sec.git']
+    )).toBe(repository);
+    expect(() => assertRepositoryIdentityMatchesOrigin(
+      repository,
+      'https://example.com/sec-platform/sec.git'
+    )).toThrow('origin repository identity differs');
+  });
+
+});

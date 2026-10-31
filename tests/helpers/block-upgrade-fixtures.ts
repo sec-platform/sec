@@ -11,6 +11,7 @@ import { readYaml, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { PlanFile } from '../../src/compiler/contract.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
+import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
 
 const BLOCK_UPGRADE_WORKSPACE_FIXTURE_ROOT = path.resolve(
@@ -92,7 +93,7 @@ export async function withBlockUpgradeDryRunFixture<T>(
   callback: (context: BlockUpgradeDryRunFixtureContext & { beforePlan: string }) => Promise<T>
 ): Promise<T> {
   const context = await prepareBlockUpgradeDryRunFixture(options);
-  try {
+  return settleWorkspaceCallback(async () => {
     const result = await callback(context);
     try {
       await fs.lstat(resolveWorkspaceArtifactPath(context.workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics));
@@ -101,9 +102,7 @@ export async function withBlockUpgradeDryRunFixture<T>(
       if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
     }
     return result;
-  } finally {
-    await fs.rm(context.workspaceRoot, { recursive: true, force: true });
-  }
+  }, () => fs.rm(context.workspaceRoot, { recursive: true, force: true }));
 }
 
 export async function writeBlockUpgradeFixture(workspaceRoot: string): Promise<void> {

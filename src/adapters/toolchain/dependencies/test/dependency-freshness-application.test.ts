@@ -57,7 +57,7 @@ test('application consumer cannot promote a TypeScript pin without Source Progra
     });
     const registry = await queryAnonymousPackageRegistryLatestVersionsForTests(
       capability,
-      [...latestByPackage.keys()],
+      ['typescript'],
       { deadlineAtUnixMs: Date.now() + 2_000 }
     );
     const decision = compileDependencyFreshnessFromOwnerFacts({
@@ -66,15 +66,31 @@ test('application consumer cannot promote a TypeScript pin without Source Progra
         entries: Object.freeze(lockEntries),
         lockDigest: `sha256:${'e'.repeat(64)}` as `sha256:${string}`
       }),
-      registry,
+      // Keep the native provider DTO at the strict consumer boundary for both
+      // TypeScript roles; unrelated same-version facts need no HTTP request.
+      registry: [
+        ...registry,
+        ...[...latestByPackage]
+          .filter(([packageName]) => packageName !== 'typescript')
+          .map(([packageName, latestVersion]) => Object.freeze({
+            latestVersion,
+            packageName,
+            provider: ANONYMOUS_PACKAGE_REGISTRY_PROFILE.providerId,
+            status: 'resolved' as const
+          }))
+      ],
       rootManifest
     });
 
-    expect(requestCount).toBe(latestByPackage.size);
+    expect(requestCount).toBe(1);
     expect(decision.status).toBe('unresolved');
     expect(decision.packages.find(({ declaredName }) => declaredName === 'typescript')).toMatchObject({
       reason: 'newer-release-observed',
+      roles: ['typescript-authoring-compiler-api'],
       status: 'unresolved'
+    });
+    expect(decision.packages.find(({ declaredName }) => declaredName === '@typescript/native')).toMatchObject({
+      status: 'up-to-date'
     });
     expect(decision.packages.some(({ status }) => status === 'upgrade-required')).toBeFalse();
     expect(decision.packages.some(({ reason }) => reason === 'lock-entry-missing')).toBeFalse();

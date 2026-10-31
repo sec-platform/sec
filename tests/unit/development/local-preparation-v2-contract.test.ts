@@ -1,0 +1,226 @@
+import { expect, test } from 'bun:test';
+
+import {
+  assertVerificationSessionLocalPreparationV2Current,
+  CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
+  CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA,
+  CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
+  createVerificationSessionLocalPreparationRequestV2,
+  parseVerificationSessionHostedRequest,
+  parseVerificationSessionLocalPreparationRequestV2,
+  type VerificationSessionLocalPreparation,
+  type VerificationSessionLocalPreparationRequestV2Body
+} from '../../../src/adapters/verification/platform/ci/contract/session-request.ts';
+
+const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
+const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
+const SHA_A = '1'.repeat(40);
+const SHA_B = '5'.repeat(40);
+
+function body(): VerificationSessionLocalPreparationRequestV2Body {
+  return {
+    repository: 'sec-platform/sec', prNumber: 123,
+    expectedBaseSha: SHA_A, expectedBaseTreeSha: '2'.repeat(40),
+    expectedHeadSha: '3'.repeat(40), expectedHeadTreeSha: '4'.repeat(40),
+    manifestPath: 'config/repository/work-packages/local.md', manifestDigest: DIGEST_A,
+    profile: 'quick', authorizedPaths: ['src/a.ts', 'tests/unit/a.test.ts'],
+    sourceFactsDigest: DIGEST_A, verificationPlanDigest: DIGEST_A,
+    actorNodeId: 'MDQ6VXNlcjE=', sourceProgramBindingDigest: DIGEST_A,
+    qualificationRequirements: {
+      trustedRevision: SHA_A,
+      producerIdentity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
+      producerRuntimeIdentity: 'src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts',
+      nativeProfileDigest: DIGEST_A, nativeContentManifestDigest: null,
+      mainHealthMethodDigest: DIGEST_A, mainHealthPolicyDigest: DIGEST_A,
+      verificationContractRevision: 'ci-verification-v19', reviewPolicyDigest: DIGEST_A,
+      evidenceRequirementDigest: DIGEST_A, integrationPolicyDigest: DIGEST_A
+    },
+    purpose: 'verification-only'
+  };
+}
+
+// The unchanged saved data is deeply frozen; current and mutation inputs remain fresh.
+const savedEnvelope = createVerificationSessionLocalPreparationRequestV2(body());
+function parse(value: unknown) { return parseVerificationSessionLocalPreparationRequestV2(JSON.stringify(value)); }
+
+test('V2 source preparation round-trips into an immutable detached input, including unresolved native content', () => {
+  const input = body();
+  const originalInput = structuredClone(input);
+  const value: VerificationSessionLocalPreparation = createVerificationSessionLocalPreparationRequestV2(input);
+  expect(value.schema).toBe(CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA);
+  const parsed = parse(value);
+  expect(parsed).toEqual(value);
+  // Fixed externally computed vectors bind every declared input and the operation domain.
+  expect(value.request.requestDigest).toBe('sha256:5b313b8e73e3dfdcdc3060b335b46baac6e7b85e08ecb5e6a0a4ef8ed9c44aed');
+  expect(value.request.requestOperationId).toBe('sha256:0c942f85e094bfa926f444bca504d7f9bc123dc41ac7a9e429d135ae19397fae');
+  const reordered = Object.fromEntries(Object.entries(value).reverse());
+  reordered.request = Object.fromEntries(Object.entries(value.request).reverse());
+  expect(parse(reordered)).toEqual(value);
+  expect(parsed.authorityStage).toBe('preparation-only');
+  expect(parsed.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
+  expect(value.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
+  expect(Object.isFrozen(value)).toBe(true);
+  expect(Object.isFrozen(value.request)).toBe(true);
+  expect(Object.isFrozen(value.request.authorizedPaths)).toBe(true);
+  expect(Object.isFrozen(value.request.qualificationRequirements)).toBe(true);
+  expect(Object.isFrozen(input)).toBe(false);
+  Object.assign(input, { profile: 'full' });
+  Object.assign(input.qualificationRequirements, { nativeProfileDigest: DIGEST_B });
+  (input.authorizedPaths as string[])[0] = 'src/retargeted.ts';
+  expect(value.request).toMatchObject(originalInput);
+  expect(() => assertVerificationSessionLocalPreparationV2Current(value, parsed)).not.toThrow();
+  const completeInput = body();
+  expect(createVerificationSessionLocalPreparationRequestV2({ ...completeInput, profile: 'full',
+    qualificationRequirements: { ...completeInput.qualificationRequirements, nativeContentManifestDigest: DIGEST_A } })
+    .request.qualificationRequirements.nativeContentManifestDigest).toBe(DIGEST_A);
+});
+
+
+// Independent full-content digest vectors above bind every body field. One
+// validly re-signed drift witnesses the saved/current whole-object comparison;
+// malformed pins and trust, path and nullable requirements remain below.
+test('V2 saved pin comparison rejects current drift even with recomputed valid digests', () => {
+  const saved = savedEnvelope;
+  const current = createVerificationSessionLocalPreparationRequestV2({ ...body(), prNumber: 124 });
+  expect(current.request.requestDigest).not.toBe(saved.request.requestDigest);
+  expect(current.request.requestOperationId).not.toBe(saved.request.requestOperationId);
+  expect(() => assertVerificationSessionLocalPreparationV2Current(saved, current)).toThrow('differs from current exact source');
+  const { requestDigest: _digest, requestOperationId: _operation, ...changed } = current.request;
+  expect(() => parse({ ...saved, request: { ...changed,
+    requestDigest: saved.request.requestDigest, requestOperationId: saved.request.requestOperationId } })).toThrow('requestDigest mismatch');
+});
+
+test('V2 fixed producer, trust, purpose, schema, and placement requirements cannot be changed', () => {
+  const value = savedEnvelope;
+  for (const invalid of [
+    { ...value, schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA },
+    { ...value, executionPlacement: 'hosted' }, { ...value, authorityStage: 'qualified' }
+  ]) expect(() => parse(invalid)).toThrow('exact local preparation-only envelope');
+  expect(() => parse({ ...value, request: { ...value.request, purpose: 'integration' } }))
+    .toThrow('purpose must be verification-only');
+  for (const [change, diagnostic] of [
+    [{ trustedRevision: SHA_B }, 'trustedRevision must equal the exact expected base'],
+    [{ trustedRevision: 'main' }, 'trustedRevision must equal the exact expected base'],
+    [{ producerIdentity: 'caller-selected-health-producer' }, 'qualification producer identity is invalid'],
+    [{ producerRuntimeIdentity: 'caller-selected-runtime' }, 'qualification producer identity is invalid']
+  ] as const) {
+    expect(() => parse({ ...value, request: { ...value.request,
+      qualificationRequirements: { ...value.request.qualificationRequirements, ...change } } }))
+      .toThrow(diagnostic);
+  }
+});
+
+test('V2 digest and operation tampering fail independently, on both sides of saved/current comparison', () => {
+  const value = savedEnvelope;
+  for (const field of ['requestDigest', 'requestOperationId'] as const) {
+    const tampered = { ...value, request: { ...value.request, [field]: DIGEST_B } };
+    expect(() => parse(tampered)).toThrow(`${field} mismatch`);
+    expect(() => assertVerificationSessionLocalPreparationV2Current(tampered, value)).toThrow(`${field} mismatch`);
+    expect(() => assertVerificationSessionLocalPreparationV2Current(value, tampered)).toThrow(`${field} mismatch`);
+  }
+});
+
+test('V2 rejects missing and unknown keys at every envelope, request and qualification boundary', () => {
+  const value = savedEnvelope;
+  // Missing positions all fail the same cardinality check before field semantics.
+  for (const [record, key, label, wrap] of [
+    [value, 'schema', 'envelope', (record: unknown) => record],
+    [value.request, 'repository', 'request', (record: unknown) => ({ ...value, request: record })],
+    [value.request.qualificationRequirements, 'trustedRevision', 'qualificationRequirements',
+      (record: unknown) => ({ ...value, request: { ...value.request, qualificationRequirements: record } })]
+  ] as const) {
+    const diagnostic = `Local preparation V2 ${label} must contain exactly:`;
+    const missing: Record<string, unknown> = { ...record };
+    delete missing[key];
+    expect(() => parse(wrap(missing))).toThrow(diagnostic);
+    expect(() => parse(wrap({ ...missing, unexpected: true }))).toThrow(diagnostic);
+  }
+  expect(() => createVerificationSessionLocalPreparationRequestV2({ ...body(), requestDigest: DIGEST_A } as never))
+    .toThrow('Local preparation V2 request must contain exactly:');
+  expect(() => createVerificationSessionLocalPreparationRequestV2({ ...body(), ignored: undefined } as never))
+    .toThrow('Local preparation V2 request must contain exactly:');
+  for (const invalid of [null, [], 1, 'input', { ...value, request: null },
+    { ...value, request: { ...value.request, qualificationRequirements: [] } }]) {
+    expect(() => parse(invalid)).toThrow();
+  }
+});
+
+test('V2 wire decoding rejects duplicate JSON keys before identity validation', () => {
+  const source = JSON.stringify(savedEnvelope);
+  expect(() => parseVerificationSessionLocalPreparationRequestV2(
+    source.replace('"purpose":', '"purpo\\u0073e":"verification-only","purpose":')
+  )).toThrow('duplicate key');
+});
+
+test('V2 rejects malformed scalar pins, unsupported fast profile, and unbounded identity text', () => {
+  const value = savedEnvelope;
+  for (const change of [
+    { repository: '../sec' }, { repository: 'owner/repo/extra' }, { repository: 'owner/repo ' }, { repository: 'owner/repo\n' },
+    { repository: 'https://github.com/owner/repo' }, { prNumber: 0 }, { prNumber: -1 },
+    { prNumber: 1.5 }, { prNumber: Number.MAX_SAFE_INTEGER + 1 }, { prNumber: '123' },
+    { expectedBaseSha: 'A'.repeat(40) }, { expectedBaseTreeSha: 'a'.repeat(39) },
+    { expectedHeadSha: 'a'.repeat(64) }, { expectedHeadTreeSha: 'g'.repeat(40) },
+    { manifestDigest: 'sha256:bad' }, { sourceFactsDigest: `blake3:${'a'.repeat(64)}` },
+    { verificationPlanDigest: `sha256:${'A'.repeat(64)}` }, { sourceProgramBindingDigest: null },
+    { profile: 'fast' }, { profile: 'FULL' }, { actorNodeId: '' },
+    { actorNodeId: 'x'.repeat(257) }, { actorNodeId: 'USER other' }, { actorNodeId: 'USER\u0000other' }
+  ]) expect(() => parse({ ...value, request: { ...value.request, ...change } })).toThrow(Object.keys(change)[0]!);
+  for (const change of [
+    { nativeProfileDigest: null }, { nativeContentManifestDigest: '' }, { mainHealthMethodDigest: 'bad' },
+    { mainHealthPolicyDigest: 'bad' }, { reviewPolicyDigest: 'bad' },
+    { evidenceRequirementDigest: 'bad' }, { integrationPolicyDigest: 'bad' },
+    { verificationContractRevision: '' }, { verificationContractRevision: 'x'.repeat(257) },
+    { verificationContractRevision: 'revision\nnext' }, { verificationContractRevision: ' revision' }
+  ]) expect(() => parse({ ...value, request: { ...value.request,
+    qualificationRequirements: { ...value.request.qualificationRequirements, ...change } } })).toThrow(Object.keys(change)[0]!);
+});
+
+test('V2 rejects traversal, noncanonical spelling, unsorted paths and duplicate scope entries', () => {
+  const value = savedEnvelope;
+  for (const invalidPath of ['../escape', 'src/../escape', './src/a.ts', '/absolute', 'src//a.ts',
+    'src\\a.ts', 'C:/src/a.ts', 'src/', '', 'src/\u0000a.ts', 'src/e\u0301.ts']) {
+    expect(() => parse({ ...value, request: { ...value.request, manifestPath: invalidPath } })).toThrow('manifestPath');
+  }
+  for (const authorizedPaths of [['../escape'], ['b.ts', 'a.ts'], ['a.ts', 'a.ts'], null, ['a.ts', 1]]) {
+    expect(() => parse({ ...value, request: { ...value.request, authorizedPaths } })).toThrow('authorizedPaths');
+  }
+});
+
+test('V2 decoding has byte and container-depth bounds before accepting any request', () => {
+  expect(() => parseVerificationSessionLocalPreparationRequestV2(' '.repeat(1024 * 1024 + 1))).toThrow('bounded UTF-8 input size');
+  expect(() => parseVerificationSessionLocalPreparationRequestV2('é'.repeat(524289))).toThrow('bounded UTF-8 input size');
+  expect(() => parseVerificationSessionLocalPreparationRequestV2('{"request":{"extra":{"nested":{"deeper":{}}}}}'))
+    .toThrow('maximum container depth');
+  expect(() => parseVerificationSessionLocalPreparationRequestV2(`${JSON.stringify(savedEnvelope)} trailing`)).toThrow();
+});
+
+test('hosted legacy input uses bounded exact JSON before checking placement', () => {
+  expect(() => parseVerificationSessionHostedRequest('界'.repeat(350_000)))
+    .toThrow('exceeds the bounded UTF-8 input size');
+  expect(() => parseVerificationSessionHostedRequest(
+    '{"schema":"sec-verification-session-hosted-request-v1","schema":"sec-verification-session-hosted-request-v1"}'
+  )).toThrow('duplicate key');
+  expect(() => parseVerificationSessionHostedRequest(JSON.stringify({
+    schema: 'sec-verification-session-local-preparation-v2',
+    executionPlacement: 'local', authorityStage: 'preparation-only', request: {}
+  }))).toThrow('cannot be consumed by a hosted operation');
+});
+
+test('hosted parser rejects both local versions while preserving exact legacy hosted requests', () => {
+  const hosted = {
+    schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 123,
+    expectedBaseSha: SHA_A, expectedBaseTreeSha: '2'.repeat(40),
+    expectedHeadSha: '3'.repeat(40), expectedHeadTreeSha: '4'.repeat(40),
+    manifestPath: 'work-packages/legacy.json', manifestDigest: DIGEST_A, profile: 'fast',
+    expectedScopeProposalDigest: DIGEST_A, expectedActionPlanDigest: DIGEST_A,
+    expectedSessionRevision: DIGEST_A, reviewPolicyDigest: DIGEST_A, requestOperationId: DIGEST_A
+  };
+  expect(parseVerificationSessionHostedRequest(JSON.stringify(hosted))).toEqual(hosted);
+  const legacy: VerificationSessionLocalPreparation = {
+    schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
+    executionPlacement: 'local', authorityStage: 'preparation-only', request: hosted
+  };
+  for (const local of [legacy, savedEnvelope]) {
+    expect(() => parseVerificationSessionHostedRequest(JSON.stringify(local))).toThrow('cannot be consumed by a hosted operation');
+  }
+});

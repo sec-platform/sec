@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import type { TypeScriptCapabilityCoverageDecision } from '../../typescript/capability-coverage.ts';
 import { DEPENDENCY_CAPABILITY_SPECS } from '../contract/dependency-capability-contract.ts';
 import { parseRuntimeDependencyPackageReference } from '../contract/runtime-dependency-spec.ts';
 import {
@@ -55,31 +54,6 @@ function scenario(overrides: Readonly<Record<string, string>> = {}) {
 }
 
 describe('dependency freshness owner', () => {
-  test('does not infer TypeScript authoring coverage from package versions or role labels', () => {
-    const input = scenario({
-      '@types/bun': '1.4.0',
-      '@typescript/native': 'npm:typescript@7.0.2',
-      typescript: '6.0.3'
-    });
-    const registry = input.registry.map((entry) => entry.packageName === 'typescript'
-      ? { ...entry, latestVersion: '7.0.2' }
-      : entry);
-    const decision = assessDependencyFreshness({ ...input, registry });
-
-    expect(decision.status).toBe('unresolved');
-    expect(decision.packages.find(({ declaredName }) => declaredName === 'typescript')).toMatchObject({
-      reason: 'newer-release-observed',
-      roles: ['typescript-authoring-compiler-api'],
-      status: 'unresolved'
-    });
-    expect(decision.packages.find(({ declaredName }) => declaredName === '@typescript/native')).toMatchObject({
-      status: 'up-to-date'
-    });
-    expect(() => assessDependencyFreshness(input, {
-      status: 'intentional-pair'
-    } as TypeScriptCapabilityCoverageDecision)).toThrow('not TypeScript-owner issued');
-  });
-
   test('requires an upgrade for an ordinary stale dependency', () => {
     const input = scenario({ '@types/bun': '1.4.0', yaml: '2.9.0' });
     const registry = input.registry.map((entry) => entry.packageName === 'yaml'
@@ -141,12 +115,10 @@ describe('dependency freshness owner', () => {
   });
 
   test('cannot obtain an up-to-date decision by omitting the dependency owner inventory', () => {
-    const input = scenario({ '@types/bun': '1.4.0' });
-    expect(() => assessDependencyFreshness({
-      ...input,
-      lock: { ...input.lock, entries: [] },
-      manifest: { ...input.manifest, entries: [] },
-      registry: []
-    })).toThrow('Dependency capability owner differs from package.json dependencies');
+    const manifest = { ...packageManifest({ '@types/bun': '1.4.0' }), dependencies: {} };
+    expect(() => projectDependencyFreshnessManifest(
+      manifest,
+      `sha256:${'a'.repeat(64)}`
+    )).toThrow('Dependency capability owner differs from package.json dependencies');
   });
 });

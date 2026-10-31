@@ -11,7 +11,6 @@ test.skipIf(process.platform !== 'win32')(
     try {
       process.env.PROGRAMFILES = String.raw`C:\ambient-redirect-must-not-authorize`;
       const programFiles = await resolveWindowsKnownFolderPath('program-files');
-      expect(path.win32.isAbsolute(programFiles)).toBe(true);
       expect(path.win32.resolve(programFiles)).toBe(programFiles);
       expect(programFiles).not.toBe(process.env.PROGRAMFILES);
     } finally {
@@ -30,7 +29,6 @@ test.skipIf(process.platform !== 'win32')(
       process.env.SYSTEMROOT = String.raw`C:\ambient-system-root-must-not-authorize`;
       process.env.WINDIR = String.raw`C:\ambient-windir-must-not-authorize`;
       const windows = await resolveWindowsKnownFolderPath('windows');
-      expect(path.win32.isAbsolute(windows)).toBe(true);
       expect(path.win32.resolve(windows)).toBe(windows);
       expect(windows).not.toBe(process.env.SYSTEMROOT);
       expect(windows).not.toBe(process.env.WINDIR);

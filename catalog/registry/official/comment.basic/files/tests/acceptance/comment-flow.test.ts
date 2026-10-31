@@ -10,10 +10,13 @@ export async function runSuite() {
     assigneeId: 'support-owner'
   });
 
-  addTicketComment(db, tenantA, {
+  const comment = addTicketComment(db, tenantA, {
     ticketId: ticket.id,
     body: 'Initial comment'
   });
+  assert.equal(comment.authorId, 'user-tenant-a-admin');
+  assert.equal(comment.body, 'Initial comment');
+  assert.throws(() => addTicketComment(db, tenantA, { ticketId: ticket.id, body: '   ' }), /Ticket comment is required/);
   addTicketComment(db, tenantA, {
     ticketId: ticket.id,
     body: 'Second comment'

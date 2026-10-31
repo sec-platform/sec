@@ -1,4 +1,4 @@
-"""Bounded filesystem tests and one root-only native cleanup integration."""
+"""Filesystem cases and separately supervised root/systemd integrations."""
 import errno
 import importlib.util
 import json
@@ -16,6 +16,83 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location('native_helper', Path(__file__).with_name('linux-verification-unit-helper.py'))
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
+
+
+def fixture_request_write(namespace, request):
+    # Persist the recovery identity before spawning, and the receipt before ack.
+    fd = helper.nofollow_directory(str(namespace))
+    try:
+        info = os.fstat(fd)
+        if (str(info.st_dev), str(info.st_ino)) != (request['recoveryRoot']['device'], request['recoveryRoot']['inode']):
+            raise RuntimeError('native fixture namespace replaced before request write')
+        helper.write_bytes('/proc/self/fd/' + str(fd) + '/fixture-request.pending', helper.canonical(request), 0o600)
+        os.replace('fixture-request.pending', 'fixture-request.json', src_dir_fd=fd, dst_dir_fd=fd)
+        helper.fsync_directory(fd)
+    finally:
+        os.close(fd)
+
+
+def fixture_readback(request, deadline):
+    name = request['unitName']
+    early = 'sec-native-' + helper.sha((name + ':early-exit').encode())[7:39] + '.service'
+    for unit in [name[:-len('.service')] + '-control.scope', early, name]:
+        properties = helper.unit_readback(unit, deadline)
+        if (properties['LoadState'] != 'not-found' and properties['ActiveState'] not in ('inactive', 'failed')):
+            raise RuntimeError('native fixture unit still active: ' + unit)
+        if not helper.cgroup_empty({'cgroupPath': '/system.slice/' + unit}):
+            raise RuntimeError('native fixture cgroup still populated: ' + unit)
+
+
+def settle_fixture(namespace, identity, *, retire):
+    """Cleanup-only entry usable after the test process has been killed/reaped."""
+    fd = helper.nofollow_directory(str(namespace))
+    original = (helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES)
+    try:
+        info = os.fstat(fd)
+        if (str(info.st_dev), str(info.st_ino)) != identity:
+            raise RuntimeError('native fixture namespace replaced: ' + str(namespace))
+        if 'fixture-request.json' not in os.listdir(fd):
+            if os.listdir(fd):
+                raise RuntimeError('native fixture request unavailable: ' + str(namespace))
+        else:
+            request_fd = os.open('fixture-request.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+            try:
+                saved = os.fstat(request_fd)
+                if not stat.S_ISREG(saved.st_mode) or saved.st_uid != 0 or saved.st_nlink != 1 or stat.S_IMODE(saved.st_mode) != 0o600:
+                    raise RuntimeError('native fixture request identity unavailable')
+                data = os.read(request_fd, 65537)
+                if len(data) > 65536:
+                    raise RuntimeError('native fixture request exceeds bound')
+                request = json.loads(data, object_pairs_hook=helper.no_duplicates)
+            finally:
+                os.close(request_fd)
+            if request['recoveryRoot'] != {'path': str(namespace), 'device': identity[0], 'inode': identity[1]}:
+                raise RuntimeError('native fixture request root mismatch')
+            helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = True, 0, 32
+            deadline = helper.Deadline(int(time.time() * 1000) + 30000)
+            request = {**request, 'deadlineAtUnixMs': int(deadline.absolute * 1000)}
+            if request['terminalReceiptDigest'] is None:
+                result = helper.recover({**request, 'mode': 'recover'}, deadline)
+                fixture_readback(request, deadline)
+                request = {**request, 'mode': 'acknowledge', 'terminalReceiptDigest': helper.sha(helper.canonical(result))}
+                fixture_request_write(namespace, request)
+            # Original recover validates the durable receipt, identities and lock;
+            # it also handles interruption after record retirement idempotently.
+            helper.recover({**request, 'mode': 'acknowledge'}, deadline)
+            fixture_readback(request, deadline)
+            if set(os.listdir(fd)) != {'fixture-request.json'}:
+                raise RuntimeError('native fixture unknown residue: ' + str(namespace))
+            if retire:
+                os.unlink('fixture-request.json', dir_fd=fd)
+                helper.fsync_directory(fd)
+        if retire:
+            observed = namespace.lstat()
+            if (observed.st_dev, observed.st_ino) != (info.st_dev, info.st_ino):
+                raise RuntimeError('native fixture namespace replaced before retirement')
+            namespace.rmdir()
+    finally:
+        helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = original
+        os.close(fd)
 
 
 class NativeRecoveryIntegration(unittest.TestCase):
@@ -51,21 +128,40 @@ sys.exit(23)
                                          ('import os,signal;os.kill(os.getpid(),signal.SIGKILL)', 137, b'')]:
             with self.subTest(exitCode=expected):
                 program = helper.NAMESPACE_INIT_PROGRAM + '\nnamespace_init(' + repr([sys.executable, '-I', '-S', '-c', source]) + ')\n'
-                completed = subprocess.run(['/usr/bin/unshare', '--fork', '--pid', '--mount-proc', '--kill-child=KILL', '--',
+                process = subprocess.Popen(['/usr/bin/unshare', '--fork', '--pid', '--mount-proc', '--kill-child=KILL', '--',
                                             sys.executable, '-I', '-S', '-u', '-c', program],
-                                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, env=helper.FIXED_ENV)
-                self.assertEqual(completed.returncode, expected, completed.stderr.decode(errors='replace'))
-                self.assertEqual(completed.stdout, stdout, completed.stderr.decode(errors='replace'))
+                                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=helper.FIXED_ENV)
+                try:
+                    actual, stderr = process.communicate(timeout=20)
+                    self.assertEqual(process.returncode, expected, stderr.decode(errors='replace'))
+                    self.assertEqual(actual, stdout, stderr.decode(errors='replace'))
+                finally:
+                    primary_error = sys.exc_info()[1]
+                    try:
+                        if process.poll() is None:
+                            process.kill()
+                        process.communicate(timeout=5)
+                    except BaseException as error:
+                        if primary_error is not None:
+                            raise BaseExceptionGroup('namespace workload and child reap failed', [primary_error, error])
+                        raise
 
     @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and Path('/proc/1/comm').read_text().strip() == 'systemd', 'requires root and the real systemd manager')
     def test_original_control_and_unobserved_workload_are_recovered(self):
-        namespace = Path(tempfile.mkdtemp(prefix='sec-native-recovery-integration-'))
+        supplied = os.environ.get('SEC_NATIVE_RECOVERY_FIXTURE')
+        namespace = Path(supplied or tempfile.mkdtemp(prefix='sec-native-recovery-integration-'))
         info = namespace.stat()
+        identity = (str(info.st_dev), str(info.st_ino))
+        if supplied:
+            self.assertEqual(identity, (os.environ['SEC_NATIVE_RECOVERY_FIXTURE_DEVICE'], os.environ['SEC_NATIVE_RECOVERY_FIXTURE_INODE']))
+        self.assertEqual(list(namespace.iterdir()), [])
         binding = helper.sha(os.urandom(32))
         name = 'sec-native-' + binding[7:39] + '.service'
         request = {'mode': 'recover', 'unitName': name, 'operationIdentityDigest': binding, 'boundAttemptDigest': binding,
                    'inputDigest': binding, 'invocationDigest': binding, 'deadlineAtUnixMs': int(time.time() * 1000) + 45000,
                    'recoveryRoot': {'path': str(namespace), 'device': str(info.st_dev), 'inode': str(info.st_ino)}, 'terminalReceiptDigest': None}
+        fixture_request_write(namespace, request)
+        deadline = helper.Deadline(request['deadlineAtUnixMs'])
         scope = name[:-len('.service')] + '-control.scope'
         description = 'sec-native-control:' + ':'.join([binding] * 3)
         worker = r'''
@@ -147,11 +243,10 @@ sys.exit(1)
                                         '--property=KillMode=control-group', '--property=SendSIGKILL=yes', '--property=TimeoutStopSec=5s', '--property=RuntimeMaxSec=45s',
                                         '--', '/usr/bin/python3.12', '-I', '-S', '-u', '-c', worker, str(Path(helper.__file__).resolve()), json.dumps(request)],
                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=helper.FIXED_ENV)
-            stdout, stderr = process.communicate(timeout=15)
+            stdout, stderr = process.communicate(timeout=deadline.remaining())
             self.assertEqual(process.returncode, 1, stderr.decode(errors='replace'))
             self.assertEqual(stdout.strip(), b'original-helper-failed-with-owned-resources', stderr.decode(errors='replace'))
             helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = True, 0, 32
-            deadline = helper.Deadline(request['deadlineAtUnixMs'])
             self.assertFalse(helper.cgroup_empty({'cgroupPath': '/system.slice/' + scope}))
             self.assertEqual(helper.unit_readback(name, deadline)['ActiveState'], 'active')
             result = helper.recover(request, deadline)
@@ -160,28 +255,30 @@ sys.exit(1)
                 self.assertTrue(helper.cgroup_empty({'cgroupPath': '/system.slice/' + unit}))
                 self.assertIn(helper.unit_readback(unit, deadline)['ActiveState'], ['inactive', 'failed'])
             self.assertEqual(set(p.name for p in locator.iterdir()), {'record.json', 'lock'})
+            fixture_readback(request, deadline)
             request = {**request, 'mode': 'acknowledge', 'terminalReceiptDigest': helper.sha(helper.canonical(result))}
+            fixture_request_write(namespace, request)
             helper.recover(request, deadline)
             self.assertFalse(locator.exists())
         finally:
+            errors = []
+            primary_error = sys.exc_info()[1]
             try:
-                if locator.exists():
-                    helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = True, 0, 32
-                    cleanup_request = {**request, 'mode': 'recover', 'terminalReceiptDigest': None}
-                    result = helper.recover(cleanup_request, helper.Deadline(request['deadlineAtUnixMs']))
-                    helper.recover({**cleanup_request, 'mode': 'acknowledge', 'terminalReceiptDigest': helper.sha(helper.canonical(result))}, helper.Deadline(request['deadlineAtUnixMs']))
-                if process is not None and process.poll() is None:
-                    process.terminate(); process.communicate(timeout=2)
-                observed_namespace = namespace.stat()
-                if (not locator.exists() and not os.listdir(namespace) and (observed_namespace.st_dev, observed_namespace.st_ino) == (info.st_dev, info.st_ino)
-                        and (process is None or process.poll() is not None) and helper.cgroup_empty({'cgroupPath': '/system.slice/' + scope})):
-                    namespace.rmdir()
-                else:
-                    raise RuntimeError('native recovery fixture retained: ' + str(namespace))
+                settle_fixture(namespace, identity, retire=not supplied)
             except BaseException as error:
-                raise RuntimeError('native recovery fixture requires original-owner recovery: ' + str(namespace)) from error
-            finally:
-                helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = original
+                errors.append(error)
+            try:
+                if process is not None:
+                    if process.poll() is None:
+                        process.kill()
+                    process.communicate(timeout=5)
+            except BaseException as error:
+                errors.append(error)
+            helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = original
+            if errors:
+                if primary_error is not None:
+                    errors.insert(0, primary_error)
+                raise BaseExceptionGroup('native fixture requires original-owner recovery: ' + str(namespace), errors)
 
 
 class RuntimeCopyPermissions(unittest.TestCase):
@@ -480,4 +577,7 @@ class RuntimeCopyPermissions(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if len(sys.argv) == 5 and sys.argv[1] == '--recover-fixture':
+        settle_fixture(Path(sys.argv[2]), (sys.argv[3], sys.argv[4]), retire=True)
+    else:
+        unittest.main()

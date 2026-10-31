@@ -1,10 +1,12 @@
+import { afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
 import { isolatedGitReadEnvironment } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { gitEnvironmentValue } from '../../src/adapters/providers/git/environment.ts';
 import { createSourceProgramCompilationOperation } from '../../src/adapters/repository/source-program-model/compilation-operation.ts';
 import { compileRepositorySourceProgramWithCache } from '../../src/adapters/repository/source-program-model/repository-compilation-cache-session.ts';
 import {
@@ -44,6 +46,7 @@ import {
   type CodexDevelopmentTestImpactTransitionObservation
 } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
+import { settleResources, withAcquiredResource } from '../../src/execution/resource-settlement.ts';
 import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -57,13 +60,13 @@ type ExactGitFixtureBase = Readonly<{
   dispose(): void;
 }>;
 
-export type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Readonly<{
+type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Readonly<{
   cacheStatus: 'hit' | 'miss';
   compilationReceiptDigest: `sha256:${string}`;
   projectionDigest: `sha256:${string}`;
 }>;
 
-export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
+type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
   workspaceSnapshot: ReturnType<typeof acquireExactGitTreeWorkspaceSourceSnapshot>;
   workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeWorkspaceSourceSnapshot>>;
   indexStageOutput: Uint8Array;
@@ -71,7 +74,7 @@ export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
   affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
 }>;
 
-export type RemovedDocumentationTestImpactFixture = Readonly<{
+type RemovedDocumentationTestImpactFixture = Readonly<{
   provider: CodexDevelopmentTestImpactSourceProvider;
   transition: CodexDevelopmentTestImpactTransitionObservation;
   dispose(): void;
@@ -96,19 +99,7 @@ type ExactRepositoryTestImpactFixturePhase =
   | 'settlement'
   | 'complete';
 
-type ExactRepositoryTestImpactFixturePhaseEvent = Readonly<{
-  phase: ExactRepositoryTestImpactFixturePhase;
-  observedAtUnixMs: number;
-  remainingMs: number;
-}>;
-
-type ExactRepositoryTestImpactFixtureOptions = Readonly<{
-  deadlineAtUnixMs?: number;
-  observePhase?: (event: ExactRepositoryTestImpactFixturePhaseEvent) => void;
-}>;
-
 function observeFixturePhase(
-  options: ExactRepositoryTestImpactFixtureOptions,
   deadlineAtUnixMs: number,
   phase: ExactRepositoryTestImpactFixturePhase
 ): void {
@@ -117,7 +108,6 @@ function observeFixturePhase(
   if (!Number.isSafeInteger(deadlineAtUnixMs) || remainingMs < 1) {
     throw new Error(`Exact repository TestImpact fixture deadline expired before ${phase}.`);
   }
-  options.observePhase?.(Object.freeze({ phase, observedAtUnixMs, remainingMs }));
 }
 
 function git(
@@ -179,11 +169,50 @@ function exactTestPaths(repositoryRoot: string, commitSha: string): readonly str
   return Object.freeze(tests);
 }
 
+// Only the empty native Git configuration is shared. Every TestImpact
+// fixture copies its own .git before the first fetch, commit, index write,
+// source-object observation and compilation. The executable lookup environment
+// participates in the seed key rather than borrowing another test's Git.
+const testImpactGitInitBases = new Map<string, string>();
+
+function initializedTestImpactGitBase(): string {
+  const environment = isolatedGitReadEnvironment();
+  const key = JSON.stringify([
+    gitEnvironmentValue(environment, 'PATH') ?? null,
+    gitEnvironmentValue(environment, 'SystemRoot') ?? null
+  ]);
+  const existing = testImpactGitInitBases.get(key);
+  if (existing !== undefined) return existing;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-test-impact-git-base-'));
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['config', 'core.autocrlf', 'false']);
+    git(root, ['config', 'core.longpaths', 'true']);
+    testImpactGitInitBases.set(key, root);
+    return root;
+  } catch (primary) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'TestImpact Git seed and cleanup both failed');
+    }
+    throw primary;
+  }
+}
+
+afterAll(() => {
+  const failures: unknown[] = [];
+  for (const [key, root] of testImpactGitInitBases) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      testImpactGitInitBases.delete(key);
+    } catch (error) { failures.push(error); }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'TestImpact Git seed cleanup failed');
+});
+
 function initializeFixtureRepository(repositoryRoot: string): void {
-  mkdirSync(repositoryRoot);
-  git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-  git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
-  git(repositoryRoot, ['config', 'core.longpaths', 'true']);
+  cpSync(initializedTestImpactGitBase(), repositoryRoot, { recursive: true });
 }
 
 function fixtureIdentityEnvironment(): NodeJS.ProcessEnv {
@@ -234,9 +263,9 @@ function writeRunnerProgram(repositoryRoot: string, testPaths: readonly string[]
 
 export async function createRemovedDocumentationTestImpactFixture(
   descriptorChanged = false,
-  includeConsumer = true,
-  sourceRepositoryRoot = process.cwd()
+  includeConsumer = true
 ): Promise<RemovedDocumentationTestImpactFixture> {
+  const sourceRepositoryRoot = process.cwd();
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
@@ -250,9 +279,9 @@ export async function createRemovedDocumentationTestImpactFixture(
       [documentationPath, '# Docker fixture\n']
     ]);
     if (includeConsumer) {
-      sources.set('tests/unit/trusted-runtime-container.test.ts', [
+      sources.set('tests/unit/verification/trusted-runtime-container.test.ts', [
         "import { test } from 'bun:test';",
-        "import { dockerFixture } from '../../src/adapters/providers/docker/runtime/fixture.ts';",
+        "import { dockerFixture } from '../../../src/adapters/providers/docker/runtime/fixture.ts';",
         "test('docker owner', () => { if (!dockerFixture) throw new Error(); });",
         ''
       ].join('\n'));
@@ -323,7 +352,8 @@ export async function createRemovedDocumentationTestImpactFixture(
     });
     return Object.freeze({ provider, transition: binding.transition, dispose });
   } catch (error) {
-    dispose();
+    settleResources({ primary: { label: 'test-impact-fixture-construction', error },
+      cleanup: [{ label: 'test-impact-fixture-root', settle: dispose }] });
     throw error;
   }
 }
@@ -332,10 +362,8 @@ export async function createRemovedDocumentationTestImpactFixture(
  * Runner-only fixture. Its immutable synthetic tree models test membership and
  * a clean Git index; it does not claim the repository's production source graph.
  */
-export async function createExactGitTreeTestRunnerFixture(
-  sourceRepositoryRoot = process.cwd()
-): Promise<ExactGitTreeTestRunnerFixture> {
-  const normalizedSourceRoot = path.resolve(sourceRepositoryRoot);
+export async function createExactGitTreeTestRunnerFixture(): Promise<ExactGitTreeTestRunnerFixture> {
+  const normalizedSourceRoot = path.resolve(process.cwd());
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
@@ -434,7 +462,8 @@ export async function createExactGitTreeTestRunnerFixture(
     });
     return fixture;
   } catch (error) {
-    dispose();
+    settleResources({ primary: { label: 'test-impact-fixture-construction', error },
+      cleanup: [{ label: 'test-impact-fixture-root', settle: dispose }] });
     throw error;
   }
 }
@@ -447,24 +476,22 @@ export async function createExactGitTreeTestRunnerFixture(
 async function createExactRepositoryTestImpactProviderFixture(
   sourceRepositoryRoot: string,
   sourceCommitSha: string,
-  options: ExactRepositoryTestImpactFixtureOptions
+  deadlineAtUnixMs: number
 ): Promise<ExactRepositoryTestImpactProviderFixture> {
   const normalizedSourceRoot = path.resolve(sourceRepositoryRoot);
-  const deadlineAtUnixMs = options.deadlineAtUnixMs
-    ?? Date.now() + DEFAULT_TEST_TIMEOUT_MS;
   const operationDeadlineAtUnixMs = deadlineAtUnixMs
     - TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
     - EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS;
-  observeFixturePhase(options, deadlineAtUnixMs, 'admission');
+  observeFixturePhase(deadlineAtUnixMs, 'admission');
   if (!Number.isSafeInteger(operationDeadlineAtUnixMs)
       || operationDeadlineAtUnixMs <= Date.now()) {
     throw new Error(
       'Exact repository TestImpact fixture deadline cannot reserve compilation cleanup settlement.'
     );
   }
-  observeFixturePhase(options, deadlineAtUnixMs, 'source-object-read');
+  observeFixturePhase(deadlineAtUnixMs, 'source-object-read');
   exactTestPaths(normalizedSourceRoot, sourceCommitSha);
-  observeFixturePhase(options, deadlineAtUnixMs, 'fixture-repository-effect');
+  observeFixturePhase(deadlineAtUnixMs, 'fixture-repository-effect');
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
@@ -484,7 +511,7 @@ async function createExactRepositoryTestImpactProviderFixture(
       'TestImpact fixture commit'
     );
     git(repositoryRoot, ['update-ref', 'refs/heads/main', fixtureCommitSha]);
-    observeFixturePhase(options, deadlineAtUnixMs, 'exact-snapshot');
+    observeFixturePhase(deadlineAtUnixMs, 'exact-snapshot');
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
       repositoryRoot,
       commitSha: fixtureCommitSha
@@ -496,7 +523,7 @@ async function createExactRepositoryTestImpactProviderFixture(
     const exactActiveDocumentationPaths = activeDocumentationPaths(
       parseDocumentationIdentityRegistry(documentationIdentity.source)
     );
-    observeFixturePhase(options, deadlineAtUnixMs, 'dependency-retain');
+    observeFixturePhase(deadlineAtUnixMs, 'dependency-retain');
     const runtime = await import('../../src/adapters/toolchain/dependencies/runtime.ts');
     const dependencyAuthority = await runtime.observeCompilerDependencyExecutionGenerationAuthority({
       deadlineAtUnixMs: operationDeadlineAtUnixMs
@@ -506,36 +533,39 @@ async function createExactRepositoryTestImpactProviderFixture(
         'Exact repository TestImpact fixture requires one admitted compiler dependency generation.'
       );
     }
-    const retainedDependency = await runtime.retainCompilerDependencyReadGeneration(
-      dependencyAuthority,
-      { deadlineAtUnixMs: operationDeadlineAtUnixMs }
-    );
-    let compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
-    try {
-      observeFixturePhase(options, deadlineAtUnixMs, 'project-input');
-      const projectInput = compileWorkspaceTypeScriptProjectInput(
-        workspaceSnapshot,
-        tsconfigRelativePath,
-        {
-          dependencyGeneration: retainedDependency.physicalGeneration,
-          dependencyGenerationDigest: retainedDependency.generationDigest
-        }
-      );
-      observeFixturePhase(options, deadlineAtUnixMs, 'cache-open');
-      observeFixturePhase(options, deadlineAtUnixMs, 'compile');
-      compilation = compileRepositorySourceProgramWithCache({
-        workspaceSnapshot,
-        operation: createSourceProgramCompilationOperation({
-          deadlineAtUnixMs: operationDeadlineAtUnixMs
-        }),
-        projectInput,
-        cacheAccess: 'read-only',
-        repositoryRoot: normalizedSourceRoot
-      });
-      observeFixturePhase(options, deadlineAtUnixMs, 'settlement');
-    } finally {
-      await retainedDependency.retire();
-    }
+    const compilation = await withAcquiredResource({
+      operationLabel: 'test-impact-fixture-compilation',
+      resourceLabel: 'test-impact-fixture-dependency-retirement',
+      acquire: () => runtime.retainCompilerDependencyReadGeneration(
+        dependencyAuthority,
+        { deadlineAtUnixMs: operationDeadlineAtUnixMs }
+      ),
+      use: (retainedDependency) => {
+        observeFixturePhase(deadlineAtUnixMs, 'project-input');
+        const projectInput = compileWorkspaceTypeScriptProjectInput(
+          workspaceSnapshot,
+          tsconfigRelativePath,
+          {
+            dependencyGeneration: retainedDependency.physicalGeneration,
+            dependencyGenerationDigest: retainedDependency.generationDigest
+          }
+        );
+        observeFixturePhase(deadlineAtUnixMs, 'cache-open');
+        observeFixturePhase(deadlineAtUnixMs, 'compile');
+        const compilation = compileRepositorySourceProgramWithCache({
+          workspaceSnapshot,
+          operation: createSourceProgramCompilationOperation({
+            deadlineAtUnixMs: operationDeadlineAtUnixMs
+          }),
+          projectInput,
+          cacheAccess: 'read-only',
+          repositoryRoot: normalizedSourceRoot
+        });
+        observeFixturePhase(deadlineAtUnixMs, 'settlement');
+        return compilation;
+      },
+      release: async (retainedDependency) => { await retainedDependency.retire(); }
+    });
     const diagnostics = repositoryCompilationDiagnosticsForTests(workspaceSnapshot);
     const provider = createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
@@ -557,25 +587,19 @@ async function createExactRepositoryTestImpactProviderFixture(
       repositoryRoot,
       dispose
     });
-    observeFixturePhase(options, deadlineAtUnixMs, 'complete');
+    observeFixturePhase(deadlineAtUnixMs, 'complete');
     return fixture;
   } catch (error) {
-    dispose();
+    settleResources({ primary: { label: 'test-impact-fixture-construction', error },
+      cleanup: [{ label: 'test-impact-fixture-root', settle: dispose }] });
     throw error;
   }
 }
 
 /** One process-local lease over the complete exact repository graph. */
-export async function acquireExactRepositoryTestImpactProviderFixture(
-  sourceRepositoryRoot = process.cwd(),
-  options: ExactRepositoryTestImpactFixtureOptions = {}
-): Promise<ExactRepositoryTestImpactProviderFixture> {
-  const normalizedSourceRoot = path.resolve(sourceRepositoryRoot);
-  const canonicalDeadlineAtUnixMs = Date.now() + DEFAULT_TEST_TIMEOUT_MS;
-  const leaseDeadlineAtUnixMs = Math.min(
-    options.deadlineAtUnixMs ?? canonicalDeadlineAtUnixMs,
-    canonicalDeadlineAtUnixMs
-  );
+export async function acquireExactRepositoryTestImpactProviderFixture(): Promise<ExactRepositoryTestImpactProviderFixture> {
+  const normalizedSourceRoot = path.resolve(process.cwd());
+  const leaseDeadlineAtUnixMs = Date.now() + DEFAULT_TEST_TIMEOUT_MS;
   const sourceCommitSha = exactObjectId(
     git(normalizedSourceRoot, ['rev-parse', '--verify', 'HEAD^{commit}']),
     'TestImpact source commit'
@@ -588,27 +612,32 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
       fixture: createExactRepositoryTestImpactProviderFixture(
         normalizedSourceRoot,
         sourceCommitSha,
-        Object.freeze({ ...options, deadlineAtUnixMs: leaseDeadlineAtUnixMs })
+        leaseDeadlineAtUnixMs
       ),
       references: 0
     };
     sharedExactRepositoryFixtures.set(fixtureKey, state);
   }
   state.references += 1;
-  let fixture: ExactRepositoryTestImpactProviderFixture;
+  let fixture: ExactRepositoryTestImpactProviderFixture | undefined;
   try {
     fixture = await state.fixture;
-    if (!createsFixture) observeFixturePhase(options, leaseDeadlineAtUnixMs, 'complete');
+    if (!createsFixture) observeFixturePhase(leaseDeadlineAtUnixMs, 'complete');
   } catch (error) {
     state.references -= 1;
     if (state.references === 0 && sharedExactRepositoryFixtures.get(fixtureKey) === state) {
       sharedExactRepositoryFixtures.delete(fixtureKey);
+      if (fixture !== undefined) {
+        settleResources({ primary: { label: 'test-impact-fixture-lease-admission', error },
+          cleanup: [{ label: 'test-impact-fixture-root', settle: fixture.dispose }] });
+      }
     }
     throw error;
   }
+  const acquiredFixture = fixture;
   let released = false;
   return Object.freeze({
-    ...fixture,
+    ...acquiredFixture,
     dispose: () => {
       if (released) return;
       released = true;
@@ -619,7 +648,7 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
       current.references -= 1;
       if (current.references === 0) {
         sharedExactRepositoryFixtures.delete(fixtureKey);
-        fixture.dispose();
+        acquiredFixture.dispose();
       }
     }
   });

@@ -1,0 +1,120 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import { expect, test } from 'bun:test';
+
+import { withAuthorityGitReadSession } from '../../../src/adapters/providers/git-read/authority.ts';
+import {
+  GIT_READ_DEFAULT_OPERATION_BUDGET,
+  isolatedGitReadEnvironment
+} from '../../../src/adapters/providers/git-read/runtime/session.ts';
+import { observeManagedGitHooksWithSession } from '../../../src/adapters/self-hosting/development/hooks/install.ts';
+
+test('tracked hooks bind deterministic staged normalization and candidate freeze without ambient EOL drift', async () => {
+  const repoRoot = path.resolve(import.meta.dir, '../../..');
+  const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
+  const prePush = await readFile(path.join(repoRoot, '.githooks', 'pre-push'), 'utf8');
+  const postCheckout = await readFile(path.join(repoRoot, '.githooks', 'post-checkout'), 'utf8');
+  const attributes = await readFile(path.join(repoRoot, '.gitattributes'), 'utf8');
+
+  for (const hook of [preCommit, prePush]) {
+    expect(hook).toContain('export SEC_GIT_HOOK_ACTIVE=1');
+  }
+  const observationRoot = await mkdtemp(path.join(tmpdir(), 'sec-hook-command-'));
+  await settleWorkspaceCallback(async () => {
+    const argumentsPath = path.join(observationRoot, 'arguments');
+    const executed = spawnSync('sh', [
+      '-c',
+      'bun() { printf "%s\\n" "$@" > "$SEC_HOOK_ARGUMENTS"; }\n. "$1"',
+      'hook-contract',
+      path.join(repoRoot, '.githooks', 'pre-commit')
+    ], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, SEC_HOOK_ARGUMENTS: argumentsPath },
+      windowsHide: true
+    });
+    expect(executed.status).toBe(0);
+    expect((await readFile(argumentsPath, 'utf8')).trim().split(/\r?\n/u)).toEqual([
+      'run',
+      'imports:apply',
+      '--staged'
+    ]);
+  }, async () => {
+    await rm(observationRoot, { force: true, recursive: true });
+  });
+  expect(preCommit).not.toContain('SEC_CHANGED_BASE');
+  expect(preCommit).not.toContain('\r');
+  expect(prePush).toContain('bun run imports:freeze');
+  expect(prePush).toContain('git diff --cached --quiet HEAD');
+  expect(prePush).not.toContain('\r');
+  expect(postCheckout).not.toContain('\r');
+  expect(attributes).toContain('/.githooks/* text eol=lf');
+});
+
+test('transition hooks supply canonical package identity and preserve Git arguments and stdin', async () => {
+  const repoRoot = path.resolve(import.meta.dir, '../../..');
+  const root = await mkdtemp(path.join(tmpdir(), 'sec hook package '));
+  await settleWorkspaceCallback(async () => {
+    const authority = pathToFileURL(path.join(repoRoot, 'src/adapters/toolchain/runtime/bun-version.ts')).href;
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      type: 'module',
+      scripts: { dev: '"$npm_execpath" ./runner.ts' }
+    }));
+    await writeFile(path.join(root, 'runner.ts'), `
+import { assertCanonicalBunPackageRunner } from ${JSON.stringify(authority)};
+assertCanonicalBunPackageRunner(${JSON.stringify(process.versions.bun)}, undefined, process.cwd());
+console.log(JSON.stringify({ args: process.argv.slice(2), active: process.env.SEC_GIT_HOOK_ACTIVE,
+  stdin: await Bun.stdin.text() }));
+`);
+    const childEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}`
+    };
+    // The child is a different package and must observe the hook's own marker,
+    // never inherit a successful value from an outer hook invocation.
+    for (const name of Object.keys(childEnvironment)) {
+      if (name.toUpperCase() === 'NPM_PACKAGE_JSON'
+          || name.toUpperCase() === 'SEC_GIT_HOOK_ACTIVE') delete childEnvironment[name];
+    }
+    for (const event of ['post-checkout', 'post-merge', 'post-rewrite']) {
+      const executed = spawnSync('sh', [path.join(repoRoot, '.githooks', event), 'first argument', '0'], {
+        cwd: root,
+        input: 'old new\n',
+        encoding: 'utf8',
+        env: childEnvironment,
+        windowsHide: true
+      });
+      if (executed.status !== 0 || executed.error !== undefined) {
+        throw new Error(`hook ${event} failed: ${executed.stderr}`, { cause: executed.error });
+      }
+      expect(JSON.parse(executed.stdout)).toEqual({
+        args: ['workspace-transition', event, 'first argument', '0'],
+        active: '1',
+        stdin: 'old new\n'
+      });
+    }
+  }, async () => {
+    await rm(root, { force: true, recursive: true });
+  });
+});
+
+test('hook observation borrows one Git session without closing its owner capability', async () => {
+  const repoRoot = path.resolve(import.meta.dir, '../../..');
+  await withAuthorityGitReadSession({
+    cwd: repoRoot,
+    source: isolatedGitReadEnvironment(),
+    budget: GIT_READ_DEFAULT_OPERATION_BUDGET
+  }, async (session) => {
+    const first = await observeManagedGitHooksWithSession({ repoRoot, session });
+    expect(session.verifyExecutable()).toBe(true);
+
+    const second = await observeManagedGitHooksWithSession({ repoRoot, session });
+    expect(second.disposition).toBe(first.disposition);
+    expect(session.verifyExecutable()).toBe(true);
+  });
+});

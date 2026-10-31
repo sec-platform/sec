@@ -1,0 +1,198 @@
+import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
+
+import type { BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
+import { buildEngineeringIR } from '../../../src/compiler/ir/build-engineering-ir.ts';
+import { CodedFailure } from '../../../src/contracts/failure.ts';
+
+function fixture(): BuildEngineeringIRInput {
+  return {
+    app: { id: 'ticket-app', name: 'ticket-app' },
+    resolvedBlocks: [
+      {
+        id: 'ticket/basic',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 2,
+        manifestPath: 'catalog/registry/official/ticket.basic/block.manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'catalog/registry/official'
+      },
+      {
+        id: 'auth/basic-session',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 1,
+        manifestPath: 'catalog/registry/official/auth.basic-session/block.manifest.yaml',
+        registrySourceId: 'official',
+        registryKind: 'official',
+        registryLocation: 'compiler',
+        registryPath: 'catalog/registry/official'
+      }
+    ],
+    manifests: [
+      {
+        blockId: 'ticket/basic',
+        manifestPath: 'catalog/registry/official/ticket.basic/block.manifest.yaml',
+        manifest: {
+          requires: ['auth/session'],
+          provides: ['ticket/write', 'ticket/read'],
+          pins: {
+            inputs: [{ id: 'actor_identity', type: 'Session', required: true }],
+            outputs: [{ id: 'ticket_created', type: 'TicketRecord', required: true }]
+          }
+        }
+      },
+      {
+        blockId: 'auth/basic-session',
+        manifest: {
+          requires: [],
+          provides: ['auth/session'],
+          pins: { inputs: [], outputs: [] }
+        }
+      }
+    ],
+    acceptanceIds: ['ticket_can_be_created', 'user_can_login'],
+    policyDeclarations: [{
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['ticket/basic'],
+      rule: 'tenant_context_must_flow_to_query'
+    }]
+  };
+}
+
+function expectCodedFailure(run: () => unknown, code: string): void {
+  assert.throws(run, error => error instanceof CodedFailure && error.code === code);
+}
+
+test('buildEngineeringIR creates stable semantic entities, facts, and revision domains', () => {
+  const input = fixture();
+  const reversed: BuildEngineeringIRInput = {
+    ...input,
+    resolvedBlocks: [...input.resolvedBlocks].reverse(),
+    manifests: [...input.manifests].reverse(),
+    acceptanceIds: [...input.acceptanceIds].reverse(),
+    policyDeclarations: [...input.policyDeclarations].reverse()
+  };
+  const ir = buildEngineeringIR(input);
+
+  expect(ir.appId).toBe('app:ticket-app');
+  expect(ir.inputRevision.startsWith('sha256:')).toBe(true);
+  expect(ir.semanticRevision.startsWith('sha256:')).toBe(true);
+  expect(ir.facts.flatMap((fact) => fact.assertions).every((assertion) =>
+    assertion.validFromRevision === ir.semanticRevision
+  )).toBe(true);
+  expect(ir.entities.map((entity) => entity.id)).toEqual([...ir.entities.map((entity) => entity.id)].sort());
+  expect(ir.facts.map((fact) => fact.id)).toEqual([...ir.facts.map((fact) => fact.id)].sort());
+
+  const dependency = ir.facts.find((fact) =>
+    fact.subject === 'block:ticket/basic' &&
+    fact.predicate === 'DEPENDS_ON' &&
+    fact.object.kind === 'entity' &&
+    fact.object.entityId === 'capability:auth/session'
+  );
+  const dependencyAssertion = dependency?.assertions[0];
+  expect(dependencyAssertion?.authority).toBe('authoritative');
+  expect(dependencyAssertion?.provenance[0]?.kind).toBe('contract');
+  expect(dependencyAssertion?.validFromRevision).toBe(ir.semanticRevision);
+  expect(ir.entities.some((entity) => entity.kind === 'artifact')).toBe(false);
+  expect(buildEngineeringIR(reversed)).toEqual(ir);
+
+});
+
+test('buildEngineeringIR preserves distinct assertions for the same semantic triple', () => {
+  const input = fixture();
+  const ticketManifest = input.manifests[0]!;
+  const ir = buildEngineeringIR({
+    ...input,
+    manifests: [
+      ...input.manifests,
+      {
+        ...ticketManifest,
+        manifestPath: 'source/blocks/private/ticket.basic/block.manifest.yaml'
+      }
+    ]
+  });
+
+  const dependency = ir.facts.find((fact) =>
+    fact.subject === 'block:ticket/basic' &&
+    fact.predicate === 'DEPENDS_ON' &&
+    fact.object.kind === 'entity' &&
+    fact.object.entityId === 'capability:auth/session'
+  );
+
+  expect(dependency?.assertions).toHaveLength(2);
+  expect(dependency?.assertions.flatMap((assertion) => assertion.provenance)).toEqual(expect.arrayContaining([
+    {
+      kind: 'contract',
+      sourceId: 'manifest:ticket/basic',
+      sourcePath: 'catalog/registry/official/ticket.basic/block.manifest.yaml'
+    },
+    {
+      kind: 'contract',
+      sourceId: 'manifest:ticket/basic',
+      sourcePath: 'source/blocks/private/ticket.basic/block.manifest.yaml'
+    }
+  ]));
+  expect(ir.facts.filter((fact) => fact.id === dependency?.id)).toHaveLength(1);
+});
+
+test('buildEngineeringIR rejects a manifest for an unresolved block', () => {
+  const input = fixture();
+  expectCodedFailure(
+    () => buildEngineeringIR({
+      ...input,
+      manifests: [...input.manifests, {
+        blockId: 'missing/block',
+        manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
+      }]
+    }),
+    'IR-IDENTITY-002'
+  );
+});
+
+test('buildEngineeringIR rejects a missing app id without falling back to app name', () => {
+  const input = fixture();
+  expectCodedFailure(
+    () => buildEngineeringIR({
+      ...input,
+      app: { id: '', name: 'ticket-app' }
+    }),
+    'IR-IDENTITY-007'
+  );
+});
+
+test('observed flow sorting preserves duplicate observations, provenance and captured input order', () => {
+  const input = fixture();
+  const observations = Array.from({ length: 24 }, (_, index) => ({
+    sourceCapability: 'ticket/read',
+    target: `src/result-${index % 4}.ts`,
+    providerId: `observer-${index % 3}`,
+    sourcePath: `src/input-${index}.ts`,
+    sourceRevision: `revision-${index}`
+  }));
+  input.observedFlows = [...observations, ...observations.slice(0, 4)];
+  const original = JSON.stringify(input);
+  const ir = buildEngineeringIR(input);
+  const reverse = buildEngineeringIR({ ...input, observedFlows: [...input.observedFlows].reverse() });
+  expect(JSON.stringify(reverse)).toBe(JSON.stringify(ir));
+  expect(JSON.stringify(input)).toBe(original);
+  const flows = ir.facts.filter((fact) => fact.predicate === 'FLOWS_TO');
+  expect(flows).toHaveLength(4);
+  expect(flows.flatMap((fact) => fact.assertions)).toHaveLength(24);
+  expect(flows.flatMap((fact) => fact.assertions).every((assertion) => assertion.authority === 'observed')).toBe(true);
+});
+
+test('a singleton observation does not introduce serialization of unrelated properties', () => {
+  const flow = {
+    providerId: 'observer', sourceCapability: 'ticket/read', sourcePath: 'src/input.ts',
+    sourceRevision: 'revision', target: 'src/output.ts'
+  };
+  // Native Array.sort does not invoke its comparator for a singleton. The
+  // compiler consumes the declared fields; sorting must not widen that read.
+  expect(buildEngineeringIR({ ...fixture(), observedFlows: [{ ...flow, ...{ unrelated: 1n } }] }))
+    .toEqual(buildEngineeringIR({ ...fixture(), observedFlows: [flow] }));
+});

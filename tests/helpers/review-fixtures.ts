@@ -110,7 +110,7 @@ export type ReviewInputsOptions = {
   coverage?: Partial<AcceptanceCoverageReport>;
 };
 
-export type ReviewInputs = {
+type ReviewInputs = {
   lock: LockFile;
   provenance: ProvenanceFile;
   report: VerificationReport;

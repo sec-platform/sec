@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { lstatSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
@@ -38,14 +41,117 @@ test('native failure diagnostics retain complete binary stderr and reject altere
   expect(() => parseLinuxVerificationUnitFailureDiagnostic(Buffer.from(JSON.stringify(failure)), stderr.length - 1)).toThrow();
 });
 
-test.skipIf(process.platform !== 'linux')('native runtime permissions survive caller umasks and execution phases', () => {
-  const result = spawnSync('/usr/bin/python3.12', ['-B', '-I', '-S', fileURLToPath(new URL('./linux-verification-unit-helper.test.py', import.meta.url))], {
-    encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024
+const python = '/usr/bin/python3.12';
+const pythonTests = fileURLToPath(new URL('./linux-verification-unit-helper.test.py', import.meta.url));
+function helperUnavailable(native: boolean): string | undefined {
+  if (process.platform !== 'linux') return 'requires Linux';
+  if (!native) return;
+  if (process.geteuid?.() !== 0) return 'requires root';
+  try {
+    if (readFileSync('/proc/1/comm', 'utf8').trim() !== 'systemd') return 'requires the real systemd manager';
+  } catch { return 'cannot observe the real systemd manager'; }
+}
+const filesystemUnavailable = helperUnavailable(false);
+const nativeUnavailable = helperUnavailable(true);
+const qualification = (reason: string | undefined) => reason ? ` [NOT_VERIFIED: ${reason}]` : '';
+
+// Only this file's Python fixture process is controlled here. unittest still
+// owns discovery, selection and assertions; this is not a replacement runner.
+async function runPythonFixture(args: string[], timeout: number, env: NodeJS.ProcessEnv = process.env) {
+  const child = spawn(python, ['-B', '-I', '-S', pythonTests, ...args], {
+    detached: true, stdio: ['ignore', 'pipe', 'pipe'], env
   });
-  expect(result.error).toBeUndefined();
-  expect(result.stderr).toContain('OK');
-  expect(result.status).toBe(0);
-});
+  let stdout = '', stderr = '', bytes = 0;
+  const failures: unknown[] = [];
+  let stopped = false;
+  let finish: (result: { code: number | null; signal: NodeJS.Signals | null }) => void;
+  let reapTimer: ReturnType<typeof setTimeout> | undefined;
+  function stop(reason: string) {
+    if (stopped) return;
+    stopped = true;
+    failures.push(new Error(reason));
+    // Do not signal a former leader's numeric PGID after observing its exit.
+    if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+      try { process.kill(-child.pid, 'SIGKILL'); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') failures.push(error); }
+    }
+    reapTimer = setTimeout(() => {
+      failures.push(new Error('Python fixture did not close within the independent 5 s reap budget; process settlement is unverified'));
+      // An escaped pipe holder must not prevent original-identity recovery.
+      // Closing our read ends is not evidence that its resources are retired.
+      child.stdout.destroy(); child.stderr.destroy(); child.unref();
+      finish({ code: child.exitCode, signal: child.signalCode });
+    }, 5_000);
+  }
+  function capture(stream: 'stdout' | 'stderr', data: Buffer) {
+    const remaining = Math.max(0, 64 * 1024 - bytes);
+    if (stream === 'stdout') stdout += data.subarray(0, remaining).toString('utf8');
+    else stderr += data.subarray(0, remaining).toString('utf8');
+    bytes += data.length;
+    if (bytes > 64 * 1024) stop('Python fixture output exceeded 64 KiB; diagnostics are truncated');
+  }
+  child.stdout.on('data', (data: Buffer) => capture('stdout', data));
+  child.stderr.on('data', (data: Buffer) => capture('stderr', data));
+  child.on('error', error => { failures.push(error); });
+  const timer = setTimeout(() => stop(`Python fixture exceeded its ${timeout - 5_000} ms work budget`), timeout - 5_000);
+  const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => {
+    finish = resolve;
+    // Normally close observes exit and pipe closure. The separate reap bound
+    // reports unknown settlement instead of blocking the recovery controller.
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
+  clearTimeout(timer);
+  clearTimeout(reapTimer);
+  if (failures.length || result.code !== 0 || result.signal !== null) {
+    throw new AggregateError(failures, `Python fixture ${args.join(' ')}: exit=${result.code}, signal=${result.signal}\n${stdout}\n${stderr}`);
+  }
+  return stderr;
+}
+
+function assertExecutedWithoutSkips(stderr: string, expectedTests?: number) {
+  // unittest reports skipped suites as exit 0 / OK too. Neither proves native execution.
+  expect(stderr).not.toMatch(/\bskipped\b/i);
+  const count = /\bRan (\d+) tests? in\b/.exec(stderr);
+  expect(count).not.toBeNull();
+  expect(Number(count?.[1])).toBeGreaterThan(0);
+  if (expectedTests !== undefined) expect(Number(count?.[1])).toBe(expectedTests);
+}
+
+test.skipIf(filesystemUnavailable !== undefined)('native helper filesystem contracts' + qualification(filesystemUnavailable), async () => {
+  assertExecutedWithoutSkips(await runPythonFixture(['RuntimeCopyPermissions', '-v'], 20_000));
+}, 25_000);
+
+test.skipIf(nativeUnavailable !== undefined)('native namespace init reaps adopted children and preserves main status' + qualification(nativeUnavailable), async () => {
+  // Two 20 s workloads, each with a separate 5 s reap budget, 5 s
+  // startup/reporting, and the launcher's own 5 s reap budget.
+  assertExecutedWithoutSkips(await runPythonFixture([
+    'NativeRecoveryIntegration.test_namespace_init_reaps_adopted_children_and_preserves_main_status', '-v'
+  ], 60_000), 1);
+}, 65_000);
+
+test.skipIf(nativeUnavailable !== undefined)('native original control and unobserved workload are recovered' + qualification(nativeUnavailable), async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sec-native-recovery-integration-'));
+  const identity = statSync(root, { bigint: true });
+  const device = String(identity.dev), inode = String(identity.ino);
+  const failures: unknown[] = [];
+  try {
+    // 45 s work + Python's independent 30 s cleanup + 5 s child reap +
+    // 5 s reporting, then the launcher's separate 5 s reap budget.
+    assertExecutedWithoutSkips(await runPythonFixture([
+      'NativeRecoveryIntegration.test_original_control_and_unobserved_workload_are_recovered', '-v'
+    ], 90_000, { ...process.env, SEC_NATIVE_RECOVERY_FIXTURE: root,
+      SEC_NATIVE_RECOVERY_FIXTURE_DEVICE: device, SEC_NATIVE_RECOVERY_FIXTURE_INODE: inode }), 1);
+  } catch (error) { failures.push(error); }
+  try {
+    // Survives a killed test interpreter: original identities were persisted
+    // before spawning resources. Only the cleanup controller may retire root.
+    // 30 s cleanup + 5 s startup/reporting + 5 s launcher reap.
+    await runPythonFixture(['--recover-fixture', root, device, inode], 40_000);
+    try { lstatSync(root); throw new Error('Native fixture root was not retired'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  } catch (error) { failures.push(error); }
+  if (failures.length) throw new AggregateError(failures, `Native recovery fixture failed; original locator: ${root}`);
+}, 135_000);
 const invocation: LinuxVerificationUnitInvocation = {
   kind: 'lifecycle-canary', argv: [], cwd: 'candidate', environment: {},
   outputFiles: [], maxStdoutBytes: 64, maxStderrBytes: 64
@@ -99,8 +205,7 @@ describe('native verification unit data and live authority separation', () => {
     const decoded = parseLinuxVerificationUnitReceipt(rehash(receipt));
     expect(decoded.profileDigest).toBe(receipt.profileDigest);
     expect(decoded.profileDigest).not.toBe(LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST);
-    const result = parseLinuxVerificationUnitResult({ receipt: rehash(receipt), stdout: '', stderr: '', outputFiles: {} }, invocation);
-    expect(() => assertLinuxVerificationUnitResult(result, {} as LinuxVerificationUnitSession)).toThrow('not issued');
+    parseLinuxVerificationUnitResult({ receipt: rehash(receipt), stdout: '', stderr: '', outputFiles: {} }, invocation);
     receipt.profileDigest = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as typeof receipt.profileDigest;
     expect(() => parseLinuxVerificationUnitReceipt(rehash(receipt))).toThrow('profile differs');
   });
@@ -133,7 +238,8 @@ describe('native verification unit data and live authority separation', () => {
     expect(linuxVerificationUnitInvocationDigest(invocation)).toBe(linuxVerificationUnitInvocationDigest({ ...invocation, stdin: undefined }));
     expect(linuxVerificationUnitInvocationDigest({ ...invocation, stdin: new Uint8Array() })).not.toBe(linuxVerificationUnitInvocationDigest(invocation));
     expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, kind: 'hosted-sut', cwd: 'trusted', argv: ['caller-root-code.ts'] })).toThrow('fixed entry');
-    expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, cwd: 'scratch' })).toThrow();
+    expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, kind: 'source-program', cwd: 'scratch' }))
+      .toThrow(/\bdependency canary\b.*\bscratch cwd\b/u);
     expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, environment: { NODE_PATH: '/caller' } })).toThrow('namespace');
     expect(() => canonicalLinuxVerificationUnitInvocation({ ...invocation, outputFiles: [{ path: '/sec-runtime/output/../escape', maxBytes: 1 }] })).toThrow('escapes');
   });

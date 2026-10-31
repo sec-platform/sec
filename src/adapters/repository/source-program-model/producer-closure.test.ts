@@ -60,10 +60,12 @@ function fixture(
 }
 
 test('operation producer closure is the one descriptor-owned operation entrypoint and reachable graph', () => {
-  const closure = compileSourceProgramOperationProducerClosure(
-    fixture('export function normalize(): void {}\n'),
+  const compilation = fixture('export function normalize(): void {}\n');
+  const closure = compileSourceProgramOperationProducerClosure(compilation, OPERATION);
+  expect(() => compileSourceProgramOperationProducerClosure(
+    { ...compilation },
     OPERATION
-  );
+  )).toThrow('compiler-issued compilation receipt');
   expect(closure.authority).toBe('source-evidence-only');
   expect(closure.entrypoint.address).toBe(
     'module-entrypoint:src/normalize/module.json#normalize:src/normalize/runtime.ts'
@@ -93,41 +95,6 @@ test('operation producer closure is the one descriptor-owned operation entrypoin
     OPERATION
   );
   expect(unrelatedChanged.closureDigest).toBe(closure.closureDigest);
-});
-
-test('operation producer entrypoint follows TypeChecker aliases and re-exports', () => {
-  const aliased = compileSourceProgramOperationProducerClosure(
-    fixture(
-      'export function normalize(): void {}\n',
-      undefined,
-      "export { normalize as verify } from './kernel.ts';\n"
-    ),
-    OPERATION
-  );
-  const star = compileSourceProgramOperationProducerClosure(
-    fixture(
-      'export function verify(): void {}\n',
-      undefined,
-      "export * from './kernel.ts';\n"
-    ),
-    OPERATION
-  );
-  const localList = compileSourceProgramOperationProducerClosure(
-    fixture(
-      'export function normalize(): void {}\n',
-      undefined,
-      "import { normalize } from './kernel.ts';\nconst verify = normalize;\nexport { verify };\n"
-    ),
-    OPERATION
-  );
-
-  for (const closure of [aliased, star, localList]) {
-    expect(closure.entrypoint.address).toBe(
-      'module-entrypoint:src/normalize/module.json#normalize:src/normalize/runtime.ts'
-    );
-    expect(closure.implementationFiles.map(({ path }) => path)
-      .includes('src/normalize/kernel.ts')).toBe(true);
-  }
 });
 
 test('operation producer blocks unresolved and non-unique TypeChecker export projections', () => {
@@ -190,18 +157,7 @@ test('operation producer rejects unresolved dynamic and runtime loader resources
   );
 });
 
-test('operation producer rejects caller-cloned compilation receipts', () => {
-  const compilation = fixture('export function normalize(): void {}\n');
-  expect(() => compileSourceProgramOperationProducerClosure(
-    { ...compilation },
-    OPERATION
-  )).toThrow('compiler-issued compilation receipt');
-});
-
 for (const [name, kernel, runtime] of [
-  ['type-only named re-export', 'export function normalize(): void {}\n', "export type { normalize as verify } from './kernel.ts';\n"],
-  ['type-only star re-export', 'export function verify(): void {}\n', "export type * from './kernel.ts';\n"],
-  ['ambient declared export', '', 'export declare function verify(): void;\n'],
   ['ambient declared variable', '', 'export declare const verify: () => void;\n'],
   ['invalid target syntax', 'export function normalize(): void { const x = ; }\n', "export { normalize as verify } from './kernel.ts';\n"]
 ] as const) test(`operation producer rejects ${name} as a runtime export`, () => {

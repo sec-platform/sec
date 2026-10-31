@@ -74,11 +74,15 @@ export function decodeExactUtf8(bytes: Uint8Array, label = 'retained file'): str
 
 function parseRetainedJson<T>(bytes: Uint8Array, label: string): T {
   const source = decodeExactUtf8(bytes, label);
+  let value: T;
   try {
-    return JSON.parse(source) as T;
+    value = JSON.parse(source) as T;
   } catch (error) {
     throw new Error(`${label} is not valid JSON`, { cause: error });
   }
+  // Optional retained reads reserve null for physical absence, not file content.
+  if (value === null) throw new Error(`${label} must not be JSON null`);
+  return value;
 }
 
 export function readOptionalRetainedJsonLeaf<T>(

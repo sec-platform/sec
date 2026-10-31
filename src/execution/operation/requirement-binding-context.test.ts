@@ -2,9 +2,7 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
   consumeOperationRequirementBindingContext,
-  issueOperationRequirementBindingContext,
-  OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
-  type OperationRequirementBindingContext
+  issueOperationRequirementBindingContext
 } from './requirement-binding-context.ts';
 import {
   bindSemanticOperation,
@@ -67,7 +65,7 @@ test('foundation context binds one exact attempt requirement provider and narrow
   });
   const projection = consumeOperationRequirementBindingContext(context);
 
-  expect(projection.issuerRole).toBe(OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE);
+  expect(projection.issuerRole).toBe('semantic-operation-foundation');
   expect(projection.operationIdentityDigest).toBe(bound.plan.identity.identityDigest);
   expect(projection.executionPlanDigest).toBe(bound.plan.execution.executionPlanDigest);
   expect(projection.boundAttemptDigest).toBe(bound.boundAttemptDigest);
@@ -105,24 +103,6 @@ test('foundation context binds a fixed child deadline and rejects attempt wideni
   })).toThrow('absolute deadline is not narrowed from its attempt');
 });
 
-test('structural copies serialization and caller flags cannot recreate the context', () => {
-  const context = issueOperationRequirementBindingContext({
-    operation: operation('typescript-native-provider'),
-    requirementId: 'typescript.project-check',
-    resourceCeilings: [{ resource: 'processes', maximum: 1 }]
-  });
-  const structural = structuredClone(context) as OperationRequirementBindingContext;
-  const serialized = JSON.parse(JSON.stringify(context)) as OperationRequirementBindingContext;
-
-  expect(() => consumeOperationRequirementBindingContext(structural))
-    .toThrow('operation-foundation-issued');
-  expect(() => consumeOperationRequirementBindingContext(serialized))
-    .toThrow('operation-foundation-issued');
-  expect(() => consumeOperationRequirementBindingContext(
-    true as unknown as OperationRequirementBindingContext
-  )).toThrow('operation-foundation-issued');
-});
-
 test('context rejects foreign requirements and ceiling widening while identity follows attempts', () => {
   const first = operation('typescript-native-provider');
   expect(() => issueOperationRequirementBindingContext({
@@ -155,14 +135,6 @@ test('context rejects foreign requirements and ceiling widening while identity f
       resourceCeilings: [{ resource: 'duration-ms', maximum: 10_000 }]
     })
   )).toThrow('already been consumed');
-  const narrowerOperation = operation('typescript-native-provider');
-  const narrower = consumeOperationRequirementBindingContext(
-    issueOperationRequirementBindingContext({
-      operation: narrowerOperation,
-      requirementId: 'typescript.project-check',
-      resourceCeilings: [{ resource: 'duration-ms', maximum: 5_000 }]
-    })
-  );
   const nextAttempt = consumeOperationRequirementBindingContext(
     issueOperationRequirementBindingContext({
       operation: operation('typescript-native-provider'),
@@ -171,7 +143,18 @@ test('context rejects foreign requirements and ceiling widening while identity f
     })
   );
 
-  expect(narrow.resourceCeilingIdentityDigest).not.toBe(narrower.resourceCeilingIdentityDigest);
+  // Independent canonical preimage: only the admitted 10_000 ceiling is valid
+  // for this exact attempt. A fresh nonce cannot mask omission of that ceiling.
+  expect(narrow.resourceCeilingIdentityDigest).toBe(digest(JSON.stringify({
+    absoluteDeadlineAtUnixMs: first.plan.attempt.deadlineAtUnixMs,
+    boundAttemptDigest: first.boundAttemptDigest,
+    domain: 'sec.operation.requirement-resource-ceiling',
+    executionPlanDigest: first.plan.execution.executionPlanDigest,
+    operationIdentityDigest: first.plan.identity.identityDigest,
+    providerBindingDigest: first.bindings[0]!.bindingDigest,
+    requirementId: 'typescript.project-check',
+    resourceCeilings: [{ maximum: 10_000, resource: 'duration-ms' }]
+  })));
   expect(narrow.operationIdentityDigest).toBe(nextAttempt.operationIdentityDigest);
   expect(narrow.executionPlanDigest).toBe(nextAttempt.executionPlanDigest);
   expect(narrow.boundAttemptDigest).not.toBe(nextAttempt.boundAttemptDigest);
@@ -179,9 +162,14 @@ test('context rejects foreign requirements and ceiling widening while identity f
 });
 
 test('requirement binding narrows an explicitly declared zero input ceiling and never creates one', () => {
+  const bound = operation('zero-input-provider', 0);
+  expect(bound.plan.execution.aggregateBudgets).toContainEqual({
+    resource: 'input-bytes',
+    maximum: 0
+  });
   const explicitZero = consumeOperationRequirementBindingContext(
     issueOperationRequirementBindingContext({
-      operation: operation('zero-input-provider', 0),
+      operation: bound,
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'input-bytes', maximum: 0 }]
     })

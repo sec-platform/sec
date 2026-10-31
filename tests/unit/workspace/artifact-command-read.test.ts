@@ -1,0 +1,71 @@
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { readRequiredJson } from '../../../src/adapters/workspace/required-artifact-read.ts';
+import { executeArtifactCommandInput } from '../../../src/entry/cli/artifact-command-execution.ts';
+
+async function fixture(run: (root: string) => Promise<void>): Promise<void> {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-artifact-read-'));
+  await settleWorkspaceCallback(() => run(root), () => rm(root, { recursive: true, force: true }));
+}
+
+test('required JSON reads valid null without truthiness-based absence', async () => {
+  await fixture(async root => {
+    const file = path.join(root, 'value.json');
+    for (const value of [null, false, 0, '', [], { value: 7 }]) {
+      await writeFile(file, JSON.stringify(value));
+      assert.deepEqual(await readRequiredJson(file, 'missing fixture'), value);
+    }
+  });
+});
+
+test('only an actual absent file is translated to the selected missing diagnostic', async () => {
+  await fixture(async root => {
+    await assert.rejects(readRequiredJson(path.join(root, 'missing.json'), 'selected missing message'),
+      (error: unknown) => error instanceof Error && error.message === 'selected missing message'
+        && (error.cause as {code?: string})?.code === 'ENOENT');
+  });
+});
+
+test('malformed JSON remains its original parse failure, not a missing-file error', async () => {
+  await fixture(async root => {
+    const file = path.join(root, 'malformed.json'); await writeFile(file, '{');
+    await assert.rejects(readRequiredJson(file, 'must not replace parse error'), SyntaxError);
+  });
+});
+
+test('native path errors retain their platform code and only ENOENT is translated', async () => {
+  await fixture(async root => {
+    const file = path.join(root, 'ordinary'); await writeFile(file, '{}');
+    const child = path.join(file, 'child.json');
+    let nativeCode: string | undefined;
+    try { await readFile(child); assert.fail('ordinary file cannot contain a child'); }
+    catch (error) { nativeCode = (error as NodeJS.ErrnoException).code; }
+    assert.ok(nativeCode);
+    await assert.rejects(readRequiredJson(child, 'missing fixture'), (error: unknown) => {
+      if (!(error instanceof Error)) return false;
+      return nativeCode === 'ENOENT'
+        ? error.message === 'missing fixture' && (error.cause as NodeJS.ErrnoException)?.code === nativeCode
+        : error.message !== 'missing fixture' && (error as NodeJS.ErrnoException).code === nativeCode;
+    });
+  });
+});
+
+test('read failure emits no success frame', async () => {
+  let writes = 0; const log = console.log; console.log = () => { writes++; };
+  try {
+    const failure = new Error('missing fixture');
+    await assert.rejects(executeArtifactCommandInput(
+      { kind: 'manifest', output: { json: true, compact: true } },
+      {
+        readManifest: async () => { throw failure; },
+        observeManifest: async () => assert.fail('observe on manifest read'),
+        generate: async () => assert.fail('generate on manifest read')
+      }
+    ), (error: unknown) => error === failure);
+    assert.equal(writes, 0);
+  } finally { console.log = log; }
+});

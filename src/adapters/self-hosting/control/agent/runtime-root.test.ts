@@ -44,10 +44,10 @@ test.skipIf(process.platform !== 'linux')('skill CLI reaches invalid Read Plan r
 
 for (const command of ['request', 'observe'] as const) {
   test.skipIf(process.platform !== 'linux')(`activation ${command} checks foreign candidate identity before any hosted authority`, async () => {
-    await inGitProtocolRepository(async (candidate) => {
+    await inGitProtocolRepository(async (candidate, _git, _environment, runCommand) => {
       const args = command === 'request' ? ['--phase', 'prepare'] : ['--request-id', `sha256:${'a'.repeat(64)}`];
-      const result = await run([path.join(import.meta.dir, 'agent-operation-activation.ts'),
-        command, ...args, '--candidate-root', candidate, '--json']);
+      const result = await runCommand([path.join(import.meta.dir, 'agent-operation-activation.ts'),
+        command, ...args, '--candidate-root', candidate, '--json'], { cwd: repositoryRoot, timeoutMs: 10_000 });
       expect(result.code).toBe(2);
       expect(JSON.parse(result.stderr)).toMatchObject({
         reasonCode: 'activation-stale', blockerDigest: rawSha256('candidate-repository-mismatch')

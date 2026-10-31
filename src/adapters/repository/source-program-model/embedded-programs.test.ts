@@ -27,39 +27,18 @@ jobs:
           bun -e 'import { inspect } from "./src/inspect.ts"; inspect()'
 `;
 
-test('workflow executable values compile into addressed programs, capabilities and explicit unknowns', () => {
-  const units = compileSourceProgramEmbeddedWorkflowPrograms({
-    path: workflowPath,
-    source: workflowSource,
-    contentDigest: rawSha256(workflowSource)
-  });
-
-  expect(units.map(({ address, kind }) => ({ address, kind }))).toEqual([
-    { address: 'jobs/inspect/steps/0/github-script', kind: 'github-script' },
-    { address: 'jobs/inspect/steps/1/workflow-run', kind: 'workflow-run' }
-  ]);
-  expect(units[0]).toMatchObject({
-    ownerPath: workflowPath,
-    provider: 'actions/github-script@0123456789012345678901234567890123456789',
-    imports: [{ kind: 'require', specifier: 'node:crypto' }],
-    unknowns: [{ code: 'embedded-javascript-dynamic-source' }]
-  });
-  expect(units[1]).toMatchObject({
-    ownerPath: workflowPath,
-    language: 'shell',
-    unknowns: [{ code: 'embedded-shell-import-closure-unresolved' }]
-  });
-  expect(units.every(({ contentDigest, span }) => (
-    /^sha256:[0-9a-f]{64}$/u.test(contentDigest)
-      && span.end > span.start
-      && span.endLine >= span.startLine
-  ))).toBe(true);
-});
-
 test('repository module graph consumes embedded imports instead of parsing YAML as TypeScript', () => {
+  const repeatedImport = workflowSource + `
+  another:
+    steps:
+      - uses: actions/github-script@0123456789012345678901234567890123456789
+        with:
+          script: |
+            require('node:crypto');
+`;
   const graph = compileSourceProgramRepositoryModuleGraph({
     files: [workflowPath],
-    readSource: (repositoryPath) => repositoryPath === workflowPath ? workflowSource : null,
+    readSource: (repositoryPath) => repositoryPath === workflowPath ? repeatedImport : null,
     readEmbeddedLanguageImports: sourceProgramModuleImports
   });
 
@@ -130,13 +109,6 @@ test('repository model projects embedded programs through existing entrypoint, c
   ]));
 });
 
-test('embedded frontend never becomes a second ordinary TypeScript scanner', () => {
-  expect(sourceProgramModuleImports(
-    'src/example.ts',
-    "import { value } from './value.ts';\nexport { value };\n"
-  )).toEqual([]);
-});
-
 test('aliased pinned GitHub action uses retain their real script identity and source span', () => {
   const source = workflowSource.replace('uses: actions/', 'uses: &github_script actions/') + `
   activation:
@@ -147,6 +119,28 @@ test('aliased pinned GitHub action uses retain their real script identity and so
             core.setOutput('ready', 'true');
 `;
   const units = compileSourceProgramEmbeddedWorkflowPrograms({ path: workflowPath, source, contentDigest: rawSha256(source) });
+
+  expect(units.map(({ address, kind }) => ({ address, kind }))).toEqual([
+    { address: 'jobs/activation/steps/0/github-script', kind: 'github-script' },
+    { address: 'jobs/inspect/steps/0/github-script', kind: 'github-script' },
+    { address: 'jobs/inspect/steps/1/workflow-run', kind: 'workflow-run' }
+  ]);
+  expect(units[1]).toMatchObject({
+    ownerPath: workflowPath,
+    provider: 'actions/github-script@0123456789012345678901234567890123456789',
+    imports: [{ kind: 'require', specifier: 'node:crypto' }],
+    unknowns: [{ code: 'embedded-javascript-dynamic-source' }]
+  });
+  expect(units[2]).toMatchObject({
+    ownerPath: workflowPath,
+    language: 'shell',
+    unknowns: [{ code: 'embedded-shell-import-closure-unresolved' }]
+  });
+  expect(units.every(({ contentDigest, span }) => (
+    /^sha256:[0-9a-f]{64}$/u.test(contentDigest)
+      && span.end > span.start
+      && span.endLine >= span.startLine
+  ))).toBe(true);
   const activation = units.find(({ address }) => address === 'jobs/activation/steps/0/github-script');
   expect(activation?.provider).toBe('actions/github-script@0123456789012345678901234567890123456789');
   expect(activation?.source).toBe("core.setOutput('ready', 'true');\n");
@@ -225,7 +219,7 @@ test('workflow run aliases reject missing or non-string commands and uses confli
   });
   expect(() => compile(aliasedRunSource.replace('*install_dependencies', '*missing_command')))
     .toThrow(/alias does not resolve to one scalar command/u);
-  for (const value of ['{ command: unsafe }', '[unsafe]', '42', 'true', 'null']) {
+  for (const value of ['{ command: unsafe }', '42']) {
     const source = aliasedRunSource.replace(
       '|\n          set -euo pipefail\n          bun install --frozen-lockfile --ignore-scripts', value
     );

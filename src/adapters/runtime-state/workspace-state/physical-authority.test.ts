@@ -1,3 +1,5 @@
+import { settleWorkspaceCleanups } from '../../../../tests/testkit/workspace-cleanup.ts';
+import { settleResources, settleResourcesAsync, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import { expect, jest, test } from 'bun:test';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +16,7 @@ import { acquireSecRuntimeCachePhysicalAuthority, acquireSecRuntimeStatePhysical
 
 test('runtime cache authority materializes one no-follow tree physically outside the repository', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-cache-authority-'));
+  let fixtureFailure2: ResourceSettlementFailure | undefined;
   try {
     const repositoryRoot = path.join(root, 'repository');
     const cacheRoot = path.join(root, 'cache');
@@ -34,13 +37,19 @@ test('runtime cache authority materializes one no-follow tree physically outside
       expect(lstatSync(cacheRoot).mode & 0o077).toBe(0);
       expect(lstatSync(snapshots).mode & 0o077).toBe(0);
     }
+  } catch (error) {
+    fixtureFailure2 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure2,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
 test('runtime cache authority rejects a symlink or junction ancestor before creating descendants', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-cache-reparse-'));
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     const repositoryRoot = path.join(root, 'repository');
     const cacheRoot = path.join(root, 'cache-link');
@@ -56,8 +65,13 @@ test('runtime cache authority rejects a symlink or junction ancestor before crea
       })
     ).toThrow();
     expect(existsSync(path.join(repositoryRoot, 'docs-doctor'))).toBe(false);
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { rmSync(root, { recursive: true, force: true }); } }]
+    });
   }
 });
 
@@ -89,21 +103,37 @@ test('bounded Runtime State authority settlement preserves the live capability a
   const repositoryRoot = path.join(root, 'repository');
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  const authority = await acquireSecRuntimeStatePhysicalAuthority({
-    repositoryRoot,
-    stateRoot,
-    cacheRoot,
-    requiredDirectories: []
-  });
+  let authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let acquisitionUnsettled = false;
+  let primaryFailure: ResourceSettlementFailure | undefined;
   try {
+    mkdirSync(repositoryRoot);
+    acquisitionUnsettled = true;
+    authority = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot,
+      cacheRoot,
+      requiredDirectories: []
+    });
+    acquisitionUnsettled = false;
     await expect(authority.release({ deadlineAtUnixMs: Date.now() - 1 }))
       .rejects.toThrow('deadline');
     await expect(authority.assertCurrent()).resolves.toBeUndefined();
     await authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
+  } catch (error) {
+    primaryFailure = { label: 'authority fixture', error };
   } finally {
-    await authority.release().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary: primaryFailure, cleanup: [
+      { label: 'release authorities before retiring root', settle: async () => {
+        await settleResourcesAsync({ cleanup: [
+          { label: 'authority', settle: () => authority?.release() },
+          { label: 'authority acquisition settlement', settle: () => {
+            if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+          } }
+        ] });
+        rmSync(root, { recursive: true, force: true });
+      } }
+    ] });
   }
 });
 
@@ -114,26 +144,46 @@ test.skipIf(process.platform !== 'win32')(
     const repositoryRoot = path.join(root, 'repository');
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
-    mkdirSync(repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority({
-      repositoryRoot,
-      stateRoot,
-      cacheRoot,
-      requiredDirectories: []
-    });
+    let authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let acquisitionUnsettled = false;
+    let primaryFailure: ResourceSettlementFailure | undefined;
+    let joinedOperations: Promise<unknown> | undefined;
+    let current: Promise<void> | undefined;
     try {
+      mkdirSync(repositoryRoot);
+      acquisitionUnsettled = true;
+      authority = await acquireSecRuntimeStatePhysicalAuthority({
+        repositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: []
+      });
+      acquisitionUnsettled = false;
       await expect(authority.assertCurrent({ deadlineAtUnixMs: Date.now() - 1 }))
         .rejects.toThrow('deadline');
       await expect(authority.assertCurrent()).resolves.toBeUndefined();
-      const current = authority.assertCurrent();
+      current = authority.assertCurrent();
+      joinedOperations = Promise.allSettled([current]);
       await expect(authority.release({ deadlineAtUnixMs: Date.now() + 10_000 }))
         .rejects.toThrow('operations pending');
       await current;
       await expect(authority.assertCurrent()).resolves.toBeUndefined();
       await authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      await authority.release().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [
+        { label: 'join current operation', settle: async () => { await joinedOperations; await current; } },
+        { label: 'release authorities before retiring root', settle: async () => {
+          await settleResourcesAsync({ cleanup: [
+            { label: 'authority', settle: () => authority?.release() },
+            { label: 'authority acquisition settlement', settle: () => {
+              if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+            } }
+          ] });
+          rmSync(root, { recursive: true, force: true });
+        } }
+      ] });
     }
   }
 );
@@ -145,26 +195,36 @@ test.skipIf(process.platform !== 'win32')(
     const repositoryRoot = path.join(root, 'repository');
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
-    mkdirSync(repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority({
-      repositoryRoot,
-      stateRoot,
-      cacheRoot,
-      requiredDirectories: []
-    });
+    let authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let acquisitionUnsettled = false;
+    let primaryFailure: ResourceSettlementFailure | undefined;
+    let joinedOperations: Promise<unknown> | undefined;
+    let fakeTimersStarted = false;
     let predecessor: Promise<void> | undefined;
     let cancelled: Promise<void> | undefined;
     try {
+      mkdirSync(repositoryRoot);
+      acquisitionUnsettled = true;
+      authority = await acquireSecRuntimeStatePhysicalAuthority({
+        repositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: []
+      });
+      acquisitionUnsettled = false;
       const now = Date.now();
+      fakeTimersStarted = true;
       jest.useFakeTimers({ now });
       predecessor = authority.assertCurrent();
       cancelled = authority.assertCurrent({ deadlineAtUnixMs: now + 1_000 });
+      joinedOperations = Promise.allSettled([predecessor, cancelled]);
       const cancellation = cancelled.then(
         () => Object.freeze({ status: 'fulfilled' as const }),
         (error: unknown) => Object.freeze({ error, status: 'rejected' as const })
       );
       jest.advanceTimersByTime(1_000);
       jest.useRealTimers();
+      fakeTimersStarted = false;
 
       const cancellationResult = await cancellation;
       expect(cancellationResult.status).toBe('rejected');
@@ -172,13 +232,25 @@ test.skipIf(process.platform !== 'win32')(
         .toMatchObject({ message: expect.stringContaining('deadline expired while queued') });
       await predecessor;
       await expect(authority.assertCurrent()).resolves.toBeUndefined();
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      jest.useRealTimers();
-      await Promise.allSettled([predecessor, cancelled].filter(
-        (operation): operation is Promise<void> => operation !== undefined
-      ));
-      await authority.release().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [
+        { label: 'restore real timers', settle: () => { if (fakeTimersStarted) jest.useRealTimers(); } },
+        { label: 'join queued operations', settle: async () => {
+          await joinedOperations;
+          await predecessor;
+        } },
+        { label: 'release authorities before retiring root', settle: async () => {
+          await settleResourcesAsync({ cleanup: [
+            { label: 'authority', settle: () => authority?.release() },
+            { label: 'authority acquisition settlement', settle: () => {
+              if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+            } }
+          ] });
+          rmSync(root, { recursive: true, force: true });
+        } }
+      ] });
     }
   }
 );
@@ -193,21 +265,42 @@ test.skipIf(process.platform !== 'win32')(
       cacheRoot: path.join(root, 'cache'),
       requiredDirectories: []
     };
-    mkdirSync(input.repositoryRoot);
-    const first = await acquireSecRuntimeStatePhysicalAuthority(input);
-    const second = await acquireSecRuntimeStatePhysicalAuthority(input);
+    let first: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let acquisitionUnsettled = false;
+    let primaryFailure: ResourceSettlementFailure | undefined;
+    let joinedOperations: Promise<unknown> | undefined;
+    let current: Promise<void> | undefined;
     try {
-      const current = first.assertCurrent();
+      mkdirSync(input.repositoryRoot);
+      acquisitionUnsettled = true;
+      first = await acquireSecRuntimeStatePhysicalAuthority(input);
+      second = await acquireSecRuntimeStatePhysicalAuthority(input);
+      acquisitionUnsettled = false;
+      current = first.assertCurrent();
+      joinedOperations = Promise.allSettled([current]);
       await expect(second.release({ deadlineAtUnixMs: Date.now() + 10_000 }))
         .rejects.toThrow('operations pending');
       await current;
       await expect(second.assertCurrent()).resolves.toBeUndefined();
       await second.release({ deadlineAtUnixMs: Date.now() + 10_000 });
       await expect(first.assertCurrent()).resolves.toBeUndefined();
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      await second.release().catch(() => undefined);
-      await first.release().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [
+        { label: 'join current operation', settle: async () => { await joinedOperations; await current; } },
+        { label: 'release authorities before retiring root', settle: async () => {
+          await settleResourcesAsync({ cleanup: [
+            { label: 'second authority', settle: () => second?.release() },
+            { label: 'first authority', settle: () => first?.release() },
+            { label: 'authority acquisition settlement', settle: () => {
+              if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+            } }
+          ] });
+          rmSync(root, { recursive: true, force: true });
+        } }
+      ] });
     }
   }
 );
@@ -222,19 +315,49 @@ test.skipIf(process.platform !== 'win32')(
       cacheRoot: path.join(root, 'cache'),
       requiredDirectories: []
     };
-    mkdirSync(input.repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority(input);
+    let authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let acquisitionUnsettled = false;
+    let primaryFailure: ResourceSettlementFailure | undefined;
+    let joinedOperations: Promise<unknown> | undefined;
+    let retirement: Promise<void> | undefined;
+    let unexpectedJoin: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
     let reopened: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
     try {
-      const retirement = authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
-      await expect(acquireSecRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
+      mkdirSync(input.repositoryRoot);
+      acquisitionUnsettled = true;
+      authority = await acquireSecRuntimeStatePhysicalAuthority(input);
+      acquisitionUnsettled = false;
+      retirement = authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
+      joinedOperations = Promise.allSettled([retirement]);
+      acquisitionUnsettled = true;
+      await expect(acquireSecRuntimeStatePhysicalAuthority(input).then(value => {
+        unexpectedJoin = value;
+        acquisitionUnsettled = false;
+        return value;
+      })).rejects.toThrow('generation is retired');
+      acquisitionUnsettled = false;
       await retirement;
+      acquisitionUnsettled = true;
       reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      acquisitionUnsettled = false;
       await expect(reopened.assertCurrent()).resolves.toBeUndefined();
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      await reopened?.release().catch(() => undefined);
-      await authority.release().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [
+        { label: 'join retirement', settle: async () => { await joinedOperations; await retirement; } },
+        { label: 'release authorities before retiring root', settle: async () => {
+          await settleResourcesAsync({ cleanup: [
+            { label: 'unexpectedJoin authority', settle: () => unexpectedJoin?.release() },
+            { label: 'reopened authority', settle: () => reopened?.release() },
+            { label: 'authority', settle: () => authority?.release() },
+            { label: 'authority acquisition settlement', settle: () => {
+              if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+            } }
+          ] });
+          rmSync(root, { recursive: true, force: true });
+        } }
+      ] });
     }
   }
 );
@@ -249,21 +372,55 @@ test.skipIf(process.platform !== 'win32')(
       cacheRoot: path.join(root, 'cache'),
       requiredDirectories: []
     };
-    mkdirSync(input.repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority(input);
+    let authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let acquisitionUnsettled = false;
+    let primaryFailure: ResourceSettlementFailure | undefined;
+    let joinedOperations: Promise<unknown> | undefined;
+    let current: Promise<void> | undefined;
+    let retirement: Promise<void> | undefined;
+    let unexpectedJoin: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
     let reopened: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
     try {
-      const current = authority.assertCurrent();
-      const retirement = authority.release();
-      await expect(acquireSecRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
+      mkdirSync(input.repositoryRoot);
+      acquisitionUnsettled = true;
+      authority = await acquireSecRuntimeStatePhysicalAuthority(input);
+      acquisitionUnsettled = false;
+      current = authority.assertCurrent();
+      retirement = authority.release();
+      joinedOperations = Promise.allSettled([current, retirement]);
+      acquisitionUnsettled = true;
+      await expect(acquireSecRuntimeStatePhysicalAuthority(input).then(value => {
+        unexpectedJoin = value;
+        acquisitionUnsettled = false;
+        return value;
+      })).rejects.toThrow('generation is retired');
+      acquisitionUnsettled = false;
       await current;
       await retirement;
+      acquisitionUnsettled = true;
       reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      acquisitionUnsettled = false;
       await expect(reopened.assertCurrent()).resolves.toBeUndefined();
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      await reopened?.release().catch(() => undefined);
-      await authority.release().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [
+        { label: 'join admitted operation and retirement', settle: async () => {
+          await joinedOperations;
+          await settleWorkspaceCleanups([async () => { await current; }, async () => { await retirement; }]);
+        } },
+        { label: 'release authorities before retiring root', settle: async () => {
+          await settleResourcesAsync({ cleanup: [
+            { label: 'unexpectedJoin authority', settle: () => unexpectedJoin?.release() },
+            { label: 'reopened authority', settle: () => reopened?.release() },
+            { label: 'authority', settle: () => authority?.release() },
+            { label: 'authority acquisition settlement', settle: () => {
+              if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+            } }
+          ] });
+          rmSync(root, { recursive: true, force: true });
+        } }
+      ] });
     }
   }
 );
@@ -273,17 +430,23 @@ test.skipIf(process.platform !== 'win32')('bounded owner child generations queue
   const repositoryRoot = path.join(root, 'repository');
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  const first = await acquireSecRuntimeStatePhysicalAuthority({
-    repositoryRoot,
-    stateRoot,
-    cacheRoot,
-    requiredDirectories: []
-  });
+  let first: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let acquisitionUnsettled = false;
   let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   let third: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let primaryFailure: ResourceSettlementFailure | undefined;
   try {
+    mkdirSync(repositoryRoot);
+    acquisitionUnsettled = true;
+    first = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot,
+      cacheRoot,
+      requiredDirectories: []
+    });
+    acquisitionUnsettled = false;
     const concurrentDeadlineAtUnixMs = Date.now() + 30_000;
+    acquisitionUnsettled = true;
     const concurrent = await Promise.allSettled([
       acquireSecRuntimeStatePhysicalAuthority({
         repositoryRoot,
@@ -310,14 +473,24 @@ test.skipIf(process.platform !== 'win32')('bounded owner child generations queue
     if (second === undefined || third === undefined) {
       throw new Error('Bounded concurrent Runtime State authority acquisition returned no capability.');
     }
-    await Promise.all([first.assertCurrent(), second.assertCurrent(), third.assertCurrent()]);
+    acquisitionUnsettled = false;
+    await settleWorkspaceCleanups([() => first!.assertCurrent(), () => second!.assertCurrent(), () => third!.assertCurrent()]);
     expect(second.directory(path.join(stateRoot, 'operations', 'first')).path).toBe(path.join(stateRoot, 'operations', 'first'));
     expect(third.directory(path.join(stateRoot, 'operations', 'second')).path).toBe(path.join(stateRoot, 'operations', 'second'));
+  } catch (error) {
+    primaryFailure = { label: 'authority fixture', error };
   } finally {
-    await third?.release();
-    await second?.release();
-    await first.release();
-    rmSync(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary: primaryFailure, cleanup: [{ label: 'release authorities before retiring root', settle: async () => {
+      await settleResourcesAsync({ cleanup: [
+        { label: 'third authority', settle: () => third?.release() },
+        { label: 'second authority', settle: () => second?.release() },
+        { label: 'first authority', settle: () => first?.release() },
+        { label: 'authority acquisition settlement', settle: () => {
+          if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+        } }
+      ] });
+      rmSync(root, { recursive: true, force: true });
+    } }] });
   }
 });
 
@@ -329,104 +502,140 @@ test.skipIf(process.platform !== 'win32')(
     const secondRepositoryRoot = path.join(root, 'repository-second');
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
-    mkdirSync(firstRepositoryRoot);
-    mkdirSync(secondRepositoryRoot);
     const before = observeWindowsAclSessionLifecycleForTests();
-    const first = await acquireSecRuntimeStatePhysicalAuthority({
-      repositoryRoot: firstRepositoryRoot,
-      stateRoot,
-      cacheRoot,
-      requiredDirectories: []
-    });
+    let first: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let acquisitionUnsettled = false;
     let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
     let firstWarm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let primaryFailure: ResourceSettlementFailure | undefined;
     try {
+      mkdirSync(firstRepositoryRoot);
+      mkdirSync(secondRepositoryRoot);
+      acquisitionUnsettled = true;
+      first = await acquireSecRuntimeStatePhysicalAuthority({
+        repositoryRoot: firstRepositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: []
+      });
       second = await acquireSecRuntimeStatePhysicalAuthority({
         repositoryRoot: secondRepositoryRoot,
         stateRoot,
         cacheRoot,
         requiredDirectories: []
       });
+      acquisitionUnsettled = false;
       const afterIndependentRoots = observeWindowsAclSessionLifecycleForTests();
       expect(afterIndependentRoots.opened - before.opened).toBe(2);
       expect(afterIndependentRoots.closed - before.closed).toBe(0);
 
+      acquisitionUnsettled = true;
       firstWarm = await acquireSecRuntimeStatePhysicalAuthority({
         repositoryRoot: firstRepositoryRoot,
         stateRoot,
         cacheRoot,
         requiredDirectories: []
       });
+      acquisitionUnsettled = false;
       expect(observeWindowsAclSessionLifecycleForTests().opened).toBe(afterIndependentRoots.opened);
-      await Promise.all([first.assertCurrent(), second.assertCurrent(), firstWarm.assertCurrent()]);
+      await settleWorkspaceCleanups([() => first!.assertCurrent(), () => second!.assertCurrent(), () => firstWarm!.assertCurrent()]);
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      await firstWarm?.release();
-      await second?.release();
-      await first.release();
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [{ label: 'release authorities before retiring root', settle: async () => {
+        await settleResourcesAsync({ cleanup: [
+          { label: 'firstWarm authority', settle: () => firstWarm?.release() },
+          { label: 'second authority', settle: () => second?.release() },
+          { label: 'first authority', settle: () => first?.release() },
+          { label: 'authority acquisition settlement', settle: () => {
+            if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+          } }
+        ] });
+        rmSync(root, { recursive: true, force: true });
+      } }] });
     }
   }
 );
 
-test.skipIf(process.platform !== 'win32')('warm closure reuses one generation and a multi-directory delta swaps it once', async () => {
+test.skipIf(process.platform !== 'win32')('warm closure reuses authority and a multi-directory delta settles replaced sessions', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-warm-delta-'));
   const repositoryRoot = path.join(root, 'repository');
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
   const operationRoot = path.join(stateRoot, 'operations', 'one');
   const terminalRoot = path.join(stateRoot, 'operations', 'two', 'terminal');
-  mkdirSync(repositoryRoot);
   const before = observeWindowsAclSessionLifecycleForTests();
-  const cold = await acquireSecRuntimeStatePhysicalAuthority({
-    repositoryRoot,
-    stateRoot,
-    cacheRoot,
-    requiredDirectories: []
-  });
+  let cold: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let acquisitionUnsettled = false;
   let warm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   let delta: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
   let deltaWarm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let primaryFailure: ResourceSettlementFailure | undefined;
   try {
+    mkdirSync(repositoryRoot);
+    acquisitionUnsettled = true;
+    cold = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot,
+      cacheRoot,
+      requiredDirectories: []
+    });
+    acquisitionUnsettled = false;
     const afterCold = observeWindowsAclSessionLifecycleForTests();
     expect(afterCold.opened - before.opened).toBe(1);
 
+    acquisitionUnsettled = true;
     warm = await acquireSecRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
       requiredDirectories: []
     });
+    acquisitionUnsettled = false;
     const afterWarm = observeWindowsAclSessionLifecycleForTests();
     expect(afterWarm.opened).toBe(afterCold.opened);
 
+    acquisitionUnsettled = true;
     delta = await acquireSecRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
       requiredDirectories: [operationRoot, terminalRoot]
     });
+    acquisitionUnsettled = false;
     const afterDelta = observeWindowsAclSessionLifecycleForTests();
-    expect(afterDelta.opened - afterWarm.opened).toBe(1);
-    expect(afterDelta.closed - afterWarm.closed).toBe(1);
     expect(delta.directory(operationRoot).path).toBe(operationRoot);
     expect(delta.directory(terminalRoot).path).toBe(terminalRoot);
 
+    acquisitionUnsettled = true;
     deltaWarm = await acquireSecRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
       requiredDirectories: [operationRoot, terminalRoot]
     });
+    acquisitionUnsettled = false;
     const afterDeltaWarm = observeWindowsAclSessionLifecycleForTests();
     expect(afterDeltaWarm.opened).toBe(afterDelta.opened);
-    await Promise.all([cold.assertCurrent(), warm.assertCurrent(), delta.assertCurrent(), deltaWarm.assertCurrent()]);
+    await settleWorkspaceCleanups([() => cold!.assertCurrent(), () => warm!.assertCurrent(), () => delta!.assertCurrent(), () => deltaWarm!.assertCurrent()]);
+  } catch (error) {
+    primaryFailure = { label: 'authority fixture', error };
   } finally {
-    await deltaWarm?.release();
-    await delta?.release();
-    await warm?.release();
-    await cold.release();
-    rmSync(root, { recursive: true, force: true });
+    await settleResourcesAsync({ primary: primaryFailure, cleanup: [{ label: 'release authorities before retiring root', settle: async () => {
+      await settleResourcesAsync({ cleanup: [
+        { label: 'deltaWarm authority', settle: () => deltaWarm?.release() },
+        { label: 'delta authority', settle: () => delta?.release() },
+        { label: 'warm authority', settle: () => warm?.release() },
+        { label: 'cold authority', settle: () => cold?.release() },
+        { label: 'authority acquisition settlement', settle: () => {
+          if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+        } }
+      ] });
+      rmSync(root, { recursive: true, force: true });
+    } }] });
   }
+  const afterRelease = observeWindowsAclSessionLifecycleForTests();
+  expect(afterRelease.opened - before.opened).toBe(afterRelease.closed - before.closed);
 });
 
 test.skipIf(process.platform !== 'win32')(
@@ -436,20 +645,30 @@ test.skipIf(process.platform !== 'win32')(
     const repositoryRoot = path.join(root, 'repository');
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
-    mkdirSync(repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority({
-      repositoryRoot,
-      stateRoot,
-      cacheRoot,
-      requiredDirectories: []
-    });
+    let authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let acquisitionUnsettled = false;
+    let primaryFailure: ResourceSettlementFailure | undefined;
     try {
+      mkdirSync(repositoryRoot);
+      acquisitionUnsettled = true;
+      authority = await acquireSecRuntimeStatePhysicalAuthority({
+        repositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: []
+      });
+      acquisitionUnsettled = false;
       renameSync(stateRoot, `${stateRoot}-displaced`);
       mkdirSync(stateRoot);
       await expect(authority.assertCurrent()).rejects.toThrow('physical identity changed');
+    } catch (error) {
+      primaryFailure = { label: 'authority fixture', error };
     } finally {
-      await authority.release();
-      rmSync(root, { recursive: true, force: true });
+      await settleResourcesAsync({ primary: primaryFailure, cleanup: [{ label: 'release authority before retiring root', settle: async () => {
+        await authority?.release();
+        if (acquisitionUnsettled) throw new Error(`Authority acquisition is unresolved; fixture root is preserved: ${root}`);
+        rmSync(root, { recursive: true, force: true });
+      } }] });
     }
   }
 );

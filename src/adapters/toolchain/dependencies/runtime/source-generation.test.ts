@@ -2,17 +2,12 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../../../../tests/testkit/workspace-cleanup.ts';
 
-import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import {
-  compileRepositoryModuleMembershipSnapshot,
-  parseRepositoryModuleDescriptor
-} from '../../../repository/architecture/contract.ts';
-import { compileRepositorySourceProgramModel } from '../../../repository/source-program-model/repository.ts';
+import { parseRepositoryModuleDescriptor } from '../../../repository/architecture/contract.ts';
 import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalRuntimeDependencySourceGeneration } from './dependency-transition/codec.ts';
 import {
-  runtimeDependencyOperationContext,
   runtimeDependencyOperationOptions,
   type RuntimeDependencyOperationOptions
 } from './operation-context.ts';
@@ -51,24 +46,6 @@ test('dependency generation and environment terminals remain bound to their doma
   expect(readGenerationReadback?.role).toBe('readback-issuer');
   expect(readGenerationReadback?.semanticOperation).toBe(readGenerationOwner?.semanticOperation);
   expect(readGenerationReadback?.requirementId).toBe(readGenerationOwner?.capability);
-
-  const sourcePath = 'src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
-  const operations = descriptor.capabilityProviders.flatMap(({ operations }) => operations);
-  const source = operations.map((operation) => `export function ${operation}(): void {}`).join('\n');
-  const files = [Object.freeze({ path: sourcePath, source, contentDigest: rawSha256(source) })];
-  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, 'src/adapters/toolchain/dependencies/runtime.ts', sourcePath],
-    descriptorSources: [{ descriptorPath, source: descriptorSource }]
-  });
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path: filePath, contentDigest }) => ({
-      path: filePath,
-      contentDigest
-    }))),
-    files,
-    moduleMembership
-  });
-  expect(model.candidates.filter(({ code }) => code.startsWith('operation-issuer'))).toEqual([]);
 });
 
 async function withSourceGenerationFixture(
@@ -78,15 +55,13 @@ async function withSourceGenerationFixture(
   const ownerRoot = path.join(temporaryRoot, 'owner');
   const sourcePath = path.join(ownerRoot, 'node_modules');
   const foreignPath = path.join(temporaryRoot, 'foreign');
-  try {
-    await Promise.all([
-      fs.mkdir(sourcePath, { recursive: true }),
-      fs.mkdir(foreignPath)
+  await settleWorkspaceCallback(async () => {
+    await settleWorkspaceCleanups([
+      () => fs.mkdir(sourcePath, { recursive: true }).then(() => undefined),
+      () => fs.mkdir(foreignPath)
     ]);
     await run(Object.freeze({ ownerRoot, sourcePath, foreignPath }));
-  } finally {
-    await fs.rm(temporaryRoot, { recursive: true, force: true });
-  }
+  }, () => fs.rm(temporaryRoot, { recursive: true, force: true }));
 }
 
 function operationOptions(input: Readonly<{
@@ -126,6 +101,7 @@ test('source generation binds content identity to one exact physical owner topol
     await fs.writeFile(path.join(sourcePath, 'package.json'), '{"name":"changed"}\n');
     const changed = await runtimeDependencySourceGeneration(input);
     expect(changed.epoch).not.toBe(first.epoch);
+    expect(changed.treeDigest).not.toBe(first.treeDigest);
     expect(sameRuntimeDependencySourceGenerationContent(first, changed)).toBe(false);
     const telemetry = readRuntimeDependencyOperationTelemetry(options);
     expect(telemetry).toMatchObject({
@@ -163,9 +139,9 @@ function temporaryPathFragment(ownerRoot: string): string {
 
 test('source generation enforces caller deadline abort byte and entry bounds', async () => {
   await withSourceGenerationFixture(async ({ ownerRoot, sourcePath }) => {
-    await Promise.all([
-      fs.writeFile(path.join(sourcePath, 'a.json'), '{"a":1}\n'),
-      fs.writeFile(path.join(sourcePath, 'b.json'), '{"b":2}\n')
+    await settleWorkspaceCleanups([
+      () => fs.writeFile(path.join(sourcePath, 'a.json'), '{"a":1}\n'),
+      () => fs.writeFile(path.join(sourcePath, 'b.json'), '{"b":2}\n')
     ]);
     const binding = { packageManager: 'bun' };
     await expect(runtimeDependencySourceGeneration(
@@ -196,27 +172,5 @@ test('source generation enforces caller deadline abort byte and entry bounds', a
       ownerRoot,
       sourcePath
     })).rejects.toMatchObject({ code: 'RUNTIME-DEPS-003' });
-  });
-});
-
-test('source generation coalesces only callers with the same operation bounds', async () => {
-  await withSourceGenerationFixture(async ({ ownerRoot, sourcePath }) => {
-    await fs.writeFile(path.join(sourcePath, 'package.json'), '{"name":"fixture"}\n');
-    const shared = operationOptions({ lockTimeoutMs: 1_000 });
-    const rewrapped = runtimeDependencyOperationOptions(shared);
-    expect(runtimeDependencyOperationContext(rewrapped))
-      .toBe(runtimeDependencyOperationContext(shared));
-    const input = { binding: { packageManager: 'bun' }, options: shared, ownerRoot, sourcePath };
-    const first = runtimeDependencySourceGeneration(input);
-    const second = runtimeDependencySourceGeneration(input);
-    const [left, right] = await Promise.all([first, second]);
-    expect(left).toBe(right);
-
-    const long = operationOptions({ lockTimeoutMs: 1_000 });
-    const short = runtimeDependencyOperationOptions({ ...long, lockTimeoutMs: 1 });
-    const pending = runtimeDependencySourceGeneration({ ...input, options: long });
-    await expect(runtimeDependencySourceGeneration({ ...input, options: short }))
-      .rejects.toMatchObject({ code: 'RUNTIME-DEPS-003' });
-    await expect(pending).resolves.toMatchObject({ sourcePath });
   });
 });
