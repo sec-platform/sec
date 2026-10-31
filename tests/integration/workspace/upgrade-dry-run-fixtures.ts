@@ -6,7 +6,7 @@ import type { UpgradePreview } from '../../../src/semantics/upgrade/upgrade-arti
 import { expectFileUnchanged } from '../../helpers/assertion-helpers.ts';
 import { withBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
 
-typtype BlockUpgradeDryRunOptions = Parameters<typeof withBlockUpgradeDryRunFixture>[0];
+type BlockUpgradeDryRunOptions = Parameters<typeof withBlockUpgradeDryRunFixture>[0];
 
 export async function runPlannedBlockUpgradeDryRun(options: BlockUpgradeDryRunOptions): Promise<UpgradePreview> {
   // A preview is detached from the physical fixture. Retire its workspace
@@ -20,7 +20,7 @@ export async function runPlannedBlockUpgradeDryRun(options: BlockUpgradeDryRunOp
   });
 }
 
-e UpgradeFailureOptions = {
+type UpgradeFailureOptions = {
   blockId?: string;
   targetVersion?: string;
 };
