@@ -76,29 +76,19 @@ test('V2 source preparation round-trips into an immutable detached input, includ
 });
 
 
-// Full canonical content is already pinned by independent request/operation vectors.
-// Retain distinct numeric, coupled trust, collection and nullable nested changes.
-const changedBodyCases: readonly (readonly [string, (value: VerificationSessionLocalPreparationRequestV2Body) => VerificationSessionLocalPreparationRequestV2Body])[] = [
-  ['prNumber', value => ({ ...value, prNumber: 124 })],
-  ['expectedBaseSha and exact trustedRevision', value => ({ ...value, expectedBaseSha: SHA_B,
-    qualificationRequirements: { ...value.qualificationRequirements, trustedRevision: SHA_B } })],
-  ['authorizedPaths', value => ({ ...value, authorizedPaths: ['src/a.ts'] })],
-  ['nativeContentManifestDigest', value => ({ ...value,
-    qualificationRequirements: { ...value.qualificationRequirements, nativeContentManifestDigest: DIGEST_B } })]
-];
-
-for (const [field, change] of changedBodyCases) {
-  test(`V2 saved pin comparison rejects current ${field} drift even with recomputed valid digests`, () => {
-    const saved = savedEnvelope;
-    const current = createVerificationSessionLocalPreparationRequestV2(change(body()));
-    expect(current.request.requestDigest).not.toBe(saved.request.requestDigest);
-    expect(current.request.requestOperationId).not.toBe(saved.request.requestOperationId);
-    expect(() => assertVerificationSessionLocalPreparationV2Current(saved, current)).toThrow('differs from current exact source');
-    const { requestDigest: _digest, requestOperationId: _operation, ...changed } = current.request;
-    expect(() => parse({ ...saved, request: { ...changed,
-      requestDigest: saved.request.requestDigest, requestOperationId: saved.request.requestOperationId } })).toThrow('requestDigest mismatch');
-  });
-}
+// Independent full-content digest vectors above bind every body field. One
+// validly re-signed drift witnesses the saved/current whole-object comparison;
+// malformed pins and trust, path and nullable requirements remain below.
+test('V2 saved pin comparison rejects current drift even with recomputed valid digests', () => {
+  const saved = savedEnvelope;
+  const current = createVerificationSessionLocalPreparationRequestV2({ ...body(), prNumber: 124 });
+  expect(current.request.requestDigest).not.toBe(saved.request.requestDigest);
+  expect(current.request.requestOperationId).not.toBe(saved.request.requestOperationId);
+  expect(() => assertVerificationSessionLocalPreparationV2Current(saved, current)).toThrow('differs from current exact source');
+  const { requestDigest: _digest, requestOperationId: _operation, ...changed } = current.request;
+  expect(() => parse({ ...saved, request: { ...changed,
+    requestDigest: saved.request.requestDigest, requestOperationId: saved.request.requestOperationId } })).toThrow('requestDigest mismatch');
+});
 
 test('V2 fixed producer, trust, purpose, schema, and placement requirements cannot be changed', () => {
   const value = savedEnvelope;
