@@ -1,5 +1,5 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import fs, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -49,8 +49,13 @@ function gitReadOperation() {
   return compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
 }
 
-async function createRepository(prefix: string): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), prefix));
+// The committed base is a read-only fixture. Every consumer owns separate
+// Git refs/index/object store, worktree, mutations, test effects and cleanup.
+// The tracked symlink test below has a different baseline and stays separate.
+let repositorySeed: Promise<string> | undefined;
+
+async function createRepositorySeed(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-git-observation-base-'));
   try {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
@@ -60,6 +65,49 @@ async function createRepository(prefix: string): Promise<string> {
     await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = true;\n');
     git(root, ['add', '--all']);
     git(root, ['commit', '--quiet', '-m', 'initial']);
+    return root;
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'repository-baseline-construction', error },
+      cleanup: [{ label: 'repository-baseline-root', settle: () => rm(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
+}
+
+async function immutableRepositorySeed(): Promise<string> {
+  if (repositorySeed === undefined) {
+    const preparing = createRepositorySeed();
+    const retained = preparing.catch(error => {
+      if (repositorySeed === retained) repositorySeed = undefined;
+      throw error;
+    });
+    repositorySeed = retained;
+  }
+  return repositorySeed;
+}
+
+afterAll(async () => {
+  const retained = repositorySeed;
+  repositorySeed = undefined;
+  if (retained !== undefined) {
+    const root = await retained.catch(() => undefined);
+    if (root !== undefined) await rm(root, { recursive: true, force: true });
+  }
+});
+
+async function createRepository(prefix: string): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  try {
+    const seed = await immutableRepositorySeed();
+    await fs.cp(path.join(seed, '.git'), path.join(root, '.git'), {
+      recursive: true, force: false, errorOnExist: true
+    });
+    await Promise.all([
+      fs.copyFile(path.join(seed, '.gitattributes'), path.join(root, '.gitattributes')),
+      fs.copyFile(path.join(seed, 'committed.ts'), path.join(root, 'committed.ts'))
+    ]);
+    // The copied index contains the seed's inode/stat cache. Refresh it
+    // before the zero-write observation interval begins in each case.
+    git(root, ['update-index', '--refresh']);
     return root;
   } catch (error) {
     await settleResourcesAsync({ primary: { label: 'repository-fixture-construction', error },
