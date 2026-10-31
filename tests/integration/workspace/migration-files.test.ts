@@ -32,31 +32,6 @@ test('file-replace migration copies manifest source to impacted project target',
   });
 });
 
-test('file-replace and delete-file refuse distinct directory targets without mutating either', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    const replacementTarget = 'src/target.ts';
-    const deletionTarget = 'generated/reports';
-    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, replacementTarget), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, deletionTarget), { recursive: true });
-    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const version = "0.1.1";\n', 'utf8');
-
-    // Both public operation kinds must reach the same retained directory-kind
-    // admission; preserve each original target and independent failure oracle.
-    const [replacement] = await Promise.allSettled([
-      applyMigrationEntries(workspaceRoot, manifestRoot, [replacementTarget], [fileReplace(replacementTarget)])
-    ]);
-    const [deletion] = await Promise.allSettled([
-      applyMigrationEntries(workspaceRoot, manifestRoot, [deletionTarget], [deleteFile(deletionTarget)])
-    ]);
-    expect(replacement).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
-    expect(deletion).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
-    expect((await fs.stat(path.join(workspaceRoot, replacementTarget))).isDirectory()).toBe(true);
-    expect((await fs.stat(path.join(workspaceRoot, deletionTarget))).isDirectory()).toBe(true);
-  });
-}, 10_000);
 
 test('copy-file migration copies manifest source to impacted project target', async () => {
   await withTempWorkspace(async (tempRoot) => {
@@ -213,7 +188,7 @@ test('delete directory migrations remove project directories recursively', async
   }, 'engineering-compiler-upgrade-delete-directory-apply-');
 });
 
-test('migration entry loading rejects paths outside the manifest root', async () => {
+test('migration entry loading rejects manifest escapes, metadata mismatches and duplicate identities', async () => {
   await withMigrationWorkspace(async ({ manifestRoot }) => {
     await fs.mkdir(manifestRoot, { recursive: true });
     await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [{
@@ -225,11 +200,7 @@ test('migration entry loading rejects paths outside the manifest root', async ()
         role: 'manifest-source'
       }
     });
-  });
-});
 
-test('migration entry loading rejects metadata mismatches', async () => {
-  await withMigrationWorkspace(async ({ manifestRoot }) => {
     await writeJson(path.join(manifestRoot, 'migrations/mismatched-entry.json'), {
       id: 'mig-actual-entry', kind: 'text-replace', reason: 'Use mismatched metadata.',
       target: 'generated/reports/notes.md', search: 'pending', replacement: 'applied'
@@ -244,12 +215,7 @@ test('migration entry loading rejects metadata mismatches', async () => {
         entryId: 'mig-actual-entry', entryKind: 'text-replace'
       }
     });
-  });
-});
 
-test('migration entry loading rejects duplicate identities before reading entries', async () => {
-  await withMigrationWorkspace(async ({ manifestRoot }) => {
-    await fs.mkdir(manifestRoot, { recursive: true });
     await expect(loadMigrationEntries(manifestRoot, 'private/block-upgrade', '0.2.0', [
       { id: 'mig-duplicate-report', kind: 'text-append', entry: 'migrations/append-report-a.json',
         fromVersion: '0.1.0', toVersion: '0.2.0', requiresVerification: false },
@@ -262,7 +228,7 @@ test('migration entry loading rejects duplicate identities before reading entrie
       }
     });
   });
-});
+}, 15_000);
 
 test('migration preflight rejects project target and manifest source escapes without writes', async () => {
   await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {

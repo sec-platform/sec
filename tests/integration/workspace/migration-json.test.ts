@@ -9,11 +9,13 @@ import {
   jsonArrayAppend,
   jsonArrayRemove,
   jsonObjectMerge,
+  fileReplace,
+  deleteFile,
   withMigrationWorkspace
 } from './migration-fixtures.ts';
 
-test('JSON migrations reject directory targets before reading or mutating JSON', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+test('file and JSON migrations refuse directory targets without mutating them', async () => {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot, manifestRoot }) => {
     await fs.mkdir(path.join(workspaceRoot, 'app.config.json'));
 
     for (const entry of [
@@ -24,8 +26,27 @@ test('JSON migrations reject directory targets before reading or mutating JSON',
         code: 'UPGRADE-MIGRATION-017'
       });
     }
+
+    const replacementTarget = 'src/target.ts';
+    const deletionTarget = 'generated/reports';
+    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, replacementTarget), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, deletionTarget), { recursive: true });
+    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'),
+      'export const version = "0.1.1";\n', 'utf8');
+
+    const [replacement] = await Promise.allSettled([
+      apply([replacementTarget], [fileReplace(replacementTarget)])
+    ]);
+    const [deletion] = await Promise.allSettled([
+      apply([deletionTarget], [deleteFile(deletionTarget)])
+    ]);
+    expect(replacement).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
+    expect(deletion).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
+    expect((await fs.stat(path.join(workspaceRoot, replacementTarget))).isDirectory()).toBe(true);
+    expect((await fs.stat(path.join(workspaceRoot, deletionTarget))).isDirectory()).toBe(true);
   });
-});
+}, 15_000);
 
 test('config-rewrite migration updates and deletes nested and root JSON configuration', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
@@ -58,8 +79,8 @@ test('config-rewrite migration updates and deletes nested and root JSON configur
   });
 });
 
-test('config-rewrite migration rejects missing JSON targets', async () => {
-  await withMigrationWorkspace(async ({ apply }) => {
+test('JSON missing targets preserve config-rewrite failure and array-remove no-op', async () => {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
     await expect(
       apply(['app.config.json'], [
         configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }])
@@ -67,8 +88,14 @@ test('config-rewrite migration rejects missing JSON targets', async () => {
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-016'
     });
+
+    await apply(['missing.config.json'], [
+      jsonArrayRemove('missing.config.json', ['plugins'], ['auth'])
+    ]);
+    await expect(fs.lstat(path.join(workspaceRoot, 'missing.config.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   });
-});
+}, 10_000);
 
 test('json-array-append migration appends unique items to nested arrays', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
@@ -93,7 +120,7 @@ test('json-array-append migration appends unique items to nested arrays', async 
   });
 });
 
-test('JSON array append and remove reject the same scalar target without modifying it', async () => {
+test('JSON array mutations and object merge reject non-container targets unchanged', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
     const target = 'app.config.json';
     const filePath = path.join(workspaceRoot, target);
@@ -111,8 +138,17 @@ test('JSON array append and remove reject the same scalar target without modifyi
     expect(append).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-012' } });
     expect(remove).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-012' } });
     expect(await fs.readFile(filePath)).toEqual(before);
+
+    const mergeTarget = 'feature.config.json';
+    const mergeFile = path.join(workspaceRoot, mergeTarget);
+    await writeJson(mergeFile, { feature: { flags: [] } });
+    const beforeMerge = await fs.readFile(mergeFile);
+    await expect(apply([mergeTarget], [
+      jsonObjectMerge(mergeTarget, ['feature', 'flags'], { enabled: true })
+    ])).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-013' });
+    expect(await fs.readFile(mergeFile)).toEqual(beforeMerge);
   });
-}, 10_000);
+}, 15_000);
 
 test('json-array-remove migration removes matching items from nested arrays', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
@@ -136,16 +172,6 @@ test('json-array-remove migration removes matching items from nested arrays', as
   });
 });
 
-
-
-test('json-array-remove migration skips missing JSON targets', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await apply(['missing.config.json'], [jsonArrayRemove('missing.config.json', ['plugins'], ['auth'])]);
-
-    await expect(fs.lstat(path.join(workspaceRoot, 'missing.config.json')))
-      .rejects.toMatchObject({ code: 'ENOENT' });
-  });
-});
 
 test('json-object-merge migration creates missing targets and recursively merges nested objects', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
@@ -183,19 +209,6 @@ test('json-object-merge migration creates missing targets and recursively merges
   });
 });
 
-test('json-object-merge migration rejects non-object targets', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await writeJson(path.join(workspaceRoot, 'app.config.json'), { feature: { flags: [] } });
-
-    await expect(
-      apply(['app.config.json'], [
-        jsonObjectMerge('app.config.json', ['feature', 'flags'], { enabled: true })
-      ])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-013'
-    });
-  });
-});
 
 test('JSON object merge treats inherited Object.prototype names as absent own JSON data', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
@@ -247,14 +260,14 @@ test('migration entry loading rejects invalid JSON mutations before planning', a
 });
 
 test('migration preflight rejects scalar JSON array targets and parents without writes', async () => {
-  for (const scenario of [
-    { id: 'mig-json-array-append', path: ['upgradedBlocks'],
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+    for (const scenario of [
+      { id: 'mig-json-array-append', path: ['upgradedBlocks'],
       document: { upgradedBlocks: 'auth/basic-session@0.1.0' } },
-    { id: 'mig-json-array-append-nested', path: ['upgrade', 'blocks'],
+      { id: 'mig-json-array-append-nested', path: ['upgrade', 'blocks'],
       document: { upgrade: 'legacy-scalar' } }
-  ]) {
-    await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
-      const target = 'upgrade.metadata.json';
+    ]) {
+      const target = `upgrade.${scenario.id}.metadata.json`;
       const before = Buffer.from(JSON.stringify(scenario.document));
       await fs.writeFile(path.join(workspaceRoot, target), before);
       await expect(collectUpgradePreflightEvidence({
@@ -265,6 +278,6 @@ test('migration preflight rejects scalar JSON array targets and parents without 
           items: ['private/block-upgrade@0.2.0'] }]
       })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-012' });
       expect(await fs.readFile(path.join(workspaceRoot, target))).toEqual(before);
-    });
-  }
+    }
+  });
 });
