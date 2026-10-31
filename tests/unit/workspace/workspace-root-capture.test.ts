@@ -80,7 +80,7 @@ for (const operation of operations) {
     const target = path.join(family, 'target');
     const decoy = path.join(family, 'decoy');
     await settleWorkspaceCallback(async () => {
-      await Promise.all([baseline, target, decoy].map(root => mkdir(root)));
+      for (const root of [baseline, target, decoy]) await mkdir(root);
       const observe = async (pending: Promise<unknown>, root: string) => {
         try { const value = await pending; return { status: 'returned', ...(operation.name === 'inventory' ? { value } : {}) }; }
         catch (error) {
