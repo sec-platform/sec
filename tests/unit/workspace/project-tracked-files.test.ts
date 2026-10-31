@@ -38,9 +38,11 @@ test('tracked project observation keeps exact paths across root forms and reject
       const workspaceFile = path.join(workspaceRoot, relativePath);
       await fs.mkdir(path.dirname(workspaceFile), { recursive: true });
       await fs.writeFile(workspaceFile, 'tracked\n', 'utf8');
-      const add = await runCommand('git', ['add', '--', relativePath], { cwd: workspaceRoot });
-      expect(add.code).toBe(0);
     }
+    // One index write stages both independently observed paths; no intermediate
+    // index state is part of the tracked-path contract.
+    const add = await runCommand('git', ['add', '--', ...trackedPaths], { cwd: workspaceRoot });
+    expect(add.code).toBe(0);
 
     expect(await listTrackedProjectPaths(workspaceRoot)).toEqual(new Set(trackedPaths));
     const relativeRoot = path.relative(process.cwd(), workspaceRoot);

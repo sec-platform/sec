@@ -173,8 +173,15 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
   }
   const currentMainSha = input.inventory.main.remoteSha;
   if (currentMainSha === null) throw new Error('Retirement fixture must observe a main commit.');
-  const headTreeSha = git(input.root, ['rev-parse', `${pullRequest.headSha}^{tree}`]);
-  const currentMainTreeSha = git(input.root, ['rev-parse', `${currentMainSha}^{tree}`]);
+  // Resolve two immutable Git tree identities through one native process;
+  // the PR head and current main are still compared independently below.
+  const trees = git(input.root, ['rev-parse',
+    `${pullRequest.headSha}^{tree}`, `${currentMainSha}^{tree}`
+  ]).split(/\r?\n/u);
+  if (trees.length !== 2 || !trees[0] || !trees[1]) {
+    throw new Error('Expected exactly two Git tree identities for retirement');
+  }
+  const [headTreeSha, currentMainTreeSha] = trees;
   const recovery = input.prepared.preparation.recovery;
   const evidence = recovery.kind === 'main-absorption'
     ? createClosedNativeAbsorptionDispositionEvidence({ prepared: input.prepared,
@@ -371,6 +378,9 @@ test('matching unknown journal preserves recovery before and after an absent-roo
     const journalRoot = path.join(value.root, '.git', 'sec-development-commit');
     mkdirSync(journalRoot, { recursive: true });
     const journalPath = path.join(journalRoot, `${'a'.repeat(64)}.json`);
+    // Both journal writes refer to the same original immutable Git object.
+    // Retiring recovery material cannot change the commit's tree.
+    const headTreeSha = git(value.root, ['rev-parse', `${headSha}^{tree}`]);
     const writeUnknown = () => {
       mkdirSync(journalRoot, { recursive: true });
       writeFileSync(journalPath, `${JSON.stringify(canonicalJson({
@@ -381,7 +391,7 @@ test('matching unknown journal preserves recovery before and after an absent-roo
       preimage: headSha,
       target: headSha,
       object: headSha,
-      tree: git(value.root, ['rev-parse', `${headSha}^{tree}`]),
+      tree: headTreeSha,
       terminal: 'unknown'
       }))}\n`, 'utf8');
     };

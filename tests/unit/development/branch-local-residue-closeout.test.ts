@@ -61,16 +61,23 @@ function writeDevelopmentCommitJournal(repositoryRoot: string, target: string,
   const attempt = disposition === 'applied' ? 'a'.repeat(64) : 'b'.repeat(64);
   const journalPath = path.join(repositoryRoot, '.git', 'sec-development-commit', `${attempt}.json`);
   mkdirSync(path.dirname(journalPath), { recursive: true });
+  // Both object identities come from one Git observation of the same
+  // immutable target; distinct journals still own their own bytes and refs.
+  const objects = git(repositoryRoot, ['rev-parse', `${target}^`, `${target}^{tree}`]).split(/\r?\n/u);
+  if (objects.length !== 2 || !objects[0] || !objects[1]) {
+    throw new Error('Expected exactly one parent and one tree from native Git');
+  }
+  const [preimage, tree] = objects;
   const journal = {
     attempt: `sha256:${attempt}`,
     object: disposition === 'applied' ? target : null,
     operation: `sha256:${'c'.repeat(64)}`,
-    preimage: git(repositoryRoot, ['rev-parse', `${target}^`]),
+    preimage,
     ref: 'refs/heads/fix/example',
     schema: 'sec-development-commit-journal-v1',
     target: disposition === 'applied' ? target : 'd'.repeat(40),
     terminal: disposition === 'applied' ? 'applied' : 'unknown',
-    tree: git(repositoryRoot, ['rev-parse', `${target}^{tree}`])
+    tree
   };
   writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
   return journalPath;
