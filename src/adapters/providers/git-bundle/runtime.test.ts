@@ -188,6 +188,8 @@ describe('private candidate Git input lifetime', () => {
 
   test('acquires an independent Git config and refs, keeps exact history, then retires its own generation', async () => {
     const repository = repositoryFixture();
+    git(repository.root, ['config', 'user.name', 'SEC Test']);
+    expect(readFileSync(path.join(repository.root, '.git/config'), 'utf8')).toContain('SEC Test');
     let borrowed: GitCandidateCheckout | undefined, generation = '';
     const value = await withGitCandidateCheckout({ sourceRoot: repository.root, ...repository,
       purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
