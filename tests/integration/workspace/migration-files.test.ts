@@ -32,21 +32,31 @@ test('file-replace migration copies manifest source to impacted project target',
   });
 });
 
-test('file-replace migration rejects directory targets', async () => {
+test('file-replace and delete-file refuse distinct directory targets without mutating either', async () => {
   await withTempWorkspace(async (tempRoot) => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
+    const replacementTarget = 'src/target.ts';
+    const deletionTarget = 'generated/reports';
     await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, 'src', 'target.ts'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, replacementTarget), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, deletionTarget), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const version = "0.1.1";\n', 'utf8');
 
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
+    // Both public operation kinds must reach the same retained directory-kind
+    // admission; preserve each original target and independent failure oracle.
+    const [replacement] = await Promise.allSettled([
+      applyMigrationEntries(workspaceRoot, manifestRoot, [replacementTarget], [fileReplace(replacementTarget)])
+    ]);
+    const [deletion] = await Promise.allSettled([
+      applyMigrationEntries(workspaceRoot, manifestRoot, [deletionTarget], [deleteFile(deletionTarget)])
+    ]);
+    expect(replacement).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
+    expect(deletion).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-017' } });
+    expect((await fs.stat(path.join(workspaceRoot, replacementTarget))).isDirectory()).toBe(true);
+    expect((await fs.stat(path.join(workspaceRoot, deletionTarget))).isDirectory()).toBe(true);
   });
-});
+}, 10_000);
 
 test('copy-file migration copies manifest source to impacted project target', async () => {
   await withTempWorkspace(async (tempRoot) => {
@@ -124,18 +134,7 @@ test('delete-file migration removes existing file targets', async () => {
 
 
 
-test('delete-file migration rejects directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
 
-    const target = 'generated/reports';
-    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
-  });
-});
 
 test('rename-file migration moves file targets', async () => {
   await withTempWorkspace(async (tempRoot) => {

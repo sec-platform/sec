@@ -93,17 +93,26 @@ test('json-array-append migration appends unique items to nested arrays', async 
   });
 });
 
-test('json-array-append migration rejects non-array targets', async () => {
+test('JSON array append and remove reject the same scalar target without modifying it', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await writeJson(path.join(workspaceRoot, 'app.config.json'), { plugins: 'auth' });
+    const target = 'app.config.json';
+    const filePath = path.join(workspaceRoot, target);
+    await writeJson(filePath, { plugins: 'auth' });
+    const before = await fs.readFile(filePath);
 
-    await expect(
-      apply(['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-012'
-    });
+    // Both distinct operation consumers retain an independent error witness,
+    // but share the identical immutable scalar input and isolated root.
+    const [append] = await Promise.allSettled([
+      apply([target], [jsonArrayAppend(target, ['plugins'], ['tenant'])])
+    ]);
+    const [remove] = await Promise.allSettled([
+      apply([target], [jsonArrayRemove(target, ['plugins'], ['auth'])])
+    ]);
+    expect(append).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-012' } });
+    expect(remove).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-012' } });
+    expect(await fs.readFile(filePath)).toEqual(before);
   });
-});
+}, 10_000);
 
 test('json-array-remove migration removes matching items from nested arrays', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
@@ -127,17 +136,7 @@ test('json-array-remove migration removes matching items from nested arrays', as
   });
 });
 
-test('json-array-remove migration rejects non-array targets', async () => {
-  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
-    await writeJson(path.join(workspaceRoot, 'app.config.json'), { plugins: 'auth' });
 
-    await expect(
-      apply(['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-012'
-    });
-  });
-});
 
 test('json-array-remove migration skips missing JSON targets', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
