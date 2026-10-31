@@ -84,23 +84,7 @@ test('copy-directory migration copies manifest directory to impacted project tar
   });
 });
 
-test('copy-directory migration rejects file targets before copying', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(manifestRoot, 'files', 'runtime'), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, 'modules'), { recursive: true });
-    await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'route.ts'), 'export const runtime = true;\n', 'utf8');
-    await fs.writeFile(path.join(workspaceRoot, 'modules', 'runtime'), 'occupied\n', 'utf8');
 
-    await expect(
-      applyMigrationEntries(workspaceRoot, manifestRoot, ['modules/runtime'], [copyDirectory('modules/runtime')])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-027'
-    });
-    await expect(fs.readFile(path.join(workspaceRoot, 'modules', 'runtime'), 'utf8')).resolves.toBe('occupied\n');
-  });
-});
 
 test('create-directory migration creates nested targets and preserves existing directories', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -120,20 +104,7 @@ test('create-directory migration creates nested targets and preserves existing d
   });
 });
 
-test('create-directory migration rejects file targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    const target = 'generated/reports/snapshots';
-    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
-    await fs.writeFile(path.join(workspaceRoot, target), 'occupied\n', 'utf8');
 
-    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-028'
-    });
-    await expect(fs.readFile(path.join(workspaceRoot, target), 'utf8')).resolves.toBe('occupied\n');
-  });
-});
 
 test('delete-file migration removes existing file targets', async () => {
   await withTempWorkspace(async (tempRoot) => {
@@ -151,17 +122,7 @@ test('delete-file migration removes existing file targets', async () => {
   });
 });
 
-test('delete-file migration rejects missing targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
 
-    const target = 'generated/reports/missing.json';
-    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-016'
-    });
-  });
-});
 
 test('delete-file migration rejects directory targets', async () => {
   await withTempWorkspace(async (tempRoot) => {

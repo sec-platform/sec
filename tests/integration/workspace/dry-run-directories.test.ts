@@ -1,37 +1,48 @@
 import { expect, test } from 'bun:test';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 
 import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 import { collectUpgradePreflightEvidence } from '../../../src/adapters/upgrade/migration-runtime.ts';
-import { withMigrationWorkspace } from './migration-fixtures.ts';
+import { copyDirectory, createDirectory, withMigrationWorkspace } from './migration-fixtures.ts';
 
-test('migration preflight rejects create directory targets that are files', async () => {
-  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+test('migration preflight and application both reject create-directory file targets', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {
     const target = 'generated/reports/snapshots';
     await writeJson(path.join(workspaceRoot, target), { occupied: true });
-    await expect(collectUpgradePreflightEvidence({
+    const targetBytesBefore = await fs.readFile(path.join(workspaceRoot, target));
+    const [preflight] = await Promise.allSettled([collectUpgradePreflightEvidence({
       workspaceRoot, targetManifestRoot: manifestRoot,
       blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [target],
       migrationEntries: [{ id: 'mig-create-snapshots-dir', kind: 'create-directory',
         reason: 'Create snapshot directory for generated reports.', target }]
-    })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-028' });
+    })]);
+    const [application] = await Promise.allSettled([apply([target], [createDirectory(target)])]);
+    expect(preflight).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-028' } });
+    expect(application).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-028' } });
+    expect(await fs.readFile(path.join(workspaceRoot, target))).toEqual(targetBytesBefore);
   });
-});
+}, 10_000);
 
-test('migration preflight rejects copy directory targets that are files', async () => {
-  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+test('migration preflight and application both reject copy-directory file targets', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {
     const source = 'files/generated/reports/templates';
     const target = 'generated/reports/templates';
     await writeJson(path.join(manifestRoot, source, 'daily.json'), { report: 'daily' });
     await writeJson(path.join(workspaceRoot, target), { occupied: true });
-    await expect(collectUpgradePreflightEvidence({
+    const targetBytesBefore = await fs.readFile(path.join(workspaceRoot, target));
+    const [preflight] = await Promise.allSettled([collectUpgradePreflightEvidence({
       workspaceRoot, targetManifestRoot: manifestRoot,
       blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [target],
       migrationEntries: [{ id: 'mig-copy-report-templates', kind: 'copy-directory',
         reason: 'Copy report templates into generated report assets.', source, target }]
-    })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-027' });
+    })]);
+    const [application] = await Promise.allSettled([apply([target], [copyDirectory(target, source)])]);
+    expect(preflight).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-027' } });
+    expect(application).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-027' } });
+    expect(await fs.readFile(path.join(workspaceRoot, target))).toEqual(targetBytesBefore);
   });
-});
+}, 10_000);
 
 test('migration preflight rejects delete directory targets that are not directories', async () => {
   await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {

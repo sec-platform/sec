@@ -6,7 +6,7 @@ import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 import { collectUpgradePreflightEvidence } from '../../../src/adapters/upgrade/migration-runtime.ts';
 import { upgradeWorkspace } from '../../../src/bootstrap/upgrade/orchestration.ts';
 import { withBlockUpgradeDryRunFixture } from '../../helpers/block-upgrade-fixtures.ts';
-import { withMigrationWorkspace } from './migration-fixtures.ts';
+import { deleteFile, withMigrationWorkspace } from './migration-fixtures.ts';
 import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records file directory and text migration impacts', async () => {
@@ -193,17 +193,20 @@ test('migration preflight rejects a copy file source that is not a file', async 
   });
 });
 
-test('migration preflight rejects missing delete file targets', async () => {
-  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot }) => {
+test('migration preflight and application both reject absent delete-file targets', async () => {
+  await withMigrationWorkspace(async ({ workspaceRoot, manifestRoot, apply }) => {
     const target = 'generated/reports/missing.json';
-    await expect(collectUpgradePreflightEvidence({
+    const [preflight] = await Promise.allSettled([collectUpgradePreflightEvidence({
       workspaceRoot, targetManifestRoot: manifestRoot,
       blockId: 'private/block-upgrade', targetVersion: '0.2.0', impacts: [target],
       migrationEntries: [{ id: 'mig-delete-missing-report', kind: 'delete-file',
         reason: 'Remove obsolete generated report from previous upgrades.', target }]
-    })).rejects.toMatchObject({ code: 'UPGRADE-MIGRATION-016' });
+    })]);
+    const [application] = await Promise.allSettled([apply([target], [deleteFile(target)])]);
+    expect(preflight).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-016' } });
+    expect(application).toMatchObject({ status: 'rejected', reason: { code: 'UPGRADE-MIGRATION-016' } });
   });
-});
+}, 10_000);
 
 test('upgrade rejects occupied rename file targets before planning', async () => {
   await withBlockUpgradeDryRunFixture(
