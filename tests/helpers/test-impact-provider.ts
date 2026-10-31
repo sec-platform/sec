@@ -1,5 +1,6 @@
+import { afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -167,11 +168,50 @@ function exactTestPaths(repositoryRoot: string, commitSha: string): readonly str
   return Object.freeze(tests);
 }
 
+// Only the empty native Git configuration is shared. Every TestImpact
+// fixture copies its own .git before the first fetch, commit, index write,
+// source-object observation and compilation. The executable lookup environment
+// participates in the seed key rather than borrowing another test's Git.
+const testImpactGitInitBases = new Map<string, string>();
+
+function initializedTestImpactGitBase(): string {
+  const environment = isolatedGitReadEnvironment();
+  const key = JSON.stringify([
+    environment.PATH ?? environment.Path ?? null,
+    environment.SystemRoot ?? environment.SYSTEMROOT ?? null
+  ]);
+  const existing = testImpactGitInitBases.get(key);
+  if (existing !== undefined) return existing;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-test-impact-git-base-'));
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['config', 'core.autocrlf', 'false']);
+    git(root, ['config', 'core.longpaths', 'true']);
+    testImpactGitInitBases.set(key, root);
+    return root;
+  } catch (primary) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'TestImpact Git seed and cleanup both failed');
+    }
+    throw primary;
+  }
+}
+
+afterAll(() => {
+  const failures: unknown[] = [];
+  for (const [key, root] of testImpactGitInitBases) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      testImpactGitInitBases.delete(key);
+    } catch (error) { failures.push(error); }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'TestImpact Git seed cleanup failed');
+});
+
 function initializeFixtureRepository(repositoryRoot: string): void {
-  mkdirSync(repositoryRoot);
-  git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-  git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
-  git(repositoryRoot, ['config', 'core.longpaths', 'true']);
+  cpSync(initializedTestImpactGitBase(), repositoryRoot, { recursive: true });
 }
 
 function fixtureIdentityEnvironment(): NodeJS.ProcessEnv {
