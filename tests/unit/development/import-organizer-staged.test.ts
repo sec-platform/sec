@@ -183,8 +183,7 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
       }
     }, { candidateBase })).toBe(0);
 
-    const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
-    expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expectedIndexBytes);
+    expect(git(repoRoot, ['cat-file', 'blob', ':fixture.ts'], true)).toEqual(expectedIndexBytes);
     expect(await readFile(fixturePath)).toEqual(workingBytes);
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
     expect(lifecycle).toHaveLength(2);
@@ -328,8 +327,7 @@ test('synchronized staged apply publishes exact bytes to index and worktree with
       expect(await runSynchronizedStagedImportOrganizer(repoRoot)).toBe(0);
       const expected = Buffer.from(`${source('sorted')}// ${largeSentinel}\n`);
       expect(await readFile(fixturePath)).toEqual(expected);
-      const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
-      expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expected);
+      expect(git(repoRoot, ['cat-file', 'blob', ':fixture.ts'], true)).toEqual(expected);
       const presentation = messages.join('\n');
       expect(presentation).not.toContain(largeSentinel);
       expect(Buffer.byteLength(presentation, 'utf8')).toBeLessThan(1024);
@@ -345,8 +343,7 @@ test('synchronized staged apply accepts a target that normalizes back to the can
 
     const expected = Buffer.from(source('sorted'));
     expect(await readFile(fixturePath)).toEqual(expected);
-    const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
-    expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expected);
+    expect(git(repoRoot, ['cat-file', 'blob', ':fixture.ts'], true)).toEqual(expected);
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('');
   });
 });

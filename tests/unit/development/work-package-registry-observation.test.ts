@@ -138,8 +138,7 @@ test('a native branch change after tree observation cannot mix a previous tree i
     writeFileSync(path.join(root, defaultPath), 'first\r\n');
     command(['add', '--', defaultPath]);
     command(['-c', 'user.name=Registry Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'first']);
-    const first = command(['rev-parse', 'HEAD']);
-    const firstTree = command(['rev-parse', 'HEAD^{tree}']);
+    const [first, firstTree] = command(['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u) as [string, string];
     writeFileSync(path.join(root, defaultPath), 'second\n');
     command(['add', '--', defaultPath]);
     command(['-c', 'user.name=Registry Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'second']);

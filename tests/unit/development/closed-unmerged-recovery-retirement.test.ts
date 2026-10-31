@@ -1,7 +1,7 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { BranchLifecycleInventory, PreparedBranchCloseoutEnvelope } from '../../../src/execution/verification/branch-closeout.ts';
@@ -58,10 +58,10 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-// Shared immutable Git object graph; every retirement case receives independent
-// refs, index and worktree bytes. Recovery bundles/receipts remain case-owned.
+// Shared immutable Git object graph and archive bytes. Each retirement case owns
+// a separate repository, recovery bundle copy, receipt and mutation/cleanup window.
 type ClosedRecoveryBase = Readonly<{ parent: string; root: string; headSha: string; mainSha: string;
-  headTreeSha: string; mainTreeSha: string }>;
+  headTreeSha: string; mainTreeSha: string; bundleSourcePath: string; bundleDigest: string }>;
 let closedRecoveryBase: ClosedRecoveryBase | undefined;
 
 afterAll(() => {
@@ -92,7 +92,11 @@ function sourceRecoveryBase(): ClosedRecoveryBase {
     }
     const [headSha, mainSha, headTreeSha, mainTreeSha] =
       objects as [string, string, string, string];
-    closedRecoveryBase = Object.freeze({ parent, root, headSha, mainSha, headTreeSha, mainTreeSha });
+    const bundleSourcePath = path.join(parent, 'immutable-main-recovery.bundle');
+    git(root, ['bundle', 'create', bundleSourcePath, 'refs/heads/main']);
+    const bundleDigest = createHash('sha256').update(readFileSync(bundleSourcePath)).digest('hex');
+    closedRecoveryBase = Object.freeze({ parent, root, headSha, mainSha, headTreeSha, mainTreeSha,
+      bundleSourcePath, bundleDigest });
     return closedRecoveryBase;
   } catch (error) {
     try { rmSync(parent, { recursive: true, force: true }); }
@@ -139,9 +143,8 @@ function fixture(remote = 'origin'): Readonly<{
     };
     const bundlePath = path.join(recoveryRoot, 'sec-branch-closeout-retirement-fixture.bundle');
     mkdirSync(recoveryRoot);
-    git(root, ['bundle', 'create', bundlePath, 'refs/heads/main']);
-    const bundle = readFileSync(bundlePath);
-    const bundleDigest = createHash('sha256').update(bundle).digest('hex');
+    copyFileSync(base.bundleSourcePath, bundlePath);
+    const bundleDigest = base.bundleDigest;
     writeFileSync(`${bundlePath}.sha256`, `${bundleDigest}  ${path.basename(bundlePath)}\n`, 'utf8');
     const preparation = createBranchCloseoutPreparation({
       preparedAt: '2026-09-16T00:01:00.000Z',

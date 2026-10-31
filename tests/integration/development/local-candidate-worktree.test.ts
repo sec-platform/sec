@@ -45,10 +45,12 @@ function candidateGitBase(): CandidateGitBase {
     git(root, '-c', 'user.name=Candidate Fixture', '-c', 'user.email=candidate@example.invalid', 'commit', '--quiet', '-m', 'fixture');
     git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
     git(root, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
-    immutableCandidateGitBase = Object.freeze({
-      root, headSha: git(root, 'rev-parse', 'HEAD'),
-      headTreeSha: git(root, 'rev-parse', 'HEAD^{tree}')
-    });
+    const objects = git(root, 'rev-parse', 'HEAD', 'HEAD^{tree}').split(/\r?\n/u);
+    if (objects.length !== 2 || objects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected candidate base commit and tree');
+    }
+    const [headSha, headTreeSha] = objects as [string, string];
+    immutableCandidateGitBase = Object.freeze({ root, headSha, headTreeSha });
     return immutableCandidateGitBase;
   } catch (error) {
     try { rmSync(root, { recursive: true, force: true }); }
@@ -268,8 +270,9 @@ for (const residue of ['present', 'absent'] as const) {
       expect(JSON.parse(markerBytes.toString('utf8')).attempt.phase).toBe('in-flight-or-unresolved');
       expect(existsSync(target)).toBe(residue === 'present');
       if (residue === 'present') {
-        expect(git(target, 'rev-parse', 'HEAD')).toBe(value.input.candidate.headSha);
-        expect(git(target, 'rev-parse', 'HEAD^{tree}')).toBe(value.input.candidate.headTreeSha);
+        const [headSha, headTreeSha] = git(target, 'rev-parse', 'HEAD', 'HEAD^{tree}').split(/\r?\n/u);
+        expect(headSha).toBe(value.input.candidate.headSha);
+        expect(headTreeSha).toBe(value.input.candidate.headTreeSha);
         expect(git(target, 'status', '--porcelain=v1')).toBe('');
       }
       await expect(acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations)).rejects.toMatchObject({ reason: 'attempt-unresolved' });
