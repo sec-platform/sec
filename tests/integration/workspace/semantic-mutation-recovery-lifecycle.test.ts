@@ -35,7 +35,7 @@ import type { SemanticMutationRecoveryState } from '../../../src/semantics/mutat
 import { type SemanticMutationAuthorizationContext, type SemanticMutationBase, type SemanticMutationRequest } from '../../../src/semantics/mutation/types.ts';
 import { installPrivateBannerBlock } from '../../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../../helpers/semantic-mutation-verification-report.ts';
-import { copyWorkspaceFixture, withTempWorkspace } from '../../testkit/workspace.ts';
+import { copyWorkspaceFixture, createWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
 
 const AUTHORING_SOURCE = [
   'formatVersion: "1"',
@@ -132,6 +132,33 @@ async function createTemplate(
     '    path: model/item.yaml',
     ''
   ].join('\n'), 'utf8');
+}
+
+// Only the initialized, resolved and authored source tree is reused. Each
+// scenario separately copies the bytes before minting its own mutation plan,
+// journal, physical state, lease and incident-recovery evidence. The shared
+// template is retired by the existing testkit run-owned cleanup.
+let recoverySourceTemplate: Promise<string> | undefined;
+function immutableRecoverySourceTemplate(): Promise<string> {
+  if (recoverySourceTemplate !== undefined) return recoverySourceTemplate;
+  const pending = (async () => {
+    const root = await createWorkspace('sm3-recovery-source-base-');
+    try {
+      await createTemplate(root);
+      return root;
+    } catch (primary) {
+      try { await rm(root, { recursive: true, force: true }); }
+      catch (cleanup) {
+        throw new AggregateError([primary, cleanup], 'SM-3 recovery source setup and cleanup both failed');
+      }
+      throw primary;
+    }
+  })();
+  recoverySourceTemplate = pending;
+  void pending.catch(() => {
+    if (recoverySourceTemplate === pending) recoverySourceTemplate = undefined;
+  });
+  return pending;
 }
 
 interface MutationTransitionFixture {
@@ -319,7 +346,8 @@ async function expectRecoveryChain(
 
 test('SM-3 retained terminal history does not become recovery authority for later legal mutations', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await createTemplate(workspaceRoot, TERMINAL_HISTORY_AUTHORING_SOURCE);
+    await copyWorkspaceFixture(await immutableRecoverySourceTemplate(), workspaceRoot);
+    await writeFile(path.join(workspaceRoot, 'model', 'item.yaml'), TERMINAL_HISTORY_AUTHORING_SOURCE);
     const first = await applyAcceptedWithTestDependencies(
       workspaceRoot,
       'request:terminal-history-first',
@@ -392,8 +420,7 @@ test('SM-3 retained terminal history does not become recovery authority for late
 
 test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-back, recovery-required recovery', async () => {
   await withTempWorkspace(async (root) => {
-    const template = path.join(root, 'template');
-    await createTemplate(template);
+    const template = await immutableRecoverySourceTemplate();
 
     const casWorkspace = path.join(root, 'plan-cas');
     await copyWorkspaceFixture(template, casWorkspace);

@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { chmod, lstat, rm } from 'node:fs/promises';
+import path from 'node:path';
 
 import {
   readPipelineJournal,
@@ -10,12 +12,58 @@ import {
   compileWorkspace,
   initWorkspace
 } from '../../../src/bootstrap/engineering/cli.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { copyWorkspaceFixture, createWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
+import { resolveWorkspaceLockPath } from '../../../src/adapters/workspace-context.ts';
+
+// One immutable ticket authoring baseline for three independent pipeline
+// transactions. Cloning never reuses generated state, write leases, journals,
+// selected pipeline ranges, or actual oracle outcomes.
+let ticketSourceTemplate: Promise<string> | undefined;
+function immutableTicketSourceTemplate(): Promise<string> {
+  if (ticketSourceTemplate !== undefined) return ticketSourceTemplate;
+  const pending = (async () => {
+    const root = await createWorkspace('semantic-ticket-source-base-');
+    try {
+      await initWorkspace(root);
+      await addBlock(root, 'ticket/basic');
+      return root;
+    } catch (primary) {
+      try { await rm(root, { recursive: true, force: true }); }
+      catch (cleanup) {
+        throw new AggregateError([primary, cleanup], 'Semantic ticket source and cleanup both failed');
+      }
+      throw primary;
+    }
+  })();
+  ticketSourceTemplate = pending;
+  void pending.catch(() => {
+    if (ticketSourceTemplate === pending) ticketSourceTemplate = undefined;
+  });
+  return pending;
+}
+
+async function copyTicketSource(workspaceRoot: string): Promise<void> {
+  const template = await immutableTicketSourceTemplate();
+  await copyWorkspaceFixture(template, workspaceRoot);
+  // The copier preserves canonical bytes; exact native file modes belong to
+  // each private generation and must match the authored source before use.
+  for (const file of [
+    await resolveWorkspaceLockPath(template),
+    path.join(template, '.sec', 'pipeline-journal.json')
+  ]) {
+    let mode: number;
+    try { mode = (await lstat(file)).mode & 0o777; }
+    catch (failure) {
+      if ((failure as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw failure;
+    }
+    await chmod(path.join(workspaceRoot, path.relative(template, file)), mode);
+  }
+}
 
 test('Ticket canonical compile binds one validated semantic snapshot to each transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot);
-    await addBlock(workspaceRoot, 'ticket/basic');
+    await copyTicketSource(workspaceRoot);
 
     const first = await compileWorkspace(workspaceRoot, {
       source: 'ci',
@@ -104,8 +152,7 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
 
 test('reference recompilation keeps a stable binding to its current named transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot);
-    await addBlock(workspaceRoot, 'ticket/basic');
+    await copyTicketSource(workspaceRoot);
 
     const first = await compileWorkspace(workspaceRoot, {
       source: 'reference',
@@ -137,8 +184,7 @@ test('reference recompilation keeps a stable binding to its current named transa
 
 test('Semantic Frontend failure blocks mutating passes and a new transaction can retry safely', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot);
-    await addBlock(workspaceRoot, 'ticket/basic');
+    await copyTicketSource(workspaceRoot);
     await compileWorkspace(workspaceRoot, {
       source: 'ci',
       through: 'resolve'
