@@ -71,14 +71,15 @@ function buildRepositoryTemplate(): Readonly<{
     git(repository, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '-m', 'initial main']);
     git(repository, ['branch', '-M', 'main']);
     git(repository, ['push', '-u', 'origin', 'main']);
-    const mainSha = git(repository, ['rev-parse', 'HEAD']);
     const branch = 'feat/v6-closeout';
     git(repository, ['switch', '-c', branch]);
     writeFileSync(path.join(repository, 'candidate.txt'), 'candidate\n', 'utf8');
     git(repository, ['add', 'candidate.txt']);
     git(repository, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '-m', 'candidate']);
-    const headSha = git(repository, ['rev-parse', 'HEAD']);
     git(repository, ['push', '-u', 'origin', branch]);
+    const [mainSha, headSha] = git(repository, [
+      'rev-parse', 'refs/heads/main', `refs/heads/${branch}`
+    ]).split(/\r?\n/u) as [string, string];
     return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
   } catch (error) {
     try {

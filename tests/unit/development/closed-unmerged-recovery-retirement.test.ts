@@ -60,7 +60,8 @@ function git(root: string, args: readonly string[]): string {
 
 // Shared immutable Git object graph; every retirement case receives independent
 // refs, index and worktree bytes. Recovery bundles/receipts remain case-owned.
-type ClosedRecoveryBase = Readonly<{ parent: string; root: string; headSha: string; mainSha: string }>;
+type ClosedRecoveryBase = Readonly<{ parent: string; root: string; headSha: string; mainSha: string;
+  headTreeSha: string; mainTreeSha: string }>;
 let closedRecoveryBase: ClosedRecoveryBase | undefined;
 
 afterAll(() => {
@@ -80,11 +81,18 @@ function sourceRecoveryBase(): ClosedRecoveryBase {
     writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
     git(root, ['add', 'tracked.txt']);
     git(root, ['commit', '--quiet', '-m', 'closed branch head']);
-    const headSha = git(root, ['rev-parse', 'HEAD']);
     writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
     git(root, ['commit', '--quiet', '-am', 'current main replacement']);
-    const mainSha = git(root, ['rev-parse', 'HEAD']);
-    closedRecoveryBase = Object.freeze({ parent, root, headSha, mainSha });
+    // One native read captures both commits and their immutable trees.
+    const objects = git(root, [
+      'rev-parse', 'HEAD~1', 'HEAD', 'HEAD~1^{tree}', 'HEAD^{tree}'
+    ]).split(/\r?\n/u);
+    if (objects.length !== 4 || objects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected the exact two-commit recovery baseline');
+    }
+    const [headSha, mainSha, headTreeSha, mainTreeSha] =
+      objects as [string, string, string, string];
+    closedRecoveryBase = Object.freeze({ parent, root, headSha, mainSha, headTreeSha, mainTreeSha });
     return closedRecoveryBase;
   } catch (error) {
     try { rmSync(parent, { recursive: true, force: true }); }
@@ -178,15 +186,23 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
   }
   const currentMainSha = input.inventory.main.remoteSha;
   if (currentMainSha === null) throw new Error('Retirement fixture must observe a main commit.');
-  // Resolve two immutable Git tree identities through one native process;
-  // the PR head and current main are still compared independently below.
-  const trees = git(input.root, ['rev-parse',
-    `${pullRequest.headSha}^{tree}`, `${currentMainSha}^{tree}`
-  ]).split(/\r?\n/u);
-  if (trees.length !== 2 || !trees[0] || !trees[1]) {
-    throw new Error('Expected exactly two Git tree identities for retirement');
+  // Independent case repositories share immutable objects only. Unknown
+  // commit identities still require an exact native case-owned observation.
+  const baseline = sourceRecoveryBase();
+  let headTreeSha: string;
+  let currentMainTreeSha: string;
+  if (pullRequest.headSha === baseline.headSha && currentMainSha === baseline.mainSha) {
+    headTreeSha = baseline.headTreeSha;
+    currentMainTreeSha = baseline.mainTreeSha;
+  } else {
+    const trees = git(input.root, ['rev-parse',
+      `${pullRequest.headSha}^{tree}`, `${currentMainSha}^{tree}`
+    ]).split(/\r?\n/u);
+    if (trees.length !== 2 || !trees[0] || !trees[1]) {
+      throw new Error('Expected exactly two Git tree identities for retirement');
+    }
+    [headTreeSha, currentMainTreeSha] = trees as [string, string];
   }
-  const [headTreeSha, currentMainTreeSha] = trees;
   const recovery = input.prepared.preparation.recovery;
   const evidence = recovery.kind === 'main-absorption'
     ? createClosedNativeAbsorptionDispositionEvidence({ prepared: input.prepared,

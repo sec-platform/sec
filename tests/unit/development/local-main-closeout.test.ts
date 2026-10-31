@@ -41,8 +41,9 @@ const RECEIPT = `sha256:${'a'.repeat(64)}` as const;
 const SESSION = `sha256:${'b'.repeat(64)}` as const;
 
 function binding(expectedLocalPreimageSha = git(protectedRoot!, ['rev-parse', 'HEAD']).trim()) {
-  const remoteSha = git(remoteRoot!, ['rev-parse', 'main']).trim();
-  const remoteTree = git(remoteRoot!, ['rev-parse', 'main^{tree}']).trim();
+  const [remoteSha, remoteTree] = git(remoteRoot!, [
+    'rev-parse', 'main', 'main^{tree}'
+  ]).trim().split(/\r?\n/u) as [string, string];
   const localTree = git(protectedRoot!, ['rev-parse', `${expectedLocalPreimageSha}^{tree}`]).trim();
   return createLocalMainCloseoutBinding({ repository: 'sec-platform/sec', pullRequestNumber: 42,
     protectedRootRealPath: protectedRoot!,
@@ -106,12 +107,14 @@ test.serial('local-main mutation requires the Git common-dir lease before fetch'
 });
 
 test.serial('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via ff-only with exact readback', async () => {
-  const head = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
-  const tree = git(protectedRoot!, ['rev-parse', 'HEAD^{tree}']).trim();
+  const [head, tree] = git(protectedRoot!, [
+    'rev-parse', 'HEAD', 'HEAD^{tree}'
+  ]).trim().split(/\r?\n/u) as [string, string];
   // remote advances
   developerPush('v2\n');
-  const remoteSha = git(remoteRoot!, ['rev-parse', 'main']).trim();
-  const remoteTree = git(remoteRoot!, ['rev-parse', 'main^{tree}']).trim();
+  const [remoteSha, remoteTree] = git(remoteRoot!, [
+    'rev-parse', 'main', 'main^{tree}'
+  ]).trim().split(/\r?\n/u) as [string, string];
   expect(head).not.toBe(remoteSha);
 
   const status = await execute(binding(head));
@@ -122,8 +125,11 @@ test.serial('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via 
     expect(status.localTreeSha).toBe(remoteTree);
     expect(status.remoteMainSha).toBe(remoteSha);
   }
-  expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(remoteSha);
-  expect(git(protectedRoot!, ['rev-parse', 'HEAD^{tree}']).trim()).toBe(remoteTree);
+  const [readbackHead, readbackTree] = git(protectedRoot!, [
+    'rev-parse', 'HEAD', 'HEAD^{tree}'
+  ]).trim().split(/\r?\n/u) as [string, string];
+  expect(readbackHead).toBe(remoteSha);
+  expect(readbackTree).toBe(remoteTree);
   expect(tree).not.toBe(remoteTree);
 
   // The already-current reader consumes this same successfully synchronized
@@ -137,8 +143,9 @@ test.serial('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via 
 
 
 test.serial('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and never mutates', async () => {
-  const remoteSha = git(protectedRoot!, ['rev-parse', 'origin/main']).trim();
-  const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  const [remoteSha, beforeHead] = git(protectedRoot!, [
+    'rev-parse', 'origin/main', 'HEAD'
+  ]).trim().split(/\r?\n/u) as [string, string];
   const dirtyPath = path.join(protectedRoot!, 'main.txt');
   await settleWorkspaceCallback(async () => {
     writeFileSync(dirtyPath, 'dirty user work\n');
@@ -146,8 +153,11 @@ test.serial('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and n
     const status = await execute(binding(beforeHead));
     expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
     if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('dirty');
-    expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(beforeHead);
-    expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
+    const [readbackHead, readbackRemote] = git(protectedRoot!, [
+      'rev-parse', 'HEAD', 'origin/main'
+    ]).trim().split(/\r?\n/u) as [string, string];
+    expect(readbackHead).toBe(beforeHead);
+    expect(readbackRemote).toBe(remoteSha);
     expect(readFileSync(dirtyPath, 'utf8')).toBe('dirty user work\n');
   }, async () => { git(protectedRoot!, ['checkout', '--', 'main.txt']); });
   expect(git(protectedRoot!, ['status', '--porcelain=v1']).trim()).toBe('');

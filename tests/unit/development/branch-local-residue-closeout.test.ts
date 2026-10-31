@@ -114,10 +114,11 @@ function effectTemplate(): EffectTemplate {
     writeFileSync(path.join(repositoryRoot, 'feature.txt'), 'feature\n');
     git(repositoryRoot, ['add', 'feature.txt']);
     git(repositoryRoot, ['commit', '-m', 'feature']);
-    const headSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     git(repositoryRoot, ['checkout', 'main']);
     git(repositoryRoot, ['merge', '--no-ff', 'fix/example', '-m', 'merge feature']);
-    const mainSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const [headSha, mainSha] = git(repositoryRoot, [
+      'rev-parse', 'refs/heads/fix/example', 'HEAD'
+    ]).split(/\r?\n/u) as [string, string];
     git(repositoryRoot, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);
     git(repositoryRoot, ['branch', 'release', 'main']);
     git(repositoryRoot, ['update-ref', 'refs/remotes/origin/release', mainSha]);
