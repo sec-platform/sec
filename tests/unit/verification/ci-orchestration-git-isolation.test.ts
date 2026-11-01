@@ -89,8 +89,8 @@ test.serial('CI orchestration Git observations ignore ambient repository redirec
     git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'head\n', 'utf8');
     unlinkSync(path.join(repositoryRoot, 'removed.txt'));
-    git(repositoryRoot, ['add', 'fixture.txt', 'removed.txt']);
-    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'head']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid',
+      'commit', '-a', '--quiet', '-m', 'head']);
     const [baseSha, headSha] = twoCommitFixtureTips(repositoryRoot);
 
     process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');

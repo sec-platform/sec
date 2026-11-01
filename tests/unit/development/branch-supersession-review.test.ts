@@ -144,8 +144,8 @@ function createRepositoryFixture(): RepositoryFixture {
 
     writeFileSync(path.join(root, 'retained.txt'), 'current main keeps the behavior\n', 'utf8');
     unlinkSync(path.join(root, 'superseded.txt'));
-    git(root, ['add', 'retained.txt', 'superseded.txt']);
-    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'current main replacement']);
+    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid',
+      'commit', '-a', '--quiet', '-m', 'current main replacement']);
     const [currentMainSha, currentMainTreeSha] = currentGitCommitAndTree(root);
 
     return Object.freeze({ root, headSha, headTreeSha, currentMainSha, currentMainTreeSha });

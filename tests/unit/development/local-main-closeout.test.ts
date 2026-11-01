@@ -217,7 +217,6 @@ test.serial('an ignored local path colliding with the incoming tracked write set
 
 function developerPush(content: string): void {
   writeFileSync(path.join(developerRoot!, 'main.txt'), content);
-  git(developerRoot!, ['add', 'main.txt']);
-  git(developerRoot!, ['commit', '--quiet', '--no-verify', '-m', `remote ${content.trim()}`]);
+  git(developerRoot!, ['commit', '--quiet', '--no-verify', '-m', `remote ${content.trim()}`, '--', 'main.txt']);
   git(developerRoot!, ['push', '--quiet', 'origin', 'main']);
 }

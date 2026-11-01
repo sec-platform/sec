@@ -171,8 +171,7 @@ test('source checkpoint refuses detached/default refs and nonancestor base', asy
     expect((await resolveSourceCheckpointStatus(root, request)).blockers).toContain('detached-or-invalid-branch');
     git(root, ['checkout', '--quiet', 'source-checkpoint']);
     await writeFile(path.join(root, 'owned.txt'), 'future\n');
-    git(root, ['add', 'owned.txt']);
-    git(root, ['commit', '--quiet', '-m', 'future']);
+    git(root, ['commit', '--quiet', '-m', 'future', '--', 'owned.txt']);
     const future = git(root, ['rev-parse', 'HEAD']);
     git(root, ['checkout', '--quiet', '-b', 'older-checkpoint', base]);
     expect((await resolveSourceCheckpointStatus(root, { ...request, base: future })).blockers).toContain('base-not-ancestor');

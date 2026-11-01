@@ -478,8 +478,8 @@ describe('work-selection live contract', () => {
       });
       runFixtureGit(root, ['checkout', '--quiet', '-b', 'terminal-compaction']);
       writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), compaction.roadmapSource, 'utf8');
-      runFixtureGit(root, ['add', '--', 'config/repository/work-selection.md']);
-      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal candidate']);
+      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal candidate',
+        '--', 'config/repository/work-selection.md']);
       const [headSha, headTreeSha] = fixtureGitCommitAndTree(root);
 
       const independentItem = prior.catalog.items.find(({ workId }) => workId !== 'issue-186')!;

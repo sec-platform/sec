@@ -77,8 +77,12 @@ tests:
   };
   await settleWorkspaceCallback(async () => {
     cpSync(sessionGitSeed(), root, { recursive: true });
-    const seedSha = git(root, ['rev-parse', 'HEAD']);
-    const seedTree = git(root, ['rev-parse', 'HEAD^{tree}']);
+    const identities = git(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+    if (identities.length !== 2 || identities.some(value =>
+      !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected exact native Git seed commit and tree identities');
+    }
+    const [seedSha, seedTree] = identities as [string, string];
     if (active) git(root, ['switch', '--quiet', '-c', 'transport/old']);
     put('config/repository/current-state.yaml', `schema: sec-current-state-live-v1
 resolver:

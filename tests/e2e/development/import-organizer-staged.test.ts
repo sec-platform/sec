@@ -201,8 +201,8 @@ test.concurrent('candidate organizer repairs the complete amended commit diff in
     const committed = `${source('unsorted')}export const committedChange = answer;\n`;
     const expected = `${source('sorted')}export const committedChange = answer;\n`;
     await writeFile(fixturePath, committed, 'utf8');
-    git(repoRoot, ['add', 'fixture.ts']);
-    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'legacy candidate']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com',
+      'commit', '--quiet', '-m', 'legacy candidate', '--', 'fixture.ts']);
     await writeFile(path.join(repoRoot, 'README.md'), 'amend metadata\n', 'utf8');
     git(repoRoot, ['add', 'README.md']);
     const contexts: string[] = [];
