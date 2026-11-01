@@ -40,14 +40,22 @@ let developerRoot: string | undefined;
 const RECEIPT = `sha256:${'a'.repeat(64)}` as const;
 const SESSION = `sha256:${'b'.repeat(64)}` as const;
 
-function binding(expectedLocalPreimageSha = git(protectedRoot!, ['rev-parse', 'HEAD']).trim()) {
+function binding(expectedLocalPreimageSha?: string) {
+  const localObjects = expectedLocalPreimageSha === undefined
+    ? git(protectedRoot!, ['rev-parse', 'HEAD', 'HEAD^{tree}']).trim().split(/\r?\n/u)
+    : [expectedLocalPreimageSha,
+      git(protectedRoot!, ['rev-parse', `${expectedLocalPreimageSha}^{tree}`]).trim()];
+  if (localObjects.length !== 2 || localObjects.some(value =>
+    !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+    throw new Error('Expected exact local main commit and tree identities');
+  }
+  const [localSha, localTree] = localObjects as [string, string];
   const [remoteSha, remoteTree] = git(remoteRoot!, [
     'rev-parse', 'main', 'main^{tree}'
   ]).trim().split(/\r?\n/u) as [string, string];
-  const localTree = git(protectedRoot!, ['rev-parse', `${expectedLocalPreimageSha}^{tree}`]).trim();
   return createLocalMainCloseoutBinding({ repository: 'sec-platform/sec', pullRequestNumber: 42,
     protectedRootRealPath: protectedRoot!,
-    expectedLocalPreimageSha, expectedRemoteMainSha: remoteSha,
+    expectedLocalPreimageSha: localSha, expectedRemoteMainSha: remoteSha,
     expectedLocalPreimageTreeSha: localTree, expectedCandidateHeadSha: remoteSha,
     expectedRemoteMainTreeSha: remoteTree, expectedCandidateTreeSha: remoteTree,
     sessionRevision: SESSION, authorizationId: SESSION,
@@ -179,8 +187,11 @@ test.serial('a diverged protected main preserves local commits while refreshing 
     if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') {
       expect(status.reason).toBe('local-only-commits');
     }
-    expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(localHead);
-    expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
+    const [observedLocalHead, observedRemoteHead] = git(protectedRoot!, [
+      'rev-parse', 'HEAD', 'origin/main'
+    ]).trim().split(/\r?\n/u);
+    expect(observedLocalHead).toBe(localHead);
+    expect(observedRemoteHead).toBe(remoteSha);
 
   }, () => settleResourcesAsync({ cleanup: [
     { label: 'diverged-fixture-commit', settle: () => { git(protectedRoot!, ['reset', '--hard', beforeHead]); } },

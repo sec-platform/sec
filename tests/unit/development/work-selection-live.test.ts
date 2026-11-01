@@ -496,7 +496,6 @@ describe('work-selection live contract', () => {
         + `tests:\n  - tests/unit/development/work-selection-live.test.ts\n---\n`, 'utf8');
       runFixtureGit(root, ['add', '--', independentManifestPath]);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: independent candidate']);
-      const independentHeadSha = fixtureGitSha(root, 'HEAD');
       const secondaryItem = prior.catalog.items.find(({ workId }) => (
         workId !== 'issue-186' && workId !== independentItem.workId
       ))!;
@@ -513,7 +512,16 @@ describe('work-selection live contract', () => {
         + `tests:\n  - tests/unit/development/work-selection-live.test.ts\n---\n`, 'utf8');
       runFixtureGit(root, ['add', '--', secondaryManifestPath]);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: secondary candidate']);
-      const secondaryHeadSha = fixtureGitSha(root, 'HEAD');
+      // Both completed branch refs are immutable while the provider's
+      // independent head observations are assembled.
+      const reviewHeads = runFixtureGit(root, [
+        'rev-parse', 'refs/heads/independent-review', 'refs/heads/secondary-review'
+      ]).toString('utf8').trim().split(/\r?\n/u);
+      if (reviewHeads.length !== 2 || reviewHeads.some(value =>
+        !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+        throw new Error('Expected exact native independent and secondary review heads');
+      }
+      const [independentHeadSha, secondaryHeadSha] = reviewHeads as [string, string];
       runFixtureGit(root, ['checkout', '--quiet', 'terminal-compaction']);
 
       const issueRecords = Object.fromEntries(prior.catalog.items.map((item, index) => [

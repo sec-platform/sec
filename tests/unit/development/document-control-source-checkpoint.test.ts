@@ -42,14 +42,17 @@ stableFacts: {}
   git(root, ['checkout', '--quiet', '-b', 'source-checkpoint']);
 }
 
-let preparedRepository: Promise<string> | undefined;
-async function retainedPreparedRepository(): Promise<string> {
+type PreparedSourceCheckpoint = Readonly<{ root: string; base: string }>;
+let preparedRepository: Promise<PreparedSourceCheckpoint> | undefined;
+async function retainedPreparedRepository(): Promise<PreparedSourceCheckpoint> {
   if (preparedRepository !== undefined) return preparedRepository;
   const preparing = (async () => {
     const template = await mkdtemp(path.join(tmpdir(), 'sec-source-checkpoint-base-'));
     try {
       await prepareRepository(template);
-      return template;
+      // A copied immutable Git object graph preserves its exact commit identity;
+      // each consumer still receives its own index, refs and worktree.
+      return Object.freeze({ root: template, base: git(template, ['rev-parse', 'HEAD']) });
     } catch (primary) {
       return settleWorkspaceCallback(async () => { throw primary; },
         () => rm(template, { recursive: true, force: true }));
@@ -63,8 +66,9 @@ async function retainedPreparedRepository(): Promise<string> {
   return retained;
 }
 async function fixture(root: string) {
-  await cp(await retainedPreparedRepository(), root, { recursive: true });
-  const base = git(root, ['rev-parse', 'HEAD']);
+  const template = await retainedPreparedRepository();
+  await cp(template.root, root, { recursive: true });
+  const { base } = template;
   return { root, base, request: { base, expectedHead: base, ownedPaths: ['owned.txt'] } };
 }
 
@@ -72,7 +76,7 @@ afterAll(async () => {
   if (preparedRepository === undefined) return;
   const [settled] = await Promise.allSettled([preparedRepository]);
   if (settled!.status === 'fulfilled') {
-    await rm(settled!.value, { recursive: true, force: true });
+    await rm(settled!.value.root, { recursive: true, force: true });
   }
 });
 

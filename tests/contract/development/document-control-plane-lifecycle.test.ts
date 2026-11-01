@@ -1379,8 +1379,10 @@ test('pre-evidence replan replaces one committed candidate generation pending am
       reviewedOn: '2026-08-09'
     });
     runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'candidate generation']);
-    const committedHead = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
-    expect(runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^'])).toBe(fixture.baseSha);
+    const [committedHead, committedParent] = runGit(fixture.repositoryRoot, [
+      'rev-parse', 'HEAD', 'HEAD^'
+    ]).split(/\r?\n/u);
+    expect(committedParent).toBe(fixture.baseSha);
     const manifestPath = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
     const nextManifest = Buffer.concat([
       await readFile(manifestPath),

@@ -396,12 +396,20 @@ function createSuccessorFixture(label: string) {
     writeFileSync(path.join(fixture.repositoryRoot, 'source-only.txt'), 'preserved outside main\n');
     git(fixture.repositoryRoot, ['add', 'source-only.txt']);
     git(fixture.repositoryRoot, ['commit', '-m', 'source outside main']);
-    const sourceSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
     git(fixture.repositoryRoot, ['checkout', '-b', 'codex/successor']);
     writeFileSync(path.join(fixture.repositoryRoot, 'successor.txt'), 'successor\n');
     git(fixture.repositoryRoot, ['add', 'successor.txt']);
     git(fixture.repositoryRoot, ['commit', '-m', 'preserving successor']);
-    const successorSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    // Resolve both completed, immutable branch tips in one native read.
+    // Each branch still receives its own independent commit and ref.
+    const successorTips = git(fixture.repositoryRoot, [
+      'rev-parse', 'refs/heads/codex/source', 'refs/heads/codex/successor'
+    ]).split(/\r?\n/u);
+    if (successorTips.length !== 2 || successorTips.some(value =>
+      !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected exact native source and successor branch tips');
+    }
+    const [sourceSha, successorSha] = successorTips as [string, string];
     git(fixture.repositoryRoot, ['checkout', 'main']);
     const remoteHeads: Record<string, string> = { main: fixture.mainSha, 'codex/successor': successorSha };
     const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
