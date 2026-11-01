@@ -254,8 +254,7 @@ test('exact committed blobs and attribute policy are isolated from .git/info/att
 test('legal custom Git attribute values remain fail-closed policy input instead of parser crashes', async () => {
   await withRepository('sec-dev-attribute-custom-', async (root) => {
     await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text=auto\n');
-    git(root, ['add', '.gitattributes']);
-    git(root, ['commit', '--quiet', '-m', 'custom-attribute']);
+    git(root, ['commit', '--quiet', '-m', 'custom-attribute', '--', '.gitattributes']);
 
     const report = await runCensus(root);
     expect(report.classificationCounts.unknown).toBe(1);
@@ -269,8 +268,7 @@ test('text census treats NUL in declared text as a terminal fail-closed finding'
     await fs.writeFile(path.join(root, 'committed.ts'), new Uint8Array([
       0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x00, 0x0a
     ]));
-    git(root, ['add', 'committed.ts']);
-    git(root, ['commit', '--quiet', '-m', 'nul-text']);
+    git(root, ['commit', '--quiet', '-m', 'nul-text', '--', 'committed.ts']);
 
     const report = await runCensus(root);
     const entry = report.flaggedEntries.find(({ path: entryPath }) => entryPath === 'committed.ts');

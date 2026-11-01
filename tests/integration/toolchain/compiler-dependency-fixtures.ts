@@ -486,8 +486,7 @@ async function prepareLinkedWorktreeEpochTransition(
   }, consumerRoot);
 
   await fs.writeFile(path.join(ownerRoot, 'bun.lock'), 'lock-v2\n');
-  await runFixtureGit(ownerRoot, ['add', 'bun.lock']);
-  await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v2']);
+  await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v2', '--', 'bun.lock']);
   await runFixtureGit(consumerRoot, ['reset', '--hard', 'main']);
   onOperationStart(ownerRoot);
   await ensureCompilerDepsReady({

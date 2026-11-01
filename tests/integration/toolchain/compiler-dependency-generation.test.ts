@@ -84,8 +84,7 @@ describe('compiler dependency installation', () => {
       const oldTarget = await fs.realpath(consumerLocator);
 
       await fs.writeFile(path.join(ownerRoot, 'bun.lock'), 'lock-v3\n');
-      await runFixtureGit(ownerRoot, ['add', 'bun.lock']);
-      await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v3']);
+      await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v3', '--', 'bun.lock']);
       await runFixtureGit(consumerRoot, ['reset', '--hard', 'main']);
       await ensureCompilerDepsReady({
         ...ownerOperation,
