@@ -128,8 +128,7 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
   try {
     prepareGitOrchestrationRepository(repositoryRoot);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'fixture\n', 'utf8');
-    git(repositoryRoot, ['add', 'fixture.txt']);
-    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '-a', '--quiet', '-m', 'fixture']);
 
     let processFailure: unknown;
     try {

@@ -1319,8 +1319,7 @@ test.skipIf(process.platform !== 'win32')(
   const originalBranch = git(authorityRoot, ['symbolic-ref', '--short', 'HEAD']);
   git(authorityRoot, ['switch', '-c', 'replacement-view']);
   writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'replacement\n', 'utf8');
-  git(authorityRoot, ['add', 'tracked.txt']);
-  git(authorityRoot, ['-c', 'user.name=SEC Runner', '-c', 'user.email=sec-runner@example.invalid', 'commit', '-m', 'replacement object view']);
+  git(authorityRoot, ['-c', 'user.name=SEC Runner', '-c', 'user.email=sec-runner@example.invalid', 'commit', '-am', 'replacement object view']);
   const replacementCommit = git(authorityRoot, ['rev-parse', 'HEAD']);
   git(authorityRoot, ['switch', originalBranch]);
   git(authorityRoot, ['replace', headSha, replacementCommit]);

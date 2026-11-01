@@ -1923,8 +1923,7 @@ describe('qualified exact-repository Session consumers', () => {
     runGit(authorityRoot, ['-c', 'user.name=Session Test', '-c', 'user.email=session-test@example.invalid', 'commit', '-m', 'base']);
     const [baseSha, baseTreeSha] = gitHeadAndTree(authorityRoot);
     writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'exact candidate\n', 'utf8');
-    runGit(authorityRoot, ['add', 'tracked.txt']);
-    runGit(authorityRoot, ['-c', 'user.name=Session Test', '-c', 'user.email=session-test@example.invalid', 'commit', '-m', 'exact candidate']);
+    runGit(authorityRoot, ['-c', 'user.name=Session Test', '-c', 'user.email=session-test@example.invalid', 'commit', '-am', 'exact candidate']);
     const [headSha, headTreeSha] = gitHeadAndTree(authorityRoot);
     const candidateRoot = path.join(authorityRoot, '.tmp', 'codex',
       'verification-session-candidates', headSha);

@@ -45,8 +45,11 @@ test.each(['codex-development-work-package-v1', 'codex-development-work-package-
     writeFileSync(path.join(repositoryRoot, 'src', 'value.ts'), 'export const value = 1;\n', 'utf8');
     git(repositoryRoot, 'add', '.');
     git(repositoryRoot, '-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid', 'commit', '-m', 'base');
-    const baseSha = git(repositoryRoot, 'rev-parse', 'HEAD');
-    const baseTreeSha = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
+    const baseObjects = git(repositoryRoot, 'rev-parse', 'HEAD', 'HEAD^{tree}').split(/\r?\n/u);
+    if (baseObjects.length !== 2 || baseObjects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected base commit and tree identities from native Git');
+    }
+    const [baseSha, baseTreeSha] = baseObjects as [string, string];
 
     const manifestPath = 'config/repository/work-packages/continuation-fixture-v1.md';
     writeFileSync(path.join(repositoryRoot, manifestPath), `---
@@ -76,8 +79,11 @@ tests:
     writeFileSync(path.join(repositoryRoot, 'src', 'value.ts'), 'export const value = 2;\n', 'utf8');
     git(repositoryRoot, 'add', '.');
     git(repositoryRoot, '-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid', 'commit', '-m', 'candidate');
-    const headSha = git(repositoryRoot, 'rev-parse', 'HEAD');
-    const headTreeSha = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
+    const headObjects = git(repositoryRoot, 'rev-parse', 'HEAD', 'HEAD^{tree}').split(/\r?\n/u);
+    if (headObjects.length !== 2 || headObjects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected candidate commit and tree identities from native Git');
+    }
+    const [headSha, headTreeSha] = headObjects as [string, string];
     const checkpoint = createLocalContinuationCheckpoint({
       repository: 'sec-platform/sec',
       prNumber: 496,
