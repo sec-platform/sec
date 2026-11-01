@@ -29,16 +29,14 @@ test('failure is shared exactly and retired so an explicitly retried preparation
   for (const { reason, synchronous } of cases) {
     let fail = true, calls = 0;
     const prepare = createTemplatePreparation(synchronous
-      ? () => { calls++; throw reason; }
+      ? () => { calls++; if (fail) throw reason; return Promise.resolve('recovered'); }
       : async () => { calls++; if (fail) throw reason; return 'recovered'; });
     const a = prepare('kind'), b = prepare('kind');
     const context = `${synchronous ? 'synchronous' : 'asynchronous'}: ${String(reason)}`;
     await Promise.all([a, b].map(p => assert.rejects(p, error => error === reason, context)));
     assert.equal(calls, 1, context);
-    if (!synchronous) {
-      fail = false;
-      assert.equal(await prepare('kind'), 'recovered', context);
-      assert.equal(calls, 2, context);
-    }
+    fail = false;
+    assert.equal(await prepare('kind'), 'recovered', context);
+    assert.equal(calls, 2, context);
   }
 });

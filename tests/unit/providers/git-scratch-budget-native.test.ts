@@ -80,12 +80,18 @@ test('unaffordable scratch batches perform no partial effect', () =>
               ? { additions: [{ path: 'new', bytes: Buffer.from('new object') }], removals: [] }
               : { additions: [], removals: [] };
             const result = await scratch.applyIndexDelta(delta);
-            assert.equal(result.status, 'unavailable');
+            assert.equal(result.status, 'unavailable', `${scenario}: aggregate resource refusal is required`);
+            if (result.status !== 'unavailable') throw new Error('Native budget refusal is required.');
+            assert.equal(result.reason, 'session-failed', `${scenario}: native resource preflight must reject`);
+            assert.equal(session.failure, null, `${scenario}: the retained Git session must remain healthy`);
             assert.equal(session.processCount, beforeProcesses);
             assert.deepEqual(readFileSync(indexPath), beforeIndex);
             assert.deepEqual(readdirSync(path.join(scratchRoot, 'objects')), []);
             assert.equal(readFileSync(path.join(root, 'old'), 'utf8'), 'retained worktree content');
-          }, async () => { await scratch.close(); });
+          }, async () => {
+            assert.equal(await scratch.close(), 'session-failed',
+              `${scenario}: scratch close must retain its preflight refusal`);
+          });
         });
       }, async () => { rmSync(scratchRoot, { recursive: true, force: true }); });
     }
