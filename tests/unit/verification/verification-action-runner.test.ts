@@ -1339,12 +1339,13 @@ test.skipIf(process.platform !== 'win32')(
   writeFileSync(path.join(decoyRoot, 'decoy.txt'), 'decoy\n', 'utf8');
   git(decoyRoot, ['add', 'decoy.txt']);
   git(decoyRoot, ['-c', 'user.name=SEC Decoy', '-c', 'user.email=sec-decoy@example.invalid', 'commit', '-m', 'decoy']);
-  const decoyGitDirectory = git(decoyRoot, [
-    'rev-parse', '--path-format=absolute', '--absolute-git-dir'
-  ]);
-  const decoyIndex = git(decoyRoot, [
-    'rev-parse', '--path-format=absolute', '--git-path', 'index'
-  ]);
+  const decoyPaths = git(decoyRoot, [
+    'rev-parse', '--path-format=absolute', '--absolute-git-dir', '--git-path', 'index'
+  ]).split(/\r?\n/u);
+  if (decoyPaths.length !== 2 || decoyPaths.some(value => value.length === 0)) {
+    throw new Error('Expected native decoy Git directory and index path');
+  }
+  const [decoyGitDirectory, decoyIndex] = decoyPaths as [string, string];
   const authorityIndex = git(authorityRoot, [
     'rev-parse', '--path-format=absolute', '--git-path', 'index'
   ]);

@@ -61,18 +61,18 @@ function refExists(cwd: string, ref: string): boolean {
   }).status === 0;
 }
 
-function writeDevelopmentCommitJournal(repositoryRoot: string, target: string,
-  disposition: 'applied' | 'unknown'): string {
+function writeDevelopmentCommitJournal(fixture: Readonly<{
+  repositoryRoot: string;
+  headSha: string;
+  headParentSha: string;
+  headTreeSha: string;
+}>, disposition: 'applied' | 'unknown'): string {
+  const { repositoryRoot, headSha: target, headParentSha: preimage, headTreeSha: tree } = fixture;
   const attempt = disposition === 'applied' ? 'a'.repeat(64) : 'b'.repeat(64);
   const journalPath = path.join(repositoryRoot, '.git', 'sec-development-commit', `${attempt}.json`);
   mkdirSync(path.dirname(journalPath), { recursive: true });
-  // Both object identities come from one Git observation of the same
-  // immutable target; distinct journals still own their own bytes and refs.
-  const objects = git(repositoryRoot, ['rev-parse', `${target}^`, `${target}^{tree}`]).split(/\r?\n/u);
-  if (objects.length !== 2 || !objects[0] || !objects[1]) {
-    throw new Error('Expected exactly one parent and one tree from native Git');
-  }
-  const [preimage, tree] = objects;
+  // Native parent/tree identities come from the immutable source Git object
+  // graph before copying; each test still writes and retires its own journal.
   const journal = {
     attempt: `sha256:${attempt}`,
     object: disposition === 'applied' ? target : null,
@@ -90,7 +90,9 @@ function writeDevelopmentCommitJournal(repositoryRoot: string, target: string,
 
 // A fixed original Git graph is copied into each independent physical
 // repository. Tests still exercise their own native Git effects and recovery.
-type EffectTemplate = Readonly<{ root: string; headSha: string; mainSha: string }>;
+type EffectTemplate = Readonly<{
+  root: string; headSha: string; mainSha: string; headParentSha: string; headTreeSha: string
+}>;
 let immutableEffectTemplate: EffectTemplate | undefined;
 
 afterAll(() => {
@@ -116,14 +118,19 @@ function effectTemplate(): EffectTemplate {
     git(repositoryRoot, ['commit', '-m', 'feature']);
     git(repositoryRoot, ['checkout', 'main']);
     git(repositoryRoot, ['merge', '--no-ff', 'fix/example', '-m', 'merge feature']);
-    const [headSha, mainSha] = git(repositoryRoot, [
-      'rev-parse', 'refs/heads/fix/example', 'HEAD'
-    ]).split(/\r?\n/u) as [string, string];
+    const identities = git(repositoryRoot, [
+      'rev-parse', 'refs/heads/fix/example', 'HEAD',
+      'refs/heads/fix/example^', 'refs/heads/fix/example^{tree}'
+    ]).split(/\r?\n/u);
+    if (identities.length !== 4 || identities.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected exact fixture tip, parent and tree identities from native Git');
+    }
+    const [headSha, mainSha, headParentSha, headTreeSha] = identities as [string, string, string, string];
     git(repositoryRoot, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);
     git(repositoryRoot, ['branch', 'release', 'main']);
     git(repositoryRoot, ['update-ref', 'refs/remotes/origin/release', mainSha]);
     git(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release']);
-    immutableEffectTemplate = Object.freeze({ root, headSha, mainSha });
+    immutableEffectTemplate = Object.freeze({ root, headSha, mainSha, headParentSha, headTreeSha });
     return immutableEffectTemplate;
   } catch (error) {
     try { rmSync(root, { recursive: true, force: true }); }
@@ -141,7 +148,7 @@ function createEffectFixture(label: string) {
     const repositoryRoot = path.join(root, 'repository');
     const recoveryRoot = path.join(root, 'recovery');
     cpSync(path.join(base.root, 'repository'), repositoryRoot, { recursive: true });
-    const { headSha, mainSha } = base;
+    const { headSha, mainSha, headParentSha, headTreeSha } = base;
     const calls: string[][] = [];
     const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
       calls.push([command, ...args]);
@@ -204,6 +211,8 @@ function createEffectFixture(label: string) {
       recoveryRoot,
       headSha,
       mainSha,
+      headParentSha,
+      headTreeSha,
       calls,
       run,
       dispose: () => rmSync(root, { recursive: true, force: true })
@@ -830,13 +839,13 @@ for (const lane of ['merged', 'retained'] as const) {
   test(`${lane} local ref keeps exact applied development journals through ref CAS then retires them`, async () => {
     await withEffectFixture(`journal-before-ref-${lane}`, async (fixture) => {
       const commonDir = path.join(fixture.repositoryRoot, '.git');
-      const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
+      const journalPath = writeDevelopmentCommitJournal(fixture, 'applied');
       const noMergedPr = withoutMergedPr(fixture);
       if (lane === 'retained') {
         writeFileSync(path.join(fixture.repositoryRoot, 'caller-index-only.txt'), 'unrelated staged bytes\n');
         git(fixture.repositoryRoot, ['add', 'caller-index-only.txt']);
         expect(spawnSync('git', ['diff-index', '--cached', '--exit-code',
-          git(fixture.repositoryRoot, ['rev-parse', `${fixture.headSha}^{tree}`]), '--'], {
+          fixture.headTreeSha, '--'], {
           cwd: fixture.repositoryRoot, windowsHide: true
         }).status).not.toBe(0);
       }
@@ -872,7 +881,7 @@ for (const lane of ['merged', 'retained'] as const) {
 
   test(`${lane} local ref preserves recovery and ref when a development journal is unknown`, async () => {
     await withEffectFixture(`journal-unknown-${lane}`, async (fixture) => {
-      const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'unknown');
+      const journalPath = writeDevelopmentCommitJournal(fixture, 'unknown');
       const noMergedPr = withoutMergedPr(fixture);
       await expect(executeMergedLocalBranchResidueCloseout({
         repositoryRoot: fixture.repositoryRoot,
@@ -892,11 +901,7 @@ for (const lane of ['merged', 'retained'] as const) {
 
 test('absent local ref recovery retires the applied journal left by a crash after exact ref CAS', async () => {
   await withEffectFixture('absent-ref-applied-journal', async (fixture) => {
-    const journalPath = writeDevelopmentCommitJournal(
-      fixture.repositoryRoot,
-      fixture.headSha,
-      'applied'
-    );
+    const journalPath = writeDevelopmentCommitJournal(fixture, 'applied');
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
@@ -926,11 +931,7 @@ test('absent local ref recovery retires the applied journal left by a crash afte
 
 test('absent local ref recovery refuses a forged applied journal object binding', async () => {
   await withEffectFixture('absent-ref-forged-applied-journal', async (fixture) => {
-    const journalPath = writeDevelopmentCommitJournal(
-      fixture.repositoryRoot,
-      fixture.headSha,
-      'applied'
-    );
+    const journalPath = writeDevelopmentCommitJournal(fixture, 'applied');
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
@@ -953,11 +954,7 @@ test('absent local ref recovery refuses a forged applied journal object binding'
 
 test('absent local ref recovery refuses a late valid applied journal outside the durable plan', async () => {
   await withEffectFixture('absent-ref-late-applied-journal', async (fixture) => {
-    const journalPath = writeDevelopmentCommitJournal(
-      fixture.repositoryRoot,
-      fixture.headSha,
-      'applied'
-    );
+    const journalPath = writeDevelopmentCommitJournal(fixture, 'applied');
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
