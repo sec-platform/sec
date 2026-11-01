@@ -49,16 +49,22 @@ test('real Git treats admitted dash-prefixed filenames as data for every support
   commandSucceeded(git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--no-gpg-sign', '--quiet', '-m', 'fixture']));
   const head = commandSucceeded(git(['rev-parse', '--verify', 'HEAD'])).trim();
   writeFileSync(path.join(root, '--textconv'), 'changed\n');
+  writeFileSync(path.join(root, '--cached'), 'changed cached\n');
+  // A successful exit alone does not show that Git interpreted the pathspec as
+  // data: each admitted command must return the independently created filename.
   const commands = [
-    ['status', '--short', '--', '--textconv'], ['diff', '--name-only', head, '--', '--textconv'],
-    ['diff-files', '--name-only', '--', '--textconv'], ['diff-index', '--name-only', head, '--', '--textconv'],
-    ['ls-files', '-z', '--', '--textconv'], ['ls-tree', '--name-only', head, '--', '--textconv'],
-    ['diff-files', '--name-only', '--', '--cached']
+    { args: ['status', '--short', '--', '--textconv'], expected: ' M --textconv\n' },
+    { args: ['diff', '--name-only', head, '--', '--textconv'], expected: '--textconv\n' },
+    { args: ['diff-files', '--name-only', '--', '--textconv'], expected: '--textconv\n' },
+    { args: ['diff-index', '--name-only', head, '--', '--textconv'], expected: '--textconv\n' },
+    { args: ['ls-files', '-z', '--', '--textconv'], expected: '--textconv\0' },
+    { args: ['ls-tree', '--name-only', head, '--', '--textconv'], expected: '--textconv\n' },
+    { args: ['diff-files', '--name-only', '--', '--cached'], expected: '--cached\n' }
   ];
-  for (const args of commands) {
+  for (const { args, expected } of commands) {
     assert.equal(gitReadCommandIsObservation(args), true, JSON.stringify(args));
     const output = commandSucceeded(git(args, args[0] === 'status' ? statusEnvironment : undefined));
-    if (args[0] === 'ls-files') assert.equal(output, '--textconv\0');
+    assert.equal(output, expected, `Native Git must select the literal path for ${JSON.stringify(args)}`);
   }
   assert.equal(existsSync(trace), false);
   assert.equal(readFileSync(path.join(root, '--textconv'), 'utf8'), 'changed\n');
