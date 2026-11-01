@@ -5,7 +5,33 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { canonicalCommitTreeInput, gitCommitEnvironment } from '../../../src/adapters/providers/git-read/runtime/commit-contract.ts';
 import { captureGitScratchIndexDelta, formatGitScratchIndexRecord } from '../../../src/adapters/providers/git-read/runtime/scratch-input.ts';
-import { gitProtocolSuccess, inGitProtocolRepository } from '../../testkit/git-protocol.ts';
+import { gitProtocolSuccess, inGitProtocolRepository, type GitProtocolCommand } from '../../testkit/git-protocol.ts';
+
+function readNativeCommitBatch(git: GitProtocolCommand, oids: readonly string[]): string[] {
+  const stdout = gitProtocolSuccess(git(['cat-file', '--batch'], undefined, `${oids.join('\n')}\n`));
+  const framed = Buffer.from(stdout, 'utf8');
+  const contents: string[] = [];
+  let offset = 0;
+  for (const oid of oids) {
+    const newline = framed.indexOf(10, offset);
+    assert.ok(newline >= offset, 'Missing native cat-file batch header');
+    const header = framed.subarray(offset, newline).toString('utf8');
+    const prefix = `${oid} commit `;
+    assert.ok(header.startsWith(prefix), 'Unexpected native cat-file object identity or type');
+    const sizeText = header.slice(prefix.length);
+    assert.match(sizeText, /^(0|[1-9][0-9]*)$/u);
+    const size = Number(sizeText);
+    assert.ok(Number.isSafeInteger(size), 'Invalid native cat-file object size');
+    const bodyStart = newline + 1;
+    const bodyEnd = bodyStart + size;
+    assert.ok(bodyEnd < framed.length, 'Truncated native cat-file object');
+    assert.equal(framed[bodyEnd], 10, 'Missing native cat-file object terminator');
+    contents.push(framed.subarray(bodyStart, bodyEnd).toString('utf8'));
+    offset = bodyEnd + 1;
+  }
+  assert.equal(offset, framed.length, 'Unexpected trailing native cat-file data');
+  return contents;
+}
 
 // Real installed-Git tests, not a SEC physical provider. Expected object bytes
 // and final index paths below are independent of the production serializers.
@@ -13,6 +39,7 @@ for (const format of ['sha1', 'sha256'] as const) {
   test(`real ${format} commit stores epoch and early dates exactly through the transport`, () => inGitProtocolRepository(async (_root, git, base) => {
     const tree = gitProtocolSuccess(git(['mktree'], undefined, '')).trim();
     const parent = gitProtocolSuccess(git(['commit-tree', tree], undefined, 'fixture\n')).trim();
+    const expectedCommits: Array<{ oid: string; bytes: string }> = [];
     for (const date of ['0 +0000', '1 -0530', '20000101 +0800', '99999999 +1400', '1700000000 +0000', '9007199254740993 +0000', '18446744073709551614 +0000']) {
       const input = canonicalCommitTreeInput({ tree, parents: [parent], message: 'Exact message\n',
         author: { name: 'Maintainer', email: 'maintainer@example.test', date },
@@ -21,10 +48,12 @@ for (const format of ['sha1', 'sha256'] as const) {
       const environment = gitCommitEnvironment(input, base as Record<string, string>);
       const object = gitProtocolSuccess(git(['commit-tree', input.tree, '-p', parent], environment, input.message)).trim();
       const expected = `tree ${tree}\nparent ${parent}\nauthor Maintainer <maintainer@example.test> ${date}\ncommitter Reviewer <reviewer@example.test> ${date}\n\nExact message\n`;
-      assert.equal(gitProtocolSuccess(git(['cat-file', 'commit', object])), expected);
+      expectedCommits.push({ oid: object, bytes: expected });
       const bytes = Buffer.from(expected);
       assert.equal(object, createHash(format).update(`commit ${bytes.length}\0`).update(bytes).digest('hex'));
     }
+    const committed = readNativeCommitBatch(git, expectedCommits.map(({ oid }) => oid));
+    expectedCommits.forEach(({ bytes }, index) => assert.equal(committed[index], bytes));
   }, format));
 
   test(`real ${format} mixed delta handles both file-to-directory and directory-to-file replacements`, () => inGitProtocolRepository(async (root, git) => {
@@ -56,16 +85,22 @@ test('real Git identity sanitation and admission agree without trimming legitima
   const fixed = { tree, parents: [parent], message: 'identity\n',
     author: { name: 'Maintainer', email: 'name@example.test', date: '1700000000 +0000' },
     committer: { name: 'Reviewer', email: 'reviewer@example.test', date: '1700000000 +0000' } };
+  const rejected: Array<{ oid: string; name: string }> = [];
+  const accepted: Array<{ oid: string; name: string }> = [];
   for (const name of [' name ', ',name', 'name;', 'name:', '\tname', '\\name', 'name"']) {
     const input = { ...fixed, author: { ...fixed.author, name } };
     assert.equal(canonicalCommitTreeInput(input), null);
     // Establish independently that native Git would change the supplied identity.
     const oid = gitProtocolSuccess(git(['commit-tree', tree, '-p', parent], { ...base, GIT_AUTHOR_NAME: name }, 'identity\n')).trim();
-    assert.ok(!gitProtocolSuccess(git(['cat-file', 'commit', oid])).includes(`author ${name} <`));
+    rejected.push({ oid, name });
   }
   for (const name of ['.Name.', "A, B:C; O'Name\\B e\u0301", '名🙂', '\u00a0Name\u00a0']) {
     const input = canonicalCommitTreeInput({ ...fixed, author: { ...fixed.author, name } }); assert.ok(input);
     const oid = gitProtocolSuccess(git(['commit-tree', tree, '-p', parent], gitCommitEnvironment(input, base as Record<string, string>), input.message)).trim();
-    assert.ok(gitProtocolSuccess(git(['cat-file', 'commit', oid])).includes(`author ${name} <name@example.test> 1700000000 +0000\n`));
+    accepted.push({ oid, name });
   }
+  const observed = readNativeCommitBatch(git, [...rejected, ...accepted].map(({ oid }) => oid));
+  rejected.forEach(({ name }, index) => assert.ok(!observed[index]!.includes(`author ${name} <`)));
+  accepted.forEach(({ name }, index) => assert.ok(observed[rejected.length + index]!
+    .includes(`author ${name} <name@example.test> 1700000000 +0000\n`)));
 }));

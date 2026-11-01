@@ -66,16 +66,21 @@ async function digestTree(root: string): Promise<{
   indexRaw: string;
   fixture: string;
 }> {
-  const indexPath = await (async () => {
-    const configured = git(root, ['rev-parse', '--git-path', 'index']).trim();
-    return path.isAbsolute(configured) ? configured : path.resolve(root, configured);
-  })();
+  // One native query binds the index location and exact HEAD/tree identities.
+  const identities = git(root, ['rev-parse', '--git-path', 'index', 'HEAD', 'HEAD^{tree}'])
+    .trim().split(/\r?\n/u);
+  if (identities.length !== 3 || !identities[0] ||
+      identities.slice(1).some(oid => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(oid))) {
+    throw new Error('Expected index path, HEAD and tree from one native Git query');
+  }
+  const [configured, head, tree] = identities as [string, string, string];
+  const indexPath = path.isAbsolute(configured) ? configured : path.resolve(root, configured);
   // Index content identity is the staged-entry census (stat metadata in the
   // raw index file legitimately differs across worktrees and checkouts).
   const indexBuffer = await readFile(indexPath);
   return {
-    head: git(root, ['rev-parse', 'HEAD']).trim(),
-    tree: git(root, ['rev-parse', 'HEAD^{tree}']).trim(),
+    head,
+    tree,
     index: sha256Bytes(Buffer.from(git(root, ['ls-files', '--stage', '-z']), 'utf8')),
     indexRaw: sha256Bytes(indexBuffer),
     fixture: sha256Bytes(await readFile(path.join(root, 'fixture.ts')))
