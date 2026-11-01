@@ -19,8 +19,9 @@ function git(root: string, args: string[]) {
 // Only the committed README precondition is shared. Each test copies the entire
 // Git store into its own native root before changing refs, index, branches,
 // control documents, worktree, or provider effects.
-let immutableSessionGitSeed: string | undefined;
-function sessionGitSeed(): string {
+type SessionGitSeed = Readonly<{ root: string; headSha: string; treeSha: string }>;
+let immutableSessionGitSeed: SessionGitSeed | undefined;
+function sessionGitSeed(): SessionGitSeed {
   if (immutableSessionGitSeed !== undefined) return immutableSessionGitSeed;
   const root = mkdtempSync(path.join(tmpdir(), 'sec-active-work-session-base-'));
   try {
@@ -30,8 +31,15 @@ function sessionGitSeed(): string {
     writeFileSync(path.join(root, 'README.md'), '# fixture\n');
     git(root, ['add', '.']);
     git(root, ['commit', '--quiet', '-m', 'seed']);
-    immutableSessionGitSeed = root;
-    return root;
+    const identities = git(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+    if (identities.length !== 2 || identities.some(value =>
+      !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected exact native Git seed commit and tree identities');
+    }
+    const [headSha, treeSha] = identities as [string, string];
+    const seed = Object.freeze({ root, headSha, treeSha });
+    immutableSessionGitSeed = seed;
+    return seed;
   } catch (primary) {
     try { rmSync(root, { recursive: true, force: true }); }
     catch (cleanup) {
@@ -42,7 +50,7 @@ function sessionGitSeed(): string {
 }
 afterAll(() => {
   if (immutableSessionGitSeed === undefined) return;
-  const root = immutableSessionGitSeed;
+  const { root } = immutableSessionGitSeed;
   rmSync(root, { recursive: true, force: true });
   immutableSessionGitSeed = undefined;
 });
@@ -76,13 +84,9 @@ tests:
     mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), text);
   };
   await settleWorkspaceCallback(async () => {
-    cpSync(sessionGitSeed(), root, { recursive: true });
-    const identities = git(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
-    if (identities.length !== 2 || identities.some(value =>
-      !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
-      throw new Error('Expected exact native Git seed commit and tree identities');
-    }
-    const [seedSha, seedTree] = identities as [string, string];
+    const seed = sessionGitSeed();
+    cpSync(seed.root, root, { recursive: true });
+    const { headSha: seedSha, treeSha: seedTree } = seed;
     if (active) git(root, ['switch', '--quiet', '-c', 'transport/old']);
     put('config/repository/current-state.yaml', `schema: sec-current-state-live-v1
 resolver:

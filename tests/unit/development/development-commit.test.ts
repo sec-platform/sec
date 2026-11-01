@@ -54,18 +54,18 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
   'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
   'carrier-retained', 'carrier-rejected'] as const) {
   test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
-    const { root } = await fixture();
+    const { root, baseCommitAndTree, stagedTree } = await fixture();
     let harnessRoot: string | undefined;
     await settleWorkspaceCallback(async () => {
       const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
       harnessRoot = harness;
       const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
       git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
-      const [originalBase, baseTree] = gitCommitAndTree(root);
+      const [originalBase, baseTree] = baseCommitAndTree;
       const base = mode === 'anchor-lost'
         ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'separately adopted anchor'])
         : originalBase;
-      const changedTree = git(root, ['write-tree']);
+      const changedTree = stagedTree;
       const reviewedDefault = mode === 'reviewed-superseded' || mode === 'reviewed-rejected';
       const retainedCarrier = mode === 'carrier-retained' || mode === 'carrier-rejected';
       const target = git(root, ['commit-tree', mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
@@ -238,9 +238,15 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
 // A single staged Git source tree is the immutable fixture input. Cases copy
 // .git, its index and source bytes independently so each retains real effects,
 // reflogs, CAS preimages and its own failure/cleanup lifecycle.
-let developmentCommitTemplate: Promise<string> | undefined;
+type DevelopmentCommitTemplate = Readonly<{
+  root: string;
+  baseCommitAndTree: readonly [string, string];
+  stagedTree: string;
+  headRef: string;
+}>;
+let developmentCommitTemplate: Promise<DevelopmentCommitTemplate> | undefined;
 
-async function createDevelopmentCommitTemplate(): Promise<string> {
+async function createDevelopmentCommitTemplate(): Promise<DevelopmentCommitTemplate> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-source-'));
   try {
     git(root, ['init', '--quiet']);
@@ -280,7 +286,14 @@ async function createDevelopmentCommitTemplate(): Promise<string> {
     git(root, ['commit', '--quiet', '-m', 'base']);
     await writeFile(path.join(root, 'next.txt'), 'next\n');
     git(root, ['add', 'next.txt']);
-    return root;
+    // Read immutable prerequisite identities before copying; each test still
+    // owns independent Git index, refs, physical effects and cleanup.
+    return Object.freeze({
+      root,
+      baseCommitAndTree: gitCommitAndTree(root),
+      stagedTree: git(root, ['write-tree']),
+      headRef: git(root, ['symbolic-ref', 'HEAD'])
+    });
   } catch (error) {
     try { await rm(root, { recursive: true, force: true }); }
     catch (cleanupError) {
@@ -290,7 +303,7 @@ async function createDevelopmentCommitTemplate(): Promise<string> {
   }
 }
 
-function retainedDevelopmentCommitTemplate(): Promise<string> {
+function retainedDevelopmentCommitTemplate(): Promise<DevelopmentCommitTemplate> {
   if (developmentCommitTemplate !== undefined) return developmentCommitTemplate;
   const pending = createDevelopmentCommitTemplate();
   developmentCommitTemplate = pending;
@@ -306,21 +319,27 @@ afterAll(async () => {
   if (developmentCommitTemplate === undefined) return;
   const result = await Promise.allSettled([developmentCommitTemplate]);
   if (result[0]?.status === 'fulfilled') {
-    await rm(result[0].value, { recursive: true, force: true });
+    await rm(result[0].value.root, { recursive: true, force: true });
   }
   developmentCommitTemplate = undefined;
 });
 
 async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
   root: string;
+  baseCommitAndTree: readonly [string, string];
+  stagedTree: string;
+  headRef: string;
   request: DevelopmentCommitRequest;
 }>> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
   try {
     const source = await retainedDevelopmentCommitTemplate();
-    await cp(source, root, { recursive: true });
+    await cp(source.root, root, { recursive: true });
     return Object.freeze({
     root,
+    baseCommitAndTree: source.baseCommitAndTree,
+    stagedTree: source.stagedTree,
+    headRef: source.headRef,
     request: Object.freeze({
       repositoryRoot: path.resolve(root),
       message: 'apply staged candidate\n',
@@ -355,8 +374,8 @@ async function withCommitFixture<T>(
 }
 
 test('development.commit consumes one exact staged admission before publishing its Git Effect', async () => {
-  await withCommitFixture(async ({ root }) => {
-    const preimage = git(root, ['rev-parse', 'HEAD']);
+  await withCommitFixture(async ({ root, baseCommitAndTree }) => {
+    const preimage = baseCommitAndTree[0];
     const prepared = await issueDevelopmentCommitAdmission({
       repositoryRoot: root,
       message: 'apply staged candidate\n'
@@ -706,10 +725,10 @@ for (const mode of [
   'gap', 'later-move', 'later-return', 'extra-output', 'observation-failure'
 ] as const) {
   test(`development.commit reads the exact native reflog transition: ${mode}`, async () => {
-    await withCommitFixture(async ({ root }) => {
-      const preimage = git(root, ['rev-parse', 'HEAD']);
-      const ref = git(root, ['symbolic-ref', 'HEAD']);
-      const tree = git(root, ['write-tree']);
+    await withCommitFixture(async ({ root, baseCommitAndTree, stagedTree, headRef }) => {
+      const preimage = baseCommitAndTree[0];
+      const ref = headRef;
+      const tree = stagedTree;
       const target = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'intended target']);
       const other = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'unrelated target']);
       const reflogPath = fixtureReflogPath(root, ref);
