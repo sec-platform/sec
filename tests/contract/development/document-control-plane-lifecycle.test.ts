@@ -242,6 +242,15 @@ function runGit(cwd: string, args: string[]): string {
   return result.stdout.trim();
 }
 
+function readNativeCommitAndTree(root: string): readonly [string, string] {
+  const values = runGit(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+  if (values.length !== 2 || values.some(value =>
+    !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+    throw new Error('Expected exact native Git commit and tree identities');
+  }
+  return values as [string, string];
+}
+
 async function expectUnsafeReparseRejection(operation: Promise<unknown>): Promise<void> {
   const failure = await operation.then(
     () => undefined,
@@ -624,8 +633,7 @@ async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {
   }
   runGit(repositoryRoot, ['add', '.']);
   runGit(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
-  const projectionBaseSha = runGit(repositoryRoot, ['rev-parse', 'HEAD']);
-  const projectionBaseTree = runGit(repositoryRoot, ['rev-parse', `${projectionBaseSha}^{tree}`]);
+  const [projectionBaseSha, projectionBaseTree] = readNativeCommitAndTree(repositoryRoot);
   await writeFile(
     path.join(repositoryRoot, 'config/repository/rolling-plan.md'),
     renderWorkRollingSelectionPlan({
@@ -638,8 +646,8 @@ async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {
     }),
     'utf8'
   );
-  runGit(repositoryRoot, ['add', 'config/repository/rolling-plan.md']);
-  runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish rolling projection']);
+  runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish rolling projection',
+    '--', 'config/repository/rolling-plan.md']);
   const terminalCompaction = compileRoadmapTerminalCompaction({
     roadmapSource: workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
     completedWorkIds: ['issue-310']
@@ -649,8 +657,8 @@ async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {
     terminalCompaction.roadmapSource,
     'utf8'
   );
-  runGit(repositoryRoot, ['add', 'config/repository/work-selection.md']);
-  runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish terminal roadmap compaction']);
+  runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish terminal roadmap compaction',
+    '--', 'config/repository/work-selection.md']);
   runGit(repositoryRoot, ['remote', 'add', 'origin', remoteRoot]);
   runGit(repositoryRoot, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
   runGit(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
@@ -1404,8 +1412,7 @@ test('committed candidate replan rebinds after main advances without changing it
     runGit(fixture.repositoryRoot, [
       'reset', '--quiet', 'HEAD', '--', FREEZE_TARGET_PATH, CURRENT_ACTIVE_PATH
     ]);
-    const oldMainSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
-    const oldMainTree = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+    const [oldMainSha, oldMainTree] = readNativeCommitAndTree(fixture.repositoryRoot);
     const firstManifest = Buffer.from(
       (await readFile(manifestFile, 'utf8')).replace(`base: ${fixture.baseSha}`, `base: ${oldMainSha}`),
       'utf8'
@@ -1449,8 +1456,7 @@ test('committed candidate replan rebinds after main advances without changing it
     runGit(fixture.repositoryRoot, ['add', 'unrelated-main.txt']);
     runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'unrelated main work']);
     runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
-    const newMainSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
-    const newMainTree = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+    const [newMainSha, newMainTree] = readNativeCommitAndTree(fixture.repositoryRoot);
 
     runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-new-main']);
     await writeFile(manifestFile,
@@ -1482,11 +1488,11 @@ test('committed candidate replan rebinds after main advances without changing it
     const selectionPath = path.join(fixture.repositoryRoot, 'config/repository/work-selection.md');
     const selectionBytes = await readFile(selectionPath);
     await writeFile(selectionPath, Buffer.concat([selectionBytes, Buffer.from('\nTransient control change.\n')]));
-    runGit(fixture.repositoryRoot, ['add', 'config/repository/work-selection.md']);
-    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'change work selection']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'change work selection',
+      '--', 'config/repository/work-selection.md']);
     await writeFile(selectionPath, selectionBytes);
-    runGit(fixture.repositoryRoot, ['add', 'config/repository/work-selection.md']);
-    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'restore work selection bytes']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'restore work selection bytes',
+      '--', 'config/repository/work-selection.md']);
     runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
     const abaMainSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
     runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-aba']);
@@ -1526,8 +1532,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
       FREEZE_TARGET_PATH,
       CURRENT_ACTIVE_PATH
     ]);
-    const selectionBaseSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
-    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${selectionBaseSha}^{tree}`]);
+    const [selectionBaseSha, exactMainTree] = readNativeCommitAndTree(fixture.repositoryRoot);
     const firstManifest = Buffer.from(
       (await readFile(manifestFile, 'utf8')).replace(`base: ${fixture.baseSha}`, `base: ${selectionBaseSha}`),
       'utf8'
@@ -1587,11 +1592,10 @@ test('committed candidate replan repairs one ancestry-proven published control p
       activePointerSource(FREEZE_TARGET_PATH, driftedDefaultManifest),
       'utf8'
     );
-    runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH, POINTER_PATH]);
-    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'drift published manifest and pointer']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'drift published manifest and pointer',
+      '--', FREEZE_TARGET_PATH, POINTER_PATH]);
     runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
-    const liveDefaultSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
-    const liveDefaultTree = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+    const [liveDefaultSha, liveDefaultTree] = readNativeCommitAndTree(fixture.repositoryRoot);
 
     runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-repair']);
     const driftedManifest = await readFile(manifestFile, 'utf8');
@@ -1600,8 +1604,8 @@ test('committed candidate replan repairs one ancestry-proven published control p
       `${driftedManifest.replace(`base: ${selectionBaseSha}`, `base: ${liveDefaultSha}`)}\nRepair generation.\n`,
       'utf8'
     );
-    runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH]);
-    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'repair projection generation']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'repair projection generation',
+      '--', FREEZE_TARGET_PATH]);
 
     const publishedRolling = readGitBlob(
       fixture.repositoryRoot,
