@@ -57,7 +57,7 @@ jobs:
       - name: Upload complete original resume dispatch outcome observations
         id: upload-resume-outcomes
         if: ${{ always() && !cancelled() && steps.resume.outputs.resume-outcomes-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.resume.outputs.resume-outcomes-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/receive-verification-session-resume/out/resume-outcomes
@@ -68,7 +68,7 @@ jobs:
       - name: Upload resumed terminal Verification Session artifact
         id: upload-session
         if: ${{ always() && !cancelled() && steps.resume.outputs.session-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.resume.outputs.session-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/receive-verification-session-resume/out/session
@@ -521,7 +521,7 @@ jobs:
       - name: Upload exact Agent operation activation receipt
         id: upload-activation
         if: ${{ steps.produce.outputs.disposition == 'created' && steps.produce.outputs.activation-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.produce.outputs.activation-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/agent-operation-activation/out/activation
@@ -593,7 +593,7 @@ jobs:
       - name: Upload canonical parent Action dispatch plan artifact
         id: upload-parent-plan
         if: ${{ always() && !cancelled() && steps.parent-plan.outputs.parent-plan-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.parent-plan.outputs.parent-plan-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/coordinate-verification-session/out/parent-plan
@@ -612,7 +612,7 @@ jobs:
       - name: Upload sole terminal Verification Session artifact
         id: upload-session
         if: ${{ always() && !cancelled() && steps.coordinate.outputs.session-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.coordinate.outputs.session-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/coordinate-verification-session/out/session
@@ -667,7 +667,7 @@ jobs:
       - name: Upload trusted Action resolution transport
         id: upload-resolution
         if: ${{ always() && !cancelled() && steps.resolve.outputs.resolution-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.resolve.outputs.resolution-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/resolve-verification-action/out/resolution
@@ -707,7 +707,7 @@ jobs:
         run: exec bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Download trusted Action resolution transport
         id: download-resolution
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name != '' }}
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
@@ -723,7 +723,7 @@ jobs:
       - name: Upload exact SUT capability observation
         id: upload-capability
         if: ${{ always() && !cancelled() && steps.preflight.outputs.capability-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.preflight.outputs.capability-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/preflight-verification-action-sut/out/capability
@@ -777,14 +777,14 @@ jobs:
         run: exec bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Download trusted Action resolution transport
         id: download-resolution
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name != '' }}
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/claim-verification-action/in/resolution
       - name: Download exact SUT capability observation
         id: download-capability
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.preflight-verification-action-sut.outputs.capability-artifact-name != '' }}
         with:
           name: ${{ needs.preflight-verification-action-sut.outputs.capability-artifact-name }}
@@ -807,7 +807,7 @@ jobs:
       - name: Upload immutable Action start marker
         id: upload-start
         if: ${{ always() && !cancelled() && steps.prepare.outputs.start-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.prepare.outputs.start-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/claim-verification-action/out/start
@@ -826,7 +826,7 @@ jobs:
       - name: Upload exact prepared candidate and execution ticket transport
         id: upload-prepared
         if: ${{ always() && !cancelled() && steps.claim.outputs.prepared-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.claim.outputs.prepared-artifact-name }}
           path: |-
@@ -874,14 +874,14 @@ jobs:
         run: exec bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Download trusted Action resolution transport
         id: download-resolution
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name != '' }}
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/execute-verification-action-sut/in/resolution
       - name: Download exact prepared candidate ticket transport
         id: download-prepared
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.claim-verification-action.outputs.prepared-artifact-name != '' }}
         with:
           name: ${{ needs.claim-verification-action.outputs.prepared-artifact-name }}
@@ -897,7 +897,7 @@ jobs:
       - name: Upload untrusted raw SUT transport only
         id: upload-raw
         if: ${{ always() && !cancelled() && steps.execute.outputs.raw-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.execute.outputs.raw-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/execute-verification-action-sut/out/raw
@@ -950,21 +950,21 @@ jobs:
         run: exec bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Download trusted Action resolution transport
         id: download-resolution
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name != '' }}
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/assemble-verification-action-terminal/in/resolution
       - name: Download exact prepared candidate ticket transport
         id: download-prepared
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.claim-verification-action.outputs.prepared-artifact-name != '' && needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
         with:
           name: ${{ needs.claim-verification-action.outputs.prepared-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/assemble-verification-action-terminal/in/prepared
       - name: Download raw SUT transport for terminal assembly
         id: download-raw
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.execute-verification-action-sut.outputs.raw-artifact-name != '' && needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
         with:
           name: ${{ needs.execute-verification-action-sut.outputs.raw-artifact-name }}
@@ -981,7 +981,7 @@ jobs:
       - name: Upload canonical terminal Action artifact
         id: upload-terminal
         if: ${{ always() && !cancelled() && steps.assemble.outputs.terminal-ready == 'true' && needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.assemble.outputs.terminal-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/assemble-verification-action-terminal/out/terminal
@@ -1001,7 +1001,7 @@ jobs:
       - name: Upload exact post-upload terminal anchor
         id: upload-anchor
         if: ${{ always() && !cancelled() && steps.anchor.outputs.anchor-ready == 'true' && needs.resolve-verification-action.outputs.provider-disposition != 'repair-terminal-status' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.anchor.outputs.anchor-artifact-name }}
           path: ${{ github.workspace }}/.tmp/codex/hosted-job/assemble-verification-action-terminal/out/anchor
@@ -1104,7 +1104,7 @@ jobs:
       - name: Preserve complete MainHealth failure diagnostics
         id: failure-diagnostics
         if: ${{ failure() && !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: main-health-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: /tmp/sec-main-health-diagnostics-*/diagnostic.json

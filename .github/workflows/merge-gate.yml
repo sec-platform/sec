@@ -256,7 +256,7 @@ jobs:
       - name: Upload exact branch closeout recovery artifact
         id: upload-recovery
         if: ${{ always() && !cancelled() && steps.prepare.outputs.recovery-ready == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.prepare.outputs.recovery-artifact-name }}
           path: |-
@@ -392,7 +392,7 @@ jobs:
         run: exec bun --no-env-file src/bootstrap/development/hosted-job-runtime.ts --job integrate --phase resume-verification-session
       - name: Download exact integration preflight and recovery artifact
         id: download-recovery
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: ${{ needs.authorize.outputs.recovery-artifact-name != '' }}
         with:
           name: ${{ needs.authorize.outputs.recovery-artifact-name }}
