@@ -400,22 +400,23 @@ function inspectRepository(repositoryRoot: string) {
     if (result.status !== 0) throw new Error(String(result.stderr || result.stdout));
     return String(result.stdout).trim();
   };
-  // One native Git snapshot yields both immutable object identities.
-  // The later working-tree cleanliness and common-directory reads remain live.
-  const objects = read(['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
-  if (objects.length !== 2 || !objects[0] || !objects[1]) {
-    throw new Error('Expected both commit and tree from native Git');
+  // Bind the commit, tree and common directory with one native read; index
+  // and worktree cleanliness remain independent live observations.
+  const objects = read([
+    'rev-parse', 'HEAD', 'HEAD^{tree}', '--path-format=absolute', '--git-common-dir'
+  ]).split(/\r?\n/u);
+  if (objects.length !== 3 || objects.some(value => value.length === 0)) {
+    throw new Error('Expected commit, tree and common directory from native Git');
   }
+  const [headSha, headTreeSha, commonDirectory] = objects as [string, string, string];
   return {
-    headSha: objects[0],
-    headTreeSha: objects[1],
+    headSha,
+    headTreeSha,
     trackedClean:
       read(['diff', '--name-only', '--ignore-cr-at-eol']) === ''
       && read(['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''
       && read(['ls-files', '--others', '--exclude-standard']) === '',
-    gitCommonDirectory: realpathSync.native(read([
-      'rev-parse', '--path-format=absolute', '--git-common-dir'
-    ]))
+    gitCommonDirectory: realpathSync.native(commonDirectory)
   };
 }
 

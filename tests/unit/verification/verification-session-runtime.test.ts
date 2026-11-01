@@ -1879,16 +1879,20 @@ describe('qualified exact-repository Session consumers', () => {
     return [objects[0], objects[1]];
   };
   const inspectRepository = (repositoryRoot: string) => {
-    const [headSha, headTreeSha] = gitHeadAndTree(repositoryRoot);
+    const objects = runGit(repositoryRoot, [
+      'rev-parse', 'HEAD', 'HEAD^{tree}', '--path-format=absolute', '--git-common-dir'
+    ]).split(/\r?\n/u);
+    if (objects.length !== 3 || objects.some(value => value.length === 0)) {
+      throw new Error('Expected commit, tree and common directory from native Git');
+    }
+    const [headSha, headTreeSha, commonDirectory] = objects as [string, string, string];
     return {
       headSha, headTreeSha,
       trackedClean:
         runGit(repositoryRoot, ['diff', '--name-only', '--ignore-cr-at-eol']) === ''
         && runGit(repositoryRoot, ['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''
         && runGit(repositoryRoot, ['ls-files', '--others', '--exclude-standard']) === '',
-      gitCommonDirectory: realpathSync.native(runGit(repositoryRoot, [
-        'rev-parse', '--path-format=absolute', '--git-common-dir'
-      ]))
+      gitCommonDirectory: realpathSync.native(commonDirectory)
     };
   };
   const cleanup: Parameters<typeof settleResources>[0]['cleanup'][number][] = [
@@ -1921,10 +1925,18 @@ describe('qualified exact-repository Session consumers', () => {
     writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
     runGit(authorityRoot, ['add', 'tracked.txt', '.gitignore']);
     runGit(authorityRoot, ['-c', 'user.name=Session Test', '-c', 'user.email=session-test@example.invalid', 'commit', '-m', 'base']);
-    const [baseSha, baseTreeSha] = gitHeadAndTree(authorityRoot);
     writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'exact candidate\n', 'utf8');
     runGit(authorityRoot, ['-c', 'user.name=Session Test', '-c', 'user.email=session-test@example.invalid', 'commit', '-am', 'exact candidate']);
-    const [headSha, headTreeSha] = gitHeadAndTree(authorityRoot);
+    // Both commits are immutable after the second commit; read their exact
+    // identities together without sharing mutable Git state between worlds.
+    const commitObjects = runGit(authorityRoot, [
+      'rev-parse', 'HEAD^', 'HEAD^^{tree}', 'HEAD', 'HEAD^{tree}'
+    ]).split(/\r?\n/u);
+    if (commitObjects.length !== 4 || commitObjects.some(value => value.length === 0)) {
+      throw new Error('Expected base/head commit and tree identities from native Git');
+    }
+    const [baseSha, baseTreeSha, headSha, headTreeSha] =
+      commitObjects as [string, string, string, string];
     const candidateRoot = path.join(authorityRoot, '.tmp', 'codex',
       'verification-session-candidates', headSha);
     mkdirSync(path.dirname(candidateRoot), { recursive: true });
