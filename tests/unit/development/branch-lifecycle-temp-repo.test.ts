@@ -117,13 +117,9 @@ function repositoryFixture(): ReturnType<typeof buildRepositoryTemplate> {
   }
 }
 
-let observedRepository: ReturnType<typeof repositoryFixture> | undefined;
-function observationFixture(): ReturnType<typeof repositoryFixture> {
-  return observedRepository ??= repositoryFixture();
-}
 afterAll(() => {
   const failures: unknown[] = [];
-  for (const fixture of [observedRepository, nativeRepositoryTemplate]) {
+  for (const fixture of [nativeRepositoryTemplate]) {
     if (fixture === undefined) continue;
     try { rmSync(fixture.root, { recursive: true, force: true }); }
     catch (error) { failures.push(error); }
@@ -221,9 +217,10 @@ process.exit(1);
 }
 
 test('target-scoped closeout inventory binds authenticated exact PR and fresh target refs', () => {
-  const fixture = observationFixture();
-  const restorePath = installGitHubObservationShim(fixture);
+  const fixture = repositoryFixture();
+  let restorePath = () => {};
   settleWorkspaceCallbackSync(() => {
+    restorePath = installGitHubObservationShim(fixture);
     const observation = noActiveWorkObservation(fixture);
     const preparedInventory = collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
@@ -265,7 +262,12 @@ test('target-scoped closeout inventory binds authenticated exact PR and fresh ta
       ...input,
       exactPullRequest: { ...exactPullRequest, headBranch: 'other/branch' }
     })).toThrow('authenticated exact PR observation differs from the closeout target');
-  }, () => { restorePath(); });
+  }, () => {
+    settleResources({ cleanup: [
+      { label: 'target closeout inventory GitHub shim', settle: restorePath },
+      { label: 'target closeout inventory repository', settle: () => rmSync(fixture.root, { recursive: true, force: true }) }
+    ] });
+  });
 }, 180_000);
 
 test('remote-absent preparation recovers the exact local branch without mutating either ref', () => {
@@ -509,7 +511,7 @@ test('closeout requires its documentation owner and revalidates the exact recove
 
 
 test('receipt inventory consumes paired permission JSON and preserves unreadable-provider uncertainty', () => {
-  const fixture = observationFixture();
+  const fixture = repositoryFixture();
   const baseSha = 'a'.repeat(40);
   const pullRequests = [{ number: 42, headRefName: fixture.branch, headRefOid: fixture.headSha,
     baseRefName: 'main', baseRefOid: baseSha, state: 'CLOSED', isDraft: false, isCrossRepository: false }];
@@ -520,10 +522,11 @@ test('receipt inventory consumes paired permission JSON and preserves unreadable
     }]]),
     '/repos/sec-platform/sec/collaborators/maintainer/permission': JSON.stringify({ permission: 'write', role_name: 'maintain' })
   };
-  let restorePath = installGitHubObservationShim(fixture, pullRequests, responses);
+  let restorePath = () => {};
   const observe = () => collectBranchLifecycleInventory({ repositoryRoot: fixture.repository,
     repositoryFullName: 'sec-platform/sec', defaultBranch: 'main', activeWorkPackageObservation: noActiveWorkObservation(fixture) });
   settleWorkspaceCallbackSync(() => {
+    restorePath = installGitHubObservationShim(fixture, pullRequests, responses);
     const paired = observe().pullRequests.find(pr => pr.number === 42)!;
     expect(paired.invalidCloseoutReceiptComments).toHaveLength(1);
     restorePath();
@@ -531,5 +534,10 @@ test('receipt inventory consumes paired permission JSON and preserves unreadable
     restorePath = installGitHubObservationShim(fixture, pullRequests, responses);
     expect(observe().pullRequests.find(pr => pr.number === 42)!.closeoutReceipt)
       .toMatchObject({ status: 'unknown', reason: expect.stringContaining('invalid JSON') });
-  }, () => { restorePath(); });
+  }, () => {
+    settleResources({ cleanup: [
+      { label: 'receipt inventory GitHub shim', settle: restorePath },
+      { label: 'receipt inventory repository', settle: () => rmSync(fixture.root, { recursive: true, force: true }) }
+    ] });
+  });
 });
