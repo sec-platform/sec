@@ -251,8 +251,8 @@ function canonicalRemoteRepositoryTemplate(): Promise<string> {
     await prepareManagedHookSource(repository, 'canonical remote fixture');
     git(repository, ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
     git(repository, ['remote', 'add', 'origin', remote]);
+    // Push with upstream tracking already records the exact origin/main ref.
     git(repository, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
-    git(repository, ['fetch', '--quiet', 'origin']);
     git(repository, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
   });
 }

@@ -46,7 +46,6 @@ test('repository-common hook generation runs when an older worktree creates the 
     }));
     git(repoRoot, ['add', 'README.md', 'package.json']);
     git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'older checkout without managed hooks']);
-    const olderHead = git(repoRoot, ['rev-parse', 'HEAD']);
 
     await mkdir(path.join(repoRoot, '.githooks'));
     await writeFile(path.join(repoRoot, '.gitattributes'), '/.githooks/* text eol=lf\n', 'utf8');
@@ -68,7 +67,12 @@ test('repository-common hook generation runs when an older worktree creates the 
     git(repoRoot, ['add', '.gitattributes', 'README.md']);
     git(repoRoot, ['add', '--chmod=+x', '.githooks']);
     git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'install managed hooks']);
-    const managedHead = git(repoRoot, ['rev-parse', 'HEAD']);
+    // Both immutable commit tips are observable after the second linear commit.
+    const revisions = git(repoRoot, ['rev-parse', 'HEAD^', 'HEAD']).split(/\r?\n/u);
+    if (revisions.length !== 2 || revisions.some(sha => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(sha))) {
+      throw new Error('Expected exact older and managed Git revisions');
+    }
+    const [olderHead, managedHead] = revisions as [string, string];
 
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const configured = configuredManagedHooksPath(repoRoot);

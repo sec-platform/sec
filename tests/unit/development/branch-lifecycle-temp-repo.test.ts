@@ -82,8 +82,8 @@ function buildRepositoryTemplate(): Readonly<{
       'done', ''
     ].join('\n'));
     git(repository, ['switch', branch]);
-    git(repository, ['push', '-u', 'origin', 'main']);
-    git(repository, ['push', '-u', 'origin', branch]);
+    // One native push publishes both immutable refs and their upstream bindings.
+    git(repository, ['push', '-u', 'origin', 'main', branch]);
     const [mainSha, headSha] = git(repository, [
       'rev-parse', 'refs/heads/main', `refs/heads/${branch}`
     ]).split(/\r?\n/u) as [string, string];
