@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
@@ -398,8 +398,11 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       `160000,${base},vendor/module`
     ]);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'candidate']);
-    const head = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    const tree = git(repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+    const identities = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
+    if (identities.length !== 2 || identities.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected exact native audit commit and tree identities');
+    }
+    const [head, tree] = identities as [string, string];
 
     await writeFile(
       path.join(repositoryRoot, 'AGENTS.md'),
@@ -516,12 +519,14 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
   });
 });
 
-async function withTempRepo(
-  prefix: string,
-  action: (repository: { root: string; headSha: string }) => Promise<void>
-): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), prefix));
-  return settleWorkspaceCallback(async () => {
+// A completed README/tsconfig Git baseline is immutable. Every consumer copies
+// independent native index, refs, worktree and config before its own effects.
+type AuditRepositoryTemplate = Readonly<{ root: string; headSha: string }>;
+let auditRepositoryTemplate: Promise<AuditRepositoryTemplate> | undefined;
+
+async function createAuditRepositoryTemplate(): Promise<AuditRepositoryTemplate> {
+  const root = await mkdtemp(path.join(tmpdir(), 'repository-audit-seed-'));
+  try {
     git(root, ['init', '--quiet', '--initial-branch=main']);
     git(root, ['config', 'user.name', 'SEC Test']);
     git(root, ['config', 'user.email', 'sec-test@example.invalid']);
@@ -530,9 +535,43 @@ async function withTempRepo(
     await writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{}}\n', 'utf8');
     git(root, ['add', 'README.md', 'tsconfig.json']);
     git(root, ['commit', '--quiet', '-m', 'initial']);
-    const headSha = git(root, ['rev-parse', 'HEAD']);
+    return Object.freeze({ root, headSha: git(root, ['rev-parse', 'HEAD']) });
+  } catch (primary) {
+    try { await rm(root, { recursive: true, force: true }); }
+    catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'Repository audit seed and cleanup both failed');
+    }
+    throw primary;
+  }
+}
+
+function retainedAuditRepositoryTemplate(): Promise<AuditRepositoryTemplate> {
+  if (auditRepositoryTemplate !== undefined) return auditRepositoryTemplate;
+  const pending = createAuditRepositoryTemplate();
+  auditRepositoryTemplate = pending;
+  void pending.catch(() => {
+    if (auditRepositoryTemplate === pending) auditRepositoryTemplate = undefined;
+  });
+  return pending;
+}
+
+afterAll(async () => {
+  if (auditRepositoryTemplate === undefined) return;
+  const [settled] = await Promise.allSettled([auditRepositoryTemplate]);
+  if (settled?.status === 'fulfilled') await rm(settled.value.root, { recursive: true, force: true });
+  auditRepositoryTemplate = undefined;
+});
+
+async function withTempRepo(
+  prefix: string,
+  action: (repository: { root: string; headSha: string }) => Promise<void>
+): Promise<void> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  return settleWorkspaceCallback(async () => {
+    const seed = await retainedAuditRepositoryTemplate();
+    await cp(seed.root, root, { recursive: true });
     const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-    return settleWorkspaceCallback(() => action({ root, headSha }), async () => {
+    return settleWorkspaceCallback(() => action({ root, headSha: seed.headSha }), async () => {
       if (savedEnv === undefined) delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
       else process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
     });
