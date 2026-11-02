@@ -53,7 +53,12 @@ function twoCommitFixtureTips(repositoryRoot: string): readonly [string, string]
 // Every scenario copies its physical index, config and refs before writing
 // scenario-specific history; observed GitRead work is never shared.
 let emptyGitOrchestrationBase: string | undefined;
+let committedGitOrchestrationBase: string | undefined;
 afterAll(() => {
+  if (committedGitOrchestrationBase !== undefined) {
+    rmSync(committedGitOrchestrationBase, { recursive: true, force: true });
+    committedGitOrchestrationBase = undefined;
+  }
   if (emptyGitOrchestrationBase !== undefined) {
     rmSync(emptyGitOrchestrationBase, { recursive: true, force: true });
     emptyGitOrchestrationBase = undefined;
@@ -77,16 +82,36 @@ function prepareGitOrchestrationRepository(repositoryRoot: string): void {
   cpSync(emptyGitOrchestrationBase, repositoryRoot, { recursive: true });
 }
 
+// Two GitRead cases share only committed source; their budget, environment,
+// observed operations and cleanup remain independent.
+function prepareCommittedGitOrchestrationRepository(repositoryRoot: string): void {
+  if (committedGitOrchestrationBase === undefined) {
+    const base = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-committed-base-'));
+    try {
+      prepareGitOrchestrationRepository(base);
+      writeFileSync(path.join(base, 'fixture.txt'), 'base\n', 'utf8');
+      writeFileSync(path.join(base, 'removed.txt'), 'removed\n', 'utf8');
+      git(base, ['add', 'fixture.txt', 'removed.txt']);
+      git(base, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid',
+        'commit', '--quiet', '-m', 'base']);
+      committedGitOrchestrationBase = base;
+    } catch (error) {
+      try { rmSync(base, { recursive: true, force: true }); }
+      catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'CI committed Git base and cleanup failed');
+      }
+      throw error;
+    }
+  }
+  cpSync(committedGitOrchestrationBase, repositoryRoot, { recursive: true });
+}
+
 test.serial('CI orchestration Git observations ignore ambient repository redirection', async () => {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-isolation-'));
   const previousGitDir = process.env.GIT_DIR;
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
-    prepareGitOrchestrationRepository(repositoryRoot);
-    writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'base\n', 'utf8');
-    writeFileSync(path.join(repositoryRoot, 'removed.txt'), 'removed\n', 'utf8');
-    git(repositoryRoot, ['add', 'fixture.txt', 'removed.txt']);
-    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'base']);
+    prepareCommittedGitOrchestrationRepository(repositoryRoot);
     writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'head\n', 'utf8');
     unlinkSync(path.join(repositoryRoot, 'removed.txt'));
     git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid',
@@ -126,10 +151,7 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-operation-'));
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
-    prepareGitOrchestrationRepository(repositoryRoot);
-    writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'fixture\n', 'utf8');
-    git(repositoryRoot, ['add', 'fixture.txt']);
-    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
+    prepareCommittedGitOrchestrationRepository(repositoryRoot);
 
     let processFailure: unknown;
     try {

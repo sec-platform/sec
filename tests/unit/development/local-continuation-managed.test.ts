@@ -1,6 +1,7 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -21,6 +22,46 @@ function git(cwd: string, ...args: string[]): string {
   return (result.stdout ?? '').trim();
 }
 
+// Only a committed path-independent Git source is shared. Each schema
+// consumer owns separate index, refs, worktree, process and durable state.
+type ContinuationGitBaseline = Readonly<{ root: string; baseSha: string; baseTreeSha: string }>;
+let continuationGitBaseline: ContinuationGitBaseline | undefined;
+
+afterAll(() => {
+  if (continuationGitBaseline !== undefined) {
+    rmSync(continuationGitBaseline.root, { recursive: true, force: true });
+    continuationGitBaseline = undefined;
+  }
+});
+
+function retainedContinuationGitBaseline(): ContinuationGitBaseline {
+  if (continuationGitBaseline !== undefined) return continuationGitBaseline;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-continuation-base-'));
+  try {
+    const repositoryRoot = path.join(root, 'repo');
+    mkdirSync(path.join(repositoryRoot, 'src'), { recursive: true });
+    mkdirSync(path.join(repositoryRoot, 'config', 'repository', 'work-packages'), { recursive: true });
+    git(repositoryRoot, 'init', '-b', 'integration/continuation-fixture');
+    git(repositoryRoot, 'config', 'core.autocrlf', 'false');
+    writeFileSync(path.join(repositoryRoot, 'src', 'value.ts'), 'export const value = 1;\n', 'utf8');
+    git(repositoryRoot, 'add', '.');
+    git(repositoryRoot, '-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid', 'commit', '-m', 'base');
+    const baseObjects = git(repositoryRoot, 'rev-parse', 'HEAD', 'HEAD^{tree}').split(/\r?\n/u);
+    if (baseObjects.length !== 2 || baseObjects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+      throw new Error('Expected base commit and tree identities from native Git');
+    }
+    const [baseSha, baseTreeSha] = baseObjects as [string, string];
+    continuationGitBaseline = Object.freeze({ root, baseSha, baseTreeSha });
+    return continuationGitBaseline;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Continuation Git baseline and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
 test.each(['codex-development-work-package-v1', 'codex-development-work-package-v3'] as const)(
   '%s upstream handoff preserves managed admission, resume and ownership', async (schema) => {
   await withRetainedBunTestWorkspace('sec-managed-continuation-', async (fixtureRoot, run) => {
@@ -38,18 +79,9 @@ test.each(['codex-development-work-package-v1', 'codex-development-work-package-
       SEC_STATE_HOME: stateRoot,
       SEC_CACHE_HOME: cacheRoot
     };
-    mkdirSync(path.join(repositoryRoot, 'src'), { recursive: true });
-    mkdirSync(path.join(repositoryRoot, 'config', 'repository', 'work-packages'), { recursive: true });
-    git(repositoryRoot, 'init', '-b', 'integration/continuation-fixture');
-    git(repositoryRoot, 'config', 'core.autocrlf', 'false');
-    writeFileSync(path.join(repositoryRoot, 'src', 'value.ts'), 'export const value = 1;\n', 'utf8');
-    git(repositoryRoot, 'add', '.');
-    git(repositoryRoot, '-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid', 'commit', '-m', 'base');
-    const baseObjects = git(repositoryRoot, 'rev-parse', 'HEAD', 'HEAD^{tree}').split(/\r?\n/u);
-    if (baseObjects.length !== 2 || baseObjects.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
-      throw new Error('Expected base commit and tree identities from native Git');
-    }
-    const [baseSha, baseTreeSha] = baseObjects as [string, string];
+    const base = retainedContinuationGitBaseline();
+    cpSync(path.join(base.root, 'repo'), repositoryRoot, { recursive: true });
+    const { baseSha, baseTreeSha } = base;
 
     const manifestPath = 'config/repository/work-packages/continuation-fixture-v1.md';
     writeFileSync(path.join(repositoryRoot, manifestPath), `---

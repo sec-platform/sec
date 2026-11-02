@@ -51,6 +51,7 @@ function source(order: 'sorted' | 'unsorted', newLine = '\n'): string {
 const repositoryConcurrency = 4;
 const repositorySlot = pLimit(repositoryConcurrency);
 let repositoryTemplateRoot: string | undefined;
+let repositoryTemplateHeadSha: string | undefined;
 
 async function settleImportFixtureWrites(writers: readonly Promise<unknown>[]): Promise<void> {
   const settled = await Promise.allSettled(writers);
@@ -141,6 +142,10 @@ async function copyRepositoryTemplate(
 
 beforeAll(async () => {
   repositoryTemplateRoot = await createRepositoryTemplate();
+  repositoryTemplateHeadSha = String(git(repositoryTemplateRoot, ['rev-parse', 'HEAD'])).trim();
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(repositoryTemplateHeadSha)) {
+    throw new Error('Expected one exact native Git template HEAD');
+  }
 });
 
 afterAll(async () => {
@@ -148,6 +153,7 @@ afterAll(async () => {
     await rm(repositoryTemplateRoot, { recursive: true, force: true });
     repositoryTemplateRoot = undefined;
   }
+  repositoryTemplateHeadSha = undefined;
 });
 
 async function stagedBytes(repoRoot: string, fileName: string): Promise<Buffer> {
@@ -155,12 +161,13 @@ async function stagedBytes(repoRoot: string, fileName: string): Promise<Buffer> 
   return git(repoRoot, ['cat-file', 'blob', `:${fileName}`], { bytes: true }) as Buffer;
 }
 
-async function withRepository(run: (repoRoot: string) => Promise<void>): Promise<void> {
+async function withRepository(run: (repoRoot: string, templateHeadSha: string) => Promise<void>): Promise<void> {
   return repositorySlot(async () => {
     let repoRoot: string | undefined;
     return settleWorkspaceCallback(async () => {
       repoRoot = await copyRepositoryTemplate();
-      await run(repoRoot);
+      if (repositoryTemplateHeadSha === undefined) throw new Error('Missing Git template HEAD');
+      await run(repoRoot, repositoryTemplateHeadSha);
     }, async () => {
       if (repoRoot !== undefined) await rm(repoRoot, { recursive: true, force: true });
     });
@@ -195,9 +202,9 @@ test.concurrent('fixture creators remove partial repositories before ownership t
 });
 
 test.concurrent('candidate organizer repairs the complete amended commit diff instead of only the staged delta', async () => {
-  await withRepository(async (repoRoot) => {
+  await withRepository(async (repoRoot, templateHeadSha) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const candidateBase = templateHeadSha;
     const committed = `${source('unsorted')}export const committedChange = answer;\n`;
     const expected = `${source('sorted')}export const committedChange = answer;\n`;
     await writeFile(fixturePath, committed, 'utf8');
@@ -229,9 +236,9 @@ test.concurrent('candidate organizer repairs the complete amended commit diff in
 });
 
 test.concurrent('clean candidate context fails closed if an untracked path appears before index publication', async () => {
-  await withRepository(async (repoRoot) => {
+  await withRepository(async (repoRoot, templateHeadSha) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const candidateBase = templateHeadSha;
     const staged = `${source('unsorted')}export const candidate = answer;\n`;
     await writeFile(fixturePath, staged, 'utf8');
     git(repoRoot, ['add', 'fixture.ts']);
@@ -253,13 +260,13 @@ test.concurrent('clean candidate context fails closed if an untracked path appea
 });
 
 test.concurrent('candidate apply normalizes the complete committed, staged, unstaged, and untracked delta', async () => {
-  await withRepository(async (repoRoot) => {
+  await withRepository(async (repoRoot, templateHeadSha) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
     const committedPath = path.join(repoRoot, 'committed.ts');
     const stagedPath = path.join(repoRoot, 'staged.ts');
     const untrackedPath = path.join(repoRoot, 'untracked.ts');
     const nestedUntrackedPath = path.join(repoRoot, 'wholly-untracked', 'nested.ts');
-    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const candidateBase = templateHeadSha;
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
 
     await writeFile(committedPath, source('unsorted'), 'utf8');
@@ -411,9 +418,9 @@ test.concurrent('imports check is a pure compare and publishes zero bytes', asyn
 });
 
 test.concurrent('freeze seals identity by pure compare and never publishes to the index', async () => {
-  await withRepository(async (repoRoot) => {
+  await withRepository(async (repoRoot, templateHeadSha) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const candidateBase = templateHeadSha;
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
     const staged = `${source('unsorted')}export const freezeChange = answer;\n`;
     await writeFile(fixturePath, staged, 'utf8');
@@ -478,11 +485,11 @@ test.concurrent('sort-and-combine and remove-unused are independent typed intent
 });
 
 test.concurrent('candidate organizer reads configuration and project context from the index snapshot', async () => {
-  await withRepository(async (repoRoot) => {
+  await withRepository(async (repoRoot, templateHeadSha) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
     const tsconfigPath = path.join(repoRoot, 'tsconfig.json');
     const valuesPath = path.join(repoRoot, 'values.ts');
-    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const candidateBase = templateHeadSha;
     const staged = `${source('unsorted')}export const candidate = answer;\n`;
     await writeFile(fixturePath, staged, 'utf8');
     git(repoRoot, ['add', 'fixture.ts']);
