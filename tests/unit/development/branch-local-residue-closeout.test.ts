@@ -109,23 +109,36 @@ function effectTemplate(): EffectTemplate {
     const repositoryRoot = path.join(root, 'repository');
     mkdirSync(repositoryRoot);
     git(repositoryRoot, ['init', '-b', 'main']);
-    writeFileSync(path.join(repositoryRoot, 'base.txt'), 'base\n');
-    git(repositoryRoot, ['add', 'base.txt']);
-    git(repositoryRoot, ['commit', '-m', 'base']);
-    git(repositoryRoot, ['checkout', '-b', 'fix/example']);
-    writeFileSync(path.join(repositoryRoot, 'feature.txt'), 'feature\n');
-    git(repositoryRoot, ['add', 'feature.txt']);
-    git(repositoryRoot, ['commit', '-m', 'feature']);
-    git(repositoryRoot, ['checkout', 'main']);
-    git(repositoryRoot, ['merge', '--no-ff', 'fix/example', '-m', 'merge feature']);
+    // Only the immutable three-commit merge baseline is imported. Each later
+    // test receives an independent copied index, refs, worktree and recovery.
+    const commits = [
+      { ref: 'main', message: 'base', file: 'base.txt', bytes: 'base\n', ancestry: '' },
+      { ref: 'fix/example', message: 'feature', file: 'feature.txt', bytes: 'feature\n',
+        ancestry: 'from refs/heads/main\n' },
+      { ref: 'main', message: 'merge feature', file: 'feature.txt', bytes: 'feature\n',
+        ancestry: 'merge refs/heads/fix/example\n' }
+    ].map(({ ref, message, file, bytes, ancestry }, index) => [
+      `commit refs/heads/${ref}`,
+      `committer SEC Test <sec@example.invalid> ${1_700_000_000 + index} +0000`,
+      `data ${Buffer.byteLength(message)}`,
+      message,
+      `${ancestry}M 100644 inline ${file}`,
+      `data ${Buffer.byteLength(bytes)}`,
+      bytes
+    ].join('\n'));
+    git(repositoryRoot, ['fast-import', '--quiet'], ['feature done', ...commits, 'done', ''].join('\n'));
+    git(repositoryRoot, ['reset', '--hard', 'main']);
     const identities = git(repositoryRoot, [
       'rev-parse', 'refs/heads/fix/example', 'HEAD',
-      'refs/heads/fix/example^', 'refs/heads/fix/example^{tree}'
+      'refs/heads/fix/example^', 'refs/heads/fix/example^{tree}', 'HEAD^1', 'HEAD^2'
     ]).split(/\r?\n/u);
-    if (identities.length !== 4 || identities.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+    if (identities.length !== 6 || identities.some(value => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
       throw new Error('Expected exact fixture tip, parent and tree identities from native Git');
     }
-    const [headSha, mainSha, headParentSha, headTreeSha] = identities as [string, string, string, string];
+    const [headSha, mainSha, headParentSha, headTreeSha, mainFirstParent, mainSecondParent] = identities as [string, string, string, string, string, string];
+    if (mainFirstParent !== headParentSha || mainSecondParent !== headSha) {
+      throw new Error('Expected exact native merge parents in the immutable branch fixture');
+    }
     git(repositoryRoot, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);
     git(repositoryRoot, ['branch', 'release', 'main']);
     git(repositoryRoot, ['update-ref', 'refs/remotes/origin/release', mainSha]);

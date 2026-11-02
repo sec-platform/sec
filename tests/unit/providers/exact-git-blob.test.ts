@@ -95,8 +95,11 @@ test('exact Git batch reader preserves LF path-to-blob identity despite checkout
     writeFileSync(path.join(repositoryRoot, 'second.ts'), 'export const second = 2;\n', 'utf8');
     git(repositoryRoot, ['add', 'first.ts', 'second.ts']);
     git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'batch']);
-    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    const originalBlob = git(repositoryRoot, ['rev-parse', `${commitSha}:first.ts`]);
+    const identities = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD:first.ts']).split(/\r?\n/u);
+    if (identities.length !== 2 || identities.some(sha => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(sha))) {
+      throw new Error('Expected exact fixture commit and ordinary blob identities');
+    }
+    const [commitSha, originalBlob] = identities as [string, string];
     const replacementBlob = git(repositoryRoot, ['hash-object', '-w', '--stdin'], {
       input: 'replacement-object-view\n'
     });

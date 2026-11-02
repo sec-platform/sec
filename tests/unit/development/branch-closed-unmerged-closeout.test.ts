@@ -38,9 +38,9 @@ let recoveryRoot = '';
 let supersededEvidence: ClosedSupersededDispositionEvidence;
 let recovery: ReturnType<typeof createRecoveryBundle>['recovery'] | undefined;
 
-function git(root: string, args: readonly string[]): string {
+function git(root: string, args: readonly string[], input?: string): string {
   const result = spawnSync('git', [...args], {
-    cwd: root, encoding: 'utf8', windowsHide: true,
+    cwd: root, encoding: 'utf8', windowsHide: true, input,
     env: { ...process.env,
       GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
       GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
@@ -54,15 +54,24 @@ beforeAll(async () => {
   repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-closed-unmerged-operation-'));
   git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
   git(repositoryRoot, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
-  writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'base\n', 'utf8');
-  git(repositoryRoot, ['add', 'behavior.txt']);
-  git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
-  git(repositoryRoot, ['switch', '--quiet', '-c', BRANCH]);
-  writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'closed branch behavior\n', 'utf8');
-  git(repositoryRoot, ['commit', '--quiet', '-am', 'closed branch head']);
-  git(repositoryRoot, ['switch', '--quiet', 'main']);
-  writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'current main replacement\n', 'utf8');
-  git(repositoryRoot, ['commit', '--quiet', '-am', 'current main replacement']);
+  // Build one immutable base and the two divergent native tips in a single
+  // Git import. reset materializes main's own index and worktree afterward.
+  const commits = [
+    { ref: 'main', message: 'base', bytes: 'base\n', ancestry: '' },
+    { ref: BRANCH, message: 'closed branch head', bytes: 'closed branch behavior\n',
+      ancestry: 'from refs/heads/main\n' },
+    { ref: 'main', message: 'current main replacement', bytes: 'current main replacement\n', ancestry: '' }
+  ].map(({ ref, message, bytes, ancestry }, index) => [
+    `commit refs/heads/${ref}`,
+    `committer SEC Test <sec-test@example.invalid> ${1_700_000_000 + index} +0000`,
+    `data ${Buffer.byteLength(message)}`,
+    message,
+    `${ancestry}M 100644 inline behavior.txt`,
+    `data ${Buffer.byteLength(bytes)}`,
+    bytes
+  ].join('\n'));
+  git(repositoryRoot, ['fast-import', '--quiet'], ['feature done', ...commits, 'done', ''].join('\n'));
+  git(repositoryRoot, ['reset', '--hard', 'main']);
   // Both branch refs are immutable after this fixture's final commit.
   const revisions = git(repositoryRoot, [
     'rev-parse', 'refs/heads/main^', `refs/heads/${BRANCH}^`,
