@@ -25,7 +25,7 @@ import {
 } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { selectTestsForSources } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { selectSlowTestRiskClosure } from '../../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
-import { ResourceCompositeSettlementError, settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError, settleResources, settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
@@ -49,20 +49,26 @@ function twoCommitFixtureTips(repositoryRoot: string): readonly [string, string]
   return tips as [string, string];
 }
 
-// A common empty native Git repository is the only shared preparation.
-// Every scenario copies its physical index, config and refs before writing
-// scenario-specific history; observed GitRead work is never shared.
+// Empty and committed native Git baselines are shared only as preparation.
+// Every scenario copies its physical index, config and refs before any
+// scenario-specific writes; observed GitRead work is never shared.
 let emptyGitOrchestrationBase: string | undefined;
 let committedGitOrchestrationBase: string | undefined;
 afterAll(() => {
-  if (committedGitOrchestrationBase !== undefined) {
-    rmSync(committedGitOrchestrationBase, { recursive: true, force: true });
-    committedGitOrchestrationBase = undefined;
-  }
-  if (emptyGitOrchestrationBase !== undefined) {
-    rmSync(emptyGitOrchestrationBase, { recursive: true, force: true });
-    emptyGitOrchestrationBase = undefined;
-  }
+  settleResources({ cleanup: [
+    { label: 'committed-git-base', settle: () => {
+      if (committedGitOrchestrationBase !== undefined) {
+        rmSync(committedGitOrchestrationBase, { recursive: true, force: true });
+        committedGitOrchestrationBase = undefined;
+      }
+    } },
+    { label: 'empty-git-base', settle: () => {
+      if (emptyGitOrchestrationBase !== undefined) {
+        rmSync(emptyGitOrchestrationBase, { recursive: true, force: true });
+        emptyGitOrchestrationBase = undefined;
+      }
+    } }
+  ] });
 });
 
 function prepareGitOrchestrationRepository(repositoryRoot: string): void {
