@@ -45,9 +45,10 @@ const GITHUB_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   permission: 'maintain'
 });
 
-function git(root: string, args: readonly string[]): string {
+function git(root: string, args: readonly string[], input?: string): string {
   const result = spawnSync('git', [...args], {
     cwd: root, encoding: 'utf8', windowsHide: true,
+    ...(input === undefined ? {} : { input }),
     env: {
       ...process.env,
       GIT_AUTHOR_NAME: 'SEC Tests', GIT_AUTHOR_EMAIL: 'tests@example.com',
@@ -78,11 +79,20 @@ function sourceRecoveryBase(): ClosedRecoveryBase {
   try {
     git(parent, ['init', '--quiet', '--initial-branch=main', root]);
     git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
-    writeFileSync(path.join(root, 'tracked.txt'), 'closed branch behavior\n', 'utf8');
-    git(root, ['add', 'tracked.txt']);
-    git(root, ['commit', '--quiet', '-m', 'closed branch head']);
-    writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
-    git(root, ['commit', '--quiet', '-am', 'current main replacement']);
+    // Import only immutable ancestry, then materialize the real index and
+    // working tree before copying this baseline to independent retirement cases.
+    const revisions = [
+      { message: 'closed branch head', contents: 'closed branch behavior\n' },
+      { message: 'current main replacement', contents: 'current main replacement\n' }
+    ].map(({ message, contents }, index) => [
+      'commit refs/heads/main',
+      `committer SEC Tests <tests@example.com> ${1_700_000_000 + index} +0000`,
+      `data ${Buffer.byteLength(message)}`, message,
+      'M 100644 inline tracked.txt',
+      `data ${Buffer.byteLength(contents)}`, contents
+    ].join('\n'));
+    git(root, ['fast-import', '--quiet'], ['feature done', ...revisions, 'done', ''].join('\n'));
+    git(root, ['reset', '--hard', 'main']);
     // One native read captures both commits and their immutable trees.
     const objects = git(root, [
       'rev-parse', 'HEAD~1', 'HEAD', 'HEAD~1^{tree}', 'HEAD^{tree}'

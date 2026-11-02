@@ -58,11 +58,12 @@ function observeCatalog(source: string): CatalogObservation {
   });
 }
 
-function runFixtureGit(root: string, args: readonly string[]): Buffer {
+function runFixtureGit(root: string, args: readonly string[], input?: string): Buffer {
   const result = spawnSync('git', [...args], {
     cwd: root,
     encoding: 'buffer',
     windowsHide: true,
+    ...(input === undefined ? {} : { input }),
     env: { ...process.env,
       GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
       GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
@@ -476,16 +477,9 @@ describe('work-selection live contract', () => {
         roadmapSource: prior.source,
         completedWorkIds: ['issue-186']
       });
-      runFixtureGit(root, ['checkout', '--quiet', '-b', 'terminal-compaction']);
-      writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), compaction.roadmapSource, 'utf8');
-      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal candidate',
-        '--', 'config/repository/work-selection.md']);
-      const [headSha, headTreeSha] = fixtureGitCommitAndTree(root);
-
       const independentItem = prior.catalog.items.find(({ workId }) => workId !== 'issue-186')!;
       const independentManifestPath = `config/repository/work-packages/${independentItem.packageId}.md`;
-      runFixtureGit(root, ['checkout', '--quiet', '-b', 'independent-review', baseSha]);
-      writeFileSync(path.join(root, independentManifestPath), `---\n`
+      const independentManifestSource = `---\n`
         + `schema: codex-development-work-package-v1\n`
         + `id: ${independentItem.packageId}\ntracking: ${independentItem.tracking}\nbase: ${baseSha}\n`
         + `manifestState: frozen\nrequiredProfile: quick\nciRevision: ci-verification-v19\n`
@@ -493,15 +487,12 @@ describe('work-selection live contract', () => {
         + `    ownedPaths:\n      - ${independentManifestPath}\n`
         + `forbiddenPaths:\n  - package.json\n`
         + `acceptance:\n  - independent fixture remains exact\n`
-        + `tests:\n  - tests/unit/development/work-selection-live.test.ts\n---\n`, 'utf8');
-      runFixtureGit(root, ['add', '--', independentManifestPath]);
-      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: independent candidate']);
+        + `tests:\n  - tests/unit/development/work-selection-live.test.ts\n---\n`;
       const secondaryItem = prior.catalog.items.find(({ workId }) => (
         workId !== 'issue-186' && workId !== independentItem.workId
       ))!;
       const secondaryManifestPath = `config/repository/work-packages/${secondaryItem.packageId}.md`;
-      runFixtureGit(root, ['checkout', '--quiet', '-b', 'secondary-review', baseSha]);
-      writeFileSync(path.join(root, secondaryManifestPath), `---\n`
+      const secondaryManifestSource = `---\n`
         + `schema: codex-development-work-package-v1\n`
         + `id: ${secondaryItem.packageId}\ntracking: ${secondaryItem.tracking}\nbase: ${baseSha}\n`
         + `manifestState: frozen\nrequiredProfile: quick\nciRevision: ci-verification-v19\n`
@@ -509,21 +500,41 @@ describe('work-selection live contract', () => {
         + `    ownedPaths:\n      - ${secondaryManifestPath}\n`
         + `forbiddenPaths:\n  - package.json\n`
         + `acceptance:\n  - secondary fixture remains exact\n`
-        + `tests:\n  - tests/unit/development/work-selection-live.test.ts\n---\n`, 'utf8');
-      runFixtureGit(root, ['add', '--', secondaryManifestPath]);
-      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: secondary candidate']);
-      // Both completed branch refs are immutable while the provider's
-      // independent head observations are assembled.
-      const reviewHeads = runFixtureGit(root, [
-        'rev-parse', 'refs/heads/independent-review', 'refs/heads/secondary-review'
-      ]).toString('utf8').trim().split(/\r?\n/u);
-      if (reviewHeads.length !== 2 || reviewHeads.some(value =>
-        !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
-        throw new Error('Expected exact native independent and secondary review heads');
-      }
-      const [independentHeadSha, secondaryHeadSha] = reviewHeads as [string, string];
+        + `tests:\n  - tests/unit/development/work-selection-live.test.ts\n---\n`;
+      // These candidate branches share only the already committed source tree.
+      // Import the immutable graph without switching the live index between
+      // branches. Materialize the selected checkout before provider observation.
+      const importEpoch = Math.floor(Date.now() / 1000);
+      const importCommit = (branch: string, message: string, timestamp: number,
+        repositoryPath: string, contents: string): string => [
+        `commit refs/heads/${branch}`,
+        `committer SEC Test <sec-test@example.invalid> ${timestamp} +0000`,
+        `data ${Buffer.byteLength(message)}`, message,
+        `from ${baseSha}`,
+        `M 100644 inline ${repositoryPath}`,
+        `data ${Buffer.byteLength(contents)}`, contents
+      ].join('\n');
+      runFixtureGit(root, ['fast-import', '--quiet'], [
+        'feature done',
+        importCommit('terminal-compaction', 'fixture: terminal candidate', importEpoch,
+          'config/repository/work-selection.md', compaction.roadmapSource),
+        importCommit('independent-review', 'fixture: independent candidate', importEpoch + 1,
+          independentManifestPath, independentManifestSource),
+        importCommit('secondary-review', 'fixture: secondary candidate', importEpoch + 2,
+          secondaryManifestPath, secondaryManifestSource),
+        'done', ''
+      ].join('\n'));
       runFixtureGit(root, ['checkout', '--quiet', 'terminal-compaction']);
-
+      const candidateRevisions = runFixtureGit(root, [
+        'rev-parse', 'HEAD', 'HEAD^{tree}',
+        'refs/heads/independent-review', 'refs/heads/secondary-review'
+      ]).toString('utf8').trim().split(/\r?\n/u);
+      if (candidateRevisions.length !== 4 || candidateRevisions.some(value =>
+        !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
+        throw new Error('Expected exact native candidate commit and tree identities');
+      }
+      const [headSha, headTreeSha, independentHeadSha, secondaryHeadSha] =
+        candidateRevisions as [string, string, string, string];
       const issueRecords = Object.fromEntries(prior.catalog.items.map((item, index) => [
         `i${index}`,
         {
