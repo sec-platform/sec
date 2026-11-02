@@ -9,13 +9,14 @@ import type { BranchLifecycleInventory } from '../../../src/execution/verificati
 import { createRecoveryBundle } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
-function git(root: string, args: readonly string[], allowFailure = false) {
+function git(root: string, args: readonly string[], allowFailure = false, input?: string) {
   // Commit identity belongs to this test process; keep the native graph
   // while avoiding independent Git config subprocesses.
   const result = spawnSync('git', [...args], {
     cwd: root,
     encoding: 'utf8',
     windowsHide: true,
+    input,
     env: { ...process.env,
       GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
       GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
@@ -36,12 +37,16 @@ test('branch recovery bundle retains only the source closure missing from exact 
   return settleWorkspaceCallback(async () => {
     mkdirSync(repository);
     git(repository, ['init', '--quiet', '--initial-branch=main']);
-    for (let index = 0; index < 16; index += 1) {
-      writeFileSync(path.join(repository, 'history.txt'), `main-history-${index}\n`, 'utf8');
-      if (index === 0) git(repository, ['add', 'history.txt']);
-      // The later fifteen snapshots change this tracked file only.
-      git(repository, ['commit', '--quiet', '-a', '-m', `main history ${index}`]);
-    }
+    // Build the same sixteen native parent-linked commits in one Git process.
+    // fast-import updates only Git objects/refs; reset materializes the final
+    // index and worktree before any recovery effect or competing branch begins.
+    const importRecords = Array.from({ length: 16 }, (_, index) => {
+      const message = `main history ${index}`;
+      const content = `main-history-${index}\n`;
+      return `commit refs/heads/main\ncommitter SEC Test <sec-test@example.invalid> ${1_700_000_000 + index} +0000\ndata ${Buffer.byteLength(message)}\n${message}\nM 100644 inline history.txt\ndata ${Buffer.byteLength(content)}\n${content}`;
+    });
+    git(repository, ['fast-import', '--quiet'], false, ['feature done', ...importRecords, 'done', ''].join('\n'));
+    git(repository, ['reset', '--hard', 'main']);
 
     git(repository, ['switch', '--quiet', '-c', 'feat/recovery-delta']);
     writeFileSync(path.join(repository, 'feature.txt'), 'unique branch state\n', 'utf8');

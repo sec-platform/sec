@@ -1,17 +1,17 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createBatchRecoveryBundle, createRecoveryBundle, verifyRecoveryAuthorityHeadsLive } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import type { BranchLifecycleInventory } from '../../../src/execution/verification/branch-closeout.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
-function git(root: string, args: readonly string[]): string {
+function git(root: string, args: readonly string[], input?: string): string {
   // Native identity is scoped to the fixture process; do not spawn Git
   // solely to configure author and committer for each new repository.
   const result = spawnSync('git', [...args], {
-    cwd: root, encoding: 'utf8', windowsHide: true,
+    cwd: root, encoding: 'utf8', windowsHide: true, input,
     env: { ...process.env,
       GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
       GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid'
@@ -25,21 +25,21 @@ function fixture(root: string) {
   const repository = path.join(root, 'source');
   mkdirSync(repository);
   git(repository, ['init', '--quiet', '--initial-branch=main']);
-  // One main prerequisite distinguishes compact recovery from a complete bundle.
-  // Native Git owns history traversal; the two unique tips remain independent.
-  writeFileSync(path.join(repository, 'base.txt'), 'base 2\n');
-  git(repository, ['add', 'base.txt']);
-  git(repository, ['commit', '--quiet', '-m', 'base']);
+  // One shared main prerequisite and two independent native branch tips.
+  // Fast-import writes the complete immutable graph without repeated
+  // switch/add/commit processes; reset then owns the main index/worktree.
   const branches = ['fix/first', 'fix/second'];
-  for (const branch of branches) {
-    git(repository, ['switch', '--quiet', '-c', branch, 'main']);
-    writeFileSync(path.join(repository, 'unique.txt'), `${branch}\n`);
-    git(repository, ['add', '.']);
-    git(repository, ['commit', '--quiet', '-m', branch]);
-  }
-  git(repository, ['switch', '--quiet', 'main']);
-  // Read the immutable native tips together after each independent branch
-  // has finished writing its own index and ref.
+  const commits = ['main', ...branches].map((branch, index) => {
+    const message = index === 0 ? 'base' : branch;
+    const file = index === 0 ? 'base.txt' : 'unique.txt';
+    const content = index === 0 ? 'base 2\n' : `${branch}\n`;
+    const parent = index === 0 ? '' : 'from refs/heads/main\n';
+    return `commit refs/heads/${branch}\ncommitter SEC Test <sec-test@example.invalid> ${1_700_000_000 + index} +0000\ndata ${Buffer.byteLength(message)}\n${message}\n${parent}M 100644 inline ${file}\ndata ${Buffer.byteLength(content)}\n${content}`;
+  });
+  git(repository, ['fast-import', '--quiet'], ['feature done', ...commits, 'done', ''].join('\n'));
+  git(repository, ['reset', '--hard', 'main']);
+  // Read immutable native refs after importing the graph and materializing
+  // the independent main index and worktree.
   const tips = git(repository, ['rev-parse',
     'refs/heads/main', 'refs/heads/fix/first', 'refs/heads/fix/second'
   ]).split('\n');
