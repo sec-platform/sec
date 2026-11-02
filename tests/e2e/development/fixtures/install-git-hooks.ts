@@ -193,7 +193,7 @@ export async function expectManagedHooksMirror(repoRoot: string, configured: str
 /** The two native Git Hook fixture forms have the same tracked source and
  * executable-bit requirements. Prepare once per physical repository without
  * changing either its Git history or its independent test lifetime. */
-async function prepareManagedHookSource(repoRoot: string, commitMessage: string): Promise<void> {
+async function prepareStagedManagedHookSource(repoRoot: string): Promise<void> {
   git(repoRoot, ['config', 'user.email', 'tests@example.com']);
   git(repoRoot, ['config', 'user.name', 'SEC Tests']);
   await mkdir(path.join(repoRoot, '.githooks'));
@@ -212,6 +212,10 @@ async function prepareManagedHookSource(repoRoot: string, commitMessage: string)
   // Native Git stages the executable bit for every hook in one bounded command.
   // chmod above retains the actual worktree permission independently.
   git(repoRoot, ['add', '--chmod=+x', '.githooks']);
+}
+
+async function prepareManagedHookSource(repoRoot: string, commitMessage: string): Promise<void> {
+  await prepareStagedManagedHookSource(repoRoot);
   git(repoRoot, ['commit', '--quiet', '-m', commitMessage]);
 }
 
@@ -232,13 +236,23 @@ async function preparedTemplateRoot(
   }
 }
 
+let stagedSourceTemplate: Promise<string> | undefined;
 let defaultSourceTemplate: Promise<string> | undefined;
 let canonicalRemoteTemplate: Promise<string> | undefined;
 
+// Share only immutable pre-commit source/index. Each destination performs its
+// own native commit with the original message, then owns its refs and reflog.
+function sharedStagedManagedSourceTemplate(): Promise<string> {
+  return stagedSourceTemplate ??= preparedTemplateRoot('sec-hooks-staged-', async root => {
+    git(root, ['init', '--quiet', '-b', 'main']);
+    await prepareStagedManagedHookSource(root);
+  });
+}
+
 function defaultManagedRepositoryTemplate(): Promise<string> {
   return defaultSourceTemplate ??= preparedTemplateRoot('sec-hooks-base-', async root => {
-    git(root, ['init', '--quiet', '-b', 'main']);
-    await prepareManagedHookSource(root, 'managed hook fixture');
+    await cp(await sharedStagedManagedSourceTemplate(), root, { recursive: true });
+    git(root, ['commit', '--quiet', '-m', 'managed hook fixture']);
   });
 }
 
@@ -247,8 +261,8 @@ function canonicalRemoteRepositoryTemplate(): Promise<string> {
     const repository = path.join(root, 'repo');
     const remote = path.join(root, 'origin.git');
     await mkdir(repository);
-    git(repository, ['init', '--quiet', '-b', 'main']);
-    await prepareManagedHookSource(repository, 'canonical remote fixture');
+    await cp(await sharedStagedManagedSourceTemplate(), repository, { recursive: true });
+    git(repository, ['commit', '--quiet', '-m', 'canonical remote fixture']);
     git(repository, ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
     git(repository, ['remote', 'add', 'origin', remote]);
     // Push with upstream tracking already records the exact origin/main ref.
@@ -258,7 +272,7 @@ function canonicalRemoteRepositoryTemplate(): Promise<string> {
 }
 
 afterAll(async () => {
-  const pending = [defaultSourceTemplate, canonicalRemoteTemplate].filter(
+  const pending = [stagedSourceTemplate, defaultSourceTemplate, canonicalRemoteTemplate].filter(
     (promise): promise is Promise<string> => promise !== undefined
   );
   const settled = await Promise.allSettled(pending);

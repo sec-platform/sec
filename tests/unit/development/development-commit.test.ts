@@ -54,13 +54,12 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
   'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
   'carrier-retained', 'carrier-rejected'] as const) {
   test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
-    const { root, baseCommitAndTree, stagedTree } = await fixture();
+    const { root, baseCommitAndTree, stagedTree } = await fixture('sec-development-commit-', true);
     let harnessRoot: string | undefined;
     await settleWorkspaceCallback(async () => {
       const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
       harnessRoot = harness;
       const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
-      git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
       const [originalBase, baseTree] = baseCommitAndTree;
       const base = mode === 'anchor-lost'
         ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'separately adopted anchor'])
@@ -245,6 +244,7 @@ type DevelopmentCommitTemplate = Readonly<{
   headRef: string;
 }>;
 let developmentCommitTemplate: Promise<DevelopmentCommitTemplate> | undefined;
+let developmentCommitOriginTemplate: Promise<DevelopmentCommitTemplate> | undefined;
 
 async function createDevelopmentCommitTemplate(): Promise<DevelopmentCommitTemplate> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-source-'));
@@ -315,16 +315,52 @@ function retainedDevelopmentCommitTemplate(): Promise<DevelopmentCommitTemplate>
   return pending;
 }
 
-afterAll(async () => {
-  if (developmentCommitTemplate === undefined) return;
-  const result = await Promise.allSettled([developmentCommitTemplate]);
-  if (result[0]?.status === 'fulfilled') {
-    await rm(result[0].value.root, { recursive: true, force: true });
+// Nine native history-retirement cases need the same origin URL before their
+// distinct commit graphs and failure windows. Other cases keep the no-remote seed.
+async function createDevelopmentCommitOriginTemplate(): Promise<DevelopmentCommitTemplate> {
+  const source = await retainedDevelopmentCommitTemplate();
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-origin-'));
+  try {
+    await cp(source.root, root, { recursive: true });
+    git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
+    return Object.freeze({ ...source, root });
+  } catch (primary) {
+    try { await rm(root, { recursive: true, force: true }); }
+    catch (cleanup) {
+      throw new AggregateError([primary, cleanup], 'Origin Git template and cleanup both failed');
+    }
+    throw primary;
   }
-  developmentCommitTemplate = undefined;
+}
+
+function retainedDevelopmentCommitOriginTemplate(): Promise<DevelopmentCommitTemplate> {
+  if (developmentCommitOriginTemplate !== undefined) return developmentCommitOriginTemplate;
+  const pending = createDevelopmentCommitOriginTemplate();
+  developmentCommitOriginTemplate = pending;
+  void pending.catch(() => {
+    if (developmentCommitOriginTemplate === pending) developmentCommitOriginTemplate = undefined;
+  });
+  return pending;
+}
+
+afterAll(async () => {
+  const pending = [developmentCommitTemplate, developmentCommitOriginTemplate].filter(
+    (template): template is Promise<DevelopmentCommitTemplate> => template !== undefined
+  );
+  const results = await Promise.allSettled(pending);
+  const roots = results.flatMap(result => result.status === 'fulfilled' ? [result.value.root] : []);
+  try {
+    await settleResourcesAsync({ cleanup: roots.map((root) => ({
+      label: 'development-commit immutable Git template',
+      settle: () => rm(root, { recursive: true, force: true })
+    })) });
+  } finally {
+    developmentCommitTemplate = undefined;
+    developmentCommitOriginTemplate = undefined;
+  }
 });
 
-async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
+async function fixture(prefix = 'sec-development-commit-', withOrigin = false): Promise<Readonly<{
   root: string;
   baseCommitAndTree: readonly [string, string];
   stagedTree: string;
@@ -333,7 +369,9 @@ async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
 }>> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
   try {
-    const source = await retainedDevelopmentCommitTemplate();
+    const source = await (withOrigin
+      ? retainedDevelopmentCommitOriginTemplate()
+      : retainedDevelopmentCommitTemplate());
     await cp(source.root, root, { recursive: true });
     return Object.freeze({
     root,
