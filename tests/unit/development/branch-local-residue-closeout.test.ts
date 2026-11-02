@@ -94,12 +94,20 @@ type EffectTemplate = Readonly<{
   root: string; headSha: string; mainSha: string; headParentSha: string; headTreeSha: string
 }>;
 let immutableEffectTemplate: EffectTemplate | undefined;
+type SuccessorTemplate = Readonly<{ root: string; sourceSha: string; successorSha: string }>;
+let immutableSuccessorTemplate: SuccessorTemplate | undefined;
 
 afterAll(() => {
-  if (immutableEffectTemplate !== undefined) {
-    rmSync(immutableEffectTemplate.root, { recursive: true, force: true });
-    immutableEffectTemplate = undefined;
+  const failures: unknown[] = [];
+  for (const template of [immutableSuccessorTemplate, immutableEffectTemplate]) {
+    if (template === undefined) continue;
+    try { rmSync(template.root, { recursive: true, force: true }); }
+    catch (error) { failures.push(error); }
   }
+  immutableSuccessorTemplate = undefined;
+  immutableEffectTemplate = undefined;
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Local residue fixture template cleanup failed');
 });
 
 function effectTemplate(): EffectTemplate {
@@ -146,13 +154,13 @@ function effectTemplate(): EffectTemplate {
   }
 }
 
-function createEffectFixture(label: string) {
+function createEffectFixture(label: string, repositorySourceRoot?: string) {
   const root = mkdtempSync(path.join(tmpdir(), `sec-local-residue-${label}-`));
   try {
     const base = effectTemplate();
     const repositoryRoot = path.join(root, 'repository');
     const recoveryRoot = path.join(root, 'recovery');
-    cpSync(path.join(base.root, 'repository'), repositoryRoot, { recursive: true });
+    cpSync(path.join(repositorySourceRoot ?? base.root, 'repository'), repositoryRoot, { recursive: true });
     const { headSha, mainSha, headParentSha, headTreeSha } = base;
     const calls: string[][] = [];
     const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
@@ -394,8 +402,12 @@ function completedDuplicateOperationReceipt(input: Readonly<{
   });
 }
 
-function createSuccessorFixture(label: string) {
-  const fixture = createEffectFixture(label);
+// Commit the source/successor graph once, then copy only its finished native
+// repository. Each consumer has independent refs, index, remote observations,
+// fault effects and recovery files. No worktree or live operation is retained.
+function successorTemplate(): SuccessorTemplate {
+  if (immutableSuccessorTemplate !== undefined) return immutableSuccessorTemplate;
+  const fixture = createEffectFixture('successor-template');
   try {
     git(fixture.repositoryRoot, ['checkout', '-b', 'codex/source']);
     writeFileSync(path.join(fixture.repositoryRoot, 'source-only.txt'), 'preserved outside main\n');
@@ -416,6 +428,22 @@ function createSuccessorFixture(label: string) {
     }
     const [sourceSha, successorSha] = successorTips as [string, string];
     git(fixture.repositoryRoot, ['checkout', 'main']);
+    immutableSuccessorTemplate = Object.freeze({ root: fixture.root, sourceSha, successorSha });
+    return immutableSuccessorTemplate;
+  } catch (error) {
+    try { fixture.dispose(); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Successor template setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+function createSuccessorFixture(label: string) {
+  const prepared = successorTemplate();
+  const fixture = createEffectFixture(label, prepared.root);
+  try {
+    const { sourceSha, successorSha } = prepared;
     const remoteHeads: Record<string, string> = { main: fixture.mainSha, 'codex/successor': successorSha };
     const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
       if (command === 'gh' && args[0] === 'pr') {
