@@ -16,11 +16,13 @@ function git(root: string, args: string[]) {
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
 }
-// Only the committed README precondition is shared. Each test copies the entire
-// Git store into its own native root before changing refs, index, branches,
-// control documents, worktree, or provider effects.
+// An immutable committed README seed backs both scenarios. The two inactive
+// consumers also copy their fully prepared, pre-effect Git baseline; their
+// Git indexes, refs, worktrees, and provider effects remain test-owned.
 type SessionGitSeed = Readonly<{ root: string; headSha: string; treeSha: string }>;
+type InactiveSessionGitTemplate = Readonly<{ root: string; mainSha: string }>;
 let immutableSessionGitSeed: SessionGitSeed | undefined;
+let inactiveSessionGitTemplate: InactiveSessionGitTemplate | undefined;
 function sessionGitSeed(): SessionGitSeed {
   if (immutableSessionGitSeed !== undefined) return immutableSessionGitSeed;
   const root = mkdtempSync(path.join(tmpdir(), 'sec-active-work-session-base-'));
@@ -47,10 +49,17 @@ function sessionGitSeed(): SessionGitSeed {
   }
 }
 afterAll(() => {
-  if (immutableSessionGitSeed === undefined) return;
-  const { root } = immutableSessionGitSeed;
-  rmSync(root, { recursive: true, force: true });
+  const roots = [inactiveSessionGitTemplate?.root, immutableSessionGitSeed?.root];
+  inactiveSessionGitTemplate = undefined;
   immutableSessionGitSeed = undefined;
+  const failures: unknown[] = [];
+  for (const root of roots) {
+    if (root === undefined) continue;
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (error) { failures.push(error); }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Active-work Git fixture cleanup failed');
 });
 
 async function fixture(active: boolean, operation: (root: string, mainSha: string) => Promise<void>) {
@@ -82,6 +91,14 @@ tests:
     mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), text);
   };
   await settleWorkspaceCallback(async () => {
+    // This branch has the same immutable control document commit, tracking
+    // ref, and topic checkout in both tests. Copy before acquiring a provider
+    // session or applying any branch-closeout operation.
+    if (!active && inactiveSessionGitTemplate !== undefined) {
+      cpSync(inactiveSessionGitTemplate.root, root, { recursive: true });
+      await operation(root, inactiveSessionGitTemplate.mainSha);
+      return;
+    }
     const seed = sessionGitSeed();
     cpSync(seed.root, root, { recursive: true });
     const { headSha: seedSha, treeSha: seedTree } = seed;
@@ -125,7 +142,22 @@ matchingDefaultBlob: none
     const mainSha = active ? seedSha : git(root, ['rev-parse', 'HEAD']);
     git(root, ['update-ref', 'refs/remotes/origin/main', mainSha]);
     git(root, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);
-    if (!active) git(root, ['switch', '--quiet', '-c', 'transport/old']);
+    if (!active) {
+      git(root, ['switch', '--quiet', '-c', 'transport/old']);
+      const templateRoot = mkdtempSync(path.join(tmpdir(), 'sec-active-work-session-inactive-base-'));
+      try {
+        // The template contains no open effect, registered worktree, or live
+        // Git/provider session. Every consumer mutates only its own copy.
+        cpSync(root, templateRoot, { recursive: true });
+        inactiveSessionGitTemplate = Object.freeze({ root: templateRoot, mainSha });
+      } catch (primary) {
+        try { rmSync(templateRoot, { recursive: true, force: true }); }
+        catch (cleanup) {
+          throw new AggregateError([primary, cleanup], 'Active-work Git template setup and cleanup failed');
+        }
+        throw primary;
+      }
+    }
     await operation(root, mainSha);
   }, async () => {
     rmSync(root, { recursive: true, force: true });
