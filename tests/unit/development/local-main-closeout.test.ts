@@ -81,10 +81,8 @@ beforeAll(async () => {
   protectedRoot = path.join(baseRoot, 'protected');
   developerRoot = path.join(baseRoot, 'developer');
   await mkdir(protectedRoot);
-  git(baseRoot, ['init', '--quiet', '--bare', remoteRoot]);
-  git(baseRoot, ['--git-dir', remoteRoot, 'symbolic-ref', 'HEAD', 'refs/heads/main']);
-  git(protectedRoot, ['init', '--quiet']);
-  git(protectedRoot, ['branch', '-M', 'main']);
+  git(baseRoot, ['init', '--quiet', '--bare', '--initial-branch=main', remoteRoot]);
+  git(protectedRoot, ['init', '--quiet', '--initial-branch=main']);
   git(protectedRoot, ['config', 'core.autocrlf', 'false']);
   git(protectedRoot, ['remote', 'add', 'origin', remoteRoot]);
   await writeFile(path.join(protectedRoot, '.gitignore'), '.sec/\n', 'utf8');

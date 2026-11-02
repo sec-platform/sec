@@ -143,7 +143,7 @@ function closeoutBase(options: CloseoutFixtureOptions): ImmutableCloseoutTemplat
   const remote = path.join(root, 'remote.git');
   const repository = path.join(root, 'repository');
   try {
-    git(root, ['init', '--bare', remote]);
+    git(root, ['init', '--bare', '--initial-branch=main', remote]);
     git(root, ['init', '-b', 'main', repository]);
     git(repository, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
@@ -154,7 +154,6 @@ function closeoutBase(options: CloseoutFixtureOptions): ImmutableCloseoutTemplat
     git(repository, ['commit', '-m', 'main']);
     git(repository, ['remote', 'add', 'origin', remote]);
     git(repository, ['push', '-u', 'origin', 'main']);
-    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
     git(repository, ['remote', 'set-head', 'origin', 'main']);
     git(repository, ['branch', 'codex/fixture']);
     // The pristine fixture branch and its commit/tree are immutable across

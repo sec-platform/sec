@@ -171,8 +171,6 @@ test('candidate and full scopes compile different immutable exact plans', async 
         return result.stdout.trim();
       };
       git(['init', '--quiet']);
-      git(['config', 'user.email', 'tests@example.com']);
-      git(['config', 'user.name', 'SEC Tests']);
       await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
         compilerOptions: {
           allowImportingTsExtensions: true,
@@ -190,7 +188,7 @@ test('candidate and full scopes compile different immutable exact plans', async 
         ''
       ].join('\n'));
       git(['add', '--all']);
-      git(['commit', '--quiet', '-m', 'initial']);
+      git(['-c', 'user.email=tests@example.com', '-c', 'user.name=SEC Tests', 'commit', '--quiet', '-m', 'initial']);
       const head = git(['rev-parse', 'HEAD']);
       git(['update-ref', 'refs/remotes/origin/main', head]);
 

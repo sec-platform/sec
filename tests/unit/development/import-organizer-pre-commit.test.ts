@@ -35,7 +35,7 @@ function source(order: 'sorted' | 'unsorted'): string {
 test('staged check is pure while another Git owner retains the index lock', async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-check-lock-'));
   await settleWorkspaceCallback(async () => {
-    git(repoRoot, ['init', '--quiet']);
+    git(repoRoot, ['init', '--quiet', '--initial-branch=main']);
     git(repoRoot, ['config', 'core.autocrlf', 'false']);
     await mkdir(path.join(repoRoot, 'src'));
     await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
@@ -53,7 +53,6 @@ test('staged check is pure while another Git owner retains the index lock', asyn
     await writeFile(path.join(repoRoot, 'src', 'fixture.ts'), source('sorted'), 'utf8');
     git(repoRoot, ['add', '--all']);
     git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
-    git(repoRoot, ['branch', '-M', 'main']);
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
 
     const fixturePath = path.join(repoRoot, 'src', 'fixture.ts');
