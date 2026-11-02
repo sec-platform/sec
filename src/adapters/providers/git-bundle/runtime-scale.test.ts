@@ -27,10 +27,13 @@ describe('Git candidate bundle native scale', () => {
     writeFileSync(oldFile, randomBytes(17 * 1024 * 1024));
     git(sourceRoot, ['add', '--', 'historical.bin', 'value.txt']);
     git(sourceRoot, ['commit', '--quiet', '-m', 'historical content']);
-    const historySha = git(sourceRoot, ['rev-parse', 'HEAD']);
     rmSync(oldFile);
     git(sourceRoot, ['commit', '--quiet', '-am', 'remove current content']);
-    const headSha = git(sourceRoot, ['rev-parse', 'HEAD']);
+    const revisions = git(sourceRoot, ['rev-parse', 'HEAD^', 'HEAD']).split(/\r?\n/u);
+    if (revisions.length !== 2 || revisions.some(sha => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(sha))) {
+      throw new Error('Expected exact historical and current Git commits.');
+    }
+    const [historySha, headSha] = revisions as [string, string];
     await withGitCandidateCheckout({ sourceRoot, baseSha: headSha, headSha,
       purpose: 'action-materialization', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
       await materializeGitCandidateCheckoutTransport(checkout);

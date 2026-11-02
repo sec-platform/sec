@@ -80,15 +80,6 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-// Commit and its tree are immutable at this exact fixture construction cut.
-function currentGitCommitAndTree(root: string): readonly [string, string] {
-  const objects = git(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
-  if (objects.length !== 2 || objects.some(value => value.length === 0)) {
-    throw new Error('Expected one native commit and one tree identity.');
-  }
-  return [objects[0]!, objects[1]!];
-}
-
 function createDivergedReviewFixture(): DivergedReviewFixture {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-reviewed-ref-supersession-'));
   try {
@@ -98,21 +89,27 @@ function createDivergedReviewFixture(): DivergedReviewFixture {
     writeFileSync(path.join(root, 'base.txt'), 'shared base\n', 'utf8');
     git(root, ['add', 'base.txt']);
     git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'shared base']);
-    const [mergeBaseSha, mergeBaseTreeSha] = currentGitCommitAndTree(root);
-
     git(root, ['checkout', '--quiet', '-b', 'reviewed-orphan']);
     writeFileSync(path.join(root, 'retained.txt'), 'orphan behavior\n', 'utf8');
     writeFileSync(path.join(root, 'superseded.txt'), 'obsolete implementation\n', 'utf8');
     git(root, ['add', 'retained.txt', 'superseded.txt']);
     git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'orphan delta']);
-    const [headSha, headTreeSha] = currentGitCommitAndTree(root);
-
     git(root, ['checkout', '--quiet', 'main']);
     writeFileSync(path.join(root, 'retained.txt'), 'current replacement\n', 'utf8');
     writeFileSync(path.join(root, 'main-only.txt'), 'unrelated later main work\n', 'utf8');
     git(root, ['add', 'retained.txt', 'main-only.txt']);
     git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'current main evolution']);
-    const [currentMainSha, currentMainTreeSha] = currentGitCommitAndTree(root);
+    // Each ref is immutable after the final fixture commit. One native read
+    // retains all three independent commit/tree identities.
+    const revisions = git(root, [
+      'rev-parse', 'HEAD^', 'HEAD^^{tree}',
+      'refs/heads/reviewed-orphan', 'refs/heads/reviewed-orphan^{tree}',
+      'HEAD', 'HEAD^{tree}'
+    ]).split(/\r?\n/u);
+    if (revisions.length !== 6 || revisions.some(sha => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(sha))) {
+      throw new Error('Expected base, reviewed branch and current main Git identities.');
+    }
+    const [mergeBaseSha, mergeBaseTreeSha, headSha, headTreeSha, currentMainSha, currentMainTreeSha] = revisions as [string, string, string, string, string, string];
 
     return Object.freeze({
       root,
@@ -140,14 +137,16 @@ function createRepositoryFixture(): RepositoryFixture {
     writeFileSync(path.join(root, 'superseded.txt'), 'old obligation\n', 'utf8');
     git(root, ['add', 'retained.txt', 'superseded.txt']);
     git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'closed branch head']);
-    const [headSha, headTreeSha] = currentGitCommitAndTree(root);
-
     writeFileSync(path.join(root, 'retained.txt'), 'current main keeps the behavior\n', 'utf8');
     unlinkSync(path.join(root, 'superseded.txt'));
     git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid',
       'commit', '-a', '--quiet', '-m', 'current main replacement']);
-    const [currentMainSha, currentMainTreeSha] = currentGitCommitAndTree(root);
-
+    const revisions = git(root, ['rev-parse', 'HEAD^', 'HEAD^^{tree}', 'HEAD', 'HEAD^{tree}'])
+      .split(/\r?\n/u);
+    if (revisions.length !== 4 || revisions.some(sha => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(sha))) {
+      throw new Error('Expected closed branch and current main Git identities.');
+    }
+    const [headSha, headTreeSha, currentMainSha, currentMainTreeSha] = revisions as [string, string, string, string];
     return Object.freeze({ root, headSha, headTreeSha, currentMainSha, currentMainTreeSha });
   } catch (error) {
     settleResources({ primary: { label: 'review-fixture-construction', error },

@@ -44,10 +44,13 @@ export function createGitBundleTestFixture() {
       writeFileSync(path.join(root, 'value.txt'), 'base\n');
       git(root, ['add', '--', 'value.txt']);
       git(root, ['commit', '--quiet', '-m', 'base']);
-      const baseSha = git(root, ['rev-parse', 'HEAD']);
       writeFileSync(path.join(root, 'value.txt'), 'head\n');
       git(root, ['commit', '--quiet', '-am', 'head']);
-      template = Object.freeze({ root, baseSha, headSha: git(root, ['rev-parse', 'HEAD']) });
+      const revisions = git(root, ['rev-parse', 'HEAD^', 'HEAD']).split(/\r?\n/u);
+      if (revisions.length !== 2 || revisions.some(sha => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(sha))) {
+        throw new Error('Expected one base and one head Git commit identity.');
+      }
+      template = Object.freeze({ root, baseSha: revisions[0]!, headSha: revisions[1]! });
       return template;
     } catch (error) {
       try { rmSync(root, { recursive: true, force: true }); }

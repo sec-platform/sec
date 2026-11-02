@@ -60,19 +60,23 @@ beforeAll(async () => {
   git(repositoryRoot, ['switch', '--quiet', '-c', BRANCH]);
   writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'closed branch behavior\n', 'utf8');
   git(repositoryRoot, ['commit', '--quiet', '-am', 'closed branch head']);
-  const [baseSha, branchParent, ...branchObjects] = git(repositoryRoot, [
-    'rev-parse', 'refs/heads/main', 'HEAD^', 'HEAD', 'HEAD^{tree}'
-  ]).split('\n');
-  expect(baseSha).toBe(branchParent);
-  BASE_SHA = baseSha!;
-  expect(branchObjects).toHaveLength(2);
-  [HEAD_SHA, HEAD_TREE] = branchObjects as [string, string];
   git(repositoryRoot, ['switch', '--quiet', 'main']);
   writeFileSync(path.join(repositoryRoot, 'behavior.txt'), 'current main replacement\n', 'utf8');
   git(repositoryRoot, ['commit', '--quiet', '-am', 'current main replacement']);
-  const mainObjects = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split('\n');
-  expect(mainObjects).toHaveLength(2);
-  [MAIN_SHA, MAIN_TREE] = mainObjects as [string, string];
+  // Both branch refs are immutable after this fixture's final commit.
+  const revisions = git(repositoryRoot, [
+    'rev-parse', 'refs/heads/main^', `refs/heads/${BRANCH}^`,
+    `refs/heads/${BRANCH}`, `refs/heads/${BRANCH}^{tree}`, 'HEAD', 'HEAD^{tree}'
+  ]).split(/\r?\n/u);
+  expect(revisions).toHaveLength(6);
+  for (const sha of revisions) expect(sha).toMatch(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u);
+  const [baseSha, branchParent, headSha, headTreeSha, mainSha, mainTreeSha] = revisions;
+  expect(baseSha).toBe(branchParent);
+  BASE_SHA = baseSha!;
+  HEAD_SHA = headSha!;
+  HEAD_TREE = headTreeSha!;
+  MAIN_SHA = mainSha!;
+  MAIN_TREE = mainTreeSha!;
   recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-closed-unmerged-recovery-'));
   const supersession = await observeTestClosedSupersessionEvidence({
     repositoryRoot,
