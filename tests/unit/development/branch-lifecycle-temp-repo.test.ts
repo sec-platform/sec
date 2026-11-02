@@ -62,10 +62,9 @@ function buildRepositoryTemplate(): Readonly<{
     const remote = path.join(root, 'remote.git');
     const repository = path.join(root, 'repository');
     git(root, ['init', '--bare', remote]);
-    git(root, ['clone', remote, repository]);
-    git(repository, ['config', '--local', 'fetch.prune', 'true']);
-    git(repository, ['config', '--local', 'remote.origin.prune', 'true']);
-    git(repository, ['config', '--local', 'fetch.pruneTags', 'true']);
+    // Clone records the three immutable prune settings before the first fetch.
+    git(root, ['clone', '-c', 'fetch.prune=true', '-c', 'remote.origin.prune=true',
+      '-c', 'fetch.pruneTags=true', remote, repository]);
     writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
     git(repository, ['add', 'README.md']);
     git(repository, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '-m', 'initial main']);

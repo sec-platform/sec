@@ -1,6 +1,6 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -69,15 +69,36 @@ afterAll(() => {
   })) });
 });
 
-function git(repositoryRoot: string, args: readonly string[]): string {
+function git(repositoryRoot: string, args: readonly string[], input?: string): string {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    ...(input === undefined ? {} : { input })
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
+}
+
+// The reviewed source/target evidence consumes immutable Git trees, not
+// intermediate checkout state. Keep the entire native graph in one import.
+function nativeFixtureCommit(
+  branch: string,
+  message: string,
+  timestamp: number,
+  changes: readonly { path: string; content: string | null }[],
+  from?: string
+): string {
+  return [
+    `commit refs/heads/${branch}`,
+    `committer SEC Test <sec-test@example.invalid> ${timestamp} +0000`,
+    `data ${Buffer.byteLength(message)}`, message,
+    ...(from === undefined ? [] : [`from refs/heads/${from}`]),
+    ...changes.flatMap(({ path: leaf, content }) => content === null
+      ? [`D ${leaf}`]
+      : [`M 100644 inline ${leaf}`, `data ${Buffer.byteLength(content)}`, content])
+  ].join('\n');
 }
 
 function createDivergedReviewFixture(): DivergedReviewFixture {
@@ -86,19 +107,20 @@ function createDivergedReviewFixture(): DivergedReviewFixture {
     git(root, ['init', '--quiet', '--initial-branch=main']);
     git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
 
-    writeFileSync(path.join(root, 'base.txt'), 'shared base\n', 'utf8');
-    git(root, ['add', 'base.txt']);
-    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'shared base']);
-    git(root, ['checkout', '--quiet', '-b', 'reviewed-orphan']);
-    writeFileSync(path.join(root, 'retained.txt'), 'orphan behavior\n', 'utf8');
-    writeFileSync(path.join(root, 'superseded.txt'), 'obsolete implementation\n', 'utf8');
-    git(root, ['add', 'retained.txt', 'superseded.txt']);
-    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'orphan delta']);
-    git(root, ['checkout', '--quiet', 'main']);
-    writeFileSync(path.join(root, 'retained.txt'), 'current replacement\n', 'utf8');
-    writeFileSync(path.join(root, 'main-only.txt'), 'unrelated later main work\n', 'utf8');
-    git(root, ['add', 'retained.txt', 'main-only.txt']);
-    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'current main evolution']);
+    const graph = [
+      nativeFixtureCommit('main', 'shared base', 1_700_001_000,
+        [{ path: 'base.txt', content: 'shared base\n' }]),
+      nativeFixtureCommit('reviewed-orphan', 'orphan delta', 1_700_001_001, [
+        { path: 'retained.txt', content: 'orphan behavior\n' },
+        { path: 'superseded.txt', content: 'obsolete implementation\n' }
+      ], 'main'),
+      nativeFixtureCommit('main', 'current main evolution', 1_700_001_002, [
+        { path: 'retained.txt', content: 'current replacement\n' },
+        { path: 'main-only.txt', content: 'unrelated later main work\n' }
+      ])
+    ];
+    git(root, ['fast-import', '--quiet'], ['feature done', ...graph, 'done', ''].join('\n'));
+    git(root, ['reset', '--hard', 'main']);
     // Each ref is immutable after the final fixture commit. One native read
     // retains all three independent commit/tree identities.
     const revisions = git(root, [
@@ -133,14 +155,18 @@ function createRepositoryFixture(): RepositoryFixture {
     git(root, ['init', '--quiet', '--initial-branch=main']);
     git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
 
-    writeFileSync(path.join(root, 'retained.txt'), 'closed branch behavior\n', 'utf8');
-    writeFileSync(path.join(root, 'superseded.txt'), 'old obligation\n', 'utf8');
-    git(root, ['add', 'retained.txt', 'superseded.txt']);
-    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '--quiet', '-m', 'closed branch head']);
-    writeFileSync(path.join(root, 'retained.txt'), 'current main keeps the behavior\n', 'utf8');
-    unlinkSync(path.join(root, 'superseded.txt'));
-    git(root, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid',
-      'commit', '-a', '--quiet', '-m', 'current main replacement']);
+    const graph = [
+      nativeFixtureCommit('main', 'closed branch head', 1_700_002_000, [
+        { path: 'retained.txt', content: 'closed branch behavior\n' },
+        { path: 'superseded.txt', content: 'old obligation\n' }
+      ]),
+      nativeFixtureCommit('main', 'current main replacement', 1_700_002_001, [
+        { path: 'retained.txt', content: 'current main keeps the behavior\n' },
+        { path: 'superseded.txt', content: null }
+      ])
+    ];
+    git(root, ['fast-import', '--quiet'], ['feature done', ...graph, 'done', ''].join('\n'));
+    git(root, ['reset', '--hard', 'main']);
     const revisions = git(root, ['rev-parse', 'HEAD^', 'HEAD^^{tree}', 'HEAD', 'HEAD^{tree}'])
       .split(/\r?\n/u);
     if (revisions.length !== 4 || revisions.some(sha => !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(sha))) {

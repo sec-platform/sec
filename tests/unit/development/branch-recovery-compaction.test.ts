@@ -45,17 +45,21 @@ test('branch recovery bundle retains only the source closure missing from exact 
       const content = `main-history-${index}\n`;
       return `commit refs/heads/main\ncommitter SEC Test <sec-test@example.invalid> ${1_700_000_000 + index} +0000\ndata ${Buffer.byteLength(message)}\n${message}\nM 100644 inline history.txt\ndata ${Buffer.byteLength(content)}\n${content}`;
     });
-    git(repository, ['fast-import', '--quiet'], false, ['feature done', ...importRecords, 'done', ''].join('\n'));
+    // Both divergent tips are immutable fixture inputs. Import them with the
+    // original main chain, rather than switching the physical index twice.
+    const divergentRecords = [
+      { ref: 'feat/recovery-delta', message: 'feature delta', file: 'feature.txt',
+        content: 'unique branch state\n', parent: 'from refs/heads/main\n' },
+      { ref: 'main', message: 'main-only delta', file: 'main-only.txt',
+        content: 'new main state\n', parent: '' }
+    ].map(({ ref, message, file, content, parent }, index) => (
+      `commit refs/heads/${ref}\ncommitter SEC Test <sec-test@example.invalid> ${1_700_000_016 + index} +0000\ndata ${Buffer.byteLength(message)}\n${message}\n${parent}M 100644 inline ${file}\ndata ${Buffer.byteLength(content)}\n${content}`
+    ));
+    git(repository, ['fast-import', '--quiet'], false,
+      ['feature done', ...importRecords, ...divergentRecords, 'done', ''].join('\n'));
+    // Restore only the final main worktree/index; the source tip remains a
+    // distinct native ref and object graph for the recovery effect.
     git(repository, ['reset', '--hard', 'main']);
-
-    git(repository, ['switch', '--quiet', '-c', 'feat/recovery-delta']);
-    writeFileSync(path.join(repository, 'feature.txt'), 'unique branch state\n', 'utf8');
-    git(repository, ['add', 'feature.txt']);
-    git(repository, ['commit', '--quiet', '-m', 'feature delta']);
-    git(repository, ['switch', '--quiet', 'main']);
-    writeFileSync(path.join(repository, 'main-only.txt'), 'new main state\n', 'utf8');
-    git(repository, ['add', 'main-only.txt']);
-    git(repository, ['commit', '--quiet', '-m', 'main-only delta']);
     const tipLines = git(repository, [
       'rev-parse', 'refs/heads/feat/recovery-delta', 'refs/heads/main'
     ]).stdout.trim().split('\n');
