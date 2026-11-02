@@ -109,25 +109,17 @@ function effectTemplate(): EffectTemplate {
     const repositoryRoot = path.join(root, 'repository');
     mkdirSync(repositoryRoot);
     git(repositoryRoot, ['init', '-b', 'main']);
-    // Only the immutable three-commit merge baseline is imported. Each later
-    // test receives an independent copied index, refs, worktree and recovery.
-    const commits = [
-      { ref: 'main', message: 'base', file: 'base.txt', bytes: 'base\n', ancestry: '' },
-      { ref: 'fix/example', message: 'feature', file: 'feature.txt', bytes: 'feature\n',
-        ancestry: 'from refs/heads/main\n' },
-      { ref: 'main', message: 'merge feature', file: 'feature.txt', bytes: 'feature\n',
-        ancestry: 'merge refs/heads/fix/example\n' }
-    ].map(({ ref, message, file, bytes, ancestry }, index) => [
-      `commit refs/heads/${ref}`,
-      `committer SEC Test <sec@example.invalid> ${1_700_000_000 + index} +0000`,
-      `data ${Buffer.byteLength(message)}`,
-      message,
-      `${ancestry}M 100644 inline ${file}`,
-      `data ${Buffer.byteLength(bytes)}`,
-      bytes
-    ].join('\n'));
-    git(repositoryRoot, ['fast-import', '--quiet'], ['feature done', ...commits, 'done', ''].join('\n'));
-    git(repositoryRoot, ['reset', '--hard', 'main']);
+    // Applied-journal retirement observes the native base-to-feature reflog
+    // transition, not only commit ancestry; retain checkout and commit here.
+    writeFileSync(path.join(repositoryRoot, 'base.txt'), 'base\n');
+    git(repositoryRoot, ['add', 'base.txt']);
+    git(repositoryRoot, ['commit', '-m', 'base']);
+    git(repositoryRoot, ['checkout', '-b', 'fix/example']);
+    writeFileSync(path.join(repositoryRoot, 'feature.txt'), 'feature\n');
+    git(repositoryRoot, ['add', 'feature.txt']);
+    git(repositoryRoot, ['commit', '-m', 'feature']);
+    git(repositoryRoot, ['checkout', 'main']);
+    git(repositoryRoot, ['merge', '--no-ff', 'fix/example', '-m', 'merge feature']);
     const identities = git(repositoryRoot, [
       'rev-parse', 'refs/heads/fix/example', 'HEAD',
       'refs/heads/fix/example^', 'refs/heads/fix/example^{tree}', 'HEAD^1', 'HEAD^2'
