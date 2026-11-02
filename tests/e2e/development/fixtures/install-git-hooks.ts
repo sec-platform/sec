@@ -243,21 +243,34 @@ let canonicalRemoteTemplate: Promise<string> | undefined;
 // Share only immutable pre-commit source/index. Each destination performs its
 // own native commit with the original message, then owns its refs and reflog.
 function sharedStagedManagedSourceTemplate(): Promise<string> {
-  return stagedSourceTemplate ??= preparedTemplateRoot('sec-hooks-staged-', async root => {
+  if (stagedSourceTemplate !== undefined) return stagedSourceTemplate;
+  const pending = preparedTemplateRoot('sec-hooks-staged-', async root => {
     git(root, ['init', '--quiet', '-b', 'main']);
     await prepareStagedManagedHookSource(root);
   });
+  stagedSourceTemplate = pending;
+  void pending.catch(() => {
+    if (stagedSourceTemplate === pending) stagedSourceTemplate = undefined;
+  });
+  return pending;
 }
 
 function defaultManagedRepositoryTemplate(): Promise<string> {
-  return defaultSourceTemplate ??= preparedTemplateRoot('sec-hooks-base-', async root => {
+  if (defaultSourceTemplate !== undefined) return defaultSourceTemplate;
+  const pending = preparedTemplateRoot('sec-hooks-base-', async root => {
     await cp(await sharedStagedManagedSourceTemplate(), root, { recursive: true });
     git(root, ['commit', '--quiet', '-m', 'managed hook fixture']);
   });
+  defaultSourceTemplate = pending;
+  void pending.catch(() => {
+    if (defaultSourceTemplate === pending) defaultSourceTemplate = undefined;
+  });
+  return pending;
 }
 
 function canonicalRemoteRepositoryTemplate(): Promise<string> {
-  return canonicalRemoteTemplate ??= preparedTemplateRoot('sec-hooks-remote-base-', async root => {
+  if (canonicalRemoteTemplate !== undefined) return canonicalRemoteTemplate;
+  const pending = preparedTemplateRoot('sec-hooks-remote-base-', async root => {
     const repository = path.join(root, 'repo');
     const remote = path.join(root, 'origin.git');
     await mkdir(repository);
@@ -269,6 +282,11 @@ function canonicalRemoteRepositoryTemplate(): Promise<string> {
     git(repository, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
     git(repository, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
   });
+  canonicalRemoteTemplate = pending;
+  void pending.catch(() => {
+    if (canonicalRemoteTemplate === pending) canonicalRemoteTemplate = undefined;
+  });
+  return pending;
 }
 
 afterAll(async () => {
