@@ -26,11 +26,9 @@ function sessionGitSeed(): SessionGitSeed {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-active-work-session-base-'));
   try {
     git(root, ['init', '--quiet', '--initial-branch=main']);
-    git(root, ['config', 'user.email', 'fixture@example.invalid']);
-    git(root, ['config', 'user.name', 'Fixture']);
     writeFileSync(path.join(root, 'README.md'), '# fixture\n');
     git(root, ['add', '.']);
-    git(root, ['commit', '--quiet', '-m', 'seed']);
+    git(root, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'seed']);
     const identities = git(root, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split(/\r?\n/u);
     if (identities.length !== 2 || identities.some(value =>
       !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value))) {
@@ -123,7 +121,7 @@ matchingDefaultBlob: none
           manifestDigest: CodexDevelopmentWorkPackageManifestDigest(bytes) as `sha256:${string}` },
         candidates: ['next-fixture-v1', 'last-fixture-v1'] }), reviewedOn: '2026-10-05'
     }));
-    put(manifest, bytes); git(root, ['add', '.']); git(root, ['commit', '--quiet', '-m', 'fixture control docs']);
+    put(manifest, bytes); git(root, ['add', '.']); git(root, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'fixture control docs']);
     const mainSha = active ? seedSha : git(root, ['rev-parse', 'HEAD']);
     git(root, ['update-ref', 'refs/remotes/origin/main', mainSha]);
     git(root, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);

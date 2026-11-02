@@ -25,11 +25,9 @@ test('hosted local ref consumer admits the native Git delete transaction', async
   await withRetainedBunTestCommands(root, async (run) => {
     mkdirSync(repositoryRoot);
     git(repositoryRoot, ['init', '-b', 'main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec@example.invalid']);
     writeFileSync(path.join(repositoryRoot, 'base.txt'), 'base\n');
     git(repositoryRoot, ['add', 'base.txt']);
-    git(repositoryRoot, ['commit', '-m', 'base']);
+    git(repositoryRoot, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec@example.invalid', 'commit', '-m', 'base']);
     const headSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     git(repositoryRoot, ['branch', 'feat/example']);
     const commonDir = path.join(repositoryRoot, '.git');

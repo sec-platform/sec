@@ -22,8 +22,6 @@ function git(root: string, args: string[]): string {
 
 async function prepareRepository(root: string): Promise<void> {
   git(root, ['init', '--quiet', '--initial-branch=main']);
-  git(root, ['config', 'user.name', 'SEC Tests']);
-  git(root, ['config', 'user.email', 'tests@example.com']);
   await mkdir(path.join(root, 'config/repository'), { recursive: true });
   await writeFile(path.join(root, 'config/repository/current-state.yaml'), `schema: sec-current-state-live-v1
 resolver:
@@ -38,7 +36,7 @@ stableFacts: {}
   await writeFile(path.join(root, 'owned.txt'), 'base\n');
   await writeFile(path.join(root, 'other.txt'), 'other\n');
   git(root, ['add', '.']);
-  git(root, ['commit', '--quiet', '-m', 'base']);
+  git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'base']);
   git(root, ['checkout', '--quiet', '-b', 'source-checkpoint']);
 }
 
@@ -157,7 +155,7 @@ test('source checkpoint refuses unowned staged, unstaged and untracked paths wit
 test('source checkpoint checks both rename endpoints and complete committed delta', async () => {
   await withFixture(async ({ root, request }) => {
     git(root, ['mv', 'other.txt', 'renamed.txt']);
-    git(root, ['commit', '--quiet', '-m', 'rename']);
+    git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'rename']);
     const expectedHead = git(root, ['rev-parse', 'HEAD']);
     const output = await resolveSourceCheckpointStatus(root, { ...request, expectedHead, ownedPaths: ['renamed.txt'] });
     expect(output.unownedPaths).toEqual(['other.txt']);
@@ -175,7 +173,7 @@ test('source checkpoint refuses detached/default refs and nonancestor base', asy
     expect((await resolveSourceCheckpointStatus(root, request)).blockers).toContain('detached-or-invalid-branch');
     git(root, ['checkout', '--quiet', 'source-checkpoint']);
     await writeFile(path.join(root, 'owned.txt'), 'future\n');
-    git(root, ['commit', '--quiet', '-m', 'future', '--', 'owned.txt']);
+    git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'future', '--', 'owned.txt']);
     const future = git(root, ['rev-parse', 'HEAD']);
     git(root, ['checkout', '--quiet', '-b', 'older-checkpoint', base]);
     expect((await resolveSourceCheckpointStatus(root, { ...request, base: future })).blockers).toContain('base-not-ancestor');
