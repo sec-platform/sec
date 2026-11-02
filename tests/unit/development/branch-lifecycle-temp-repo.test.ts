@@ -61,7 +61,7 @@ function buildRepositoryTemplate(): Readonly<{
   try {
     const remote = path.join(root, 'remote.git');
     const repository = path.join(root, 'repository');
-    git(root, ['init', '--bare', '--initial-branch=main', remote]);
+    git(root, ['init', '--bare', remote]);
     git(root, ['clone', remote, repository]);
     git(repository, ['config', '--local', 'fetch.prune', 'true']);
     git(repository, ['config', '--local', 'remote.origin.prune', 'true']);
@@ -69,6 +69,7 @@ function buildRepositoryTemplate(): Readonly<{
     writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
     git(repository, ['add', 'README.md']);
     git(repository, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '-m', 'initial main']);
+    git(repository, ['branch', '-M', 'main']);
     git(repository, ['push', '-u', 'origin', 'main']);
     const branch = 'feat/v6-closeout';
     git(repository, ['switch', '-c', branch]);
