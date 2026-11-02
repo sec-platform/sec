@@ -37,11 +37,12 @@ import {
   type ActiveWorkPackageOwnerObservation
 } from '../../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
 
-function git(cwd: string, args: readonly string[]): string {
+function git(cwd: string, args: readonly string[], input?: string): string {
   const result = spawnSync('git', [...args], {
     cwd,
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    ...(input === undefined ? {} : { input })
   });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
@@ -65,16 +66,23 @@ function buildRepositoryTemplate(): Readonly<{
     // Clone records the three immutable prune settings before the first fetch.
     git(root, ['clone', '-c', 'fetch.prune=true', '-c', 'remote.origin.prune=true',
       '-c', 'fetch.pruneTags=true', remote, repository]);
-    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-    git(repository, ['add', 'README.md']);
-    git(repository, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '-m', 'initial main']);
-    git(repository, ['branch', '-M', 'main']);
-    git(repository, ['push', '-u', 'origin', 'main']);
     const branch = 'feat/v6-closeout';
-    git(repository, ['switch', '-c', branch]);
-    writeFileSync(path.join(repository, 'candidate.txt'), 'candidate\n', 'utf8');
-    git(repository, ['add', 'candidate.txt']);
-    git(repository, ['-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid', 'commit', '-m', 'candidate']);
+    // Clone's unborn master carries its upstream configuration. Rename it
+    // before importing so the resulting main/feature tracking config matches
+    // normal native commits; the remote's unborn HEAD stays unchanged.
+    git(repository, ['branch', '-M', 'main']);
+    const importCommit = (ref: string, message: string, file: string, content: string, parent = '') =>
+      `commit refs/heads/${ref}\ncommitter SEC Test <sec-test@example.invalid> 1700000000 +0000\ndata ${Buffer.byteLength(message)}\n${message}\n${parent}M 100644 inline ${file}\ndata ${Buffer.byteLength(content)}\n${content}`;
+    // Only immutable committed history is imported. Each copied case retains
+    // its own refs, index, worktree, remote binding, effects and cleanup.
+    git(repository, ['fast-import', '--quiet'], [
+      'feature done',
+      importCommit('main', 'initial main', 'README.md', '# main\n'),
+      importCommit(branch, 'candidate', 'candidate.txt', 'candidate\n', 'from refs/heads/main\n'),
+      'done', ''
+    ].join('\n'));
+    git(repository, ['switch', branch]);
+    git(repository, ['push', '-u', 'origin', 'main']);
     git(repository, ['push', '-u', 'origin', branch]);
     const [mainSha, headSha] = git(repository, [
       'rev-parse', 'refs/heads/main', `refs/heads/${branch}`

@@ -155,7 +155,6 @@ function closeoutBase(options: CloseoutFixtureOptions): ImmutableCloseoutTemplat
     git(repository, ['remote', 'add', 'origin', remote]);
     git(repository, ['push', '-u', 'origin', 'main']);
     git(repository, ['remote', 'set-head', 'origin', 'main']);
-    git(repository, ['branch', 'codex/fixture']);
     // The pristine fixture branch and its commit/tree are immutable across
     // copied repositories. A test still registers its own native worktree;
     // any later test-owned commit is observed from that physical worktree.
@@ -183,7 +182,7 @@ function fixture(options: CloseoutFixtureOptions = {}) {
     cpSync(path.join(template.root, 'repository'), repository, { recursive: true });
     git(repository, ['remote', 'set-url', 'origin', remote]);
     const branch = 'codex/fixture';
-    git(repository, ['worktree', 'add', target, branch]);
+    git(repository, ['worktree', 'add', '-b', branch, target]);
     const { headSha, treeSha } = template;
     const recoveryAuthorityDigest = detailDigest('fixture-recovery');
     return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };

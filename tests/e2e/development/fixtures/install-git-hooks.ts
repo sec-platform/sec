@@ -249,10 +249,9 @@ function canonicalRemoteRepositoryTemplate(): Promise<string> {
     await mkdir(repository);
     git(repository, ['init', '--quiet', '-b', 'main']);
     await prepareManagedHookSource(repository, 'canonical remote fixture');
-    git(repository, ['init', '--bare', '--quiet', remote]);
+    git(repository, ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
     git(repository, ['remote', 'add', 'origin', remote]);
     git(repository, ['push', '--quiet', '--set-upstream', 'origin', 'main']);
-    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
     git(repository, ['fetch', '--quiet', 'origin']);
     git(repository, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
   });

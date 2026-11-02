@@ -73,9 +73,9 @@ test('real child death before terminal preserves durable recovery evidence witho
   let controller: AbortController | undefined;
   await settleWorkspaceCallback(async () => {
     executable = createRawTestExecutableFixture();
-    git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'core.autocrlf', 'false']);
-    writeFileSync(path.join(repository, 'a.txt'), 'a\n'); git(repository, ['add', '.']); git(repository, ['commit', '-m', 'base']); git(repository, ['remote', 'add', 'origin', remote]); git(repository, ['push', '-u', 'origin', 'main']); git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']); git(repository, ['remote', 'set-head', 'origin', 'main']);
-    const branch = 'codex/crash'; git(repository, ['branch', branch]); git(repository, ['worktree', 'add', target, branch]);
+    git(root, ['init', '--bare', '--initial-branch=main', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'core.autocrlf', 'false']);
+    writeFileSync(path.join(repository, 'a.txt'), 'a\n'); git(repository, ['add', '.']); git(repository, ['commit', '-m', 'base']); git(repository, ['remote', 'add', 'origin', remote]); git(repository, ['push', '-u', 'origin', 'main']); git(repository, ['remote', 'set-head', 'origin', 'main']);
+    const branch = 'codex/crash'; git(repository, ['worktree', 'add', '-b', branch, target]);
     // Keep a distinct tracked target commit. The child observes the durable
     // fence/terminal-pending checkpoint and pauses there; file count is not a
     // timing control for that lease-namespace transition.
