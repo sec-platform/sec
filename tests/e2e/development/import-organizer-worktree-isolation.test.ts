@@ -108,10 +108,9 @@ beforeAll(async () => {
   await writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8');
   git(repoRoot, ['add', '--all']);
   git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
-  // The source HEAD is immutable during both registrations. Each linked
-  // worktree still gets its own index, worktree state, and physical readback.
-  git(repoRoot, ['worktree', 'add', '--quiet', '--detach', worktreeA!, 'HEAD']);
-  git(repoRoot, ['worktree', 'add', '--quiet', '--detach', worktreeB!, 'HEAD']);
+  const head = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+  git(repoRoot, ['worktree', 'add', '--quiet', '--detach', worktreeA!, head]);
+  git(repoRoot, ['worktree', 'add', '--quiet', '--detach', worktreeB!, head]);
   const bIndexConfigured = git(worktreeB, ['rev-parse', '--git-path', 'index']).trim();
   worktreeBIndexPath = path.isAbsolute(bIndexConfigured) ? bIndexConfigured : path.resolve(worktreeB, bIndexConfigured);
 });
