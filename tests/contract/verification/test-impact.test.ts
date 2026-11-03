@@ -1,7 +1,7 @@
 import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -11,7 +11,7 @@ import { issueTestImpactProjection } from '../../../src/adapters/repository/sour
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
-import { classifyTestImpactSource } from '../../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
+import { classifyTestImpactSource, testImpactModuleIdsForSourceKind } from '../../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
 import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, selectTestsForSources } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 
 function git(root: string, args: readonly string[]): string {
@@ -49,6 +49,22 @@ function emptyGitTestImpactBase(): string {
   }
 }
 
+// Fresh ordinary Git fixtures write a loose branch ref on commit. Read its
+// full object ID directly instead of starting another native Git process.
+function committedFixtureHead(root: string): string {
+  const symbolicHead = readFileSync(path.join(root, '.git', 'HEAD'), 'utf8').trim();
+  if (!symbolicHead.startsWith('ref: refs/heads/')) {
+    throw new Error('Expected a symbolic fixture branch HEAD.');
+  }
+  const commitSha = readFileSync(
+    path.join(root, '.git', ...symbolicHead.slice(5).split('/')), 'utf8'
+  ).trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commitSha)) {
+    throw new Error('Expected one full loose fixture Git commit ID.');
+  }
+  return commitSha;
+}
+
 function sourceProvider(sources: Readonly<Record<string, string>>) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
   let primary: ResourceSettlementFailure | undefined;
@@ -69,7 +85,7 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
     git(root, ['-c', 'user.name=SEC Test Impact', '-c', 'user.email=test-impact@sec.invalid', 'commit', '--quiet', '-m', 'test-impact-fixture']);
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
       repositoryRoot: root,
-      commitSha: git(root, ['rev-parse', 'HEAD'])
+      commitSha: committedFixtureHead(root)
     });
     const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
     return createRepositoryTestImpactSourceProvider({
@@ -95,6 +111,8 @@ function expectUnique(values: readonly string[]): void {
 }
 
 test('repository sources route by semantic kind and module identity', () => {
+  // TypeScript uses executable import edges, not the non-code kind-to-owner map.
+  expect(testImpactModuleIdsForSourceKind('typescript')).toEqual([]);
   const activeDocumentationPath = (candidate: string) => candidate === 'config/repository/work-selection.md';
   expect(classifyTestImpactSource(
     'catalog/registry/official/ticket.basic/block.manifest.yaml',

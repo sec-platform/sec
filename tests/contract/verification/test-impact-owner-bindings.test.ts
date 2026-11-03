@@ -12,11 +12,11 @@ const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 
 // A stale kind-to-owner label must not silently turn a non-code change into
 // an empty selection after a directory/module migration.
-for (const kind of TEST_IMPACT_SOURCE_KINDS) {
+for (const kind of TEST_IMPACT_SOURCE_KINDS.filter(kind => kind !== 'typescript')) {
   test(`every ${kind} impact binding names an existing runtime module declaration`, () => {
     const owners = testImpactModuleIdsForSourceKind(kind);
     expect(new Set(owners).size).toBe(owners.length);
-    if (kind !== 'typescript') expect(owners.length).toBeGreaterThan(0);
+    expect(owners.length).toBeGreaterThan(0);
     for (const owner of owners) {
       const descriptor = path.join(repositoryRoot, 'src', ...owner.split('.'), 'module.json');
       expect(JSON.parse(readFileSync(descriptor, 'utf8')).importGraph).toBe('runtime');
