@@ -50,27 +50,42 @@ function gitCommitAndTree(root: string): readonly [string, string] {
   return objects as [string, string];
 }
 
+// The nine historical-retirement scenarios need nine *commit objects*, not nine
+// repeated preparations of the same immutable commit graph. No refs, indexes,
+// worktrees, journals or effect windows are shared between consumers.
+type MergedJournalHistory = Readonly<{
+  anchor: string;
+  targetBase: string;
+  targetStaged: string;
+  targetAnchor: string;
+  mainBase: string;
+  mainAfterTarget: string;
+  mainAfterAnchor: string;
+  unrelatedMain: string;
+  discardedMerge: string;
+}>;
+
 for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anchor-lost',
   'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
   'carrier-retained', 'carrier-rejected'] as const) {
   test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
-    const { root, baseCommitAndTree, stagedTree } = await fixture('sec-development-commit-', true);
+    const { root, baseCommitAndTree, stagedTree, mergedJournalHistory } = await fixture('sec-development-commit-', true);
+    if (mergedJournalHistory === undefined) throw new Error('Missing immutable merged-journal Git history');
     let harnessRoot: string | undefined;
     await settleWorkspaceCallback(async () => {
       const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
       harnessRoot = harness;
       const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
-      const [originalBase, baseTree] = baseCommitAndTree;
-      const base = mode === 'anchor-lost'
-        ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'separately adopted anchor'])
-        : originalBase;
+      const [originalBase] = baseCommitAndTree;
+      const base = mode === 'anchor-lost' ? mergedJournalHistory.anchor : originalBase;
       const changedTree = stagedTree;
       const reviewedDefault = mode === 'reviewed-superseded' || mode === 'reviewed-rejected';
       const retainedCarrier = mode === 'carrier-retained' || mode === 'carrier-rejected';
-      const target = git(root, ['commit-tree', mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
-        ? changedTree : baseTree, '-p', base, '-m', 'historical terminal attempt']);
-      const main = git(root, ['commit-tree', baseTree, '-p', mode === 'main-adopted' ? target : base,
-        '-m', 'later adopted main']);
+      const target = mode === 'anchor-lost' ? mergedJournalHistory.targetAnchor
+        : mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
+          ? mergedJournalHistory.targetStaged : mergedJournalHistory.targetBase;
+      const main = mode === 'anchor-lost' ? mergedJournalHistory.mainAfterAnchor
+        : mode === 'main-adopted' ? mergedJournalHistory.mainAfterTarget : mergedJournalHistory.mainBase;
       git(root, ['checkout', '--quiet', '--detach', main]);
       if (reviewedDefault) git(root, ['update-ref', 'refs/heads/main', main]);
       const journalPath = path.join(root, '.git', 'sec-development-commit', `${'1'.repeat(64)}.json`);
@@ -89,11 +104,8 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
         expect(writer.createExclusiveFsync(journalPath, source)).toBe(true);
       }
       // Only the anchor-loss case observes this independently rewritten main.
-      const unrelated = mode === 'anchor-lost'
-        ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'main without adoption anchor'])
-        : main;
-      const oldMerge = retainedCarrier
-        ? git(root, ['commit-tree', baseTree, '-m', 'merge discarded by default history rewrite']) : originalBase;
+      const unrelated = mode === 'anchor-lost' ? mergedJournalHistory.unrelatedMain : main;
+      const oldMerge = retainedCarrier ? mergedJournalHistory.discardedMerge : originalBase;
       const carrierRepository = path.join(harness, 'carrier.git');
       if (retainedCarrier) {
         git(root, ['init', '--quiet', '--bare', carrierRepository]);
@@ -242,6 +254,7 @@ type DevelopmentCommitTemplate = Readonly<{
   baseCommitAndTree: readonly [string, string];
   stagedTree: string;
   headRef: string;
+  mergedJournalHistory?: MergedJournalHistory;
 }>;
 let developmentCommitTemplate: Promise<DevelopmentCommitTemplate> | undefined;
 let developmentCommitOriginTemplate: Promise<DevelopmentCommitTemplate> | undefined;
@@ -315,15 +328,36 @@ function retainedDevelopmentCommitTemplate(): Promise<DevelopmentCommitTemplate>
   return pending;
 }
 
-// Nine native history-retirement cases need the same origin URL before their
-// distinct commit graphs and failure windows. Other cases keep the no-remote seed.
+// Only the object DAG is built once: commit-tree does not change refs, index,
+// worktree, or reflogs. Every copied consumer later performs its own checkout,
+// remote tracking, journal publication, child execution and cleanup.
+function createMergedJournalHistory(root: string, source: DevelopmentCommitTemplate): MergedJournalHistory {
+  const [originalBase, baseTree] = source.baseCommitAndTree;
+  const anchor = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'separately adopted anchor']);
+  const targetBase = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'historical terminal attempt']);
+  const targetStaged = git(root, ['commit-tree', source.stagedTree, '-p', originalBase, '-m', 'historical terminal attempt']);
+  const targetAnchor = git(root, ['commit-tree', baseTree, '-p', anchor, '-m', 'historical terminal attempt']);
+  const mainBase = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'later adopted main']);
+  const mainAfterTarget = git(root, ['commit-tree', baseTree, '-p', targetStaged, '-m', 'later adopted main']);
+  const mainAfterAnchor = git(root, ['commit-tree', baseTree, '-p', anchor, '-m', 'later adopted main']);
+  const unrelatedMain = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'main without adoption anchor']);
+  const discardedMerge = git(root, ['commit-tree', baseTree, '-m', 'merge discarded by default history rewrite']);
+  return Object.freeze({
+    anchor, targetBase, targetStaged, targetAnchor, mainBase,
+    mainAfterTarget, mainAfterAnchor, unrelatedMain, discardedMerge
+  });
+}
+
+// Nine native history-retirement cases need one fixed origin URL and immutable
+// unreferenced object DAG. Other cases keep the separate no-remote seed.
 async function createDevelopmentCommitOriginTemplate(): Promise<DevelopmentCommitTemplate> {
   const source = await retainedDevelopmentCommitTemplate();
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-origin-'));
   try {
     await cp(source.root, root, { recursive: true });
     git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
-    return Object.freeze({ ...source, root });
+    const mergedJournalHistory = createMergedJournalHistory(root, source);
+    return Object.freeze({ ...source, root, mergedJournalHistory });
   } catch (primary) {
     try { await rm(root, { recursive: true, force: true }); }
     catch (cleanup) {
@@ -365,6 +399,7 @@ async function fixture(prefix = 'sec-development-commit-', withOrigin = false): 
   baseCommitAndTree: readonly [string, string];
   stagedTree: string;
   headRef: string;
+  mergedJournalHistory?: MergedJournalHistory;
   request: DevelopmentCommitRequest;
 }>> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
@@ -378,6 +413,7 @@ async function fixture(prefix = 'sec-development-commit-', withOrigin = false): 
     baseCommitAndTree: source.baseCommitAndTree,
     stagedTree: source.stagedTree,
     headRef: source.headRef,
+    mergedJournalHistory: source.mergedJournalHistory,
     request: Object.freeze({
       repositoryRoot: path.resolve(root),
       message: 'apply staged candidate\n',
