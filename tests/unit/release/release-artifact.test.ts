@@ -1,6 +1,6 @@
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../testkit/workspace-cleanup.ts';
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import fs, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -113,6 +113,52 @@ async function initMinimalBunRepository(repositoryRoot: string, entrypointSource
   git(repositoryRoot, ['commit', '--quiet', '-m', 'initial']);
 }
 
+
+const BASELINE_RELEASE_ENTRYPOINT = 'console.log("fixture");\n';
+let installedReleaseRepositoryTemplate: Promise<string> | undefined;
+
+function releaseRepositoryTemplate(): Promise<string> {
+  if (installedReleaseRepositoryTemplate !== undefined) return installedReleaseRepositoryTemplate;
+  // One native install establishes the lockfile; per-case copies retain
+  // separate Git index, refs, worktree, source variation and cleanup.
+  installedReleaseRepositoryTemplate = (async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-release-source-template-'));
+    try {
+      await initMinimalBunRepository(root, BASELINE_RELEASE_ENTRYPOINT);
+      // Frozen release preparation reinstalls dependencies in its own root.
+      // Never copy file: links or package-manager installation state.
+      await rm(path.join(root, 'node_modules'), { recursive: true, force: true });
+      return root;
+    } catch (error) {
+      return settleWorkspaceCallback(
+        async () => { throw error; },
+        () => rm(root, { recursive: true, force: true })
+      );
+    }
+  })();
+  return installedReleaseRepositoryTemplate;
+}
+
+async function initIndependentMinimalBunRepository(
+  repositoryRoot: string,
+  entrypointSource: string
+): Promise<void> {
+  await fs.cp(await releaseRepositoryTemplate(), repositoryRoot, { recursive: true });
+  if (entrypointSource === BASELINE_RELEASE_ENTRYPOINT) return;
+  await fs.writeFile(
+    path.join(repositoryRoot, ...FIXTURE_ENTRYPOINT.source.split('/')),
+    entrypointSource
+  );
+  git(repositoryRoot, ['add', FIXTURE_ENTRYPOINT.source]);
+  git(repositoryRoot, ['commit', '--quiet', '-m', 'entrypoint variant']);
+}
+
+afterAll(async () => {
+  if (installedReleaseRepositoryTemplate === undefined) return;
+  const root = await installedReleaseRepositoryTemplate.catch(() => undefined);
+  if (root !== undefined) await rm(root, { recursive: true, force: true });
+});
+
 test('release runtime requirement rejects absent and mismatched Bun without a Node fallback', () => {
   const requirement = currentBuilder();
   for (const observedVersion of [null, '0.0.0']) {
@@ -165,7 +211,7 @@ test('Bun-target release bundle rejects a non-Bun source interpreter directive b
       () => rm(repositoryRoot, { recursive: true, force: true })));
   let sourceUseSettled = true;
   await settleWorkspaceCallback(async () => {
-    await initMinimalBunRepository(repositoryRoot, '#!/usr/bin/env node\nconsole.log("fixture");\n');
+    await initIndependentMinimalBunRepository(repositoryRoot, '#!/usr/bin/env node\nconsole.log("fixture");\n');
     sourceUseSettled = false;
     const frozen = await prepareFrozenReleaseSource(repositoryRoot);
     sourceUseSettled = true;
@@ -194,7 +240,7 @@ test('Bun-target release bundle consumes the exact frozen source and rejects lat
       () => rm(repositoryRoot, { recursive: true, force: true })));
   let sourceUseSettled = true;
   await settleWorkspaceCallback(async () => {
-    await initMinimalBunRepository(repositoryRoot, 'console.log("fixture");\n');
+    await initIndependentMinimalBunRepository(repositoryRoot, 'console.log("fixture");\n');
     const identityLines = git(repositoryRoot, ['rev-parse', 'HEAD', 'HEAD^{tree}']).split('\n');
     expect(identityLines).toHaveLength(2);
     const [expectedCommit, expectedTree] = identityLines as [string, string];
