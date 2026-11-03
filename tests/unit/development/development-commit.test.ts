@@ -76,7 +76,7 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
       const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
       harnessRoot = harness;
       const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
-      const [originalBase] = baseCommitAndTree;
+      const [originalBase, baseTree] = baseCommitAndTree;
       const base = mode === 'anchor-lost' ? mergedJournalHistory.anchor : originalBase;
       const changedTree = stagedTree;
       const reviewedDefault = mode === 'reviewed-superseded' || mode === 'reviewed-rejected';
