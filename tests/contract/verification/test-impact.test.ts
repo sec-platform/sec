@@ -1,7 +1,7 @@
 import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -49,29 +49,6 @@ function emptyGitTestImpactBase(): string {
   }
 }
 
-// Fresh ordinary Git fixtures write a loose branch ref on commit. Read its
-// full object ID directly instead of starting another native Git process.
-function committedFixtureHead(root: string): string {
-  const symbolicHead = readFileSync(path.join(root, '.git', 'HEAD'), 'utf8').trim();
-  if (!symbolicHead.startsWith('ref: refs/heads/')) {
-    throw new Error('Expected a symbolic fixture branch HEAD.');
-  }
-  let commitSha: string;
-  try {
-    commitSha = readFileSync(
-      path.join(root, '.git', ...symbolicHead.slice(5).split('/')), 'utf8'
-    ).trim();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    // The native repository may use reftable or packed refs instead.
-    commitSha = git(root, ['rev-parse', 'HEAD']);
-  }
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commitSha)) {
-    throw new Error('Expected one full loose fixture Git commit ID.');
-  }
-  return commitSha;
-}
-
 function sourceProvider(sources: Readonly<Record<string, string>>) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
   let primary: ResourceSettlementFailure | undefined;
@@ -92,7 +69,7 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
     git(root, ['-c', 'user.name=SEC Test Impact', '-c', 'user.email=test-impact@sec.invalid', 'commit', '--quiet', '-m', 'test-impact-fixture']);
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
       repositoryRoot: root,
-      commitSha: committedFixtureHead(root)
+      commitSha: git(root, ['rev-parse', 'HEAD'])
     });
     const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
     return createRepositoryTestImpactSourceProvider({

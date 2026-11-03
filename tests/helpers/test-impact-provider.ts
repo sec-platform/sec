@@ -153,27 +153,6 @@ function exactObjectId(value: string, label: string): string {
   return value;
 }
 
-// These fixture-owned repositories are ordinary Git init clones, and each
-// commit writes a full loose branch ref. Borrowed source repositories still
-// require Git's normal exact-revision verification elsewhere in this file.
-function committedFixtureHead(repositoryRoot: string): string {
-  const symbolicHead = readFileSync(path.join(repositoryRoot, '.git', 'HEAD'), 'utf8').trim();
-  if (!symbolicHead.startsWith('ref: refs/heads/')) {
-    throw new Error('Expected a symbolic TestImpact fixture branch HEAD.');
-  }
-  let commitSha: string;
-  try {
-    commitSha = readFileSync(
-      path.join(repositoryRoot, '.git', ...symbolicHead.slice(5).split('/')), 'utf8'
-    ).trim();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    // Reftable or packed refs still use the original native Git read path.
-    commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-  }
-  return exactObjectId(commitSha, 'TestImpact fixture HEAD');
-}
-
 function exactTestPaths(repositoryRoot: string, commitSha: string): readonly string[] {
   const bytes = gitBytes(repositoryRoot, [
     'ls-tree', '-r', '-z', '--name-only', '--full-tree', commitSha
@@ -318,7 +297,7 @@ export async function createRemovedDocumentationTestImpactFixture(
     })}\n`, 'utf8');
     git(repositoryRoot, ['add', '--all']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'TestImpact documentation base'], fixtureIdentityEnvironment());
-    const baseSha = committedFixtureHead(repositoryRoot);
+    const baseSha = exactObjectId(git(repositoryRoot, ['rev-parse', 'HEAD']), 'documentation base');
     const baseBlobSha = exactObjectId(
       git(repositoryRoot, ['rev-parse', `${baseSha}:${documentationPath}`]),
       'documentation blob'
@@ -326,7 +305,7 @@ export async function createRemovedDocumentationTestImpactFixture(
     unlinkSync(path.join(repositoryRoot, ...documentationPath.split('/')));
     git(repositoryRoot, ['add', '--all']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'Remove TestImpact documentation'], fixtureIdentityEnvironment());
-    const headSha = committedFixtureHead(repositoryRoot);
+    const headSha = exactObjectId(git(repositoryRoot, ['rev-parse', 'HEAD']), 'documentation head');
     if (descriptorChanged) {
       writeFileSync(
         path.join(repositoryRoot, ...descriptorPath.split('/')),

@@ -1,7 +1,7 @@
 import { settleResources, type ResourceSettlementFailure } from '../../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -64,20 +64,7 @@ test('observed local program edges continue through test helpers to runnable tes
     git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
     git(repositoryRoot, ['add', '--all']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
-    // One fresh commit after init(main) leaves a full loose branch ref.
-    let commitSha: string;
-    try {
-      commitSha = readFileSync(
-        path.join(repositoryRoot, '.git', 'refs', 'heads', 'main'), 'utf8'
-      ).trim();
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      // Fall back for a reftable/packed-ref Git fixture.
-      commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    }
-    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commitSha)) {
-      throw new Error('Expected one full fixture commit ID.');
-    }
+    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({ repositoryRoot, commitSha });
     const compilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot, repositoryRoot });
     const provider = createRepositoryTestImpactSourceProvider({
