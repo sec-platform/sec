@@ -101,6 +101,7 @@ function buildRepositoryTemplate(): Readonly<{
 // Only the original committed Git graph is reused. Copy both native repos,
 // rebind the remote to this case and retain independent indexes and refs.
 let nativeRepositoryTemplate: ReturnType<typeof buildRepositoryTemplate> | undefined;
+let compiledGitHubShimTemplate: Readonly<{ root: string; executable: string }> | undefined;
 
 function repositoryFixture(): ReturnType<typeof buildRepositoryTemplate> {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-lifecycle-v6-'));
@@ -126,7 +127,7 @@ function repositoryFixture(): ReturnType<typeof buildRepositoryTemplate> {
 
 afterAll(() => {
   const failures: unknown[] = [];
-  for (const fixture of [nativeRepositoryTemplate]) {
+  for (const fixture of [compiledGitHubShimTemplate, nativeRepositoryTemplate]) {
     if (fixture === undefined) continue;
     try { rmSync(fixture.root, { recursive: true, force: true }); }
     catch (error) { failures.push(error); }
@@ -167,6 +168,31 @@ function noActiveWorkObservation(
   });
 }
 
+// The compiled Windows shim is an immutable input. Each case still receives
+// its own executable path, independent response bytes and cleanup window.
+function compiledGitHubShim(program: string): string {
+  if (compiledGitHubShimTemplate !== undefined) return compiledGitHubShimTemplate.executable;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-gh-compiled-base-'));
+  const source = path.join(root, 'gh-shim.ts');
+  const executable = path.join(root, 'gh.exe');
+  try {
+    writeFileSync(source, readFileSync(program, 'utf8'), 'utf8');
+    const compiled = spawnSync('bun', ['build', '--compile', source, '--outfile', executable],
+      { cwd: root, encoding: 'utf8', windowsHide: true });
+    if (compiled.status !== 0) {
+      throw new Error(`cannot compile bounded gh.exe test shim: ${compiled.stderr || compiled.stdout}`);
+    }
+    compiledGitHubShimTemplate = Object.freeze({ root, executable });
+    return executable;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'GitHub shim preparation and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
 function installGitHubObservationShim(
   fixture: ReturnType<typeof repositoryFixture>,
   pullRequests: readonly Readonly<Record<string, unknown>>[] = [],
@@ -175,9 +201,14 @@ function installGitHubObservationShim(
   const shimRoot = path.join(fixture.root, 'command-shims');
   mkdirSync(shimRoot, { recursive: true });
   const program = path.join(shimRoot, 'gh-shim.ts');
+  // Compiled executables read case data beside their copied executable.
+  // The generated Windows program is byte-identical for all six acquisitions.
+  const caseConfiguration = process.platform === 'win32'
+    ? "JSON.parse(require('node:fs').readFileSync(require('node:path').join(require('node:path').dirname(process.execPath), 'gh-shim-data.json'), 'utf8'))"
+    : JSON.stringify({ apiResponses, pullRequests });
   writeFileSync(program, `
 const args = process.argv.slice(2);
-const apiResponses = ${JSON.stringify(apiResponses)};
+const { apiResponses, pullRequests } = ${caseConfiguration};
 const endpoint = args.find(arg => arg.startsWith('/repos/'));
 if (args[0] === 'api' && Object.hasOwn(apiResponses, endpoint)) {
   if (args.includes('--jq')) throw new Error('paired permission response must remain intact');
@@ -185,7 +216,7 @@ if (args[0] === 'api' && Object.hasOwn(apiResponses, endpoint)) {
   process.exit(0);
 }
 if (args[0] === 'pr' && args[1] === 'list') {
-  process.stdout.write(${JSON.stringify(JSON.stringify(pullRequests))});
+  process.stdout.write(JSON.stringify(pullRequests));
   process.exit(0);
 }
 if (args[0] === 'api' && args[1] === '/repos/sec-platform/sec') {
@@ -200,16 +231,9 @@ process.stderr.write('unsupported test gh observation: ' + args.join(' '));
 process.exit(1);
 `, 'utf8');
   if (process.platform === 'win32') {
-    const compiled = spawnSync('bun', [
-      'build',
-      '--compile',
-      program,
-      '--outfile',
-      path.join(shimRoot, 'gh.exe')
-    ], { cwd: shimRoot, encoding: 'utf8', windowsHide: true });
-    if (compiled.status !== 0) {
-      throw new Error(`cannot compile bounded gh.exe test shim: ${compiled.stderr || compiled.stdout}`);
-    }
+    writeFileSync(path.join(shimRoot, 'gh-shim-data.json'),
+      JSON.stringify({ apiResponses, pullRequests }), 'utf8');
+    cpSync(compiledGitHubShim(program), path.join(shimRoot, 'gh.exe'));
   } else {
     const shellShim = path.join(shimRoot, 'gh');
     writeFileSync(shellShim, `#!/usr/bin/env sh\nexec bun "$(dirname "$0")/gh-shim.ts" "$@"\n`, 'utf8');
