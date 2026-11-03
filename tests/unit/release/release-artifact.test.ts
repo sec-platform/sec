@@ -121,7 +121,7 @@ function releaseRepositoryTemplate(): Promise<string> {
   if (installedReleaseRepositoryTemplate !== undefined) return installedReleaseRepositoryTemplate;
   // One native install establishes the lockfile; per-case copies retain
   // separate Git index, refs, worktree, source variation and cleanup.
-  installedReleaseRepositoryTemplate = (async () => {
+  const preparing = (async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-release-source-template-'));
     try {
       await initMinimalBunRepository(root, BASELINE_RELEASE_ENTRYPOINT);
@@ -136,7 +136,12 @@ function releaseRepositoryTemplate(): Promise<string> {
       );
     }
   })();
-  return installedReleaseRepositoryTemplate;
+  const retained = preparing.catch(error => {
+    if (installedReleaseRepositoryTemplate === retained) installedReleaseRepositoryTemplate = undefined;
+    throw error;
+  });
+  installedReleaseRepositoryTemplate = retained;
+  return retained;
 }
 
 async function initIndependentMinimalBunRepository(
