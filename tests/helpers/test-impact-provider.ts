@@ -161,12 +161,17 @@ function committedFixtureHead(repositoryRoot: string): string {
   if (!symbolicHead.startsWith('ref: refs/heads/')) {
     throw new Error('Expected a symbolic TestImpact fixture branch HEAD.');
   }
-  return exactObjectId(
-    readFileSync(
+  let commitSha: string;
+  try {
+    commitSha = readFileSync(
       path.join(repositoryRoot, '.git', ...symbolicHead.slice(5).split('/')), 'utf8'
-    ).trim(),
-    'TestImpact fixture HEAD'
-  );
+    ).trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // Reftable or packed refs still use the original native Git read path.
+    commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+  }
+  return exactObjectId(commitSha, 'TestImpact fixture HEAD');
 }
 
 function exactTestPaths(repositoryRoot: string, commitSha: string): readonly string[] {

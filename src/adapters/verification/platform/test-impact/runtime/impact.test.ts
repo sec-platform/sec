@@ -65,9 +65,16 @@ test('observed local program edges continue through test helpers to runnable tes
     git(repositoryRoot, ['add', '--all']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
     // One fresh commit after init(main) leaves a full loose branch ref.
-    const commitSha = readFileSync(
-      path.join(repositoryRoot, '.git', 'refs', 'heads', 'main'), 'utf8'
-    ).trim();
+    let commitSha: string;
+    try {
+      commitSha = readFileSync(
+        path.join(repositoryRoot, '.git', 'refs', 'heads', 'main'), 'utf8'
+      ).trim();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      // Fall back for a reftable/packed-ref Git fixture.
+      commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    }
     if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commitSha)) {
       throw new Error('Expected one full fixture commit ID.');
     }

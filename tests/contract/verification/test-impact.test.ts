@@ -56,9 +56,16 @@ function committedFixtureHead(root: string): string {
   if (!symbolicHead.startsWith('ref: refs/heads/')) {
     throw new Error('Expected a symbolic fixture branch HEAD.');
   }
-  const commitSha = readFileSync(
-    path.join(root, '.git', ...symbolicHead.slice(5).split('/')), 'utf8'
-  ).trim();
+  let commitSha: string;
+  try {
+    commitSha = readFileSync(
+      path.join(root, '.git', ...symbolicHead.slice(5).split('/')), 'utf8'
+    ).trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // The native repository may use reftable or packed refs instead.
+    commitSha = git(root, ['rev-parse', 'HEAD']);
+  }
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commitSha)) {
     throw new Error('Expected one full loose fixture Git commit ID.');
   }
