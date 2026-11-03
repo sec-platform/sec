@@ -201,6 +201,14 @@ function initializedTestImpactGitBase(): string {
 
 afterAll(() => {
   const failures: unknown[] = [];
+  // All immutable documentation histories are settled independently of the
+  // empty Git seeds, even if one physical cleanup fails.
+  for (const [key, template] of removedDocumentationGitBases) {
+    try {
+      rmSync(template.ownerRoot, { recursive: true, force: true });
+      removedDocumentationGitBases.delete(key);
+    } catch (error) { failures.push(error); }
+  }
   for (const [key, root] of testImpactGitInitBases) {
     try {
       rmSync(root, { recursive: true, force: true });
@@ -261,67 +269,132 @@ function writeRunnerProgram(repositoryRoot: string, testPaths: readonly string[]
   })}\n`, 'utf8');
 }
 
+type RemovedDocumentationGitHistory = Readonly<{
+  baseSha: string;
+  baseBlobSha: string;
+  headSha: string;
+}>;
+
+type RemovedDocumentationGitBase = RemovedDocumentationGitHistory & Readonly<{
+  ownerRoot: string;
+  repositoryRoot: string;
+}>;
+
+// Only the completed immutable source/removal commits are shared. Each
+// TestImpact consumer owns a copy of its Git index, refs, worktree, Git read
+// session, optional descriptor mutation, compilation and cleanup.
+const removedDocumentationGitBases = new Map<string, RemovedDocumentationGitBase>();
+const removedDocumentationPath = 'src/adapters/providers/docker/README.md';
+const removedDocumentationDescriptorPath = 'src/adapters/providers/docker/module.json';
+
+function prepareRemovedDocumentationGitHistory(
+  repositoryRoot: string,
+  descriptorSource: string,
+  includeConsumer: boolean
+): RemovedDocumentationGitHistory {
+  initializeFixtureRepository(repositoryRoot);
+  const sources = new Map<string, string>([
+    [removedDocumentationDescriptorPath, descriptorSource],
+    ['src/adapters/providers/docker/runtime/fixture.ts', 'export const dockerFixture = true;\n'],
+    [removedDocumentationPath, '# Docker fixture\n']
+  ]);
+  if (includeConsumer) {
+    sources.set('tests/unit/verification/trusted-runtime-container.test.ts', [
+      "import { test } from 'bun:test';",
+      "import { dockerFixture } from '../../../src/adapters/providers/docker/runtime/fixture.ts';",
+      "test('docker owner', () => { if (!dockerFixture) throw new Error(); });",
+      ''
+    ].join('\n'));
+  }
+  for (const [repositoryPath, source] of sources) {
+    const target = path.join(repositoryRoot, ...repositoryPath.split('/'));
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, source, 'utf8');
+  }
+  writeFileSync(path.join(repositoryRoot, 'tsconfig.json'), `${JSON.stringify({
+    compilerOptions: { noEmit: true, strict: true },
+    include: ['src/**/*.ts', 'tests/**/*.ts']
+  })}\n`, 'utf8');
+  git(repositoryRoot, ['add', '--all']);
+  git(repositoryRoot, ['commit', '--quiet', '-m', 'TestImpact documentation base'], fixtureIdentityEnvironment());
+  // Resolve both exact objects with native Git: packed-refs, reftable and
+  // SHA-256 repositories must not depend on loose-ref filesystem layout.
+  const identities = git(repositoryRoot, [
+    'rev-parse', 'HEAD', `HEAD:${removedDocumentationPath}`
+  ]).split(/\r?\n/u);
+  if (identities.length !== 2) throw new Error('Expected exact documentation commit and blob');
+  const [baseSha, baseBlobSha] = identities.map((value) =>
+    exactObjectId(value, 'documentation base object')) as [string, string];
+  unlinkSync(path.join(repositoryRoot, ...removedDocumentationPath.split('/')));
+  git(repositoryRoot, ['add', '--all']);
+  git(repositoryRoot, ['commit', '--quiet', '-m', 'Remove TestImpact documentation'], fixtureIdentityEnvironment());
+  const headSha = exactObjectId(git(repositoryRoot, ['rev-parse', 'HEAD']), 'documentation head');
+  return Object.freeze({ baseSha, baseBlobSha, headSha });
+}
+
+function retainedRemovedDocumentationGitBase(
+  sourceRepositoryRoot: string,
+  descriptorSource: string
+): RemovedDocumentationGitBase {
+  // The descriptor bytes and current isolated Git seed are part of the
+  // template identity: a different checkout or Git environment builds anew.
+  const key = JSON.stringify([
+    sourceRepositoryRoot, descriptorSource, initializedTestImpactGitBase()
+  ]);
+  const existing = removedDocumentationGitBases.get(key);
+  if (existing !== undefined) return existing;
+  const ownerRoot = mkdtempSync(path.join(tmpdir(), 'sec-test-impact-doc-base-'));
+  const repositoryRoot = path.join(ownerRoot, 'repository');
+  try {
+    const history = prepareRemovedDocumentationGitHistory(repositoryRoot, descriptorSource, true);
+    const template = Object.freeze({ ...history, ownerRoot, repositoryRoot });
+    removedDocumentationGitBases.set(key, template);
+    return template;
+  } catch (primary) {
+    settleResources({ primary: { label: 'documentation Git base preparation', error: primary },
+      cleanup: [{ label: 'documentation Git base cleanup',
+        settle: () => rmSync(ownerRoot, { recursive: true, force: true }) }] });
+    throw primary;
+  }
+}
+
 export async function createRemovedDocumentationTestImpactFixture(
   descriptorChanged = false,
   includeConsumer = true
 ): Promise<RemovedDocumentationTestImpactFixture> {
-  const sourceRepositoryRoot = process.cwd();
+  const sourceRepositoryRoot = path.resolve(process.cwd());
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), FIXTURE_ROOT_PREFIX));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
-  const documentationPath = 'src/adapters/providers/docker/README.md';
-  const descriptorPath = 'src/adapters/providers/docker/module.json';
   try {
-    initializeFixtureRepository(repositoryRoot);
-    const sources = new Map<string, string>([
-      [descriptorPath, readFileSync(path.join(sourceRepositoryRoot, ...descriptorPath.split('/')), 'utf8')],
-      ['src/adapters/providers/docker/runtime/fixture.ts', 'export const dockerFixture = true;\n'],
-      [documentationPath, '# Docker fixture\n']
-    ]);
-    if (includeConsumer) {
-      sources.set('tests/unit/verification/trusted-runtime-container.test.ts', [
-        "import { test } from 'bun:test';",
-        "import { dockerFixture } from '../../../src/adapters/providers/docker/runtime/fixture.ts';",
-        "test('docker owner', () => { if (!dockerFixture) throw new Error(); });",
-        ''
-      ].join('\n'));
-    }
-    for (const [repositoryPath, source] of sources) {
-      const target = path.join(repositoryRoot, ...repositoryPath.split('/'));
-      mkdirSync(path.dirname(target), { recursive: true });
-      writeFileSync(target, source, 'utf8');
-    }
-    writeFileSync(path.join(repositoryRoot, 'tsconfig.json'), `${JSON.stringify({
-      compilerOptions: { noEmit: true, strict: true },
-      include: ['src/**/*.ts', 'tests/**/*.ts']
-    })}\n`, 'utf8');
-    git(repositoryRoot, ['add', '--all']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'TestImpact documentation base'], fixtureIdentityEnvironment());
-    const baseSha = exactObjectId(git(repositoryRoot, ['rev-parse', 'HEAD']), 'documentation base');
-    const baseBlobSha = exactObjectId(
-      git(repositoryRoot, ['rev-parse', `${baseSha}:${documentationPath}`]),
-      'documentation blob'
+    const descriptorSource = readFileSync(
+      path.join(sourceRepositoryRoot, ...removedDocumentationDescriptorPath.split('/')), 'utf8'
     );
-    unlinkSync(path.join(repositoryRoot, ...documentationPath.split('/')));
-    git(repositoryRoot, ['add', '--all']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'Remove TestImpact documentation'], fixtureIdentityEnvironment());
-    const headSha = exactObjectId(git(repositoryRoot, ['rev-parse', 'HEAD']), 'documentation head');
+    let history: RemovedDocumentationGitHistory;
+    if (includeConsumer) {
+      const template = retainedRemovedDocumentationGitBase(sourceRepositoryRoot, descriptorSource);
+      cpSync(template.repositoryRoot, repositoryRoot, { recursive: true });
+      history = template;
+    } else {
+      // Missing-consumer is a genuinely different committed source tree.
+      // It cannot inherit a template with a runnable consumer.
+      history = prepareRemovedDocumentationGitHistory(repositoryRoot, descriptorSource, false);
+    }
     if (descriptorChanged) {
       writeFileSync(
-        path.join(repositoryRoot, ...descriptorPath.split('/')),
-        `${sources.get(descriptorPath)!}\n`,
-        'utf8'
+        path.join(repositoryRoot, ...removedDocumentationDescriptorPath.split('/')),
+        `${descriptorSource}\n`, 'utf8'
       );
-      git(repositoryRoot, ['add', '--', descriptorPath]);
+      git(repositoryRoot, ['add', '--', removedDocumentationDescriptorPath]);
     }
-    const records = Object.freeze([{ status: 'removed' as const, path: documentationPath }]);
+    const records = Object.freeze([{ status: 'removed' as const, path: removedDocumentationPath }]);
     const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
-      baseSha,
-      headSha,
+      baseSha: history.baseSha,
+      headSha: history.headSha,
       records,
       readPathBlob: (revision, repositoryPath) => (
-        revision === baseSha && repositoryPath === documentationPath
-          ? { mode: '100644', blobSha: baseBlobSha }
+        revision === history.baseSha && repositoryPath === removedDocumentationPath
+          ? { mode: '100644', blobSha: history.baseBlobSha }
           : null
       )
     });
@@ -335,7 +408,7 @@ export async function createRemovedDocumentationTestImpactFixture(
         }),
         repositoryRoot,
         session,
-        baseRef: baseSha
+        baseRef: history.baseSha
       });
     });
     if (affectedSource === null) throw new Error('Removed documentation TestImpact source was unavailable.');
