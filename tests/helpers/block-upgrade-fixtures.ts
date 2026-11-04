@@ -10,7 +10,7 @@ import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
 import { readYaml, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { PlanFile } from '../../src/compiler/contract.ts';
-import { createWorkspace } from '../testkit/workspace.ts';
+import { copyWorkspaceFixture, createWorkspace } from '../testkit/workspace.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
 
@@ -105,7 +105,7 @@ export async function withBlockUpgradeDryRunFixture<T>(
   }, () => fs.rm(context.workspaceRoot, { recursive: true, force: true }));
 }
 
-export async function writeBlockUpgradeFixture(workspaceRoot: string): Promise<void> {
+async function materializeFreshBlockUpgradeSeed(workspaceRoot: string): Promise<void> {
   await ensureCanonicalWorkspaceArtifactParents(workspaceRoot);
   const paths = getWorkspacePaths(workspaceRoot);
   const blockId = 'private/block-upgrade';
@@ -157,4 +157,42 @@ export async function writeBlockUpgradeFixture(workspaceRoot: string): Promise<v
   const lock = await resolveGraph(workspaceRoot, plan);
   await defaultInstallRegistry.executeAll(lock.installPlan, { workspaceRoot, lock });
   await writeJson(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock), lock);
+}
+
+/**
+ * The fixture is a fixed pre-upgrade snapshot: the resolved lock stores
+ * workspace-relative paths and the install actions only copy baseline files.
+ * Complete that expensive preparation once per test process. Copies are owned
+ * by the caller; neither subsequent migration effects nor recovery state may
+ * ever be written back into this seed.
+ */
+let blockUpgradeSeedPreparation: Promise<string> | undefined;
+
+async function immutableBlockUpgradeSeed(): Promise<string> {
+  if (blockUpgradeSeedPreparation === undefined) {
+    const preparation = (async () => {
+      const seedRoot = await createWorkspace('engineering-compiler-block-upgrade-seed-');
+      try {
+        await materializeFreshBlockUpgradeSeed(seedRoot);
+        return seedRoot;
+      } catch (error) {
+        return settleWorkspaceCallback(
+          async () => { throw error; },
+          () => fs.rm(seedRoot, { recursive: true, force: true })
+        );
+      }
+    })();
+    blockUpgradeSeedPreparation = preparation;
+    // Failed setup must not poison future consumers or expose a partial seed.
+    void preparation.catch(() => {
+      if (blockUpgradeSeedPreparation === preparation) blockUpgradeSeedPreparation = undefined;
+    });
+  }
+  return blockUpgradeSeedPreparation;
+}
+
+export async function writeBlockUpgradeFixture(workspaceRoot: string): Promise<void> {
+  // A fresh physical copy owns its lock, installed files and later effects.
+  // The tested upgrade, journal and recovery still run in this caller's root.
+  await copyWorkspaceFixture(await immutableBlockUpgradeSeed(), workspaceRoot);
 }
