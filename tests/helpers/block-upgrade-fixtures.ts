@@ -195,4 +195,5 @@ export async function writeBlockUpgradeFixture(workspaceRoot: string): Promise<v
   // A fresh physical copy owns its lock, installed files and later effects.
   // The tested upgrade, journal and recovery still run in this caller's root.
   await copyWorkspaceFixture(await immutableBlockUpgradeSeed(), workspaceRoot);
+  await ensureCanonicalWorkspaceArtifactParents(workspaceRoot);
 }
