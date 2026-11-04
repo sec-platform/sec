@@ -45,14 +45,15 @@ for (const phase of ['async-read', 'format']) {
   });
 }
 
-test('captured output cannot be changed across a domain await', async () => {
+test('captured JSON output cannot be changed across a domain await', async () => {
   const root = program(); let finish!: () => void;
   const held = new Promise<void>(resolve => { finish = resolve; });
-  const readers = { freeze: async () => { await held; return commandValue(7, () => assert.fail('text output changed')); } };
+  // JSON and text must differ: a scalar 7 would render identically in both modes.
+  const readers = { freeze: async () => { await held; return commandValue({ status: 'captured' }, () => assert.fail('text renderer ran after JSON was captured')); } };
   const command = registerNamedInspectionQuery(root.command('contract'), readers);
   const lines = await capture(async () => {
     const run = root.parseAsync(['contract', 'freeze', '--json'], { from: 'user' });
     command.setOptionValue('json', false); finish(); await run;
   });
-  assert.deepEqual(lines, ['7']);
+  assert.deepEqual(lines, ['{\n  "status": "captured"\n}']);
 });
