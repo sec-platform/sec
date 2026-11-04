@@ -226,7 +226,6 @@ for (const localOutputs of ['absent', 'corrupt'] as const) {
       const target = path.join(root, 'staging');
       await fs.mkdir(target);
       const contract = await materializeDocumentationPackage(root, target);
-      expect((await readDocumentationSource(target)).sourceSetSha256).toBe(contract.sourceSetSha256);
       const requirements = JSON.parse(await fs.readFile(path.join(target, DOCUMENTATION_REQUIREMENTS), 'utf8'));
       expect(requirements.items).toHaveLength(1);
       expect(requirements.items[0]).toEqual({
@@ -235,15 +234,17 @@ for (const localOutputs of ['absent', 'corrupt'] as const) {
       });
       const files = [...contract.members, { path: DOCUMENTATION_SOURCE_MANIFEST }, { path: DOCUMENTATION_REQUIREMENTS }];
       await assertDocumentationSourceReadback(target, `sha256:${contract.sourceSetSha256}`, files);
-      await fs.writeFile(path.join(target, DOCUMENTATION_REQUIREMENTS), JSON.stringify({ ...requirements, items: [] }));
-      await expect(assertDocumentationSourceReadback(target, `sha256:${contract.sourceSetSha256}`, files))
-        .rejects.toThrow('Requirement projection is stale or malformed');
-      await fs.unlink(path.join(target, DOCUMENTATION_REQUIREMENTS));
-      await expect(assertDocumentationSourceReadback(target, `sha256:${contract.sourceSetSha256}`, files))
-        .rejects.toThrow('Requirement projection is stale or malformed');
-      await fs.unlink(path.join(target, DOCUMENTATION_SOURCE_MANIFEST));
-      await expect(readDocumentationSource(target)).rejects.toThrow();
       if (localOutputs === 'absent') {
+        // Both inputs produce the same sealed package. Exercise its tamper
+        // rejection once; the readback above binds each materialization.
+        await fs.writeFile(path.join(target, DOCUMENTATION_REQUIREMENTS), JSON.stringify({ ...requirements, items: [] }));
+        await expect(assertDocumentationSourceReadback(target, `sha256:${contract.sourceSetSha256}`, files))
+          .rejects.toThrow('Requirement projection is stale or malformed');
+        await fs.unlink(path.join(target, DOCUMENTATION_REQUIREMENTS));
+        await expect(assertDocumentationSourceReadback(target, `sha256:${contract.sourceSetSha256}`, files))
+          .rejects.toThrow('Requirement projection is stale or malformed');
+        await fs.unlink(path.join(target, DOCUMENTATION_SOURCE_MANIFEST));
+        await expect(readDocumentationSource(target)).rejects.toThrow();
         await expect(fs.lstat(path.join(root, DOCUMENTATION_SOURCE_MANIFEST))).rejects.toMatchObject({ code: 'ENOENT' });
         await expect(fs.lstat(path.join(root, DOCUMENTATION_REQUIREMENTS))).rejects.toMatchObject({ code: 'ENOENT' });
       } else {
