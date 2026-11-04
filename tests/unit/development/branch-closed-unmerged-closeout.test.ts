@@ -1,7 +1,7 @@
 import { settleWorkspaceCallbackSync } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { BranchLifecycleInventory, PreparedBranchCloseoutEnvelope } from '../../../src/execution/verification/branch-closeout.ts';
@@ -48,6 +48,19 @@ function git(root: string, args: readonly string[], input?: string): string {
   });
   if (result.status !== 0) throw new Error(result.stderr.trim());
   return result.stdout.trim();
+}
+
+function withIndependentNativeRepository(use: (nativeRoot: string) => void): void {
+  const ownerRoot = mkdtempSync(path.join(tmpdir(), 'sec-closed-unmerged-native-'));
+  settleWorkspaceCallbackSync(() => {
+    const nativeRoot = path.join(ownerRoot, 'repository');
+    // A regular single-worktree Git seed is safe to copy; no live linked
+    // worktrees, refs effects or recovery receipts cross into the consumer.
+    cpSync(repositoryRoot, nativeRoot, { recursive: true });
+    use(nativeRoot);
+  }, () => {
+    rmSync(ownerRoot, { recursive: true, force: true });
+  });
 }
 
 beforeAll(async () => {
@@ -437,39 +450,43 @@ describe('closed-unmerged branch lifecycle operation', () => {
   });
 
   test('native ancestor recovery refuses a divergent branch', () => {
-    git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', MAIN_SHA]);
-    const before = inventory();
-    before.repository.root = repositoryRoot;
-    before.repository.commonDir = path.join(repositoryRoot, '.git');
-    before.worktrees[0]!.path = repositoryRoot;
-    const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-absorption-'));
-    settleWorkspaceCallbackSync(() => {
-      expect(() => createMainAbsorptionRecovery({
-        inventory: before, branch: BRANCH, expectedSha: HEAD_SHA,
-        mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
-      })).toThrow('Retired source is not an ancestor of absorbing main.');
-    }, () => { rmSync(recoveryRoot, { recursive: true, force: true }); });
+    withIndependentNativeRepository((nativeRoot) => {
+      git(nativeRoot, ['update-ref', 'refs/remotes/origin/main', MAIN_SHA]);
+      const before = inventory();
+      before.repository.root = nativeRoot;
+      before.repository.commonDir = path.join(nativeRoot, '.git');
+      before.worktrees[0]!.path = nativeRoot;
+      const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-absorption-'));
+      settleWorkspaceCallbackSync(() => {
+        expect(() => createMainAbsorptionRecovery({
+          inventory: before, branch: BRANCH, expectedSha: HEAD_SHA,
+          mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
+        })).toThrow('Retired source is not an ancestor of absorbing main.');
+      }, () => { rmSync(recoveryRoot, { recursive: true, force: true }); });
+    });
   });
 
   test('identical tree proves absorption across divergent commit history and detects proof mutation', () => {
-    git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', MAIN_SHA]);
-    const equivalentSha = git(repositoryRoot, [
-      'commit-tree', MAIN_TREE, '-p', BASE_SHA, '-m', 'equivalent history'
-    ]);
-    const before = inventory();
-    before.repository.root = repositoryRoot;
-    before.repository.commonDir = path.join(repositoryRoot, '.git');
-    before.worktrees[0]!.path = repositoryRoot;
-    const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-identical-absorption-'));
-    settleWorkspaceCallbackSync(() => {
-      const { recovery } = createMainAbsorptionRecovery({
-        inventory: before, branch: BRANCH, expectedSha: equivalentSha,
-        mainSha: MAIN_SHA, basis: 'identical-tree', recoveryRoot
-      });
-      expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('success');
-      writeFileSync(recovery.path, 'altered proof\n', 'utf8');
-      expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('failed');
-    }, () => { rmSync(recoveryRoot, { recursive: true, force: true }); });
+    withIndependentNativeRepository((nativeRoot) => {
+      git(nativeRoot, ['update-ref', 'refs/remotes/origin/main', MAIN_SHA]);
+      const equivalentSha = git(nativeRoot, [
+        'commit-tree', MAIN_TREE, '-p', BASE_SHA, '-m', 'equivalent history'
+      ]);
+      const before = inventory();
+      before.repository.root = nativeRoot;
+      before.repository.commonDir = path.join(nativeRoot, '.git');
+      before.worktrees[0]!.path = nativeRoot;
+      const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-identical-absorption-'));
+      settleWorkspaceCallbackSync(() => {
+        const { recovery } = createMainAbsorptionRecovery({
+          inventory: before, branch: BRANCH, expectedSha: equivalentSha,
+          mainSha: MAIN_SHA, basis: 'identical-tree', recoveryRoot
+        });
+        expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('success');
+        writeFileSync(recovery.path, 'altered proof\n', 'utf8');
+        expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('failed');
+      }, () => { rmSync(recoveryRoot, { recursive: true, force: true }); });
+    });
   });
 
   test('open PR input is rejected at the closed-only preparation boundary', () => {
