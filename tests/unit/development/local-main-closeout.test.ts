@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test';
 
 import { withWorkspaceWriteLease } from '../../../src/adapters/filesystem/write-lease.ts';
 import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
@@ -33,7 +33,8 @@ const gitRunner = (repoRoot: string, args: readonly string[]) => {
     stderr: String(result.stderr ?? result.error?.message ?? '') });
 };
 
-let baseRoot: string | undefined;
+let seedRoot: string | undefined;
+let caseRoot: string | undefined;
 let remoteRoot: string | undefined;
 let protectedRoot: string | undefined;
 let developerRoot: string | undefined;
@@ -75,26 +76,60 @@ async function execute(bindingValue: ReturnType<typeof binding>) {
 }
 
 
+// The seed is never mutated after beforeAll. Every case gets separate Git
+// object stores, index, refs, worktrees and remote history. The sibling-relative
+// origins remain valid after copying the whole seed; no Git init/clone is needed
+// per case and no absolute remote paths leak back into the seed.
 beforeAll(async () => {
-  baseRoot = await mkdtemp(path.join(tmpdir(), 'sec-local-main-closeout-'));
-  remoteRoot = path.join(baseRoot, 'remote.git');
-  protectedRoot = path.join(baseRoot, 'protected');
-  developerRoot = path.join(baseRoot, 'developer');
-  await mkdir(protectedRoot);
-  git(baseRoot, ['init', '--quiet', '--bare', '--initial-branch=main', remoteRoot]);
-  git(protectedRoot, ['init', '--quiet', '--initial-branch=main']);
-  git(protectedRoot, ['config', 'core.autocrlf', 'false']);
-  git(protectedRoot, ['remote', 'add', 'origin', remoteRoot]);
-  await writeFile(path.join(protectedRoot, '.gitignore'), '.sec/\n', 'utf8');
-  await writeFile(path.join(protectedRoot, 'main.txt'), 'v1\n', 'utf8');
-  git(protectedRoot, ['add', '--all']);
-  git(protectedRoot, ['commit', '--quiet', '-m', 'v1']);
-  git(protectedRoot, ['push', '--quiet', '-u', 'origin', 'main']);
-  git(baseRoot, ['clone', '--quiet', remoteRoot, developerRoot]);
+  seedRoot = await mkdtemp(path.join(tmpdir(), 'sec-local-main-closeout-seed-'));
+  const remote = path.join(seedRoot, 'remote.git');
+  const protectedRepository = path.join(seedRoot, 'protected');
+  const developer = path.join(seedRoot, 'developer');
+  await mkdir(protectedRepository);
+  git(seedRoot, ['init', '--quiet', '--bare', '--initial-branch=main', remote]);
+  git(protectedRepository, ['init', '--quiet', '--initial-branch=main']);
+  git(protectedRepository, ['config', 'core.autocrlf', 'false']);
+  git(protectedRepository, ['remote', 'add', 'origin', '../remote.git']);
+  await writeFile(path.join(protectedRepository, '.gitignore'), '.sec/\n', 'utf8');
+  await writeFile(path.join(protectedRepository, 'main.txt'), 'v1\n', 'utf8');
+  git(protectedRepository, ['add', '--all']);
+  git(protectedRepository, ['commit', '--quiet', '-m', 'v1']);
+  git(protectedRepository, ['push', '--quiet', '-u', 'origin', 'main']);
+  git(seedRoot, ['clone', '--quiet', remote, developer]);
+  git(developer, ['remote', 'set-url', 'origin', '../remote.git']);
+});
+
+beforeEach(async () => {
+  if (!seedRoot) throw new Error('Local main seed was not prepared');
+  const allocated = await mkdtemp(path.join(tmpdir(), 'sec-local-main-closeout-'));
+  caseRoot = allocated;
+  try {
+    const isolated = path.join(allocated, 'repositories');
+    await cp(seedRoot, isolated, { recursive: true, force: false, errorOnExist: true });
+    remoteRoot = path.join(isolated, 'remote.git');
+    protectedRoot = path.join(isolated, 'protected');
+    developerRoot = path.join(isolated, 'developer');
+  } catch (error) {
+    caseRoot = undefined;
+    remoteRoot = protectedRoot = developerRoot = undefined;
+    try {
+      await rm(allocated, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Local main fixture setup and cleanup both failed');
+    }
+    throw error;
+  }
+});
+
+afterEach(async () => {
+  const allocated = caseRoot;
+  caseRoot = undefined;
+  remoteRoot = protectedRoot = developerRoot = undefined;
+  if (allocated) await rm(allocated, { recursive: true, force: true });
 });
 
 afterAll(async () => {
-  if (baseRoot) await rm(baseRoot, { recursive: true, force: true });
+  if (seedRoot) await rm(seedRoot, { recursive: true, force: true });
 });
 
 test.serial('local-main mutation requires the Git common-dir lease before fetch', async () => {
