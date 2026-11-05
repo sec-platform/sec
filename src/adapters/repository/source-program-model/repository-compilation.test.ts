@@ -17,6 +17,12 @@ import {
 } from './repository-compilation.ts';
 import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
 import {
+  assertIssuedTestImpactProjection,
+  compileVirtualTestImpactProjection,
+  encodeTestImpactProjectionReceipt,
+  parseTestImpactProjectionReceipt
+} from './test-impact-projection.ts';
+import {
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
   workspaceSourceSnapshotIdentityForTestObservations
 } from './test-observations.ts';
@@ -114,6 +120,46 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
     .toBe(receipt.workspaceSnapshotIdentityDigest);
   expect(receipt.model.sourceRevision).toBe(workspaceSnapshot.sourceRevision);
   expect(receipt.receiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
+  // The compact Test Impact codec consumes this same owner-issued snapshot:
+  // no second TypeScript/repository compilation or parallel fixture is needed.
+  const projection = compileVirtualTestImpactProjection({
+    workspaceSnapshot,
+    repositoryModel: receipt.model,
+    typeScriptModel: receipt.typeScriptCompilation.model,
+    testObservations: receipt.testObservations
+  });
+  expect(() => assertIssuedTestImpactProjection(projection)).toThrow('owner-issued');
+  expect(projection.purpose).toBe('test-impact-selection');
+  expect(projection.subjectDigest).toBe(receipt.subjectDigest);
+  expect(projection.workspaceSnapshotIdentityDigest).toBe(receipt.workspaceSnapshotIdentityDigest);
+  expect(projection.moduleGraphDigest).toBe(receipt.moduleGraphDigest);
+  expect(projection.testObservationDigest).toBe(receipt.testObservations.observationDigest);
+  expect(projection.files.every((file) => !('source' in file))).toBeTrue();
+  expect(projection.moduleOwners).toContainEqual({ moduleId: 'example', root: 'src/example' });
+  expect('registrations' in projection).toBeFalse();
+
+  const encoded = encodeTestImpactProjectionReceipt(projection);
+  const parsed = parseTestImpactProjectionReceipt(encoded);
+  expect(parsed).toEqual(projection);
+  expect(() => assertIssuedTestImpactProjection(parsed)).toThrow('owner-issued');
+  expect(() => parseTestImpactProjectionReceipt(
+    encoded.replace('"schema":', '"schema":"duplicate","schema":')
+  )).toThrow('duplicate key');
+
+  const unknown = JSON.parse(encoded) as Record<string, unknown>;
+  unknown.unexpected = true;
+  expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();
+
+  const outsideSnapshot = JSON.parse(encoded) as Record<string, unknown>;
+  outsideSnapshot.observedTestConsumers = [{
+    targetPath: 'src/example/absent.ts',
+    testPath: 'tests/example.test.ts'
+  }];
+  const { projectionDigest: _discarded, ...unsigned } = outsideSnapshot;
+  outsideSnapshot.projectionDigest = sha256(unsigned);
+  expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
+    .toThrow('within its snapshot');
 
   const forged = Object.freeze({ ...workspaceSnapshot }) as WorkspaceSourceSnapshot;
   expect(() => assertWorkspaceSourceSnapshot(forged))
@@ -428,6 +474,26 @@ for (const scenario of incrementalScenarios) {
     expect(reused.receiptDigest).toBe(full.receiptDigest);
     expect(sourceProgramCurrentExactReturnProvenances(reused.typeScriptCompilation.model))
       .toEqual(sourceProgramCurrentExactReturnProvenances(full.typeScriptCompilation.model));
+    if (scenario.name === 'shared helper') {
+      // An equal-length source-byte change must update the compact projection
+      // even though the resolved module graph remains identical.
+      const previousProjection = compileVirtualTestImpactProjection({
+        workspaceSnapshot: baseline.workspaceSnapshot,
+        repositoryModel: baseline.model,
+        typeScriptModel: baseline.typeScriptCompilation.model,
+        testObservations: baseline.testObservations
+      });
+      const currentProjection = compileVirtualTestImpactProjection({
+        workspaceSnapshot: reused.workspaceSnapshot,
+        repositoryModel: reused.model,
+        typeScriptModel: reused.typeScriptCompilation.model,
+        testObservations: reused.testObservations
+      });
+      expect(currentProjection.moduleGraphDigest).toBe(previousProjection.moduleGraphDigest);
+      expect(currentProjection.sourceRevision).not.toBe(previousProjection.sourceRevision);
+      expect(currentProjection.snapshotDigest).not.toBe(previousProjection.snapshotDigest);
+      expect(currentProjection.projectionDigest).not.toBe(previousProjection.projectionDigest);
+    }
     if (scenario.mode === 'incremental') {
       expect(reused.typeScriptCompilation.invalidatedPaths).not.toContain('src/example/unrelated.ts');
     }
