@@ -4,6 +4,9 @@
 
 先确定产品范围与系统边界，再按问题进入子系统。本文只负责导航，完整定义、字段、算法与失败条件由各主题的唯一正文维护。
 
+<a id="abstraction-research-entry"></a>
+**从本源到工程的研究路线**：先由[开放定义](作者/组合/抽象与开放定义.md#abstraction-generative-foundation)寻找可复用基础，按[专业解释桥](作者/组合/语义扩展与领域接合.md#foundation-to-domain-bridge)形成准确规则，再由[Gift意图源码](作者/第一层语言.md#gift-intent-source-projection)表示有权作者的工程决定，编译仍走原[目标主链](编译/README.md)。本页只给阅读方向；各规则在其原正文内维护。
+
 ## 系统层
 
 [产品范围与约束](产品/README.md)说明要交付什么；[总体架构](架构/总体设计.md)说明系统与环境、责任协作、状态与部署；[装配与实现接合](架构/装配/README.md)进一步定位模块、接口和生命周期。系统架构不隶属于某一个编译阶段。
@@ -37,38 +40,12 @@
 
 ## 快速查找：用了什么、为什么不用其他方案
 
-长期产品决定从[决定与理由](决策/README.md)进入；具体机制的采用、拒绝、平台限制和重开条件保存在各自正文，不另建第二份决定台账。仓库执行接合可直达：
-
-- [GitHub 凭证与异步传输的方案、替代与测试入口](开发/仓库维护/验证与传输边界.md#github-credential-transport-decision)
-- [严格零写观察与测试进程的反例、采用边界和待验证方案](开发/仓库维护/验证与传输边界.md#repository-observation-runtime-decisions)
-- [受信原生检查复用、运行时readiness与变更验证的分责](开发/仓库维护/验证与传输边界.md#repository-native-typecheck-reuse-decision)
-- [文档冻结的原生 Git 采用与手工树框架退出](开发/仓库维护/Git冻结与资源退役.md#repository-freeze-native-index-decision)
-- [基线事实缓存的消费者、权威与成本裁决](开发/仓库维护/验证与传输边界.md#source-transition-baseline-cache-decision)
-- [已保存测试条件评估的查询边界与待资格接合](开发/仓库维护/验证与传输边界.md#source-transition-artifact-query-decision)
-- [仓库设计查看的入口选择、暂缓与关系缺口](开发/AI协作/上下文取得与任务投影.md#repository-design-view-decision)
-
-“采用”是设计决定，“候选／待验证”不是已具备能力；运行证据与发布状态按准确对象另查。
-工程执行中的设计、实现、验证、审查、提交／集成与恢复怎样选择规则和Skill，见[工程行为路由及实际接合边界](开发/仓库维护/工作身份与续接.md#engineering-behavior-routing)；客户端角色配置不自行签发权限或证明规则已装载。
+依据已采纳的[设计理由](决策/README.md)检查替代与反转条件。需要直接定位具体仓库维护取舍、外部传输、仓库设计查看与验证恢复，使用[任务路线的专题速查](任务路线.md#专项设计与维护入口)；原协议仍由链接指向的正文唯一维护。
 
 ## 最终作者面与完整控制的快速入口
 
-按当前问题进入拥有定义的正文；修改跨越责任边界时，再沿其中的引用核对消费者。
-
-| 要回答的问题 | 定义与下一步 |
-|---|---|
-| 语言分层、决定坐标、专业扩展与编译阶段是什么关系？ | [分层责任对应](作者/表达范围与专业接合.md#language-layer-responsibility-map)，保留原核心/领域、A/B/C/D与I/P责任，不组成作者必填栈 |
-| 已有能力的哪些保证自动继承，作者真正需要决定什么？ | [完整意图与作者差异](作者/第一层语言.md#inherited-contract-author-delta)及[原需求含义接合](作者/需求含义与实现责任.md#intent-inheritance-and-first-layer) |
-| 开发者最终编辑什么，怎样保留同一个作者对象？ | [结构化作者面的同源投影](作者/结构化源码.md#author-surface-projection) |
-| 紧凑源码与26项专业表达怎样保持精确旧义？ | [紧凑结构](作者/紧凑结构与同源编辑.md#vscode-sparse-author-source)、[专业接合](作者/表达范围与专业接合.md)及[完整第一层例](../examples/第一层作者/README.md)；候选编码不静默替换旧Reader |
-| 最终开发面具体按哪套源码实施？ | [唯一候选文法与完整消费者](作者/紧凑结构与同源编辑.md#final-first-layer-codec)、[名称与根范本](../examples/第一层作者/names-and-roots/README.md)及[验收边界](运行/验收/第一层开发面.md#converged-source-acceptance) |
-| 从短引用到完整合同、合格实现及后继修改由谁承担？ | [第一层编译承接](开发/第一层编译承接.md#inherited-contract-elaboration)及[相交验收](运行/验收/第一层开发面.md#inherited-contract-acceptance)，继续进入原C0—C6/P0—P7 |
-| 可以设置哪些工程事实，省略的细节从哪里来？ | [完整开发设定面](作者/需求关系与能力边界.md#developer-decision-surface)与[作者信息完整性](作者/需求关系与能力边界.md#author-information-completeness) |
-| 怎样自动选择、固定、禁止或限定目标？ | [Auto/Pin/Forbid/Profile与scope](作者/组合/稀疏控制与目标限定.md#developer-control-ux)，再看[有效控制投影](作者/组合/稀疏控制与目标限定.md#effective-control-projection) |
-| 原生配置由谁维护，怎样与作者选择接合？ | [配置所有权与生态适配](作者/工程源/资产与非源码.md#configuration-ownership-and-adapters) |
-| 客户端怎样解释全部有效决定？ | [DeveloperDecisionView](开发/编辑审查与客户端.md#developer-decision-view)与[All Decisions](作者/成品/工作台交互与共同状态.md#workbench-all-decisions) |
-
-这些页面分别拥有持久作者结构、决策目录、信息保全、控制合成、原生配置和客户端投影；本入口只导航，不复制字段或建立另一套配置模型。
+从[作者语义与专业抽象](作者/README.md)进入原定义和控制；具体编辑、完整构造、形式/结构/原生边界、目标编译和工作台映射，按[任务路线](任务路线.md#专项设计与维护入口)选择准确owner。完整设计不因压缩总览而被删除；当前作者主面与Reader资格由相交规范和状态分开判断。
 
 ## 全域工程的发现入口
 
-[领域与组合场景](演进/覆盖场景/README.md)；[系统责任与接合](架构/总体设计.md)。
+[领域与组合场景](演进/覆盖场景/README.md)；[系统责任与接合](架构/总体设计.md)；[全库内容索引](内容索引.md)。导航不是新的规范来源。
