@@ -13,13 +13,6 @@ async function using(run: (root: string, file: string) => Promise<void>) {
   await withTempWorkspace(root => run(root, path.join(root, 'value.yaml')), 'sec-workspace-yaml-');
 }
 
-test('ordinary YAML collections, aliases and empty documents retain their decoded meaning', () => using(async (_root, file) => {
-  await fs.writeFile(file, 'first: &x [a, b]\nsecond: *x\n');
-  assert.deepEqual(await readYaml(file), { first: ['a', 'b'], second: ['a', 'b'] });
-  await fs.writeFile(file, ''); assert.equal(await readYaml(file), null);
-  await fs.writeFile(file, '[true, 7, null]\n'); assert.deepEqual(await readYaml(file), [true, 7, null]);
-}));
-
 test('invalid UTF-8 cannot be repaired into a different parsed value', () => using(async (_root, file) => {
   await fs.writeFile(file, Uint8Array.of(0x61, 0x3a, 0x20, 0xff));
   await assert.rejects(readYaml(file), error => error instanceof Error
@@ -31,6 +24,7 @@ test('explicit per-consumer byte and alias limits replace neither schemas nor pe
   assert.deepEqual(await readYaml(file, { maximumInputBytes: 6 }), { x: '好' });
   await assert.rejects(readYaml(file, { maximumInputBytes: 5 }), YamlInputLimitError);
   await fs.writeFile(file, 'a: &x [one]\nb: *x\n');
+  assert.deepEqual(await readYaml(file, { maximumAliasCount: 1 }), { a: ['one'], b: ['one'] });
   await assert.rejects(readYaml(file, { maximumAliasCount: 0 }), YamlSyntaxError);
   await fs.writeFile(file, '? [a, b]\n: value\n');
   await assert.rejects(readYaml(file, { stringKeys: true }), YamlSyntaxError);
@@ -40,6 +34,8 @@ test('ordinary YAML writes preserve values through the retained file reader', ()
   const value = { name: 'example', values: ['one', 'two'], nested: { enabled: true } };
   await writeYaml(file, value);
   assert.deepEqual(await readYaml(file), value);
+  await fs.writeFile(file, '[true, 7, null]\n');
+  assert.deepEqual(await readYaml(file), [true, 7, null]);
 }));
 
 test('a rejected commit fence never produces a successful YAML write', () => using(async (_root, file) => {
@@ -49,6 +45,8 @@ test('a rejected commit fence never produces a successful YAML write', () => usi
 
 test('missing input is still an IO error rather than an empty YAML value', () => using(async (_root, file) => {
   await assert.rejects(readYaml(file), e => (e as { code?: string }).code === 'ENOENT');
+  await fs.writeFile(file, '');
+  assert.equal(await readYaml(file), null);
 }));
 
 
